@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 config lives in CSS via @theme, not a JS config file.
+ * No custom theme yet — visual design is a Phase 15 implementation
+ * concern per docs/design/ui-ux.md ("visual styling isn't decided
+ * here"), not something to invent during scaffolding.
+ */

@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 11 — Runtime & Entrypoint (complete). Next: Phase 12 — Repository & Codebase Architecture.
+**Current Phase:** Phase 12 — Repository & Codebase Architecture (complete). Next: Phase 13 — Roadmap.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -24,15 +24,17 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 - Phase 11 — Runtime & Entrypoint (`docs/runtime.md`, plus a real `.env.example` at the repo root — the first concrete non-doc artifact): established the serverless runtime model (no persistent process, so "startup/shutdown" mean something different than usual — noted explicitly to avoid confusion later), named the industry-intelligence job's actual trigger mechanism (a Vercel Cron Job hitting an internal-only, secret-authenticated route that's a thin trigger delegating to `services/ai`/`services/integrations`, never business logic itself), and closed a real gap `docs/automation.md` left open: it required consecutive job failures to "escalate to the owner" without saying how — resolved as an in-app notice read from the existing audit log, not a new notification integration. Logging/monitoring confirmed as Vercel's/Supabase's built-in dashboards, no new service added.
 
+- Phase 12 — Repository & Codebase Architecture (`docs/repository-structure.md`, and the first real repo scaffold): created `package.json` (Next.js 16.3.0, React 19.2.0, Supabase JS 2.112.3, Zod 4.4.3, Tailwind CSS 4.3.3, Vitest 4.0, Playwright 1.49 — versions verified via web search rather than guessed from stale knowledge), strict-mode `tsconfig.json`, `.gitignore`, and the full `src/`/`tests/` directory tree from `docs/architecture.md` (empty, `.gitkeep`-held, no per-entity feature subfolders yet — those wait for their own Phase 14 task). Added a minimal, honestly-labeled placeholder root page/layout so the scaffold is a valid bootable Next.js app, not fake progress. Deliberately did **not**: run `npm install` or commit a lockfile (deferred to Phase 15 kickoff — a network/disk operation that belongs with real implementation, not structure), implement any route (not even `/api/v1/health`), or create `GEMINI.md`/`ARCHITECT.md`/`CHANGELOG.md`/`ROADMAP.md`/`TASKS.md` from the workflow doc's illustrative template — the first two aren't relevant to this project's actual setup, and the latter three are named deliverables of Phases 13/14 or need a real release to mean anything.
+
 **In Progress:** Nothing — awaiting the next phase.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Phase 12 — Repository & Codebase Architecture: turning the `src/` layout already sketched in `docs/architecture.md` into the actual directory structure, now that enough of the design (through Phase 11) exists to justify creating it for real rather than speculatively.
+- Phase 13 — Roadmap: sequence the MVP (and the industry-intelligence engine, once its remaining design is implementation-ready) into concrete build phases, per `ROADMAP.md`.
 
-**Known Issues:** None yet — no code exists.
+**Known Issues:** None yet — no code exists beyond the Phase 12 scaffold (an unbuilt, uninstalled skeleton — `npm install` has never been run).
 
-**Technical Debt:** None yet — no code exists. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
+**Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 11)
+**Last Updated:** 2026-08-20 (Phase 12)
