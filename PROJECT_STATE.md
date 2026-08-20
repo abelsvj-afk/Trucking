@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 12 — Repository & Codebase Architecture (complete). Next: Phase 13 — Roadmap.
+**Current Phase:** Phase 13 — Roadmap (complete). Next: Phase 14 — Task Generation.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -26,15 +26,17 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 - Phase 12 — Repository & Codebase Architecture (`docs/repository-structure.md`, and the first real repo scaffold): created `package.json` (Next.js 16.3.0, React 19.2.0, Supabase JS 2.112.3, Zod 4.4.3, Tailwind CSS 4.3.3, Vitest 4.0, Playwright 1.49 — versions verified via web search rather than guessed from stale knowledge), strict-mode `tsconfig.json`, `.gitignore`, and the full `src/`/`tests/` directory tree from `docs/architecture.md` (empty, `.gitkeep`-held, no per-entity feature subfolders yet — those wait for their own Phase 14 task). Added a minimal, honestly-labeled placeholder root page/layout so the scaffold is a valid bootable Next.js app, not fake progress. Deliberately did **not**: run `npm install` or commit a lockfile (deferred to Phase 15 kickoff — a network/disk operation that belongs with real implementation, not structure), implement any route (not even `/api/v1/health`), or create `GEMINI.md`/`ARCHITECT.md`/`CHANGELOG.md`/`ROADMAP.md`/`TASKS.md` from the workflow doc's illustrative template — the first two aren't relevant to this project's actual setup, and the latter three are named deliverables of Phases 13/14 or need a real release to mean anything.
 
+- Phase 13 — Roadmap (`ROADMAP.md`): sequenced the MVP into 6 dependency-ordered stages — Foundation (DB + RLS), Authentication, Core functionality (entities built in FK-dependency order, backend+frontend together per stage, not backend-first), the industry intelligence engine, a Hardening stage (cross-cutting RLS/e2e/security review, since `docs/design/testing.md` already treats testing as continuous rather than a late phase), and Deployment. Explicitly did not roadmap any of `docs/vision.md`'s other future AI capabilities in detail — each still needs its own Phase 8/10 pass first; inventing dates/order for undesigned work would be the same speculative-architecture mistake flagged at every earlier phase.
+
 **In Progress:** Nothing — awaiting the next phase.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Phase 13 — Roadmap: sequence the MVP (and the industry-intelligence engine, once its remaining design is implementation-ready) into concrete build phases, per `ROADMAP.md`.
+- Phase 14 — Task Generation (`TASKS.md`): break Stages 1-6 in `ROADMAP.md` into small (under ~4 hours), independently-testable tasks with explicit acceptance criteria and dependencies, per the workflow doc's Phase 14 rules.
 
 **Known Issues:** None yet — no code exists beyond the Phase 12 scaffold (an unbuilt, uninstalled skeleton — `npm install` has never been run).
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 12)
+**Last Updated:** 2026-08-20 (Phase 13)
