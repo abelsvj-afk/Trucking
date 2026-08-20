@@ -49,10 +49,11 @@ Beyond the v0.1 MVP, the roadmap sketched in `My idea` (section 16) — to be fo
 - Truck cost engine (true cost per mile per truck)
 - Load profitability engine (true revenue/profit per truck mile, accounting for deadhead, fuel, tolls, maintenance reserve, insurance, parking)
 - Route/positioning engine, including geographic risk scoring for freight-dead regions (the "Florida trap" pattern)
-- Fuel intelligence (cheapest *effective* fuel accounting for detour cost, not just sticker price)
+- Fuel intelligence (cheapest *effective* fuel accounting for detour cost, not just sticker price) — needs a real-time fuel-price data source, through an authorized integration (see the non-goal against scraping)
 - Home-time engine (hard/soft constraints tying dispatch decisions to personal schedule)
 - Freight intelligence / load-board integration (through authorized sources, feeding a decision engine)
-- AI assistant / decision engine tying the above together into "take this load / don't" style recommendations
+- AI assistant / decision engine tying the above together into "take this load / don't" style recommendations. Per `My idea` section 1, its actual inputs include available loads, fuel prices, deadhead, **hours-of-service (HOS) limits**, delivery deadlines, maintenance status, home time, parking, expected revenue, operating cost, **weather**, **road restrictions**, and driver preferences — named explicitly here so they don't get quietly dropped when this is formalized into a real spec.
+- **Email AI / automated outreach and freight research** (`My idea` section 7, and explicitly listed in `README.md`'s core capabilities): AI drafts outreach to brokers/shippers about capacity on a lane; a human approves and sends at first, with more autonomy (auto-send within predefined rules, then AI-assisted negotiation within hard limits) only introduced later through the graduated-autonomy process in `docs/governance.md` — never by default.
 - Parking network, maintenance pattern detection ("digital twin" per truck), fleet-expansion readiness scoring, and driver management (CDL/medical/compliance tracking) once there are employees
 - Eventually, productizing the system for other owner-operators (explicitly out of scope until the internal version is proven)
 

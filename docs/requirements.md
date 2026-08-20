@@ -28,10 +28,11 @@ These follow the roadmap in `docs/vision.md` / `My idea` and each requires its o
 - Truck cost engine: true cost per mile per truck.
 - Load profitability engine: true profit per truck mile accounting for deadhead, fuel, tolls, maintenance reserve, insurance, and parking.
 - Route/positioning engine, including geographic risk scoring for freight-dead regions.
-- Fuel intelligence: cheapest *effective* fuel accounting for detour cost.
+- Fuel intelligence: cheapest *effective* fuel accounting for detour cost. Requires a real-time fuel-price data source through an authorized integration — not a stored/static price.
 - Home-time engine: hard/soft scheduling constraints feeding into dispatch decisions.
 - Freight intelligence / load-board integration through authorized sources.
-- AI assistant / decision engine producing take/negotiate/decline recommendations with reasoning.
+- AI assistant / decision engine producing take/negotiate/decline recommendations with reasoning, drawing on loads, fuel prices, deadhead, HOS limits, delivery deadlines, maintenance status, home time, parking, expected revenue, operating cost, **weather**, and **road restrictions** (per `My idea` section 1) — each of those inputs is its own future data source/integration, not something this system generates itself.
+- **Email AI / automated outreach and freight research**, per `README.md`'s core capabilities and `My idea` section 7: drafting broker/shipper outreach, always human-approved before sending until graduated autonomy (`docs/governance.md`) explicitly authorizes more.
 - Parking network, maintenance pattern detection, fleet-expansion readiness scoring, and driver compliance management (CDL/medical/clearinghouse) once there are employees.
 
 ### User interface (applies from the MVP onward — non-negotiable)
