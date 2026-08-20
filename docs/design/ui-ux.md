@@ -44,6 +44,17 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 - **Documents:** browsed per related record (a truck, load, trailer, or driver) rather than one flat file list — matches how `docs/schemas.md` associates them, and matches how you'd actually look for a document ("the permit for Truck #1," not "file #482").
 - **Account/Settings:** login/session management now. Once any AI capability exists (Governance Level 2+), this is also where the AI's current authorization level and the global + per-capability kill switches from `docs/governance.md` live — visible from the main navigation, not buried, per the requirement already locked into `docs/requirements.md`.
 
+## Screens not yet designed
+
+**The screens above are the MVP only — not the final set.** This document does not yet include, because each depends on a capability that hasn't had its own requirements/architecture pass yet (per `docs/requirements.md`'s "Future phases" and `docs/vision.md`'s "Future features"):
+
+- **Fuel route** — an interactive map showing the optimized route/fuel stop, not just a number. You've been explicit this needs real visual treatment, not a data table; it gets designed once Fuel Intelligence has its own architecture (including picking a mapping/routing library, which is a real dependency decision per `CLAUDE.md`'s Dependency Rule).
+- **Load recommendation ("take this load")** — the decision engine's approval-workflow card described under Workflows below, once that engine exists.
+- **Industry intelligence briefing** — a feed/digest surfacing fuel-market, regulatory, and industry-disruption findings (the new capability added to `docs/vision.md`).
+- **Home-time planner**, **parking network map**, **load-board search/integration view**, and **advanced financial reporting** (trends, margin over time, fleet-expansion readiness) — each tied to its own future engine in `docs/vision.md`.
+
+None of these are being skipped — they're sequenced. Each shows up in this document once its own Requirements → Architecture → Detailed Design pass happens, the same path every MVP screen above already went through. If a screen you're expecting isn't in this list either, say so — this list should stay a complete map of "known future work," not just what happens to come up.
+
 ## States
 
 Every list and form screen has four states, not just the "happy path":
