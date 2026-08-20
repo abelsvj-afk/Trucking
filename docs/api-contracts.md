@@ -34,7 +34,7 @@ Per `CLAUDE.md`'s "centralized error handling that never leaks stack traces, int
 }
 ```
 
-Standard HTTP status codes: `400` invalid input, `401` not authenticated, `403` not authorized (e.g. wrong `company_id`), `404` not found or soft-deleted, `409` conflict, `500` unexpected server error (message is always generic — never the raw exception).
+Standard HTTP status codes: `400` invalid input, `401` not authenticated, `403` authenticated but not permitted by role (reserved for once more than one role exists, per `docs/governance.md` — not used for tenant isolation), `404` not found, soft-deleted, **or belonging to another company** (see `docs/service-specs.md`'s `services/db` spec — a cross-tenant row is always indistinguishable from a missing one, never revealed via `403`), `409` conflict, `500` unexpected server error (message is always generic — never the raw exception).
 
 ### Validation
 

@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 7 — Detailed System Design (complete). Next: Phase 8 — Service Specifications.
+**Current Phase:** Phase 8 — Service Specifications (complete). Next: Phase 9 — Intelligence Design.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -15,16 +15,18 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 - Phase 5 — Architecture (`docs/architecture.md`): Next.js + Supabase (Postgres/Auth/Storage), single repo, `company_id`-scoped tables from day one to support a future paid app-store product without a rewrite
 - Phase 6 — System Contracts (`docs/schemas.md`, `docs/api-contracts.md`): column-level schemas for all MVP entities (soft delete, cents-based money, `company_id`/RLS scoping) and the full REST API contract (`/api/v1/...`, standard list/error shapes, a worked `trucks` example, the computed `/financial-summary` endpoint, and document upload)
 - Phase 7 — Detailed System Design (`docs/design/ui-ux.md`, `docs/design/security.md`, `docs/design/data-model.md`, `docs/design/testing.md`): bottom-tab mobile-first navigation and screen states for every MVP entity, WCAG 2.1 AA as the accessibility target, RLS-centered threat model, entity relationships/validation/lifecycle/retention rules, and a testing strategy centered on verifying tenant isolation. AI Architecture, Memory Architecture, and Integrations design were deliberately **not** written yet — no AI capability or integration exists (Governance Level 1), and designing them now would be speculative; they belong to Phase 9 (Intelligence Design) and to whenever a real integration is actually built. Also closed out several "not yet defined" items in `docs/requirements.md` (accessibility, budget, hosting, third-party services, platform) now that Phases 5 and 7 resolved them.
+- Mid-Phase-7-review addition: audited `docs/vision.md`/`docs/requirements.md` against `README.md`/`My idea` and fixed a real gap (Email AI/outreach was in `README.md` but never carried into the future-features lists), named weather/HOS/road-restrictions/real-time-fuel-price explicitly instead of leaving them implicit, and captured new scope the owner added directly: an **industry intelligence / proactive research engine** (fuel-market, regulatory/political, and industry-disruption monitoring) — scheduled, Governance Level 5, its own on/off switch, self-adjustable cadence bounded by an owner-set min/max so it can't silently expand its own authority. Also added a "Screens not yet designed" section to `docs/design/ui-ux.md` so the MVP screen list doesn't read as final.
+- Phase 8 — Service Specifications (`docs/service-specs.md`): purpose/responsibilities/dependencies/inputs/outputs/permissions/failure modes/error handling/state/interfaces/testing for `services/db`, `services/auth`, and `services/api`, plus a constraints-only entry for the still-unimplemented `services/ai`. Named Zod as the intended validation library (subject to a final Dependency Rule check at implementation time) — the first concrete third-party dependency beyond what `docs/architecture.md` already fixed. Fixed an inconsistency this surfaced: `docs/api-contracts.md` had listed a cross-tenant access attempt as `403`; corrected to `404` everywhere (RLS filters at the query level, so a cross-tenant row is indistinguishable from a missing one — `403` is reserved for a future multi-role case).
 
 **In Progress:** Nothing — awaiting the next phase.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Phase 8 — Service Specifications: purpose/responsibilities/inputs/outputs/failure modes for each service module (`services/db`, `services/auth`, `services/api`) defined in `docs/architecture.md`.
+- Phase 9 — Intelligence Design: the first real AI capability gets designed here (prompt architecture, model selection, context/retrieval strategy, confidence handling, hallucination controls) — likely candidate is the simplest Level 2 "recommend" capability, or the industry-intelligence engine's scheduling design, per the owner's direction.
 
 **Known Issues:** None yet — no code exists.
 
 **Technical Debt:** None yet — no code exists. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 7)
+**Last Updated:** 2026-08-20 (Phase 8)
