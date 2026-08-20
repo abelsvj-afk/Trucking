@@ -171,6 +171,21 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | uploaded_at | timestamptz | no | |
 | created_at | timestamptz | no | (documents are not edited in place, and are hard-deleted like any file — no `deleted_at`/`updated_at`) |
 
+## industry_briefings
+
+Added in Phase 10 (`docs/automation.md`) for the industry-intelligence engine — the first AI capability to move past design. Not part of the MVP; created only when that capability is actually built.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | kept per the global tenant-scoping convention for MVP simplicity — see `docs/automation.md` for why this may become a shared/global table later instead |
+| summary | text | no | per the output contract in `docs/design/ai-architecture.md` |
+| reasoning | text | no | |
+| confidence | text | no | `high` \| `medium` \| `low` |
+| based_on | jsonb | no | array of source references used |
+| generated_at | timestamptz | no | when the scheduled run produced this |
+| dismissed_at | timestamptz | yes | set when the owner dismisses it — this capability's equivalent of the standard soft-delete convention (`dismissed_at` reads better than `deleted_at` for a briefing, but behaves the same: excluded from the active list, never physically erased) |
+
 ## Financial summary
 
 Not a stored table. It's computed on read from `loads` (status `confirmed`/`completed`) and `expenses`/`fuel_purchases`/`maintenance_events` within a date range — see `docs/api-contracts.md`'s `/financial-summary` endpoint. No dedicated table exists yet because there's no real performance reason for one (matches the "no caching yet" decision in `docs/architecture.md`) — revisit only if computing it live actually becomes slow.

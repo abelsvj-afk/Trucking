@@ -141,7 +141,16 @@ Documents differ from the other resources — creating one involves a file, not 
 
 ## AI and integration endpoints
 
-None exist. No AI-recommendation or external-integration endpoint is defined by this document because no AI capability or integration exists yet (Governance Level 1, per `docs/governance.md`) — when one is designed, it gets its own contract added here, not bolted onto an existing resource endpoint.
+The general rule still holds: an AI capability gets its own contract added here when it's actually designed, never bolted onto an existing resource endpoint. One now exists, per `docs/automation.md`'s Phase 10 pass:
+
+### `industry_briefings` (read-only from the client — nothing here is user-writable)
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/industry-briefings` | List, excludes dismissed, matches `docs/schemas.md` |
+| POST | `/api/v1/industry-briefings/{id}/dismiss` | Sets `dismissed_at`; the "delete" analog for this resource |
+
+There is no `POST /api/v1/industry-briefings` — the client never creates one directly. Rows are only ever written by the scheduled job described in `docs/automation.md`, using its own scoped service credential, not a user session. Every other AI-recommendation endpoint (decision engine, fuel intelligence, etc.) gets specified the same way, when it's actually designed.
 
 ---
 

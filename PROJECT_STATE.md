@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 9 — Intelligence Design (complete). Next: Phase 10 — Automation & Autonomy.
+**Current Phase:** Phase 10 — Automation & Autonomy (complete for the industry intelligence engine). Next: Phase 11 — Runtime & Entrypoint (or Phase 12 — Repository Architecture).
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -20,15 +20,17 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 - Phase 9 — Intelligence Design (`docs/design/ai-architecture.md`): rather than designing one AI capability in isolation, defined the **shared pattern every future AI capability follows** (Claude API server-side, a fixed prompt structure, tenant-scoped stateless context, a shared output contract with mandatory confidence + source attribution, mandatory audit logging so a future feedback loop has data to work with, memory still deferred) — chosen specifically because `docs/vision.md` lists ~9 future AI capabilities that would otherwise each need this designed from scratch. Worked the pattern through fully for the industry-intelligence engine as the concrete example. Confirms Governance stays at Level 1 — this document is a shared contract, not authorization to build any capability yet.
 
+- Phase 10 — Automation & Autonomy (`docs/automation.md`): the owner chose the **industry intelligence engine** as the first capability to move past shared design. Pinned down exactly what its "Level 5 autonomy" covers — only read-external-sources-and-store-a-briefing, never a business-affecting action, so most of Phase 10's usual approval-flow machinery doesn't apply to individual runs (only to turning the capability on at all). Defined its scoped least-privilege service credential (write access to `industry_briefings` only, no access to any other table), failure recovery (fail explicit, no partial briefings, no auto-retry storm), a conservative default schedule (no more than once daily, given the project's cost-consciousness), and confirmed its per-capability kill switch doubles as its emergency shutdown since nothing about it is safety-critical enough to need a harder stop. Added the `industry_briefings` table to `docs/schemas.md` and its two endpoints (list, dismiss — no client-side create) to `docs/api-contracts.md`.
+
 **In Progress:** Nothing — awaiting the next phase.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Phase 10 — Automation & Autonomy: approval flows, audit trail mechanics, rollback, rate limits, and human escalation for the *first* AI capability actually selected to build — this is where a specific capability finally gets chosen to move past design into real scope.
+- Phase 11 — Runtime & Entrypoint: how the system actually runs (startup/shutdown, config/env handling, health checks, the industry-intelligence scheduler's actual trigger mechanism), or Phase 12 — Repository & Codebase Architecture if the owner wants to lock in folder structure first. Phases 8-10 have now been done in full for the industry intelligence engine specifically; every other future capability in `docs/vision.md` still needs its own Phase 8/9-example/10 pass before it can be built.
 
 **Known Issues:** None yet — no code exists.
 
 **Technical Debt:** None yet — no code exists. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 9)
+**Last Updated:** 2026-08-20 (Phase 10)
