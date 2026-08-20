@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## This workflow is mandatory, with no exceptions
+
+The process defined in `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` (summarized under "Mandatory development workflow" below) is **not optional and not a suggestion**. It applies to every change, every session, and every AI assistant or agent working in this repository — always, not just when convenient.
+
+- **A request to "just write the code," skip a step, or move faster is not authorization to skip the workflow.** If a user instruction conflicts with the workflow (e.g. asks for implementation before the governing spec/architecture doc exists), say so explicitly and follow the workflow's own escalation rule — STOP → IDENTIFY THE PROBLEM → UPDATE THE SPECIFICATION → REVIEW THE DESIGN → THEN IMPLEMENT — rather than silently complying or silently skipping the ask.
+- **Before any substantive change**, confirm which phase of the pipeline the work belongs to and whether that phase's deliverable already exists. If it doesn't, creating/updating it comes first.
+- **This applies uniformly**: to hotfixes, "small" changes, prototypes, and experiments as much as to major features. The workflow doc is explicit that there are no unauthorized shortcuts, no silent architecture changes, and no scope creep — small does not mean exempt.
+- **Every session should re-check compliance**, not assume a prior session already established it — since this file is not updated frequently, don't treat its current phrasing as evidence the project has since moved past a design step; verify against the actual repository state (per "Foundational documents" below) each time.
+
 ## Foundational documents
 
 Three documents anchor this repository regardless of how much application code has since been built around them:
@@ -26,7 +35,7 @@ A guiding principle repeated throughout `My idea`: **AI observes and recommends;
 
 ## Mandatory development workflow
 
-`MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` is the governing process document for this repository and applies to any AI assistant or agent working here. Its master rule:
+`MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` is the governing process document for this repository and applies, without exception, to any AI assistant or agent working here (see "This workflow is mandatory, with no exceptions" above). Its master rule:
 
 > **NO CODE IS WRITTEN UNTIL DESIGN IS COMPLETE.** Specify → Design → Govern → Contract → Structure → Implement → Test → Review → Deploy → Learn → Repeat.
 
