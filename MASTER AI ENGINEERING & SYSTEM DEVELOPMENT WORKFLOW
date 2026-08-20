@@ -1,0 +1,1491 @@
+MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW
+
+Universal Spec-First Development, Architecture, Governance & Implementation Standard
+
+---
+
+PURPOSE
+
+This document defines the mandatory workflow for designing, architecting, building, testing, deploying, maintaining, and evolving software and AI-powered systems.
+
+It applies to:
+
+- AI assistants
+- AI agents
+- Autonomous systems
+- Bots
+- Automations
+- Internal tools
+- Business operating systems
+- Web applications
+- Mobile applications
+- APIs
+- Client solutions
+- Robotics systems
+- Intelligent hardware systems
+- Data and memory systems
+- AI infrastructure
+
+The objective is not to write code as quickly as possible.
+
+The objective is to build:
+
+- Safe systems
+- Maintainable systems
+- Understandable systems
+- Testable systems
+- Scalable systems
+- Secure systems
+- Well-documented systems
+- Clearly bounded AI systems
+- Systems that future developers can understand and extend
+
+The repository, architecture, documentation, and codebase must be designed so that the system remains maintainable as it grows.
+
+---
+
+CORE PHILOSOPHY
+
+AI systems must be SPECIFIED before they are BUILT.
+
+No implementation begins until the system's:
+
+- Problem
+- Purpose
+- Scope
+- Behavior
+- Requirements
+- Authority
+- Limits
+- Ownership
+- Architecture
+- Interfaces
+- Data
+- Failure behavior
+- Security model
+- Testing strategy
+- Repository structure
+
+have been sufficiently defined.
+
+AI is a tool, not an authority.
+
+AI-generated code is still code.
+
+It must meet the same engineering standards as human-written code.
+
+---
+
+GOLDEN PRINCIPLES
+
+1. Specs beat code.
+2. Safety beats convenience.
+3. Clarity beats speed.
+4. Determinism beats unnecessary AI.
+5. AI is a tool, not an authority.
+6. Least privilege beats unrestricted capability.
+7. Explicit behavior beats guessing.
+8. Contracts beat assumptions.
+9. Reversible actions beat irreversible actions.
+10. One source of truth beats duplicated state.
+11. Small changes beat uncontrolled rewrites.
+12. Documentation is part of the system.
+13. Testing is part of implementation, not an optional final step.
+14. Every autonomous capability must have defined boundaries.
+15. Every major architectural change requires specification updates.
+16. Repository structure follows architecture, not imagination.
+17. Architecture follows requirements, not convenience.
+18. Development tools must serve the architecture, not define it.
+19. AI-generated code is held to the same standards as human-written code.
+20. Code should be understandable by the human who will eventually maintain it.
+21. Avoid technical debt now rather than planning to clean it up years later.
+22. Do not create complexity merely because the system may need it someday.
+23. Do not create shortcuts that knowingly require future architectural repair.
+
+---
+
+MASTER RULE
+
+NO CODE IS WRITTEN UNTIL DESIGN IS COMPLETE.
+
+Implementation is the final expression of the design.
+
+Code is not where architecture is discovered.
+
+If implementation reveals that the design is inadequate:
+
+STOP → IDENTIFY THE PROBLEM → UPDATE THE SPECIFICATION → REVIEW THE DESIGN → THEN IMPLEMENT.
+
+Do not silently redesign the system inside the code.
+
+---
+
+PHASE 0 — PROBLEM DISCOVERY
+
+Goal
+
+Understand the actual human, business, or operational problem before designing a technical solution.
+
+Required Questions
+
+- Who is this for?
+- What problem are we solving?
+- Why does the problem matter?
+- What hurts the most?
+- What happens if nothing is built?
+- What existing solutions exist?
+- What does success look like?
+- What is the simplest useful solution?
+
+Rules
+
+- No architecture.
+- No coding.
+- No AI solution assumptions.
+- No tool selection.
+- No automation promises.
+
+The purpose of this phase is clarity, not technology.
+
+Deliverable
+
+"docs/idea.md"
+
+---
+
+PHASE 1 — VISION & SCOPE LOCK
+
+Goal
+
+Define what the system is and, equally importantly, what it is not.
+
+Required
+
+- Mission
+- Vision statement
+- Target users
+- Core value proposition
+- MVP definition
+- Success criteria
+- Success metrics
+- Explicit non-goals
+- Future features
+
+Rules
+
+- No implementation.
+- No architecture yet.
+- No uncontrolled feature expansion.
+- No automation promises.
+
+Deliverable
+
+"docs/vision.md"
+
+---
+
+PHASE 2 — REQUIREMENTS
+
+Goal
+
+Translate the vision into precise system requirements.
+
+Functional Requirements
+
+Define what the system must do.
+
+Non-Functional Requirements
+
+Define:
+
+- Performance
+- Security
+- Reliability
+- Scalability
+- Availability
+- Accessibility
+- Observability
+- Maintainability
+
+Constraints
+
+Define:
+
+- Budget
+- Hosting
+- Hardware
+- Third-party services
+- Licensing
+- Platform restrictions
+- Regulatory constraints
+- Data restrictions
+
+Deliverable
+
+"docs/requirements.md"
+
+---
+
+PHASE 3 — USER STORIES & WORKFLOWS
+
+Goal
+
+Describe how humans and external actors interact with the system.
+
+User Stories
+
+Use:
+
+«As a [user],
+I want to [action],
+so that [outcome].»
+
+Include:
+
+- Primary users
+- Administrators
+- AI agents
+- External systems
+- Operators
+- Failure scenarios
+
+Required Workflow Definition
+
+Document:
+
+- Normal workflows
+- Alternative workflows
+- Error workflows
+- Approval workflows
+- Escalation workflows
+- Recovery workflows
+
+Deliverable
+
+"docs/user-stories.md"
+
+---
+
+PHASE 4 — GOVERNANCE, SAFETY & AUTHORITY
+
+Goal
+
+Define the boundaries of the system before giving it intelligence or automation.
+
+Required
+
+Allowed Actions
+
+What may the system do?
+
+Forbidden Actions
+
+What may the system never do?
+
+Authority Levels
+
+Define what each actor can:
+
+- Read
+- Write
+- Recommend
+- Approve
+- Execute
+- Delete
+- Modify
+
+Escalation Rules
+
+Define when the system must stop and request human intervention.
+
+Safety Overrides
+
+Safety requirements override convenience, speed, and optimization.
+
+Revocation
+
+Define how permissions and autonomous actions can be revoked.
+
+Core Rule
+
+AI must never silently expand its own authority.
+
+A system may only perform actions explicitly permitted by its specification and authorization model.
+
+Deliverable
+
+"docs/governance.md"
+
+---
+
+PHASE 5 — ARCHITECTURE
+
+Goal
+
+Design the system without implementing it.
+
+Required
+
+"docs/architecture.md"
+
+Must include:
+
+- System overview
+- Component architecture
+- Repository architecture
+- Folder structure
+- Service/module boundaries
+- Responsibility mapping
+- Data flow
+- Database design
+- API design
+- Authentication strategy
+- Authorization strategy
+- Service boundaries
+- External integrations
+- Caching strategy
+- Deployment strategy
+- Scalability plan
+- Observability
+- Risks
+- Technical debt prevention
+
+Architecture Principles
+
+- Single responsibility
+- Clear boundaries
+- Composition over inheritance
+- Separation of concerns
+- Strict typing
+- Minimal shared mutable state
+- Explicit interfaces
+- Low coupling
+- High cohesion
+- No unnecessary complexity
+- No speculative architecture
+
+Architecture must be approved before implementation begins.
+
+---
+
+PHASE 6 — SYSTEM CONTRACTS
+
+Goal
+
+Define the communication rules between system components.
+
+Required Contracts
+
+- API contracts
+- Tool interfaces
+- Function interfaces
+- Event definitions
+- Data schemas
+- Request/response formats
+- Error formats
+- Authentication requirements
+- Authorization requirements
+- Versioning rules
+
+Rules
+
+Contracts are the source of truth.
+
+Code must conform to contracts.
+
+Contracts must not be casually changed to accommodate implementation shortcuts.
+
+Breaking contract changes require specification and architecture updates.
+
+Deliverables
+
+Depending on the system:
+
+- "docs/api-contracts.md"
+- "docs/events.md"
+- "docs/schemas.md"
+- Interface definitions
+
+---
+
+PHASE 7 — DETAILED SYSTEM DESIGN
+
+Goal
+
+Convert architecture into implementation-ready design without writing implementation code.
+
+Required Design Areas
+
+AI Architecture
+
+- AI agents
+- Agent responsibilities
+- Agent boundaries
+- Agent communication
+- Agent tools
+- Agent memory
+- Agent decision-making
+- Human escalation
+
+Memory Architecture
+
+- Short-term memory
+- Long-term memory
+- Retrieval
+- Storage
+- Memory permissions
+- Memory lifecycle
+- Forgetting/deletion
+- Source attribution
+
+Data Model
+
+- Entities
+- Relationships
+- Ownership
+- Validation
+- Lifecycle
+- Retention
+
+Security
+
+- Authentication
+- Authorization
+- Secrets
+- Encryption
+- Data isolation
+- Threat model
+- Abuse prevention
+
+UI/UX
+
+- Screens
+- Navigation
+- States
+- User workflows
+- Errors
+- Accessibility
+
+Integrations
+
+- External APIs
+- Services
+- Credentials
+- Rate limits
+- Failure behavior
+- Fallbacks
+
+State & Events
+
+Where appropriate:
+
+- State machines
+- Events
+- Event transitions
+- Triggers
+- Side effects
+- Recovery states
+
+Testing Strategy
+
+- Unit tests
+- Integration tests
+- End-to-end tests
+- Error handling
+- Edge cases
+- Security tests
+- Performance tests
+- AI evaluation
+
+Deliverables
+
+Create appropriate design documents under:
+
+"docs/design/"
+
+---
+
+PHASE 8 — SERVICE SPECIFICATIONS
+
+Goal
+
+Define the exact behavior of each major service, module, feature, or agent.
+
+Each service specification should define:
+
+- Purpose
+- Responsibilities
+- Dependencies
+- Inputs
+- Outputs
+- Tools
+- Permissions
+- Failure modes
+- Error handling
+- State
+- Interfaces
+- Testing requirements
+
+Rules
+
+- Deterministic logic first.
+- AI should only be used where it provides meaningful value.
+- AI must not invent unavailable data.
+- AI must not exceed its authority.
+- Failure behavior must be explicit.
+- Silent failures are prohibited.
+
+---
+
+PHASE 9 — INTELLIGENCE DESIGN
+
+Goal
+
+Add reasoning and intelligence without accidentally granting uncontrolled authority.
+
+Intelligence May
+
+- Analyze
+- Classify
+- Summarize
+- Rank
+- Predict
+- Recommend
+- Simulate
+- Generate
+- Detect patterns
+
+Intelligence Must Not Automatically
+
+- Expand permissions
+- Invent facts
+- Override governance
+- Modify protected systems
+- Execute restricted actions
+- Bypass approval requirements
+
+Required Where Applicable
+
+- Prompt architecture
+- Model selection
+- Context strategy
+- Retrieval strategy
+- Evaluation criteria
+- Confidence handling
+- Feedback loops
+- Scenario simulation
+- Ranking logic
+- Hallucination controls
+
+---
+
+PHASE 10 — AUTOMATION & AUTONOMY
+
+Goal
+
+Introduce execution only after intelligence, permissions, safety, and contracts are defined.
+
+Required
+
+- Approval flows
+- Authorization checks
+- Audit trails
+- Revocation
+- Rollback
+- Failure recovery
+- Rate limits
+- Timeouts
+- Human escalation
+- Emergency shutdown
+
+Rules
+
+Automation must be:
+
+- Explicitly authorized
+- Logged
+- Auditable
+- Reversible whenever possible
+- Least-privilege
+- Bounded
+
+For high-risk actions, human approval should be required unless explicitly designed and justified otherwise.
+
+---
+
+PHASE 11 — RUNTIME & ENTRYPOINT
+
+Goal
+
+Define how the system actually runs.
+
+Required
+
+- Runtime entrypoint
+- HTTP/CLI/UI/device interfaces
+- Startup behavior
+- Shutdown behavior
+- Configuration
+- Environment handling
+- Health checks
+- Logging
+- Monitoring
+- Recovery behavior
+
+Rule
+
+Runtime orchestration must not become a dumping ground for business logic.
+
+Business logic belongs in its appropriate services/modules.
+
+---
+
+PHASE 12 — REPOSITORY & CODEBASE ARCHITECTURE
+
+Goal
+
+Create a repository that is organized according to the approved architecture and remains understandable as the system grows.
+
+The repository must not be created as a random collection of files.
+
+The repository structure is an architectural decision.
+
+Core Rule
+
+Repository structure follows architecture, not imagination.
+
+Do not create directories merely because they might someday be useful.
+
+Do not avoid proper boundaries merely because they require slightly more planning.
+
+The repository should contain the minimum structure necessary for the approved architecture while leaving clear, intentional boundaries for future growth.
+
+---
+
+Required Top-Level Structure
+
+At minimum, software projects should use:
+
+project/
+├── docs/
+├── src/
+├── tests/
+├── scripts/
+├── .github/
+├── README.md
+├── CHANGELOG.md
+├── ROADMAP.md
+├── TASKS.md
+├── PROJECT_STATE.md
+├── CLAUDE.md
+├── GEMINI.md
+└── ARCHITECT.md
+
+Additional files and directories may be required depending on the technology stack.
+
+---
+
+DOCUMENTATION STRUCTURE
+
+The documentation repository should evolve according to the project.
+
+Example:
+
+docs/
+├── idea.md
+├── vision.md
+├── requirements.md
+├── user-stories.md
+├── governance.md
+├── architecture.md
+├── api-contracts.md
+├── schemas.md
+│
+└── design/
+    ├── ai-agents.md
+    ├── memory.md
+    ├── security.md
+    ├── data-model.md
+    ├── integrations.md
+    ├── workflows.md
+    ├── ui-ux.md
+    └── testing.md
+
+Not every project requires every file.
+
+The architecture determines what is necessary.
+
+---
+
+SOURCE CODE STRUCTURE
+
+The source directory must be organized according to architectural responsibility.
+
+A typical application may evolve toward:
+
+src/
+├── app/
+│   ├── App.*
+│   ├── routes/
+│   └── providers/
+│
+├── components/
+│   ├── ui/
+│   └── shared/
+│
+├── features/
+│   ├── feature-a/
+│   ├── feature-b/
+│   └── ...
+│
+├── services/
+│   ├── api/
+│   ├── ai/
+│   ├── auth/
+│   └── integrations/
+│
+├── data/
+│   ├── schemas/
+│   └── repositories/
+│
+├── hooks/
+├── lib/
+├── types/
+├── config/
+└── state/
+
+This is an architectural pattern, not a requirement to create every directory immediately.
+
+Only create a directory when the architecture requires it.
+
+---
+
+FRONTEND ARCHITECTURE
+
+If the project uses a frontend framework or build tool such as Vite, the tool is considered an implementation/development tool—not the application's architecture.
+
+The framework or build tool must not dictate where business logic, data access, AI services, or domain logic live.
+
+Core Rule
+
+Development tools serve the architecture.
+
+The project must be designed first, then the appropriate tools selected.
+
+Do not select a technology simply because an AI agent recommends it.
+
+Every major technology choice should have a reason.
+
+---
+
+UI / BUSINESS LOGIC SEPARATION
+
+UI components should primarily handle presentation and user interaction.
+
+Business logic should not become embedded throughout UI components.
+
+Avoid:
+
+- Massive UI components
+- Database logic inside UI components
+- API calls scattered throughout UI components
+- AI calls scattered throughout UI components
+- Business rules hidden inside presentation code
+
+Prefer clear service and feature boundaries.
+
+---
+
+API / DATA SEPARATION
+
+API communication should use defined service boundaries.
+
+Database access should not be scattered throughout unrelated application code.
+
+AI provider calls should not be scattered throughout the application.
+
+External integrations should have dedicated boundaries.
+
+This makes future replacement, testing, debugging, and scaling substantially easier.
+
+---
+
+FEATURE ORGANIZATION
+
+Feature-specific code should remain close to the feature when practical.
+
+A feature may contain:
+
+- Components
+- Hooks
+- Services
+- Types
+- Tests
+- State
+- Configuration
+
+Shared functionality belongs in shared architectural locations.
+
+Do not create unnecessary global abstractions.
+
+---
+
+FILE SIZE & FUNCTION SIZE
+
+Preferred Limits
+
+- Maximum file size: approximately 300 lines
+- Maximum function size: approximately 50 lines
+
+These are engineering warning thresholds, not mathematical laws.
+
+If a file exceeds the threshold:
+
+1. Determine why.
+2. Identify logical responsibilities.
+3. Split the file when appropriate.
+4. Document the reason when intentionally kept large.
+
+Do not blindly split files merely to satisfy a number.
+
+---
+
+CODE QUALITY RULES
+
+Use:
+
+- Strict typing
+- Clear naming
+- Small functions
+- Single responsibilities
+- Composition
+- Explicit interfaces
+- Reusable abstractions where justified
+- Centralized configuration
+- Clear error handling
+
+Avoid:
+
+- Duplicate logic
+- Giant utility files
+- Giant application files
+- Random helper functions
+- Circular dependencies
+- Hidden side effects
+- Dead code
+- Temporary hacks
+- Magic values
+- Hardcoded secrets
+- Unnecessary dependencies
+- Unexplained architectural shortcuts
+
+---
+
+DEPENDENCY RULE
+
+Every meaningful dependency should have a reason.
+
+Before adding a dependency, evaluate:
+
+- Does the project actually need it?
+- Does it solve a real problem?
+- Is the functionality already available internally?
+- Does it introduce security risk?
+- Does it increase maintenance burden?
+- Does it create unnecessary coupling?
+- Is it actively maintained?
+- Does the license work for the project?
+
+AI agents must not add dependencies merely because they make implementation easier.
+
+---
+
+ENVIRONMENT & SECRETS
+
+Secrets must never be committed to the repository.
+
+Use environment configuration where appropriate.
+
+Provide:
+
+.env.example
+
+to document required configuration without exposing actual credentials.
+
+Never hardcode:
+
+- API keys
+- Passwords
+- Tokens
+- Private credentials
+- Encryption keys
+- Production secrets
+
+---
+
+TEST ORGANIZATION
+
+Tests should reflect the architecture.
+
+Example:
+
+tests/
+├── unit/
+├── integration/
+└── e2e/
+
+Where practical, feature-specific tests may also live close to their feature.
+
+Testing structure should be documented in the testing strategy.
+
+---
+
+REPOSITORY CLEANLINESS
+
+The repository must not become a dumping ground.
+
+Do not leave:
+
+- Random files
+- Temporary experiments
+- Debug artifacts
+- Generated files that do not belong in source control
+- Unused dependencies
+- Abandoned implementations
+- Duplicate configurations
+- Unexplained scripts
+
+Temporary work should either be removed or intentionally incorporated into the project.
+
+---
+
+DOCUMENTATION & CODE MUST AGREE
+
+The repository's documentation and implementation must not knowingly contradict one another.
+
+When architecture changes:
+
+"docs/architecture.md" must change.
+
+When requirements change:
+
+"docs/requirements.md" must change.
+
+When system state changes:
+
+"PROJECT_STATE.md" must change.
+
+When contracts change:
+
+Relevant contract documentation must change.
+
+Documentation is not administrative overhead.
+
+Documentation is part of the engineering system.
+
+---
+
+LONG-TERM MAINTAINABILITY
+
+The system must be built for the person who will maintain it later.
+
+This is especially important when AI agents are writing the initial implementation.
+
+The goal is not merely:
+
+«"Does this code work?"»
+
+The goal is also:
+
+«"Will a human developer understand why this code exists, where it belongs, how it works, and how to safely change it?"»
+
+---
+
+AI-ASSISTED DEVELOPMENT MODEL
+
+AI may initially perform a large portion of implementation while the human developer is still learning.
+
+This is acceptable.
+
+However:
+
+AI-generated code must never be treated as automatically correct.
+
+Every AI-generated change must pass through:
+
+Specification → Architecture → Task → Implementation → Testing → Review
+
+AI should explain important architectural decisions when requested.
+
+The human developer should progressively learn:
+
+- Repository structure
+- Architecture
+- Programming concepts
+- Debugging
+- Testing
+- Git
+- Dependencies
+- APIs
+- Databases
+- Security
+- AI architecture
+
+The system should therefore be structured to support both:
+
+1. AI-assisted development today.
+2. Human-led development in the future.
+
+---
+
+LEARNING-FIRST ENGINEERING PRINCIPLE
+
+When practical, AI agents should not merely provide code.
+
+They should help the human understand:
+
+- What changed
+- Why it changed
+- Where it belongs
+- What dependencies it has
+- How it interacts with other components
+- How it is tested
+- What could break
+- How to debug it
+
+The goal is to gradually transfer engineering capability from the AI to the human.
+
+The system must not become dependent on the human being unable to understand the repository.
+
+---
+
+ANTI-REFACTORING PRINCIPLE
+
+Do not knowingly create dirty architecture with the intention of "cleaning it up later."
+
+Examples of prohibited shortcuts:
+
+- Putting business logic in UI components because it is faster.
+- Putting every API call in one giant file.
+- Creating a giant "utils" file for unrelated functionality.
+- Creating giant components.
+- Duplicating logic because abstraction feels inconvenient.
+- Mixing database access with presentation logic.
+- Mixing AI orchestration with unrelated business logic.
+- Creating circular dependencies.
+- Hardcoding configuration.
+- Ignoring tests because the project is still small.
+- Creating temporary architecture that is known to be wrong.
+
+Core Rule
+
+Technical debt should be intentional, documented, bounded, and justified—not accidental.
+
+---
+
+PHASE 13 — ROADMAP
+
+Goal
+
+Translate the approved design into implementation phases.
+
+Example:
+
+Phase 1
+
+Foundation
+
+Phase 2
+
+Authentication
+
+Phase 3
+
+Core functionality
+
+Phase 4
+
+AI capabilities
+
+Phase 5
+
+Integrations
+
+Phase 6
+
+Automation
+
+Phase 7
+
+Optimization
+
+Phase 8
+
+Deployment
+
+Roadmaps must reflect the actual architecture.
+
+---
+
+PHASE 14 — TASK GENERATION
+
+Goal
+
+Break implementation into small, independently testable tasks.
+
+Rules
+
+Tasks should:
+
+- Be small.
+- Ideally take less than four hours.
+- Have one clear objective.
+- Have explicit dependencies.
+- Have acceptance criteria.
+- Be independently testable.
+
+Example:
+
+- Create user table.
+- Create authentication service.
+- Add JWT validation.
+- Create login interface.
+- Add authentication tests.
+
+Deliverable
+
+"TASKS.md"
+
+---
+
+PHASE 15 — IMPLEMENTATION
+
+Goal
+
+Translate approved specifications into working software.
+
+Before every implementation task, the Builder must read:
+
+1. "docs/architecture.md"
+2. "docs/requirements.md"
+3. "PROJECT_STATE.md"
+4. The current task
+5. Relevant design specifications
+6. Relevant contracts
+
+Implementation Rules
+
+- No invention.
+- No unauthorized redesign.
+- No scope creep.
+- No silent architecture changes.
+- No hardcoded secrets.
+- No dead code.
+- No temporary hacks.
+- No silent failures.
+- Follow established contracts.
+- Preserve separation of concerns.
+- Use strict typing.
+- Favor composition.
+- Avoid duplication.
+
+If implementation reveals a genuine architectural problem:
+
+STOP → DOCUMENT → REVIEW → UPDATE SPECIFICATION → THEN IMPLEMENT.
+
+Do not silently redesign the system inside the code.
+
+---
+
+PHASE 16 — TESTING
+
+Every feature must be tested.
+
+Required Where Applicable
+
+- Unit tests
+- Integration tests
+- End-to-end tests
+- Error handling
+- Edge cases
+- Security validation
+- Performance testing
+- AI behavior evaluation
+- Regression testing
+
+No feature is complete without appropriate testing.
+
+---
+
+PHASE 17 — REVIEW
+
+Code Review
+
+Verify:
+
+- Requirements satisfied
+- Architecture followed
+- Contracts followed
+- Tests passing
+- No duplicate logic
+- No architecture violations
+- No security issues
+- No unnecessary complexity
+- No linting errors
+- No failing builds
+
+AI/System Review
+
+Also verify:
+
+- AI authority boundaries
+- Prompt behavior
+- Tool permissions
+- Memory access
+- Hallucination risks
+- Escalation behavior
+- Autonomous actions
+- Auditability
+
+---
+
+AGENT ROLES
+
+Architect Agent
+
+Responsible for:
+
+- System design
+- Technical decisions
+- Architecture reviews
+- Risk analysis
+- Specification maintenance
+
+The Architect should not implement features unless explicitly assigned a Builder role.
+
+---
+
+Builder Agent
+
+Responsible for:
+
+- Implementation
+- Refactoring
+- Testing
+- Documentation
+
+The Builder follows the approved architecture.
+
+---
+
+Reviewer Agent
+
+Responsible for:
+
+- Code review
+- Security review
+- Performance review
+- Maintainability review
+- Architecture compliance
+
+The Reviewer must reject shortcuts that violate the specification.
+
+---
+
+PHASE 18 — DEPLOYMENT
+
+Before deployment:
+
+- Tests pass
+- Build succeeds
+- Documentation is updated
+- Configuration is verified
+- Secrets are secured
+- Monitoring exists
+- Rollback exists
+- Deployment procedure is documented
+- Known risks are understood
+
+Deployment should be repeatable.
+
+---
+
+PHASE 19 — PROJECT STATE MANAGEMENT
+
+"PROJECT_STATE.md" must contain:
+
+Current Phase:
+
+Current Sprint:
+
+Completed:
+
+In Progress:
+
+Blocked:
+
+Next Tasks:
+
+Known Issues:
+
+Technical Debt:
+
+Last Updated:
+
+Update it whenever meaningful project progress occurs.
+
+---
+
+PHASE 20 — ITERATION & EXPANSION
+
+Goal
+
+Improve the system without creating architectural drift.
+
+Rules
+
+- New features begin with specification.
+- New capabilities begin with scope evaluation.
+- New autonomous capabilities require governance review.
+- Architecture changes require architecture updates.
+- Requirements changes require requirements updates.
+- No direct hotfixes that permanently alter behavior without updating specifications.
+- Version important contracts.
+- Version significant architecture changes.
+- Preserve backward compatibility where required.
+
+Core Rule
+
+Every meaningful change re-enters the appropriate design stage before implementation.
+
+---
+
+POSTMORTEM
+
+After major milestones, document:
+
+- What went well?
+- What failed?
+- What caused delays?
+- What assumptions were wrong?
+- What should be automated?
+- What should be redesigned?
+- What technical debt was created?
+- What should become a reusable engineering guardrail?
+
+Every project should improve the workflow that produced it.
+
+---
+
+UNIVERSAL AI AGENT OPERATING RULES
+
+AI agents working on this project must:
+
+1. Read the relevant specifications before acting.
+2. Never assume missing requirements.
+3. Ask for clarification when ambiguity materially affects architecture, security, behavior, or scope.
+4. Never invent unavailable information.
+5. Never silently change architecture.
+6. Never expand authority.
+7. Never bypass governance.
+8. Never modify unrelated systems.
+9. Work within the assigned task.
+10. Report blockers rather than hiding them.
+11. Test changes.
+12. Update documentation when required.
+13. Update project state.
+14. Preserve existing behavior unless change is explicitly required.
+15. Prefer the smallest correct change.
+16. Preserve repository organization.
+17. Respect architectural boundaries.
+18. Avoid creating new architectural patterns without approval.
+19. Avoid unnecessary dependencies.
+20. Leave the codebase cleaner than they found it.
+
+When uncertain:
+
+STOP → IDENTIFY THE UNCERTAINTY → CHECK THE SPECIFICATION → ASK OR ESCALATE.
+
+Do not guess.
+
+---
+
+CHANGE CONTROL
+
+A change is required to pass through the appropriate level of review.
+
+Minor Change
+
+May proceed within the existing specification if it does not alter:
+
+- Architecture
+- Security
+- Contracts
+- Authority
+- Data model
+- User-facing requirements
+
+Significant Change
+
+Requires specification review when it changes:
+
+- Requirements
+- Architecture
+- APIs
+- Data model
+- AI behavior
+- Agent authority
+- Security
+- External integrations
+- Repository structure
+
+Major Change
+
+Requires re-evaluation of the affected lifecycle phases.
+
+Examples:
+
+- New autonomous capability
+- New agent
+- New database architecture
+- New external system
+- Major security change
+- New user class
+- Major workflow change
+- Major repository restructuring
+
+---
+
+FINAL ENGINEERING STANDARD
+
+The objective is not to write code.
+
+The objective is to build maintainable, safe, understandable systems efficiently.
+
+The repository must be understandable.
+
+The architecture must be intentional.
+
+The code must have a proper home.
+
+The AI must have boundaries.
+
+The human must retain authority.
+
+The documentation must reflect reality.
+
+The tests must protect behavior.
+
+The contracts must protect interfaces.
+
+The system must be designed for its future maintainer—not merely its current builder.
+
+FINAL PIPELINE
+
+PROBLEM → VISION → REQUIREMENTS → USER STORIES → GOVERNANCE → ARCHITECTURE → CONTRACTS → DETAILED DESIGN → SERVICE SPECS → INTELLIGENCE → AUTOMATION → RUNTIME → REPOSITORY DESIGN → ROADMAP → TASKS → IMPLEMENTATION → TESTING → REVIEW → DEPLOYMENT → POSTMORTEM → ITERATION
+
+MASTER RULE
+
+SPECIFY → DESIGN → GOVERN → CONTRACT → STRUCTURE → IMPLEMENT → TEST → REVIEW → DEPLOY → LEARN → REPEAT
+
+Code is the final expression of the design—not the place where the design is discovered.
