@@ -34,6 +34,12 @@ These follow the roadmap in `docs/vision.md` / `My idea` and each requires its o
 - AI assistant / decision engine producing take/negotiate/decline recommendations with reasoning.
 - Parking network, maintenance pattern detection, fleet-expansion readiness scoring, and driver compliance management (CDL/medical/clearinghouse) once there are employees.
 
+### User interface (applies from the MVP onward)
+
+- The system must be presented through a dashboard-style interface with clear navigation (e.g. tabs or sections) separating its major data domains — trucks, loads, expenses, fuel, maintenance, documents, and the financial summary — rather than one undifferentiated view. Data entry and lookup for each domain from the MVP functional requirements above must be reachable through this navigation.
+- From the point any AI recommendation or automation capability exists (Graduated Autonomy Level 2+, per `docs/governance.md`), the UI must visibly surface the AI's current authorization state (what level it's running at, what it's allowed to do) and provide the revocation controls `docs/governance.md` requires — a global stop and, once Level 5/6 capabilities exist, per-capability stops — placed prominently, not buried in nested settings.
+- Exact screens, layout, visual design, and navigation structure are a Phase 7 deliverable (`docs/design/ui-ux.md`) and come after architecture and contracts are settled — this section fixes *that* a dashboard/tabbed UI with visible AI controls is required, not what it looks like.
+
 ## Non-Functional Requirements
 
 - **Performance:** Must stay responsive for a single operator (and later, a small fleet's worth of records) doing everyday data entry and lookups. No high-concurrency or large-scale performance target exists at this stage — the system is not designed for many simultaneous users.

@@ -47,6 +47,8 @@ You've said the AI should start fully constrained, and gain autonomy over time o
 
 **Current state: Level 1.** No AI decision-making capability has been designed or built at all yet — this ladder exists to describe how far the system is *allowed* to go over time, not what exists today.
 
+**Autonomy is a real goal, not a hedge.** This project intends to actually climb this ladder over time, as trust in the system is earned — Level 5/6 (bounded and narrow-workflow autonomous execution) are things this system is meant to eventually reach, not capabilities being reluctantly permitted in theory. The constraint isn't "avoid autonomy" — it's "never grant autonomy silently, and never make it hard to pull back."
+
 **Rule:** The system starts at Level 1 and only moves to a higher level through an explicit, documented decision by the owner-operator — never by default, never silently, and never just because a feature turns out to be technically capable of more. Raising the autonomy level for any capability is a Major Change under `CLAUDE.md`'s Change Control rules and requires this document to be updated *before* the change takes effect, not after.
 
 ## Escalation rules
@@ -60,8 +62,12 @@ Per the workflow doc's Golden Principles ("Safety beats convenience"): when a sa
 
 ## Revocation
 
-- The owner-operator must be able to revoke any AI authority or automation instantly, with a single obvious action, dropping the system back to at least Level 1 (observe-only). This is the "on/off switch" you asked for — this document establishes the requirement; *how* it's implemented (a settings toggle, a config flag, etc.) is an architecture decision for a later phase.
-- Revocation must never require the AI's cooperation, acknowledgment, or approval to take effect. A human can always shut it off unilaterally, immediately.
+A single global switch isn't enough on its own: it forces an all-or-nothing choice when what's actually needed is the ability to shut off the one thing you don't like without losing everything else the AI does well. Revocation is therefore two-tiered:
+
+- **Global kill switch.** The owner-operator must be able to revoke *all* AI authority and automation instantly, with a single obvious action, dropping the entire system back to Level 1 (observe-only). This always exists, regardless of what capabilities have been built.
+- **Per-capability switches.** Every capability introduced at Level 5 or 6 (bounded or narrow-workflow autonomous execution — e.g. "auto-accept loads under $X," "auto-send a fuel-purchase confirmation") must ship with its own independent on/off control, separate from the global switch and from every other capability's control. Turning one off must never require touching, disabling, or reasoning about any other capability. A capability introduced without its own switch is not considered complete, whatever else it does.
+- **No cooperation required.** Revocation — global or per-capability — must never require the AI's cooperation, acknowledgment, or approval to take effect. A human can always shut it off unilaterally, immediately.
+- **Visible, not buried.** These controls (global and per-capability) must be surfaced prominently in the system's primary UI — not nested several menus deep — along with the current status of what the AI is authorized to do. See `docs/requirements.md`'s User Interface requirements. *How* the switches are technically implemented (a settings table, a config flag, a feature-flag service) is an architecture decision for a later phase; this document only establishes that they must exist, must be easy to find, and must always work.
 
 ## Core rule
 
