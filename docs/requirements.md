@@ -34,11 +34,14 @@ These follow the roadmap in `docs/vision.md` / `My idea` and each requires its o
 - AI assistant / decision engine producing take/negotiate/decline recommendations with reasoning.
 - Parking network, maintenance pattern detection, fleet-expansion readiness scoring, and driver compliance management (CDL/medical/clearinghouse) once there are employees.
 
-### User interface (applies from the MVP onward)
+### User interface (applies from the MVP onward — non-negotiable)
 
-- The system must be presented through a dashboard-style interface with clear navigation (e.g. tabs or sections) separating its major data domains — trucks, loads, expenses, fuel, maintenance, documents, and the financial summary — rather than one undifferentiated view. Data entry and lookup for each domain from the MVP functional requirements above must be reachable through this navigation.
-- From the point any AI recommendation or automation capability exists (Graduated Autonomy Level 2+, per `docs/governance.md`), the UI must visibly surface the AI's current authorization state (what level it's running at, what it's allowed to do) and provide the revocation controls `docs/governance.md` requires — a global stop and, once Level 5/6 capabilities exist, per-capability stops — placed prominently, not buried in nested settings.
-- Exact screens, layout, visual design, and navigation structure are a Phase 7 deliverable (`docs/design/ui-ux.md`) and come after architecture and contracts are settled — this section fixes *that* a dashboard/tabbed UI with visible AI controls is required, not what it looks like.
+This project has previously been built with a workflow that produced backend only — no working frontend, nothing the owner-operator could actually open and use. That outcome is explicitly unacceptable here and this requirement exists to rule it out, not to prescribe a specific look:
+
+- **Every functional requirement above that a human interacts with must ship with a working, usable interface for it — not an API/backend the owner-operator can't actually reach.** A feature that only exists as a backend endpoint or database table is incomplete, full stop, regardless of how well-architected the backend is.
+- The system must be presented through a real, navigable interface (dashboard-style, with clear sections/navigation for trucks, loads, expenses, fuel, maintenance, documents, and the financial summary) rather than one undifferentiated view or no view at all. The specific visual design, layout, and navigation structure are not dictated here — that's a design decision to be made well at the appropriate phase (Phase 7, `docs/design/ui-ux.md`, after architecture and contracts are settled), using good UI/UX judgment for someone using this primarily from a phone while driving. What's fixed is the outcome: it must actually exist and be genuinely usable, not that it must look a particular way.
+- From the point any AI recommendation or automation capability exists (Graduated Autonomy Level 2+, per `docs/governance.md`), the interface must visibly surface the AI's current authorization state and the revocation controls `docs/governance.md` requires — a global stop and, once Level 5/6 capabilities exist, per-capability stops — placed prominently, not buried in nested settings.
+- **Implementation-phase check:** no task in Phase 15 (Implementation) that adds or changes user-facing functionality is considered done when only its backend is built. If a task's acceptance criteria don't already include a working frontend for that functionality, that's a defect in the task breakdown (Phase 14) to fix before implementing, not something to implement around.
 
 ## Non-Functional Requirements
 

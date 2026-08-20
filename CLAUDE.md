@@ -11,6 +11,14 @@ The process defined in `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` (su
 - **This applies uniformly**: to hotfixes, "small" changes, prototypes, and experiments as much as to major features. The workflow doc is explicit that there are no unauthorized shortcuts, no silent architecture changes, and no scope creep — small does not mean exempt.
 - **Every session should re-check compliance**, not assume a prior session already established it — since this file is not updated frequently, don't treat its current phrasing as evidence the project has since moved past a design step; verify against the actual repository state (per "Foundational documents" below) each time.
 
+## No backend-only delivery — a working frontend is mandatory
+
+This project was previously built with an AI-driven workflow that produced backend only — no working frontend, nothing the owner-operator could actually open and use. That outcome is explicitly ruled out for this project, permanently:
+
+- **Any implementation work that adds or changes functionality a human interacts with must ship a working, reachable interface for it as part of the same work — not a backend/API/database change alone.** A feature that only exists on the backend is incomplete, regardless of how well it's built underneath.
+- This is a standing acceptance criterion for every Phase 15 (Implementation) task that touches user-facing functionality, not a one-time reminder — check it on each such task, not just the first one.
+- The specific visual design and layout are not dictated here — use good judgment for the actual context of use (a phone-first interface for someone working from the road). What's fixed is that it must exist and be genuinely usable, not what it looks like. See `docs/requirements.md`'s "User interface" section, and the eventual `docs/design/ui-ux.md` (Phase 7) for the real design work.
+
 ## Foundational documents
 
 Three documents anchor this repository regardless of how much application code has since been built around them:
