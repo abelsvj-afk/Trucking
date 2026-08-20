@@ -50,21 +50,21 @@ This project has previously been built with a workflow that produced backend onl
 - **Reliability:** Data entered by the operator must not be silently lost or corrupted; failures must be surfaced, not hidden (per the workflow doc's "silent failures are prohibited" rule).
 - **Scalability:** Must comfortably scale from one truck to a small fleet (a handful of trucks/drivers). Scaling to a multi-tenant product for other operators is future scope (see `docs/vision.md` non-goals) and not a current requirement.
 - **Availability:** No formal uptime target exists yet. Given the primary user is a working driver, the system should be usable from a phone or laptop without requiring specialized hardware.
-- **Accessibility:** No specific accessibility standard has been chosen yet. This should be revisited once a UI is actually designed (Phase 7).
+- **Accessibility:** WCAG 2.1 AA, decided in `docs/design/ui-ux.md` (Phase 7).
 - **Observability:** Per `CLAUDE.md`, diagnostics (structured logging without secrets, health checks, and an audit trail for anything AI-recommended or AI-executed once that exists) are required once there's a runtime to observe.
 - **Maintainability:** Must follow the engineering guardrails already set in `CLAUDE.md` — strict typing, small single-responsibility files/functions, no duplicated logic, contracts treated as source of truth.
 
 ## Constraints
 
-- **Budget:** Not yet defined.
-- **Hosting:** Not yet defined.
-- **Hardware:** No specialized hardware is assumed; the primary user's access is expected to be a phone and/or laptop while working as a driver, but this hasn't been formally scoped.
-- **Third-party services:** None selected yet. Any future selection (hosting, database, AI provider, fuel-price/load-board data source) must go through the Dependency Rule in `CLAUDE.md` — vetted, justified, and not adopted purely for convenience.
+- **Budget:** Free/near-free to start, per the decision in `docs/architecture.md` — free-tier hosting/database (Vercel + Supabase), scaling to paid tiers only once real usage or revenue justifies it.
+- **Hosting:** Vercel (app) + Supabase (database/auth/storage), decided in `docs/architecture.md`.
+- **Hardware:** No specialized hardware is assumed; the primary user's access is expected to be a phone and/or laptop while working as a driver. The system is designed mobile-first (`docs/design/ui-ux.md`), with a native app-store version planned for later (`docs/architecture.md`'s "Mobile and app-store path").
+- **Third-party services:** Supabase (database, auth, file storage) per `docs/architecture.md`. Any further selection (AI provider, fuel-price/load-board data source) must go through the Dependency Rule in `CLAUDE.md` — vetted, justified, and not adopted purely for convenience.
 - **Licensing:** Not yet defined.
-- **Platform restrictions:** None formally set. Given the primary user works from the road, a mobile-friendly interface is likely important, but this is a product consideration for later design phases, not a locked requirement yet.
+- **Platform restrictions:** Mobile-first responsive web app (installable/PWA), per `docs/design/ui-ux.md`, with a native App Store/Play Store version planned once the system is proven (`docs/architecture.md`).
 - **Regulatory constraints:** The system will touch data adjacent to DOT/FMCSA compliance (per `README.md`) and driver personal information. Per `docs/vision.md`'s non-goals, this system is not intended to become the authoritative regulatory record (e.g. it does not replace an ELD/HOS system of record) — it tracks and surfaces compliance-relevant data, it doesn't certify it.
 - **Data restrictions:** Financial data and driver PII must be handled per the security guardrails in `CLAUDE.md` — no PII or financial data in logs, least-privilege access, no secrets in the repository.
 
 ---
 
-*Open items in this document (budget, hosting, third-party services, accessibility standard, availability target) are unresolved by design — they should be filled in with real decisions, not assumptions, before the phases that depend on them (Architecture, Runtime, Deployment) proceed.*
+*Budget, hosting, third-party services (Phase 5), platform, and accessibility (Phase 7) were resolved as later phases produced real decisions — see the cross-references above. Still open: a formal availability/uptime target and licensing, which stay unresolved by design until a real decision, not an assumption, is made.*
