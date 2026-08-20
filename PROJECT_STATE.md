@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 13 — Roadmap (complete). Next: Phase 14 — Task Generation.
+**Current Phase:** Phase 14 — Task Generation (complete). Next: Phase 15 — Implementation.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -28,15 +28,17 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 - Phase 13 — Roadmap (`ROADMAP.md`): sequenced the MVP into 6 dependency-ordered stages — Foundation (DB + RLS), Authentication, Core functionality (entities built in FK-dependency order, backend+frontend together per stage, not backend-first), the industry intelligence engine, a Hardening stage (cross-cutting RLS/e2e/security review, since `docs/design/testing.md` already treats testing as continuous rather than a late phase), and Deployment. Explicitly did not roadmap any of `docs/vision.md`'s other future AI capabilities in detail — each still needs its own Phase 8/10 pass first; inventing dates/order for undesigned work would be the same speculative-architecture mistake flagged at every earlier phase.
 
-**In Progress:** Nothing — awaiting the next phase.
+- Phase 14 — Task Generation (`TASKS.md`): broke `ROADMAP.md`'s 6 stages into 37 tasks with explicit dependencies and acceptance criteria. Kept every Stage 3 (core functionality) task as backend+screens together per entity, deliberately not split into separate backend/frontend tasks — splitting them is exactly how backend-only delivery happens by accident, per `CLAUDE.md`'s locked-in rule. Task sizing follows the same "warning threshold, not hard limit" framing `CLAUDE.md` already uses for file/function size.
+
+**In Progress:** Nothing — this is the last purely-planning phase. Phase 15 (Implementation) is next and is where actual feature code gets written for the first time.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Phase 14 — Task Generation (`TASKS.md`): break Stages 1-6 in `ROADMAP.md` into small (under ~4 hours), independently-testable tasks with explicit acceptance criteria and dependencies, per the workflow doc's Phase 14 rules.
+- Phase 15 — Implementation: start with Stage 1 (`TASKS.md` 1.1–1.6) — `npm install`, the real Supabase project, and the first schema migrations. Everything from here on is building against contracts that are already fully specified; no further design phases are expected before implementation starts, barring a genuine gap discovered along the way (per the workflow's own STOP → UPDATE THE SPECIFICATION rule).
 
 **Known Issues:** None yet — no code exists beyond the Phase 12 scaffold (an unbuilt, uninstalled skeleton — `npm install` has never been run).
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 13)
+**Last Updated:** 2026-08-20 (Phase 14)
