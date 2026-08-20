@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 8 — Service Specifications (complete). Next: Phase 9 — Intelligence Design.
+**Current Phase:** Phase 9 — Intelligence Design (complete). Next: Phase 10 — Automation & Autonomy.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -18,15 +18,17 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 - Mid-Phase-7-review addition: audited `docs/vision.md`/`docs/requirements.md` against `README.md`/`My idea` and fixed a real gap (Email AI/outreach was in `README.md` but never carried into the future-features lists), named weather/HOS/road-restrictions/real-time-fuel-price explicitly instead of leaving them implicit, and captured new scope the owner added directly: an **industry intelligence / proactive research engine** (fuel-market, regulatory/political, and industry-disruption monitoring) — scheduled, Governance Level 5, its own on/off switch, self-adjustable cadence bounded by an owner-set min/max so it can't silently expand its own authority. Also added a "Screens not yet designed" section to `docs/design/ui-ux.md` so the MVP screen list doesn't read as final.
 - Phase 8 — Service Specifications (`docs/service-specs.md`): purpose/responsibilities/dependencies/inputs/outputs/permissions/failure modes/error handling/state/interfaces/testing for `services/db`, `services/auth`, and `services/api`, plus a constraints-only entry for the still-unimplemented `services/ai`. Named Zod as the intended validation library (subject to a final Dependency Rule check at implementation time) — the first concrete third-party dependency beyond what `docs/architecture.md` already fixed. Fixed an inconsistency this surfaced: `docs/api-contracts.md` had listed a cross-tenant access attempt as `403`; corrected to `404` everywhere (RLS filters at the query level, so a cross-tenant row is indistinguishable from a missing one — `403` is reserved for a future multi-role case).
 
+- Phase 9 — Intelligence Design (`docs/design/ai-architecture.md`): rather than designing one AI capability in isolation, defined the **shared pattern every future AI capability follows** (Claude API server-side, a fixed prompt structure, tenant-scoped stateless context, a shared output contract with mandatory confidence + source attribution, mandatory audit logging so a future feedback loop has data to work with, memory still deferred) — chosen specifically because `docs/vision.md` lists ~9 future AI capabilities that would otherwise each need this designed from scratch. Worked the pattern through fully for the industry-intelligence engine as the concrete example. Confirms Governance stays at Level 1 — this document is a shared contract, not authorization to build any capability yet.
+
 **In Progress:** Nothing — awaiting the next phase.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Phase 9 — Intelligence Design: the first real AI capability gets designed here (prompt architecture, model selection, context/retrieval strategy, confidence handling, hallucination controls) — likely candidate is the simplest Level 2 "recommend" capability, or the industry-intelligence engine's scheduling design, per the owner's direction.
+- Phase 10 — Automation & Autonomy: approval flows, audit trail mechanics, rollback, rate limits, and human escalation for the *first* AI capability actually selected to build — this is where a specific capability finally gets chosen to move past design into real scope.
 
 **Known Issues:** None yet — no code exists.
 
 **Technical Debt:** None yet — no code exists. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 8)
+**Last Updated:** 2026-08-20 (Phase 9)
