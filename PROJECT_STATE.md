@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 1 (Foundation) — in progress, blocked on the owner for one task.
+**Current Phase:** Phase 15 — Implementation, Stage 1 (Foundation) — nearly complete; one small value still needed from the owner.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -30,17 +30,21 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 - Phase 14 — Task Generation (`TASKS.md`): broke `ROADMAP.md`'s 6 stages into 37 tasks with explicit dependencies and acceptance criteria. Kept every Stage 3 (core functionality) task as backend+screens together per entity, deliberately not split into separate backend/frontend tasks — splitting them is exactly how backend-only delivery happens by accident, per `CLAUDE.md`'s locked-in rule. Task sizing follows the same "warning threshold, not hard limit" framing `CLAUDE.md` already uses for file/function size.
 
-**Phase 15 — Implementation, Stage 1 (Foundation), in progress:** tasks 1.1, 1.3–1.6 done; task 1.2 blocked. Real `npm install` (409 packages, 0 vulnerabilities, lockfile committed), added `@supabase/ssr` as a new justified dependency (needed for the cookie-based sessions `docs/design/security.md` already committed to — plain `@supabase/supabase-js` doesn't handle that correctly), verified the scaffold with a real `npx tsc --noEmit` and `npx next build` (both clean). Wrote all 5 SQL migrations (`supabase/migrations/`) implementing every table in `docs/schemas.md` with RLS via a shared `current_company_id()` helper. Wrote `services/db`'s server/browser Supabase clients (`src/services/db/`). Wrote the RLS tenant-isolation test (`tests/integration/rls-tenant-isolation.test.ts`) — confirmed it skips itself cleanly (`3 skipped`, not a crash) without live credentials, per its own design. None of 1.3–1.6 have been verified against a real database yet — that's what's blocked.
+**Phase 15 — Implementation, Stage 1 (Foundation), nearly done:** tasks 1.1, 1.2, 1.3, 1.4, 1.6 done; 1.5 written but not yet run end-to-end. Real `npm install` (409 packages, 0 vulnerabilities, lockfile committed), added `@supabase/ssr` as a new justified dependency, verified the scaffold with `npx tsc --noEmit`/`npx eslint .`/`npx next build` (all clean, after fixing two real gaps — see the "Post-push fixes" paragraph below). Wrote all 6 SQL migrations, `services/db`'s server/browser Supabase clients, and the RLS tenant-isolation test.
 
 **Post-push fixes from an automated PR review (Codex):** verified each of its 4 findings against the actual repo rather than trusting them blindly — all 4 were real. Two were code gaps `npx next build` had silently not caught: no `eslint.config.mjs` (lint couldn't run at all — confirmed by actually running it), and no PostCSS wiring for Tailwind v4 (`@tailwindcss/postcss` + `postcss.config.mjs` were missing, so Tailwind utility classes weren't being generated — confirmed by inspecting the build's CSS output before and after). Both fixed and re-verified. Two were internal contradictions in `docs/api-contracts.md`: the auth convention said "no route is exempt" while the health-check section (correctly) said otherwise, and the generic 5-endpoint resource table included `documents`, which has its own incompatible contract (multipart upload, no `PATCH`, hard delete). Both fixed by making the exemption/exclusion explicit at the point of the contradiction. CodeRabbit's comment on the same PR was a trigger/config notice only, nothing actionable.
 
-**In Progress:** Stage 1, task 1.2.
+**Task 1.2 unblocked — the Supabase MCP connector, not manual key-copying, ended up being the real path.** The owner created a real Supabase project (`qiiztjqzlrpffyyrjkss`, us-west-2, Postgres 17) and connected it via the official Supabase MCP connector. Once available, I applied all 6 migrations directly to the live project via `apply_migration` (the original 5, plus a hardening fix — next paragraph), confirmed via `list_tables` that all 13 tables exist with RLS enabled on every one, and fetched the project URL + anon key via MCP to write `.env.local` myself. `SUPABASE_SERVICE_ROLE_KEY` is the one value MCP deliberately doesn't expose (it's a secret, not meant to be handed to a general tool) — that's the one thing still needed from the owner to run `tests/integration/rls-tenant-isolation.test.ts` end-to-end.
 
-**Blocked:** Task 1.2 (create the real Supabase project) needs the owner — this is external account/billing provisioning I can't do on their behalf. Instructions are in `TASKS.md` under Stage 1. Once `.env.local` has real values, migrations get applied and the RLS test gets run for real.
+**Hardening found via Supabase's own security advisor, fixed immediately:** `current_company_id()` (the function every RLS policy depends on) was unintentionally reachable as a public REST endpoint, since Supabase auto-exposes every function in the `public` schema. Not an actual data leak (verified: anonymous callers get `null` back, authenticated callers only get their own already-known `company_id`), but needless attack surface for an RLS-internal helper. Fixed by moving it to a `private` schema (migration `00006`) — verified this didn't break the existing policies (Postgres tracks the function by OID, not by name) and re-ran the advisor: 0 findings, down from 2.
+
+**In Progress:** Waiting on `SUPABASE_SERVICE_ROLE_KEY` from the owner to close out task 1.5 and Stage 1 entirely.
+
+**Blocked:** Nothing hard-blocked — Stage 2 (Authentication) could reasonably start now that the schema is live, but finishing 1.5 first (the single most important test in the suite, per `docs/design/testing.md`) is the right order.
 
 **Next Tasks:**
-- Owner: create the Supabase project, populate `.env.local` (see `TASKS.md`).
-- Once unblocked: run `npm run db:migrate`, run the real RLS test suite, then move to Stage 2 (Authentication).
+- Owner: paste `SUPABASE_SERVICE_ROLE_KEY` (Settings → API in the Supabase dashboard) to finish `.env.local`.
+- Once that's in: run the real RLS test suite end-to-end, then move to Stage 2 (Authentication).
 
 **Known Issues:** None. The Phase 12 scaffold is no longer unbuilt/uninstalled — `npm install` has run, `next build` passes.
 
