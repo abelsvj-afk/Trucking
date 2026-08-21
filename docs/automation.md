@@ -16,8 +16,8 @@ None needed for individual runs — that's the point of the distinction above. A
 
 The scheduled job runs under its own scoped service credential — not a human user's session, since no human is present when it fires. That credential is deliberately narrow (least-privilege, per `docs/governance.md`):
 
-- Read access to whatever sources `services/integrations` exposes for this capability — nothing else.
-- Write access to `industry_briefings` only (per `docs/schemas.md`) — no access to any other table, not even read access to trucks/loads/expenses/etc. This capability has no legitimate reason to see the operator's business data, so it isn't given the ability to.
+- Read access to whatever sources `services/integrations` exposes for this capability — nothing else. Also reads its own `ai_capability_settings` row and `companies.ai_globally_disabled` (per `docs/governance.md`'s revocation requirement) to check whether it's actually allowed to run.
+- Write access to `industry_briefings` and `industry_briefing_runs` only (per `docs/schemas.md`) — the latter added so a **failed** run (which produces no briefing row at all, per Failure recovery below) still has somewhere to log to for the consecutive-failure escalation this same document requires. Both tables exist for this one capability and nothing else; no access to trucks/loads/expenses/customers/brokers/documents or any other operator business data, not even read access. This capability has no legitimate reason to see the operator's business data, so it isn't given the ability to.
 - No access to `services/db`'s write paths for any other resource, and no path to `services/api`'s user-facing write endpoints at all.
 
 ## Audit trail

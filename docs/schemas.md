@@ -186,6 +186,45 @@ Added in Phase 10 (`docs/automation.md`) for the industry-intelligence engine �
 | generated_at | timestamptz | no | when the scheduled run produced this |
 | dismissed_at | timestamptz | yes | set when the owner dismisses it — this capability's equivalent of the standard soft-delete convention (`dismissed_at` reads better than `deleted_at` for a briefing, but behaves the same: excluded from the active list, never physically erased) |
 
+## industry_briefing_runs
+
+Added alongside `industry_briefings` (Stage 4, `docs/automation.md` task 4.7). A successful run is fully represented by the `industry_briefings` row it produces — but a **failed** run produces no briefing at all (per `docs/automation.md`'s Failure recovery: never a partial one), so there'd be nothing to check consecutive failures against without a separate log. This table is that log: one row per run attempt, success or failure, per `docs/automation.md`'s Audit trail requirement ("every run logs... a failed run logs the failure and why — never just silence").
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | same tenant-scoping caveat as `industry_briefings` above |
+| started_at | timestamptz | no | |
+| finished_at | timestamptz | yes | null only if the process crashed mid-run without reaching its own error handler |
+| status | text | no | `success` \| `failure` |
+| error_message | text | yes | set only when `status = 'failure'`; server-side diagnostic detail only — never shown raw to the owner, per `CLAUDE.md`'s centralized error handling |
+| briefing_id | uuid | yes | references `industry_briefings.id`; set only on `success` |
+| created_at | timestamptz | no | |
+
+No `deleted_at`/soft-delete — like `documents`, this is a deliberate deviation from the global convention: a run log is an immutable record of what happened, not a business record anyone edits or removes.
+
+## ai_capability_settings
+
+Added alongside `industry_briefings` (Stage 4, `docs/governance.md`'s per-capability revocation requirement). One row per company per capability; a capability with no row is treated as off (fails closed, per `CLAUDE.md`).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| capability | text | no | e.g. `industry_intelligence`; one value per capability as each is built |
+| enabled | boolean | no | defaults `false` — every capability ships off, per `docs/governance.md` |
+| updated_at | timestamptz | no | |
+
+No `created_at`/`deleted_at`: this is toggled in place (upserted on `(company_id, capability)`), not a record with its own lifecycle.
+
+## companies — one addition
+
+`docs/governance.md`'s **global** kill switch (distinct from any per-capability switch above) is a single column on `companies`, since it revokes *all* AI authority for that company at once regardless of what capabilities exist:
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| ai_globally_disabled | boolean | no | defaults `false`. When `true`, every capability's scheduler/trigger must refuse to run, full stop — checked before any per-capability switch |
+
 ## Financial summary
 
 Not a stored table. It's computed on read from `loads` (status `confirmed`/`completed`) and `expenses`/`fuel_purchases`/`maintenance_events` within a date range — see `docs/api-contracts.md`'s `/financial-summary` endpoint. No dedicated table exists yet because there's no real performance reason for one (matches the "no caching yet" decision in `docs/architecture.md`) — revisit only if computing it live actually becomes slow.
