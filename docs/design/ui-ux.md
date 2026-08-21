@@ -50,10 +50,17 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 **The screens above are the MVP only — not the final set.** This document does not yet include, because each depends on a capability that hasn't had its own requirements/architecture pass yet (per `docs/requirements.md`'s "Future phases" and `docs/vision.md`'s "Future features"):
 
 - **Fuel route** — an interactive map showing the optimized route/fuel stop, not just a number. You've been explicit this needs real visual treatment, not a data table; it gets designed once Fuel Intelligence has its own architecture (including picking a mapping/routing library, which is a real dependency decision per `CLAUDE.md`'s Dependency Rule).
-- **Load recommendation ("take this load")** — the decision engine's approval-workflow card described under Workflows below, once that engine exists.
+- **Load recommendation ("take this load")** — the decision engine's approval-workflow card described under Workflows below, once that engine exists. A visual sketch of the card exists in Figma (see "Figma" below) — that's exploratory design work, not a spec, and doesn't substitute for the decision engine's own Requirements → Architecture pass before any code gets written against it.
 - **Home-time planner**, **parking network map**, **load-board search/integration view**, and **advanced financial reporting** (trends, margin over time, fleet-expansion readiness) — each tied to its own future engine in `docs/vision.md`.
 
 *(The industry intelligence briefing screen moved out of this list and into the More section above once Stage 4 actually designed and built it — this list is "not yet designed," not "designed but not linked here.")*
+
+## Figma
+
+A Figma file (["Trucking OS"](https://www.figma.com/design/2ADG0k1cQ2lZlf4TjAolhm)) exists alongside this document once the Figma MCP connector became available, per the "Visual design system" section's original note that nothing here was Figma-incompatible if that changed. It holds two things, kept deliberately separate:
+
+- **A small component library bound to this document's real design tokens** (`Button/Primary`, `Button/Secondary`, `Button/Danger-Outline`, `Field/Text`, `Badge/Status`, `Badge/Confidence-High`) — Figma variables mirroring `src/app/globals.css`'s `@theme` values exactly (same hex codes, same 44px touch target, same 8px radius), not redrawn from memory. `Screen/Login` reassembles the real `/login` screen from these components as a check that the mapping holds — verified by screenshotting both side by side, not just by eye.
+- **`Card/Load-Recommendation-Approval`** — a forward design for the Workflows section's "Approval (Level 2+ AI)" card above, sketched now so the shape exists before the decision engine's own spec work starts. Explicit Approve/Modify/Reject actions (never auto-applied, per `docs/governance.md`), reasoning shown in full, and a `based_on` line — matching the output contract's fields exactly (`docs/design/ai-architecture.md`). This is early design exploration, not itself a substitute for that engine's Requirements/Architecture phases — nothing here authorizes writing code against it yet.
 
 None of these are being skipped — they're sequenced. Each shows up in this document once its own Requirements → Architecture → Detailed Design pass happens, the same path every MVP screen above already went through. If a screen you're expecting isn't in this list either, say so — this list should stay a complete map of "known future work," not just what happens to come up.
 
