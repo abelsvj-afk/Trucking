@@ -23,23 +23,37 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
 
-    const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    // A real bug this try/catch fixes: with no error handling here,
+    // createClient() throwing (e.g. a missing/misconfigured
+    // NEXT_PUBLIC_SUPABASE_* value - createBrowserClient rejects an
+    // invalid URL synchronously) or signInWithPassword rejecting instead
+    // of resolving with an .error field both left this async function
+    // never reaching setSubmitting(false) - the button stayed disabled
+    // ("Signing in…") forever with no feedback, and the request may
+    // never even have reached Supabase. Silent hangs like that are
+    // exactly what CLAUDE.md's "silent failures are prohibited" rule
+    // and docs/design/ui-ux.md's Errors section exist to prevent.
+    try {
+      const supabase = createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setSubmitting(false);
+      if (signInError) {
+        // Never surface the raw provider error, per docs/design/ui-ux.md's
+        // Errors section - a plain, actionable message instead.
+        setError("Couldn't sign in. Check your email and password and try again.");
+        return;
+      }
 
-    if (signInError) {
-      // Never surface the raw provider error, per docs/design/ui-ux.md's
-      // Errors section - a plain, actionable message instead.
-      setError("Couldn't sign in. Check your email and password and try again.");
-      return;
+      router.push("/");
+      router.refresh();
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
     }
-
-    router.push("/");
-    router.refresh();
   }
 
   return (
