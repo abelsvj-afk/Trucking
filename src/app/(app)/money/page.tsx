@@ -14,6 +14,9 @@ export default function MoneyPage() {
         <li>
           <Link href="/money/fuel-purchases">Fuel purchases</Link>
         </li>
+        <li>
+          <Link href="/money/summary">Summary</Link>
+        </li>
       </ul>
     </div>
   );

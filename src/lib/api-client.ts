@@ -2,6 +2,8 @@
 // screen state (loading/empty/populated/error, per docs/design/ui-ux.md)
 // is driven off what this returns, not ad hoc per-screen fetch logic.
 
+import type { FinancialSummary } from "@/types/financial-summary";
+
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
@@ -82,4 +84,10 @@ export const apiClient = {
     return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
   },
   removeDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
+  // Computed, read-only (docs/api-contracts.md) - omit params for the
+  // server's current-calendar-month default.
+  financialSummary: (params?: { from: string; to: string }) => {
+    const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
+    return request<FinancialSummary>(`/api/v1/financial-summary${qs}`);
+  },
 };

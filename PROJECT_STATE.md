@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 10 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events, documents), financial summary next.
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 11 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events, documents, financial summary), navigation/accessibility polish pass next — the last Stage 3 task.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -80,16 +80,23 @@ Caught a real `react-hooks/set-state-in-effect` violation via `npx eslint .` bef
 
 Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (69/69 passing, including 8 new document-route tests with a Storage-aware Supabase mock), `npx next build` (all routes present, including `/more/documents` and both `/api/v1/documents` routes) all clean.
 
-**In Progress:** Stage 3, task 3.11 (financial summary) next.
+**Task 3.11 (financial summary) done.** Closed a real spec gap before writing any code, per `CLAUDE.md`'s spec-first rule: `docs/api-contracts.md` never said which load date places a load within a requested range, so a clarifying sentence was added there first — `delivery_date`, falling back to `pickup_date` if unset; a confirmed/completed load with neither is excluded. `draft`-load exclusion is enforced at the query level (`.in("status", ["confirmed","completed"])`), not reconstructed in app code. Caught a real correctness edge case before shipping: `fuel_purchases.purchased_at` is a `timestamptz`, not a plain `date`, so a naive `lte(to)` would silently exclude purchases made later in the day on the end date — fixed with an exclusive day-after upper bound instead.
+
+New shared `lib/use-financial-summary.ts` hook (same loading/error/loaded shape and effect discipline as `use-api-list.ts` — setState only inside `.then()`/`.catch()`) powers both the Home snapshot (no params, so the server's current-month default applies) and the new `Money > Summary` screen (an explicit date-range picker, full revenue/expenses/fuel/maintenance/net breakdown).
+
+Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (75/75 passing, including 6 new tests covering the date-fallback/exclusion logic and the aggregation math), `npx next build` (all routes present) all clean.
+
+**In Progress:** Stage 3, task 3.12 (navigation shell + shared states + accessibility pass) next — the last Stage 3 task.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Stage 3 tasks 3.11 onward: financial summary (computed endpoint + Home snapshot + Money > Summary screen — correct revenue/expense/net for a date range, excluding `draft` loads, per `docs/api-contracts.md`'s `/financial-summary`), then the navigation/accessibility polish pass (3.12).
+- Stage 3 task 3.12: verify the bottom-tab nav matches `docs/design/ui-ux.md`, confirm all four screen states (loading/empty/populated/error) are implemented as shared components everywhere they're needed, and run a real WCAG 2.1 AA pass across every Stage 3 screen — not just a lint pass, an actual accessibility check per `CLAUDE.md`'s verification discipline.
+- After Stage 3 closes: Stage 4 (industry intelligence engine), Stage 5 (Hardening — cross-cutting RLS/e2e/security review), Stage 6 (Deployment), per `ROADMAP.md`.
 - **Owner login:** the owner's real Supabase Auth account (created via Supabase Dashboard, `abelsvj@gmail.com`) was linked to a new `companies` + `user_profiles` row via Supabase MCP `execute_sql` earlier this session, using a placeholder company name ("My Trucking Company") since the real name wasn't provided yet — renamable via SQL later. The Supabase MCP connector's auth has fluctuated during this session (disconnected/reconnected); **re-verify this link is still live via `list_tables`/`execute_sql` the next time the connector is available**, before relying on it for end-to-end testing or deployment.
 
 **Known Issues:** The `Dockerfile`/`fly.toml` port-mismatch and VM-memory fixes are unverified by an actual `docker build` — this sandbox has no privileged Docker daemon access. Verify with a real `fly deploy` before considering Fly.io hosting done. Also, note for future sessions in this same sandboxed environment: direct outbound HTTPS to `*.supabase.co` is blocked by org egress policy here — any test or script that calls Supabase directly (not through the MCP connector) will need to run somewhere else (CI, the owner's machine) to actually execute, even though it's correct.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.10 done; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.11 done; hosting pivoted to Fly.io)
