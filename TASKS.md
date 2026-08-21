@@ -37,11 +37,11 @@ Task sizing follows `CLAUDE.md`'s existing pattern for file/function size: "unde
 
 Each row is one task: `services/db` functions, validation (`docs/design/data-model.md`), the `/api/v1/...` routes (`docs/api-contracts.md`), and the actual screens (`docs/design/ui-ux.md`) — together, per `CLAUDE.md`.
 
-| ID | Task | Depends on | Acceptance criteria |
-|---|---|---|---|
-| 3.1 | Trucks: backend + Fleet screens | 2.2 | Full CRUD reachable from the app; loading/empty/error states present |
-| 3.2 | Trailers: backend + Fleet screens | 2.2 | Same pattern as 3.1 |
-| 3.3 | Drivers: backend + Fleet screens (incl. `assigned_truck_id`) | 3.1 | Same pattern; assigning a driver to a truck works end-to-end |
+| ID | Task | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|
+| 3.1 | Trucks: backend + Fleet screens | 2.2 | Full CRUD reachable from the app; loading/empty/error states present | ✅ Done. Built the **shared CRUD infrastructure** here rather than duplicating per entity: `services/db/crud.ts` (generic list/get/create/update/soft-delete over RLS), `services/api/crud-routes.ts` (wires it to `createApiHandler` + Zod validation — every entity's `route.ts` is ~10 lines), `lib/use-api-list.ts` (shared list-fetch hook), `components/ListStates.tsx` (loading/empty/error), and the `(app)` route group with the real bottom-tab nav shell from `docs/design/ui-ux.md`. Also renamed `middleware.ts` → `proxy.ts` (Next.js 16 deprecated the old convention — caught by the build's own warning, verified against nextjs.org before renaming) and fixed a real `react-hooks/set-state-in-effect` lint finding by restructuring the fetch pattern (now the shared hook every list screen uses). |
+| 3.2 | Trailers: backend + Fleet screens | 2.2 | Same pattern as 3.1 | ✅ Done — same shared infrastructure, ~5 files |
+| 3.3 | Drivers: backend + Fleet screens (incl. `assigned_truck_id`) | 3.1 | Same pattern; assigning a driver to a truck works end-to-end | ✅ Done — includes a real truck-picker dropdown (fetched from `/api/v1/trucks`), not a raw UUID text field, per `CLAUDE.md`'s "must be genuinely usable" rule |
 | 3.4 | Customers: backend + More screens | 2.2 | Same pattern as 3.1 |
 | 3.5 | Brokers: backend + More screens | 2.2 | Same pattern as 3.1 |
 | 3.6 | Loads: backend (incl. `draft`/`confirmed`/`completed`, date-order validation) + Loads screens (incl. Draft badge, status filter) | 3.1, 3.3, 3.4, 3.5 | A load can be saved incomplete (stays `draft`, visibly badged) and completed later |

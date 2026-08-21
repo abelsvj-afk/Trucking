@@ -21,11 +21,8 @@ src/
 │   └── api/              — empty; routes get added per docs/api-contracts.md as
 │                            Phase 15 tasks build them, including the internal
 │                            cron-trigger route from docs/runtime.md
-├── components/            — empty; shared UI, per docs/architecture.md
-├── features/               — empty; per-entity UI/logic (trucks, loads, expenses, ...).
-│                              No per-entity subfolders yet — those get created when
-│                              each entity's own Phase 14 task starts, not scaffolded
-│                              in advance for entities with no task yet.
+├── components/            — shared UI (e.g. ListStates.tsx), per docs/architecture.md
+├── features/               — still empty as of Stage 3 (see note below)
 ├── services/
 │   ├── db/                 — empty; spec already exists in docs/service-specs.md
 │   ├── auth/                — empty; spec in docs/service-specs.md
@@ -71,6 +68,12 @@ All are established, actively maintained, widely used packages — satisfies the
 - **No feature code, no route handlers — not even `/api/v1/health`.** Every one of those is real implementation work with its own acceptance criteria; per the workflow doc's master rule, that belongs to Phase 14 (Tasks) and Phase 15 (Implementation), not to a phase about structure.
 - **No `GEMINI.md` or `ARCHITECT.md`**, despite appearing in the workflow doc's illustrative minimum structure. `CLAUDE.md` already serves the AI-assistant-guidance role this project actually needs, and there's no separate Gemini-based agent or distinct "Architect" role in use here — adding those files would be following the template literally instead of what `docs/architecture.md`'s "repository structure follows architecture, not imagination" rule actually asks for.
 - **No `CHANGELOG.md`, `ROADMAP.md`, or `TASKS.md` yet.** `ROADMAP.md` and `TASKS.md` are named deliverables of Phases 13 and 14, which come next — creating them now would be jumping ahead. `CHANGELOG.md` starts meaning something once there's a real released change to log; an empty stub today would just be speculative scaffolding.
+
+---
+
+## Update from Stage 3 (Phase 15): `features/` stayed empty, and that's a real decision
+
+As Stage 3 built out trucks, trailers, and drivers, entity work landed in `app/(app)/fleet/...` (routing, following Next.js App Router's own convention), `data/schemas/` (validation), and shared `services/db`/`services/api` CRUD infrastructure — not in a per-entity `features/` folder as this document originally sketched. This isn't an oversight: for CRUD-shaped entities with no logic beyond "validate, store, list, edit," there's no distinct feature-specific concern left over that doesn't already have a home in one of those three places. `features/` remains reserved, per `docs/architecture.md`, for whichever future entity actually needs client-side business logic substantial enough to warrant its own module (a candidate: the load-profitability calculations in `docs/vision.md`'s future scope) — not populated speculatively now that a plausible reason not to use it exists.
 
 ---
 

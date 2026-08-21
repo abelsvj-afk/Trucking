@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 2 (Authentication) — **complete**. Next: Stage 3 (Core functionality).
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: trucks/trailers/drivers done (3.1–3.3 of 12), customers next.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -42,16 +42,22 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 **Stage 2 (Authentication) done:** `services/auth` (`src/services/auth/index.ts`) resolves `{userId, companyId, role}` from the session, using `getUser()` rather than `getSession()` so it revalidates against Supabase Auth's server instead of trusting a locally-decoded cookie — fails closed on a missing session or an orphaned `user_profiles` row. `services/api`'s shared pipeline (`src/services/api/handler.ts`) wraps every future business route: auth check first, centralized error formatting matching `docs/api-contracts.md` exactly, never a leaked raw exception. `src/middleware.ts` handles session-cookie refresh and redirects (unauthenticated → `/login`, authenticated away from `/login`) — the standard Supabase/Next.js SSR pattern. Login screen is a real, working sign-in form (no signup link, per the single-admin model in `docs/governance.md`). `GET /api/v1/health` is live and unauthenticated, confirmed in the build's route list. The auth-required test suite (3 tests) verifies the pipeline mechanism itself rather than a specific route, since Stage 3 hasn't built any business routes yet — every one of those will inherit this automatically by using `createApiHandler`. Also fixed a recurring Vite config warning by adding `"type": "module"` to `package.json` and switching `vitest.config.ts` to `import.meta.dirname`. Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (3/3), `npx next build` all clean.
 
-**In Progress:** Nothing — Stage 2 is done.
+**Stage 3 (Core functionality) started — trucks, trailers, drivers (3.1–3.3) done.** Rather than duplicating CRUD logic 9 times across every MVP entity, built shared infrastructure once with trucks as the worked example: `services/db/crud.ts` (generic list/get/create/update/soft-delete, tenant isolation always via RLS + the session-scoped client, never the service-role key), `services/api/crud-routes.ts` (wires that to `createApiHandler` + per-entity Zod validation — each entity's actual route files are ~10 lines), `lib/use-api-list.ts` + `components/ListStates.tsx` (shared list-fetch hook and loading/empty/error UI), and the `(app)` route group with the real bottom-tab navigation shell from `docs/design/ui-ux.md`. Trailers and drivers then took a fraction of the effort using the same pattern — drivers includes a real truck-assignment dropdown (fetched live from `/api/v1/trucks`), not a raw UUID field.
+
+Two real things caught and fixed along the way, not glossed over: Next.js 16 deprecated `middleware.ts` in favor of `proxy.ts` (caught via the build's own deprecation warning, verified against the official nextjs.org docs before renaming rather than guessing); and a genuine `react-hooks/set-state-in-effect` lint finding, fixed by restructuring the list-fetch pattern so state only updates inside the async `.then()`/`.catch()`, never synchronously in the effect body — now baked into the shared hook every list screen uses, so it can't recur per-entity.
+
+Full verification after 3.1–3.3: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (20/20 passing), `npx next build` (16 routes) all clean.
+
+**In Progress:** Stage 3, task 3.4 (customers) next.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Stage 3 (Core functionality) — `TASKS.md` tasks 3.1 onward: trucks, trailers, and drivers first (no dependencies on other MVP entities), then customers/brokers, then loads, then expenses/fuel/maintenance, then documents, then the financial summary, then the navigation shell + accessibility pass. Each task ships backend and screens together, per `CLAUDE.md`.
-- Practical note for the actual owner login: no real account exists yet in Supabase Auth (only throwaway test users that were created and cleaned up during Stage 1's live RLS verification). One needs to be provisioned before the login screen is actually usable end-to-end — worth doing early in Stage 3.
+- Stage 3 tasks 3.4 onward: customers/brokers, then loads, then expenses/fuel/maintenance, then documents, then the financial summary, then the navigation/accessibility polish pass (3.12).
+- **Still waiting on the owner**: create a real account via Supabase Dashboard → Authentication → Users (self-set password or an emailed invite — never through this session), then share the email used so a `companies`/`user_profiles` row can be linked to it. No real login exists yet — only throwaway test users created and cleaned up during Stage 1's live RLS verification. The login screen and every entity screen are structurally complete and correct but can't be exercised end-to-end as a real user until this happens.
 
 **Known Issues:** None. Note for future sessions in this same sandboxed environment: direct outbound HTTPS to `*.supabase.co` is blocked by org egress policy here — any test or script that calls Supabase directly (not through the MCP connector) will need to run somewhere else (CI, the owner's machine) to actually execute, even though it's correct.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 2 complete)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.3 done)

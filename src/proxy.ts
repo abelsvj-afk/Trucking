@@ -1,16 +1,20 @@
-// Task 2.1/2.3 (TASKS.md). Two jobs, per Supabase's standard Next.js SSR
-// pattern: (1) revalidate and refresh the session cookie on every request,
-// so a long-lived browser session doesn't silently expire mid-use, and
-// (2) redirect unauthenticated requests to /login for protected paths.
-// This is session refresh, not the per-route auth check - that's
-// services/api/handler.ts, which every business route still goes through.
+// Task 2.1/2.3 (TASKS.md). Next.js 16 renamed the middleware.ts file
+// convention to proxy.ts (confirmed via nextjs.org/docs/messages/middleware-to-proxy
+// rather than assumed from the build's deprecation warning alone). Two
+// jobs, per Supabase's standard Next.js SSR pattern: (1) revalidate and
+// refresh the session cookie on every request, so a long-lived browser
+// session doesn't silently expire mid-use, and (2) redirect unauthenticated
+// requests to /login for protected paths - an "optimistic check" per
+// Next.js's own guidance for this layer. This is NOT the authoritative
+// auth check - that's services/auth + services/api/handler.ts, which every
+// business route still goes through regardless of what this file does.
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/api/v1/health"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
