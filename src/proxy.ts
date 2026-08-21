@@ -12,7 +12,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/v1/health"];
+// /api/internal/* (the industry-intelligence manual-trigger debug route,
+// docs/runtime.md) is deliberately public here too - it has no user
+// session to check against (an unattended job's own credential, not a
+// browser login), and enforces its own secret-header check instead
+// (INDUSTRY_BRIEFING_CRON_SECRET), same as /api/v1/health being safely
+// public because it does nothing sensitive.
+const PUBLIC_PATHS = ["/login", "/api/v1/health", "/api/internal"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
