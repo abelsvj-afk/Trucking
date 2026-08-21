@@ -20,6 +20,23 @@ const relatedEntityIdSchema = z.string().uuid();
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 5 * 60;
 
+// Task 5.3 (Stage 5 security review) - a real gap found and fixed:
+// docs/design/security.md's threat model already promised content-type
+// validation here, but this route only ever checked size. An allowlist
+// matching this document's actual use case (scans/photos of paperwork),
+// checked against the client-declared content-type - not byte-level
+// signature sniffing, a deliberate simplicity tradeoff documented in
+// docs/design/security.md given this app's real risk level (single
+// authenticated admin, files never executed).
+const ALLOWED_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
 export const POST = createApiHandler(async (req, ctx) => {
   const formData = await req.formData();
   const file = formData.get("file");
@@ -30,6 +47,9 @@ export const POST = createApiHandler(async (req, ctx) => {
   if (!(file instanceof File)) throw validationError("file is required.");
   if (file.size === 0) throw validationError("file must not be empty.");
   if (file.size > MAX_FILE_BYTES) throw validationError("file exceeds the 25MB limit.");
+  if (!ALLOWED_CONTENT_TYPES.has(file.type)) {
+    throw validationError("file must be a PDF or an image (JPEG, PNG, WebP, HEIC).");
+  }
 
   const typeResult = relatedEntityTypeSchema.safeParse(relatedEntityTypeRaw);
   if (!typeResult.success) {
@@ -51,7 +71,17 @@ export const POST = createApiHandler(async (req, ctx) => {
   const { error: uploadError } = await supabase.storage
     .from("documents")
     .upload(storagePath, file, { contentType: file.type || undefined });
-  if (uploadError) throw validationError(`Upload failed: ${uploadError.message}`);
+  if (uploadError) {
+    // Task 5.3 (Stage 5 security review) - a real gap found and fixed:
+    // this used to throw validationError(`Upload failed: ${uploadError.message}`),
+    // which put the raw Storage provider error straight into the client
+    // response. A failed upload isn't the caller's fault either (this
+    // wasn't really a validation error), and CLAUDE.md/docs/design/ui-ux.md
+    // are explicit that raw exception text is never surfaced to the user -
+    // a plain Error here gets createApiHandler's generic "unexpected error"
+    // treatment instead, with the real detail only in the server log.
+    throw new Error(`Document upload to Storage failed: ${uploadError.message}`);
+  }
 
   const { data: row, error: insertError } = await supabase
     .from("documents")

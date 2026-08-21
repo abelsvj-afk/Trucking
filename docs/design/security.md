@@ -14,12 +14,12 @@ Postgres row-level security (RLS), not application-level filtering, is the actua
 
 Per `CLAUDE.md`: no secret is ever committed. Concretely:
 - Supabase's anon key (safe for the client — RLS is what actually protects data, not key secrecy) lives in a public env var; the service-role key (which bypasses RLS) is used only in trusted server-side code, never sent to the browser, and only where a route genuinely needs elevated access.
-- All keys/credentials are documented with placeholders in `.env.example`, real values only in the deployment platform's (Vercel/Supabase) environment configuration.
+- All keys/credentials are documented with placeholders in `.env.example`, real values only in the deployment platform's (Fly.io secrets/Supabase) configuration — updated from an original Vercel assumption when hosting moved to Fly.io during Stage 3 (`docs/architecture.md`).
 
 ## Encryption
 
 - **At rest:** handled by Supabase's managed Postgres (encrypted by the provider) — not something this project builds custom crypto for, per the Dependency Rule's "don't build what a vetted provider already does correctly."
-- **In transit:** HTTPS everywhere, enforced by Vercel and Supabase by default; no plain-HTTP path exists.
+- **In transit:** HTTPS everywhere, enforced by Fly.io and Supabase by default (`fly.toml`'s `force_https`); no plain-HTTP path exists.
 
 ## Data isolation
 
@@ -33,7 +33,7 @@ Covered concretely by Authorization above (RLS + `company_id`) — restated here
 | Stolen/leaked session | HTTP-only secure cookies via Supabase Auth; no custom session handling to get wrong |
 | Malformed or malicious API input | Every write validated against `docs/schemas.md` before touching the database, per `docs/api-contracts.md`; parameterized queries only — no hand-built SQL, so standard injection doesn't apply |
 | Secrets leaking via logs, commits, or error responses | `.env.example` + platform-managed env vars; centralized error handling that never echoes internals (per `CLAUDE.md`) |
-| Malicious file upload (`documents`) | File type and size validated server-side before storage; files stored in Supabase Storage under a `company_id`-scoped path, never executed, served only via short-lived signed URLs — never a public bucket |
+| Malicious file upload (`documents`) | Size (25MB max) and declared content-type (an allowlist of PDF/image types appropriate for scanned paperwork) validated server-side before storage; files stored in Supabase Storage under a `company_id`-scoped path, never executed, served only via short-lived signed URLs — never a public bucket. Declared content-type, not byte-level signature sniffing — a deliberate simplicity tradeoff at this app's actual risk level (single authenticated admin, no anonymous write surface, files never executed or served as static assets), not an oversight; revisit if the threat model ever changes (e.g. multiple untrusted users) |
 | Future: prompt injection via untrusted external content (broker messages, load-board data, once integrations exist) | Already bounded structurally in `docs/architecture.md` — the AI layer can only read via `services/db`/`services/ai`, and per `docs/governance.md` it can never execute a restricted action regardless of what it's told by external content |
 | Brute-force login attempts | Handled by Supabase Auth's built-in rate limiting on auth endpoints — not reimplemented here |
 

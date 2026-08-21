@@ -74,11 +74,57 @@ describe("POST /api/v1/documents", () => {
     expect((await res.json()).error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("rejects a file with a disallowed content-type", async () => {
+    vi.mocked(createClient).mockResolvedValue(mockSupabase({}) as never);
+    const res = await POST(
+      formDataRequest({
+        file: new File(["#!/bin/sh"], "script.sh", { type: "application/x-sh" }),
+        related_entity_type: "truck",
+        related_entity_id: VALID_ENTITY_ID,
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("accepts every allowed content-type", async () => {
+    for (const type of ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]) {
+      vi.mocked(createClient).mockResolvedValue(
+        mockSupabase({ queryResult: { data: { id: "doc-1" } } }) as never,
+      );
+      const res = await POST(
+        formDataRequest({
+          file: new File(["x"], "f", { type }),
+          related_entity_type: "truck",
+          related_entity_id: VALID_ENTITY_ID,
+        }),
+      );
+      expect(res.status).toBe(201);
+    }
+  });
+
+  it("500s with a generic message (not the raw Storage error) when the upload fails", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ uploadError: { message: "internal bucket path leaked here" } }) as never,
+    );
+    const res = await POST(
+      formDataRequest({
+        file: new File(["hello"], "bol.pdf", { type: "application/pdf" }),
+        related_entity_type: "truck",
+        related_entity_id: VALID_ENTITY_ID,
+      }),
+    );
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(body.error.message).not.toContain("internal bucket path leaked here");
+  });
+
   it("rejects an invalid related_entity_type", async () => {
     vi.mocked(createClient).mockResolvedValue(mockSupabase({}) as never);
     const res = await POST(
       formDataRequest({
-        file: new File(["hello"], "bol.pdf"),
+        file: new File(["hello"], "bol.pdf", { type: "application/pdf" }),
         related_entity_type: "invoice",
         related_entity_id: VALID_ENTITY_ID,
       }),
@@ -89,7 +135,7 @@ describe("POST /api/v1/documents", () => {
   it("rejects a missing related_entity_id", async () => {
     vi.mocked(createClient).mockResolvedValue(mockSupabase({}) as never);
     const res = await POST(
-      formDataRequest({ file: new File(["hello"], "bol.pdf"), related_entity_type: "truck" }),
+      formDataRequest({ file: new File(["hello"], "bol.pdf", { type: "application/pdf" }), related_entity_type: "truck" }),
     );
     expect(res.status).toBe(400);
   });
@@ -111,7 +157,7 @@ describe("POST /api/v1/documents", () => {
 
     const res = await POST(
       formDataRequest({
-        file: new File(["hello"], "bol.pdf"),
+        file: new File(["hello"], "bol.pdf", { type: "application/pdf" }),
         related_entity_type: "truck",
         related_entity_id: VALID_ENTITY_ID,
       }),
