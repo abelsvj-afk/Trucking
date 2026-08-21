@@ -16,13 +16,19 @@ vi.mock("@/services/auth", () => ({
   }),
 }));
 
-function mockSupabase(result: { data?: unknown; error?: unknown; count?: number }) {
+function mockSupabase(
+  result: { data?: unknown; error?: unknown; count?: number },
+  eqCalls?: Array<[string, unknown]>,
+) {
   const builder: Record<string, unknown> & { then: (resolve: (v: unknown) => void) => void } = {
     select: () => builder,
     is: () => builder,
     order: () => builder,
     range: () => builder,
-    eq: () => builder,
+    eq: (key: string, value: unknown) => {
+      eqCalls?.push([key, value]);
+      return builder;
+    },
     insert: () => builder,
     update: () => builder,
     single: () => builder,
@@ -114,5 +120,29 @@ describe("createCrudRoutes", () => {
     });
 
     expect(res.status).toBe(204);
+  });
+
+  it("list: applies a filterableFields query param as an exact-match filter, per docs/api-contracts.md's loads ?status= support", async () => {
+    const eqCalls: Array<[string, unknown]> = [];
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ data: [], count: 0 }, eqCalls) as never,
+    );
+    const routes = createCrudRoutes<TestRow>("things", schemas, { filterableFields: ["status"] });
+
+    await routes.list(new NextRequest("http://localhost/api/v1/things?status=draft"));
+
+    expect(eqCalls).toContainEqual(["status", "draft"]);
+  });
+
+  it("list: ignores query params not declared in filterableFields", async () => {
+    const eqCalls: Array<[string, unknown]> = [];
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ data: [], count: 0 }, eqCalls) as never,
+    );
+    const routes = createCrudRoutes<TestRow>("things", schemas); // no filterableFields
+
+    await routes.list(new NextRequest("http://localhost/api/v1/things?status=draft"));
+
+    expect(eqCalls).toEqual([]);
   });
 });

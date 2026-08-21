@@ -15,8 +15,13 @@ import { createCrudService } from "@/services/db/crud";
 export function createCrudRoutes<Row extends { id: string }>(
   table: string,
   schemas: { create: z.ZodType<Record<string, unknown>>; update: z.ZodType<Record<string, unknown>> },
+  // Query-param names allowed as exact-match list filters, e.g. ["status"]
+  // for loads (docs/api-contracts.md). Empty by default - most entities
+  // don't need this.
+  options: { filterableFields?: string[] } = {},
 ) {
   const crud = createCrudService<Row>(table);
+  const filterableFields = options.filterableFields ?? [];
 
   const list = createApiHandler(async (req: NextRequest) => {
     const supabase = await createClient();
@@ -24,7 +29,13 @@ export function createCrudRoutes<Row extends { id: string }>(
     const limit = Number(url.searchParams.get("limit") ?? 50);
     const offset = Number(url.searchParams.get("offset") ?? 0);
 
-    const result = await crud.list(supabase, { limit, offset });
+    const filters: Record<string, string> = {};
+    for (const field of filterableFields) {
+      const value = url.searchParams.get(field);
+      if (value) filters[field] = value;
+    }
+
+    const result = await crud.list(supabase, { limit, offset, filters });
     return NextResponse.json({
       data: result.data,
       page: { limit: result.limit, offset: result.offset, total: result.total },

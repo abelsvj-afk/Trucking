@@ -13,6 +13,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export interface ListOptions {
   limit?: number;
   offset?: number;
+  // Exact-match filters, e.g. { status: "draft" } for loads
+  // (docs/api-contracts.md's "loads supports filtering the list endpoint
+  // by status"). Kept generic rather than loads-specific since any future
+  // entity might need the same thing.
+  filters?: Record<string, string>;
 }
 
 export interface ListResult<Row> {
@@ -31,10 +36,16 @@ export function createCrudService<Row extends { id: string }>(table: string) {
       const limit = options.limit ?? 50;
       const offset = options.offset ?? 0;
 
-      const { data, error, count } = await supabase
+      let query = supabase
         .from(table)
         .select("*", { count: "exact" })
-        .is("deleted_at", null)
+        .is("deleted_at", null);
+
+      for (const [key, value] of Object.entries(options.filters ?? {})) {
+        query = query.eq(key, value);
+      }
+
+      const { data, error, count } = await query
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
 

@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 5 of 12 tasks done (trucks, trailers, drivers, customers, brokers), loads next.
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 6 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads), expenses next.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -56,7 +56,11 @@ Also fixed two real bugs in the Fly.io auto-generated scaffold itself, found by 
 
 Note: the Figma MCP connector was added mid-session for future UI/UX work. Not used yet — every Stage 3 screen so far is intentionally bare markup, since `docs/design/ui-ux.md` defers visual styling to implementation time. Worth revisiting once there's a real visual-design pass to do (task 3.12's polish, or later).
 
-**In Progress:** Stage 3, task 3.6 (loads) next — the first entity with real business-rule validation (date ordering, `draft`/`confirmed`/`completed` status) beyond simple field checks.
+**Task 3.6 (loads) done.** The first entity needing a real business rule beyond field types: `delivery_date >= pickup_date`, enforced via a Zod `.refine()` shared between create and update. This grew the shared infrastructure rather than forking it — `services/db/crud.ts` gained an optional `filters` param, `services/api/crud-routes.ts` gained a `filterableFields` option (loads declares `["status"]`, implementing `docs/api-contracts.md`'s documented `?status=` filter), and `lib/use-api-list.ts` now accepts query params, so every future entity gets filtering for free if it needs it. New-load form has 4 relationship dropdowns (truck/driver/broker/customer) via a new shared `usePickerList` hook (also backfilled onto the driver form, replacing its one-off fetch), and converts a dollar rate input to `rate_cents` on submit. Caught a real TypeScript error before it went further — `as const` on the Zod refinement object made its `path` a readonly tuple, incompatible with Zod's mutable `PropertyKey[]` type; fixed and reverified via `npx tsc --noEmit`.
+
+Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (34/34 passing, including 2 new tests for the filter mechanism itself), `npx next build` (all routes present) all clean.
+
+**In Progress:** Stage 3, task 3.7 (expenses) next.
 
 **Blocked:** Nothing.
 
@@ -68,4 +72,4 @@ Note: the Figma MCP connector was added mid-session for future UI/UX work. Not u
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.5 done; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.6 done; hosting pivoted to Fly.io)

@@ -4,25 +4,19 @@
 // truck-assignment dropdown - a raw truck-ID text field would be
 // unusable, per CLAUDE.md's "must be genuinely usable" rule.
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { usePickerList } from "@/lib/use-picker-list";
 import type { Driver, Truck } from "@/types/entities";
 
 export default function NewDriverPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [assignedTruckId, setAssignedTruckId] = useState("");
-  const [trucks, setTrucks] = useState<Truck[]>([]);
+  const trucks = usePickerList<Truck>("trucks");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    apiClient
-      .list<Truck>("trucks", { limit: "200" })
-      .then((result) => setTrucks(result.data))
-      .catch(() => setTrucks([]));
-  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
