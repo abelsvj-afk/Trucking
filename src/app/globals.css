@@ -32,6 +32,7 @@ body {
   background-color: var(--color-surface-alt);
   color: var(--color-text);
   font-family: var(--font-sans);
+  margin: 0;
 }
 
 /* Minimum 44px touch target on every tappable control, per
@@ -40,4 +41,239 @@ body {
 button,
 a[role="button"] {
   min-height: 44px;
+}
+
+/*
+ * Base-element styles below apply the visual design system from
+ * docs/design/ui-ux.md's "Visual design system" section across every
+ * screen automatically, since every screen already uses the same plain
+ * semantic HTML (task 3.12's accessibility work) rather than a shared
+ * component library. A screen's look comes from the element it already
+ * uses, not from hand-tuned classes scattered per file.
+ */
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+
+h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.75rem;
+}
+
+a {
+  color: var(--color-primary);
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+}
+
+/* Every screen's top-level wrapper is a bare <main> (the app shell's
+   #main-content, or /login's own standalone <main> - it sits outside
+   the (app) route group and has no bottom nav to clear) - give it
+   consistent page padding instead of repeating it per screen. */
+body main {
+  display: block;
+  padding: 1rem;
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+/* Only the app shell's main needs room above the fixed bottom nav. */
+#main-content {
+  padding-bottom: calc(4.5rem + 1rem);
+}
+
+/* Buttons and button-styled links: the primary interactive surface. */
+button,
+a[role="button"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background-color: var(--color-primary);
+  color: white;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover,
+a[role="button"]:hover {
+  background-color: var(--color-primary-hover);
+}
+
+button:disabled {
+  background-color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Filter/toggle buttons (role="group" > button[aria-pressed]) read as a
+   secondary, outline style until pressed - a primary-colored button per
+   filter option would compete with the actual primary action on the
+   same screen (e.g. "Add load"). */
+[role="group"] button {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  font-weight: 500;
+}
+
+[role="group"] button[aria-pressed="true"] {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* Forms */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 1rem;
+}
+
+label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-top: 0.75rem;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+form button[type="submit"] {
+  margin-top: 1rem;
+  align-self: flex-start;
+}
+
+/* Field-level and banner errors (docs/design/ui-ux.md's Errors section) -
+   role="alert" is used for both the small inline validation message and
+   ListError's retry banner, so this covers both without extra markup. */
+[role="alert"] {
+  color: var(--color-danger);
+  font-weight: 500;
+}
+
+/* Loading/status text (ListStates' role="status") and empty-state text
+   read as secondary, not full-strength body text. */
+[role="status"] {
+  color: var(--color-text-muted);
+}
+
+/* Record lists (Loads, Fleet, Money, etc.) - not the primary nav, which
+   is scoped separately below so the two don't collide despite both
+   being <nav>/<ul>/<li>. */
+main ul {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+main li {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background-color: var(--color-surface);
+}
+
+main li strong {
+  color: var(--color-warning);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  margin-right: 0.375rem;
+}
+
+/* Skip link (WCAG 2.4.1, task 3.12) - present in the DOM for screen
+   readers/keyboard users at all times, but only visible once focused so
+   it doesn't sit as stray text above the nav for everyone else. */
+a[href="#main-content"] {
+  position: absolute;
+  top: -3rem;
+  left: 0.5rem;
+  z-index: 100;
+  background-color: var(--color-primary);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 0.5rem 0.5rem;
+  min-height: auto;
+}
+
+a[href="#main-content"]:focus {
+  top: 0;
+}
+
+/* Bottom tab nav (docs/design/ui-ux.md's Navigation section) - fixed,
+   elevated surface, distinct active-tab treatment beyond the
+   aria-current the accessibility pass already set. */
+nav[aria-label="Primary"] {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -2px 8px rgba(15, 23, 42, 0.06);
+}
+
+nav[aria-label="Primary"] ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+nav[aria-label="Primary"] li {
+  flex: 1;
+}
+
+nav[aria-label="Primary"] a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+nav[aria-label="Primary"] a[aria-current="page"] {
+  color: var(--color-primary);
+  font-weight: 700;
+  box-shadow: inset 0 2px 0 var(--color-primary);
 }
