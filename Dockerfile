@@ -41,7 +41,16 @@ FROM base
 COPY --from=build /app /app
 
 # Entrypoint sets up the container.
-ENTRYPOINT [ "/app/docker-entrypoint.js" ]
+#
+# .cjs, not .js: package.json has "type": "module" (added in Stage 2 to
+# silence a Vite config warning), which makes Node treat every .js file as
+# an ES module - and this Fly-generated entrypoint is CommonJS
+# (`require`). That mismatch crash-looped the container on every boot
+# ("ReferenceError: require is not defined in ES module scope"), so the
+# server never bound port 3000 and Fly had nothing to serve. Renaming to
+# .cjs opts this one file back into CommonJS without touching the rest of
+# the project's ESM setup.
+ENTRYPOINT [ "/app/docker-entrypoint.cjs" ]
 
 # Start the server by default, this can be overwritten at runtime
 EXPOSE 3000

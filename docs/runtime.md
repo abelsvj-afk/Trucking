@@ -17,7 +17,7 @@ Concretely: one Node process boots when the Fly.io machine starts, serves every 
 
 ## Startup behavior
 
-The container's entrypoint (`docker-entrypoint.js`) prerenders static pages (`next build --experimental-build-mode generate`) before starting the server (`npm run start`) — a real, if minimal, startup sequence now, unlike the serverless model this document originally assumed. Nothing else needs to initialize eagerly: Supabase clients are still created per-request (`src/services/db/server.ts`/`client.ts`), not held as a long-lived singleton, so a request right after boot behaves the same as one an hour later. There's still no in-memory cache to warm, per `docs/architecture.md`'s caching decision — that decision was justified independently of the runtime model and doesn't need revisiting just because a persistent process could now technically hold one.
+The container's entrypoint (`docker-entrypoint.cjs`) prerenders static pages (`next build --experimental-build-mode generate`) before starting the server (`npm run start`) — a real, if minimal, startup sequence now, unlike the serverless model this document originally assumed. Nothing else needs to initialize eagerly: Supabase clients are still created per-request (`src/services/db/server.ts`/`client.ts`), not held as a long-lived singleton, so a request right after boot behaves the same as one an hour later. There's still no in-memory cache to warm, per `docs/architecture.md`'s caching decision — that decision was justified independently of the runtime model and doesn't need revisiting just because a persistent process could now technically hold one.
 
 ## Shutdown behavior
 
@@ -40,17 +40,27 @@ Fly.io stops a machine after the idle period configured in `fly.toml` (`auto_sto
 
 ## Deployment
 
-**GitHub Actions is the only supported deploy path** (`.github/workflows/fly-deploy.yml`), not a convenience on top of a manual one. This is a real constraint of how this project is actually operated, discovered the hard way: the owner works from a phone, with no local clone, no terminal, and no `flyctl`. `fly deploy` was therefore never runnable by the one person who runs this project — which is exactly why the live Fly.io app sat at the original scaffold image while `main` advanced roughly 30 commits past it. A deploy path that the owner cannot execute is not a deploy path.
+The owner operates this project **entirely from an Android phone** — no laptop, no local clone by default. Any deploy path that assumes a desktop terminal is not a real path here, and pretending otherwise is what let the live app sit broken for the whole project. Two paths exist; the second is the one that actually works today.
 
-Every push to `main` runs typecheck + lint + unit tests, then `flyctl deploy --remote-only` (remote builds, so no local Docker is needed either). The workflow also accepts `workflow_dispatch`, which gives the owner a "Run workflow" button in the GitHub Actions web UI — the phone-accessible equivalent of `fly deploy`.
+**1. GitHub Actions (`.github/workflows/fly-deploy.yml`) — written, currently NOT working.** Push to `main` → typecheck + lint + unit tests → `flyctl deploy --remote-only`. It also accepts `workflow_dispatch` for a "Run workflow" button in the web UI. Its first run failed in 4 seconds with no logs, which points at Actions being disabled or spend-limited on the account rather than anything wrong with the workflow (the repo is public, so minutes should be free). Left in place because it's the right long-term answer if that gets sorted; needs one repo secret, `FLY_API_TOKEN`.
 
-**One-time setup, both steps web-only (phone-doable):**
-1. Fly.io dashboard → **Tokens** (account level) → create a deploy token, copy it.
-2. GitHub → the repo → **Settings → Secrets and variables → Actions → New repository secret** → name it exactly `FLY_API_TOKEN`, paste the value.
+**2. Termux + flyctl on the phone — the path that actually deployed.** Android's DNS and CA-trust layout both fight Go binaries, so the setup is non-obvious and worth writing down:
 
-Application secrets (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, etc. — see the table above) are set separately, in the **Fly.io dashboard's Secrets area**, not in GitHub. GitHub only needs the one token that authorizes deploying.
+```
+pkg install -y proot ca-certificates
+mkdir -p $PREFIX/etc && printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > $PREFIX/etc/resolv.conf
+termux-chroot                       # /etc/resolv.conf only exists inside this
+export PATH="$HOME/.fly/bin:$PATH"
+export SSL_CERT_FILE=/etc/tls/cert.pem   # Go looks in /etc/ssl; Termux keeps certs here
+export FLY_API_TOKEN='<token from the Fly dashboard>'
+cd ~/Trucking && git pull && fly deploy --remote-only
+```
 
-Note on why `NEXT_PUBLIC_*` values must be Fly secrets specifically: `docker-entrypoint.js` runs `next build --experimental-build-mode generate` at *container start*, deliberately, so those values are baked into the client bundle from Fly's runtime secrets rather than from whatever happened to be present in the Docker build context (`.env.local` is gitignored and never reaches the image). A `NEXT_PUBLIC_*` value that's missing at container start is missing from the built client bundle, whatever GitHub knows about it.
+Why each piece: Android has no `/etc/resolv.conf`, so Go's resolver falls back to `[::1]:53` and gets connection-refused — `termux-chroot` plus that file fixes it. Go ignores Termux's cert bundle location, so TLS fails with "certificate signed by unknown authority" until `SSL_CERT_FILE` points at it. `FLY_API_TOKEN` avoids `fly auth login`'s browser handoff, which is miserable in a terminal. `--remote-only` builds on Fly's servers, so no Docker on the phone.
+
+Application secrets (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, etc. — see the table above) are set in the **Fly.io dashboard's Secrets area** (or `fly secrets set`), independent of either deploy path.
+
+Note on why `NEXT_PUBLIC_*` values must be Fly secrets specifically: `docker-entrypoint.cjs` runs `next build --experimental-build-mode generate` at *container start*, deliberately, so those values are baked into the client bundle from Fly's runtime secrets rather than from whatever happened to be present in the Docker build context (`.env.local` is gitignored and never reaches the image). A `NEXT_PUBLIC_*` value that's missing at container start is missing from the built client bundle, whatever GitHub knows about it.
 
 ## The industry-intelligence job's actual trigger mechanism
 
