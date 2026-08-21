@@ -17,5 +17,5 @@
 -- app (e.g. industry_briefings' dismiss policy).
 
 create policy "update own company" on companies
-  for update using (id = current_company_id())
-  with check (id = current_company_id());
+  for update using (id = private.current_company_id())
+  with check (id = private.current_company_id());

@@ -89,6 +89,18 @@ Maps directly onto the workflows already defined in `docs/user-stories.md`:
 
 `docs/requirements.md` left the accessibility standard open pending this phase. Decision: **WCAG 2.1 AA** as the baseline target — semantic HTML, labeled form fields, sufficient color contrast, keyboard/screen-reader operability. This is cheap to build in from the start (proper labels and semantic elements, not an afterthought pass) and expensive to retrofit later — the same reasoning already applied to `company_id` scoping and API versioning in `docs/architecture.md`. It also matters concretely for a system meant to become a product other people pay for.
 
+## Visual design system
+
+Decided now (Stage 6, once the app was actually visible and the owner asked for a real design pass) rather than at scaffolding time, per this document's original note that visual styling is an implementation-time choice. Built directly in Tailwind CSS v4's `@theme` tokens (`src/app/globals.css`) rather than via Figma-to-code — the Figma MCP connector was unavailable when this was done; nothing here is Figma-incompatible if that changes later.
+
+**Tone:** a professional operations tool, not a consumer app — the owner is reading these screens between loads, often outdoors, often in a hurry. Clarity and contrast beat decoration.
+
+- **Color:** a confident blue (`#2563eb`, "primary") for interactive elements — active nav tab, primary buttons, links — against a white/near-white surface with a gray neutral scale for structure and secondary text. Status uses the same semantic mapping already established informally in the data (`draft`/`active`/error): amber for draft/pending, green for active/success/confirmed, red for destructive actions and errors — never color alone (every status already carries a text label, per the accessibility work in task 3.12).
+- **Typography:** the system font stack (`-apple-system`, Segoe UI, Roboto, etc.) — no web font download, which matters on the truck-stop wifi this app is actually used over, and it already looks native on every device.
+- **Spacing/density:** comfortable tap targets (44px minimum touch target, matching platform guidance) over a dense desktop-style layout — every list row, button, and form field sized for a thumb, not a mouse.
+- **Styling mechanism:** every screen already uses plain semantic HTML consistently (`<form>`, `<label>`, `<input>`, `<select>`, `<button>`, `<ul>`/`<li>`) — chosen for accessibility in task 3.12, not incidentally. Rather than introduce a component library on top of that, the visual design is applied as base-element styles in `src/app/globals.css` (Tailwind v4's `@layer base`), so every form/list/button across all ~40 screens picks up the same look automatically. This is the same "shared infra, not per-screen reinvention" approach already used for `services/db/crud.ts` and `ListStates.tsx`, just expressed as CSS instead of a JS component — a screen's visual language comes from the semantic element it already uses, not from hand-tuned utility classes scattered per file.
+- **Navigation:** the bottom tab bar gets a real visual treatment — elevated surface, active-tab color + icon-weight distinction (not just the underlying `aria-current` that already exists for accessibility).
+
 ---
 
 *Visual styling (colors, typography, exact component library) isn't decided here — that's an implementation-time choice within the structure above, not a separate spec step. What's fixed by this document is structure, states, and behavior; polish is free to evolve.*

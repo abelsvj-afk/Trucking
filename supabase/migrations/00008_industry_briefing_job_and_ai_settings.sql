@@ -38,7 +38,7 @@ create table industry_briefing_runs (
 alter table industry_briefing_runs enable row level security;
 
 create policy "read own company's run log" on industry_briefing_runs
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 
 create table ai_capability_settings (
   id uuid primary key default gen_random_uuid(),
@@ -52,8 +52,8 @@ create table ai_capability_settings (
 alter table ai_capability_settings enable row level security;
 
 create policy "manage own company's AI capability settings" on ai_capability_settings
-  for all using (company_id = current_company_id())
-  with check (company_id = current_company_id());
+  for all using (company_id = private.current_company_id())
+  with check (company_id = private.current_company_id());
 
 alter table companies add column ai_globally_disabled boolean not null default false;
 
@@ -71,7 +71,7 @@ grant select (id, ai_globally_disabled) on companies to industry_briefing_job;
 
 -- This role authenticates as itself (a direct postgres:// connection, not
 -- the anon-key/PostgREST/JWT path - see docs/runtime.md), so it has no
--- current_company_id() to check against. The GRANTs above are the actual
+-- session for private.current_company_id() to resolve. The GRANTs above are the actual
 -- boundary (it cannot even see any other table exists); these policies are
 -- a second layer, deliberately permissive within the tables it was already
 -- granted access to rather than trying to reproduce a JWT-based check for

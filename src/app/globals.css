@@ -1,8 +1,43 @@
 @import "tailwindcss";
 
 /*
- * Tailwind v4 config lives in CSS via @theme, not a JS config file.
- * No custom theme yet — visual design is a Phase 15 implementation
- * concern per docs/design/ui-ux.md ("visual styling isn't decided
- * here"), not something to invent during scaffolding.
+ * Design system, per docs/design/ui-ux.md's "Visual design system"
+ * section. Tailwind v4 config lives in CSS via @theme (no JS config
+ * file) - every token here becomes a utility class automatically
+ * (e.g. --color-primary => bg-primary/text-primary/border-primary).
  */
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #eff6ff;
+
+  --color-success: #16a34a;
+  --color-success-light: #f0fdf4;
+  --color-warning: #d97706;
+  --color-warning-light: #fffbeb;
+  --color-danger: #dc2626;
+  --color-danger-light: #fef2f2;
+
+  --color-surface: #ffffff;
+  --color-surface-alt: #f8fafc;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+body {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+/* Minimum 44px touch target on every tappable control, per
+   docs/design/ui-ux.md's spacing/density note - platform guidance for a
+   thumb, not a mouse. */
+button,
+a[role="button"] {
+  min-height: 44px;
+}
