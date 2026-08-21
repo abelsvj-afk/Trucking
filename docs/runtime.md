@@ -38,6 +38,20 @@ Fly.io stops a machine after the idle period configured in `fly.toml` (`auto_sto
 | `EIA_API_KEY` | server only | free-tier key for the EIA Open Data API, `services/integrations`' fuel-market source (`docs/design/ai-architecture.md`'s worked example) |
 | `INDUSTRY_BRIEFING_CRON_SECRET` | server only | no longer required for scheduling itself (see below — the job now triggers in-process) but kept for the optional manual-trigger debugging route |
 
+## Deployment
+
+**GitHub Actions is the only supported deploy path** (`.github/workflows/fly-deploy.yml`), not a convenience on top of a manual one. This is a real constraint of how this project is actually operated, discovered the hard way: the owner works from a phone, with no local clone, no terminal, and no `flyctl`. `fly deploy` was therefore never runnable by the one person who runs this project — which is exactly why the live Fly.io app sat at the original scaffold image while `main` advanced roughly 30 commits past it. A deploy path that the owner cannot execute is not a deploy path.
+
+Every push to `main` runs typecheck + lint + unit tests, then `flyctl deploy --remote-only` (remote builds, so no local Docker is needed either). The workflow also accepts `workflow_dispatch`, which gives the owner a "Run workflow" button in the GitHub Actions web UI — the phone-accessible equivalent of `fly deploy`.
+
+**One-time setup, both steps web-only (phone-doable):**
+1. Fly.io dashboard → **Tokens** (account level) → create a deploy token, copy it.
+2. GitHub → the repo → **Settings → Secrets and variables → Actions → New repository secret** → name it exactly `FLY_API_TOKEN`, paste the value.
+
+Application secrets (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, etc. — see the table above) are set separately, in the **Fly.io dashboard's Secrets area**, not in GitHub. GitHub only needs the one token that authorizes deploying.
+
+Note on why `NEXT_PUBLIC_*` values must be Fly secrets specifically: `docker-entrypoint.js` runs `next build --experimental-build-mode generate` at *container start*, deliberately, so those values are baked into the client bundle from Fly's runtime secrets rather than from whatever happened to be present in the Docker build context (`.env.local` is gitignored and never reaches the image). A `NEXT_PUBLIC_*` value that's missing at container start is missing from the built client bundle, whatever GitHub knows about it.
+
 ## The industry-intelligence job's actual trigger mechanism
 
 `docs/automation.md` established *that* this job runs on a schedule; this is the concrete answer to *how* — **changed** from the original Vercel Cron Job design now that the runtime is a persistent process rather than serverless. Fly.io has no built-in cron-job primitive equivalent to Vercel's, but a persistent process doesn't need one: an **in-process scheduler**, started once when the server boots (via Next.js's `instrumentation.ts` hook — the framework's own supported "run this once when the server starts" mechanism), calls the job logic in `services/ai`/`services/integrations` directly, in-process.

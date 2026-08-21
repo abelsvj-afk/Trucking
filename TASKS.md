@@ -78,9 +78,12 @@ Real network constraint that shaped this entire stage: this sandbox blocks outbo
 
 ## Stage 6 — Deployment
 
-| ID | Task | Depends on | Acceptance criteria |
-|---|---|---|---|
-| 6.1 | Production Fly.io + Supabase setup, real env vars via `fly secrets set` | Stage 5 | Production environment mirrors `.env.example`, no dev values leaked in |
+**Stage 6 was started early, out of roadmap order** — the owner asked to get the app live before Stage 5 finished. Noting that deliberately rather than quietly reordering: Stages 5 and 6 are now interleaved, and Stage 5's remaining tasks (5.2, 5.4) are still genuinely outstanding, not skipped.
+
+| ID | Task | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|
+| 6.0 | CI/CD deploy pipeline (`.github/workflows/fly-deploy.yml`) | — | Pushing to `main` deploys automatically; deployable without a terminal | ✅ Written, **pending one owner action** (`FLY_API_TOKEN` in GitHub repo secrets). Not in the original roadmap — added because the plan assumed a deploy path that doesn't exist for how this project is actually operated. The owner works from a phone: no local clone, no terminal, no `flyctl`. `fly deploy` was never runnable by the only person running this project, which is precisely why the live app sat at the original scaffold image while `main` advanced ~30 commits past it, and why setting secrets alone changed nothing (secrets restart the existing image; they don't rebuild from new source). Confirmed root cause directly via the GitHub API: the repo had **zero** Actions workflows, so nothing had ever auto-deployed. The workflow runs typecheck + lint + unit tests, then `flyctl deploy --remote-only` (remote builds — no local Docker needed either), and accepts `workflow_dispatch` so the owner gets a "Run workflow" button in the GitHub web UI as the phone-accessible equivalent of `fly deploy`. |
+| 6.1 | Production Fly.io + Supabase setup, real env vars via `fly secrets set` | Stage 5 | Production environment mirrors `.env.example`, no dev values leaked in | 🔶 Partly done by the owner, via the Fly.io web dashboard's Secrets area rather than the `fly secrets set` CLI (same thing, phone-accessible): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `OPENAI_API_KEY` are set. Still unset: `EIA_API_KEY` (needed before the industry-intelligence engine can actually run), `INDUSTRY_BRIEFING_DB_URL` (blocked on task 4.4), `INDUSTRY_BRIEFING_CRON_SECRET` (only needed for the manual-trigger debug route). |
 | 6.2 | Confirm the in-process scheduler starts on deploy and runs the industry-intelligence job on schedule | 6.1, Stage 4 | Scheduled per `docs/automation.md`'s default (max once daily); capability still off by default |
 | 6.3 | Pre-deploy checklist (workflow doc Phase 18) | 6.1 | Tests passing, build succeeding, docs current, secrets secured, monitoring confirmed, rollback plan confirmed |
 | 6.4 | Go live; update `PROJECT_STATE.md` | 6.3 | Real production URL reachable and usable end-to-end from a phone |
