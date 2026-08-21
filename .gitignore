@@ -9,6 +9,9 @@
 /coverage
 /playwright-report
 /test-results
+# e2e auth session state + shared test-fixture ids (real, if disposable,
+# credentials/session tokens - never committed, see tests/e2e/fixtures)
+/tests/e2e/.auth
 
 # environment — never commit real values, see .env.example
 .env

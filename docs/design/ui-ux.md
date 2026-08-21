@@ -28,8 +28,8 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 
 ### Loads
 - List, most recent first, filterable by status (`draft` / `confirmed` / `completed`, matching `docs/schemas.md`). Draft loads carry a visible "Draft" badge so it's never ambiguous which loads are missing information.
-- Load detail/edit: origin, destination, dates, rate, miles, truck, driver, broker/customer, notes. Saving with a missing rate or dates is allowed and keeps the load in `draft` — this is the deliberate "alternative workflow" from `docs/user-stories.md`, not an error state.
-- New load: same form, empty.
+- Load detail/edit: origin, destination, dates, rate, miles, truck, driver, broker/customer, notes, status. Saving with a missing rate or dates is allowed and keeps the load in `draft` — this is the deliberate "alternative workflow" from `docs/user-stories.md`, not an error state.
+- New load: same form, empty, status defaulting to `draft`. The owner explicitly picks `confirmed`/`completed` when the load is actually settled — per `docs/design/data-model.md`, status is something "the owner" moves, not something the system infers from which fields happen to be filled in. Added while building task 5.2's e2e suite, which is what actually caught that no control for this existed anywhere: every load created through the app defaulted to `draft` forever, so the financial summary's `confirmed`/`completed` filter could never include anything.
 
 ### Fleet
 - **Trucks / Trailers / Drivers:** list + detail. Truck detail shows current mileage/status plus its linked maintenance history and documents in place — no separate hunt required to see a truck's full picture.

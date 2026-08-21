@@ -5,13 +5,31 @@
 // docs/user-stories.md, not an error state. Rate is entered in dollars
 // and converted to cents on submit - asking for raw cents would be
 // unusable, per CLAUDE.md's "must be genuinely usable" rule.
-
+//
+// Status field added while building task 5.2's e2e suite: this form
+// never sent `status` at all, and loads.status defaults to 'draft' in
+// the database (supabase/migrations/00003), so no load created through
+// the app could ever reach `confirmed`/`completed` - meaning the
+// financial summary's `.in("status", ["confirmed", "completed"])`
+// filter (docs/design/data-model.md) could never actually include
+// anything. That's the exact "backend works but nothing is reachable
+// from the UI" failure docs/design/testing.md's e2e section exists to
+// catch. docs/design/data-model.md already frames status as something
+// "the owner" moves explicitly ("the owner can move a load backward"),
+// not something auto-computed from field completeness - so this is a
+// manual selector, defaulting to Draft, not a hidden rule.
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { Broker, Customer, Driver, Load, Truck } from "@/types/entities";
+import type { Broker, Customer, Driver, Load, LoadStatus, Truck } from "@/types/entities";
+
+const STATUS_OPTIONS: { label: string; value: LoadStatus }[] = [
+  { label: "Draft", value: "draft" },
+  { label: "Confirmed", value: "confirmed" },
+  { label: "Completed", value: "completed" },
+];
 
 export default function NewLoadPage() {
   usePageTitle("Add load");
@@ -21,6 +39,7 @@ export default function NewLoadPage() {
   const [pickupDate, setPickupDate] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [rateDollars, setRateDollars] = useState("");
+  const [status, setStatus] = useState<LoadStatus>("draft");
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [brokerId, setBrokerId] = useState("");
@@ -45,6 +64,7 @@ export default function NewLoadPage() {
         pickup_date: pickupDate || undefined,
         delivery_date: deliveryDate || undefined,
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : undefined,
+        status,
         truck_id: truckId || null,
         driver_id: driverId || null,
         broker_id: brokerId || null,
@@ -98,6 +118,19 @@ export default function NewLoadPage() {
           value={rateDollars}
           onChange={(event) => setRateDollars(event.target.value)}
         />
+
+        <label htmlFor="status">Status</label>
+        <select
+          id="status"
+          value={status}
+          onChange={(event) => setStatus(event.target.value as LoadStatus)}
+        >
+          {STATUS_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
 
         <label htmlFor="truck_id">Truck</label>
         <select id="truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
