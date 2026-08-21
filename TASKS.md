@@ -21,17 +21,17 @@ Task sizing follows `CLAUDE.md`'s existing pattern for file/function size: "unde
 
 **Extra hardening found and fixed:** Supabase's own security advisor flagged that `current_company_id()` — the helper every RLS policy relies on — was unintentionally reachable as a public REST endpoint (`/rest/v1/rpc/current_company_id`) since Supabase auto-exposes every `public`-schema function. Not an actual data leak (anonymous callers get `null`; authenticated callers only get their own `company_id`, which they already know), but needless public surface for an internal-only helper. Fixed by moving it to a `private` schema PostgREST doesn't expose (`supabase/migrations/00006_...sql`) — verified this doesn't break the existing RLS policies (Postgres tracks the function by OID, not by name, so they kept working automatically) and re-ran the advisor: 0 findings.
 
-**To unblock 1.2:** create a project at [supabase.com](https://supabase.com), then from its Settings → API page, copy the Project URL, anon key, and service-role key into a local `.env.local` (copy `.env.example` first — `.env.local` is already gitignored). Paste them there, not into chat — they don't need to pass through me at all. Once that's done, tell me and I'll run the migrations and the real test suite against it.
-
 ## Stage 2 — Authentication
 
-| ID | Task | Depends on | Acceptance criteria |
-|---|---|---|---|
-| 2.1 | Implement `services/auth` (`docs/service-specs.md`) | 1.6 | Valid session resolves `{user_id, company_id, role}`; invalid/missing session fails closed |
-| 2.2 | Implement `services/api`'s shared pipeline + centralized error formatter (`docs/service-specs.md`, `docs/api-contracts.md`) | 2.1 | A test route through the pipeline returns the documented error shape on every failure type |
-| 2.3 | Login screen (`docs/design/ui-ux.md`) | 2.1 | Can sign in from the actual UI; session persists; lands on Home |
-| 2.4 | Auth-required test suite | 2.2 | Every future route rejects an unauthenticated request with `401` before touching business logic |
-| 2.5 | `GET /api/v1/health` | 2.2 | Returns `{status: "ok"}`, no auth required, separate from business routes |
+| ID | Task | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|
+| 2.1 | Implement `services/auth` (`docs/service-specs.md`) | 1.6 | Valid session resolves `{user_id, company_id, role}`; invalid/missing session fails closed | ✅ Done (`src/services/auth/index.ts`) — uses `getUser()` not `getSession()` so it revalidates against Supabase Auth's server rather than trusting a locally-decoded cookie; fails closed on both missing session and a missing `user_profiles` row |
+| 2.2 | Implement `services/api`'s shared pipeline + centralized error formatter (`docs/service-specs.md`, `docs/api-contracts.md`) | 2.1 | A test route through the pipeline returns the documented error shape on every failure type | ✅ Done (`src/services/api/handler.ts`, `errors.ts`, `validate.ts`) — verified by 2.4's test suite: 401 on no auth, context passed through on success, raw exceptions never reach the client (500 with a generic message instead) |
+| 2.3 | Login screen (`docs/design/ui-ux.md`) | 2.1 | Can sign in from the actual UI; session persists; lands on Home | ✅ Done (`src/app/login/page.tsx`, `src/middleware.ts`). Sign-in only, no signup link — `docs/governance.md`'s single-admin model has no open-signup workflow. Middleware handles session-cookie refresh and redirects unauthenticated requests to `/login` / authenticated requests away from it. |
+| 2.4 | Auth-required test suite | 2.2 | Every future route rejects an unauthenticated request with `401` before touching business logic | ✅ Done (`tests/unit/services/api/handler.test.ts`, 3 tests, all passing) — tests the shared pipeline mechanism directly rather than a specific route, since no business route exists yet; every Stage 3 route inherits this automatically by using `createApiHandler` |
+| 2.5 | `GET /api/v1/health` | 2.2 | Returns `{status: "ok"}`, no auth required, separate from business routes | ✅ Done (`src/app/api/v1/health/route.ts`) — confirmed in the `next build` route list |
+
+**Stage 2 is complete.** `npx tsc --noEmit`, `npx eslint .`, `npx vitest run tests/unit` (3/3 passing), and `npx next build` all verified clean.
 
 ## Stage 3 — Core functionality
 

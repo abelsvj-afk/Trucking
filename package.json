@@ -2,6 +2,7 @@
   "name": "trucking-os",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "AI-Powered Transportation Operating System — see README.md and docs/",
   "scripts": {
     "dev": "next dev",

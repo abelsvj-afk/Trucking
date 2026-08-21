@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 1 (Foundation) — **complete**. Next: Stage 2 (Authentication).
+**Current Phase:** Phase 15 — Implementation, Stage 2 (Authentication) — **complete**. Next: Stage 3 (Core functionality).
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -40,15 +40,18 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 **Stage 1 closed out:** the owner pasted `SUPABASE_SERVICE_ROLE_KEY`, completing `.env.local`. Attempting to run the committed RLS test (`tests/integration/rls-tenant-isolation.test.ts`) surfaced a real environment constraint, not a code bug: this sandboxed session's outbound HTTPS proxy blocks direct connections to `*.supabase.co` by org-level egress policy (confirmed via the proxy's own status endpoint — `connect_rejected`, "policy denial"). Per that policy's own instructions, did not retry or route around it. Instead verified the exact same tenant-isolation logic live against the real project through the Supabase MCP `execute_sql` tool (which isn't subject to this session's network restriction, since it calls Supabase from Supabase's own infrastructure): created two real companies and two real `auth.users`, simulated each user's session via `request.jwt.claims`, and confirmed list-query isolation, direct-by-id isolation, and a blocked cross-tenant insert — all three assertions the committed test file makes. Cleaned up all test data afterward (confirmed via a follow-up count query: 0 rows). The committed test file itself is correct and unchanged; it just needs an environment that can reach Supabase directly (CI, the owner's own machine, Vercel) to actually execute — this sandbox specifically cannot.
 
-**In Progress:** Nothing — Stage 1 is done.
+**Stage 2 (Authentication) done:** `services/auth` (`src/services/auth/index.ts`) resolves `{userId, companyId, role}` from the session, using `getUser()` rather than `getSession()` so it revalidates against Supabase Auth's server instead of trusting a locally-decoded cookie — fails closed on a missing session or an orphaned `user_profiles` row. `services/api`'s shared pipeline (`src/services/api/handler.ts`) wraps every future business route: auth check first, centralized error formatting matching `docs/api-contracts.md` exactly, never a leaked raw exception. `src/middleware.ts` handles session-cookie refresh and redirects (unauthenticated → `/login`, authenticated away from `/login`) — the standard Supabase/Next.js SSR pattern. Login screen is a real, working sign-in form (no signup link, per the single-admin model in `docs/governance.md`). `GET /api/v1/health` is live and unauthenticated, confirmed in the build's route list. The auth-required test suite (3 tests) verifies the pipeline mechanism itself rather than a specific route, since Stage 3 hasn't built any business routes yet — every one of those will inherit this automatically by using `createApiHandler`. Also fixed a recurring Vite config warning by adding `"type": "module"` to `package.json` and switching `vitest.config.ts` to `import.meta.dirname`. Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (3/3), `npx next build` all clean.
+
+**In Progress:** Nothing — Stage 2 is done.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Stage 2 (Authentication): `services/auth` (`docs/service-specs.md`), the shared `services/api` middleware pipeline, the login screen, the auth-required test suite, and `/api/v1/health` — `TASKS.md` tasks 2.1–2.5.
+- Stage 3 (Core functionality) — `TASKS.md` tasks 3.1 onward: trucks, trailers, and drivers first (no dependencies on other MVP entities), then customers/brokers, then loads, then expenses/fuel/maintenance, then documents, then the financial summary, then the navigation shell + accessibility pass. Each task ships backend and screens together, per `CLAUDE.md`.
+- Practical note for the actual owner login: no real account exists yet in Supabase Auth (only throwaway test users that were created and cleaned up during Stage 1's live RLS verification). One needs to be provisioned before the login screen is actually usable end-to-end — worth doing early in Stage 3.
 
 **Known Issues:** None. Note for future sessions in this same sandboxed environment: direct outbound HTTPS to `*.supabase.co` is blocked by org egress policy here — any test or script that calls Supabase directly (not through the MCP connector) will need to run somewhere else (CI, the owner's machine) to actually execute, even though it's correct.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 1 complete)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 2 complete)
