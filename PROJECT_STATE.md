@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: trucks/trailers/drivers done (3.1–3.3 of 12), customers next.
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 5 of 12 tasks done (trucks, trailers, drivers, customers, brokers), loads next.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -52,7 +52,11 @@ Full verification after 3.1–3.3: `npx tsc --noEmit`, `npx eslint .`, `npx vite
 
 Also fixed two real bugs in the Fly.io auto-generated scaffold itself, found by actually reading it rather than assuming a vendor tool got it right: `fly.toml`'s `internal_port` was set to `8080` while the `Dockerfile` exposes and Next.js defaults to `3000` — as committed, routing would not have worked. Also removed a redundant/conflicting VM memory spec (`memory = '1gb'` and `memory_mb = 256` both set). Could not verify the Docker build actually succeeds end-to-end — this sandbox has no privileged access to run a Docker daemon (confirmed: `ulimit` permission error starting one) — so this fix is careful reading, not an executed test. `fly deploy` builds remotely on Fly.io's own servers, so the real verification happens there, not locally.
 
-**In Progress:** Stage 3, task 3.4 (customers) next.
+**Tasks 3.4–3.5 done (customers, brokers).** Same shared CRUD infrastructure from 3.1–3.3, applied under the **More** tab (`app/(app)/more/`) rather than Fleet, per `docs/design/ui-ux.md`'s navigation. No new migrations needed — both tables already existed from `supabase/migrations/00002`. Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (25/25 passing), `npx next build` (all routes present) all clean.
+
+Note: the Figma MCP connector was added mid-session for future UI/UX work. Not used yet — every Stage 3 screen so far is intentionally bare markup, since `docs/design/ui-ux.md` defers visual styling to implementation time. Worth revisiting once there's a real visual-design pass to do (task 3.12's polish, or later).
+
+**In Progress:** Stage 3, task 3.6 (loads) next — the first entity with real business-rule validation (date ordering, `draft`/`confirmed`/`completed` status) beyond simple field checks.
 
 **Blocked:** Nothing.
 
@@ -64,4 +68,4 @@ Also fixed two real bugs in the Fly.io auto-generated scaffold itself, found by 
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.3 done; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.5 done; hosting pivoted to Fly.io)
