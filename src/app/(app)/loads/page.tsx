@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Load, LoadStatus } from "@/types/entities";
 
 const STATUS_FILTERS: { label: string; value: LoadStatus | "" }[] = [
@@ -18,6 +19,7 @@ const STATUS_FILTERS: { label: string; value: LoadStatus | "" }[] = [
 ];
 
 export default function LoadsListPage() {
+  usePageTitle("Loads");
   const [statusFilter, setStatusFilter] = useState<LoadStatus | "">("");
   const { state, retry } = useApiList<Load>(
     "loads",

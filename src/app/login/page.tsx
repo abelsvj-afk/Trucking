@@ -8,8 +8,10 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/services/db/client";
+import { usePageTitle } from "@/lib/use-page-title";
 
 export default function LoginPage() {
+  usePageTitle("Sign in");
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

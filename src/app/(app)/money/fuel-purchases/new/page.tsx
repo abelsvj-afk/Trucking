@@ -8,9 +8,11 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { FuelPurchase, Truck } from "@/types/entities";
 
 export default function NewFuelPurchasePage() {
+  usePageTitle("Add fuel purchase");
   const router = useRouter();
   const [truckId, setTruckId] = useState("");
   const [location, setLocation] = useState("");

@@ -5,9 +5,11 @@
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Customer } from "@/types/entities";
 
 export default function CustomersListPage() {
+  usePageTitle("Customers");
   const { state, retry } = useApiList<Customer>("customers");
 
   return (

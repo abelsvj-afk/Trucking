@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Expense } from "@/types/entities";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
@@ -15,6 +16,7 @@ const CATEGORY_LABELS: Record<Expense["category"], string> = {
 };
 
 export default function ExpensesListPage() {
+  usePageTitle("Expenses");
   const { state, retry } = useApiList<Expense>("expenses");
 
   return (

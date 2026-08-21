@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type {
   Driver,
   DocumentWithSignedUrl,
@@ -41,6 +43,7 @@ function labelFor(entityType: RelatedEntityType, record: Truck | Trailer | Drive
 }
 
 export default function DocumentsPage() {
+  usePageTitle("Documents");
   const [entityType, setEntityType] = useState<RelatedEntityType>("truck");
   const [entityId, setEntityId] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -170,10 +173,12 @@ export default function DocumentsPage() {
         </form>
       )}
 
-      {entityId && docsState.status === "loading" && <p>Loading…</p>}
-      {entityId && docsState.status === "error" && <p role="alert">{docsState.message}</p>}
+      {entityId && docsState.status === "loading" && <ListLoading />}
+      {entityId && docsState.status === "error" && (
+        <ListError message={docsState.message} onRetry={fetchDocuments} />
+      )}
       {entityId && docsState.status === "loaded" && docsState.documents.length === 0 && (
-        <p>No documents yet for this record.</p>
+        <ListEmpty message="No documents yet for this record." />
       )}
       {entityId && docsState.status === "loaded" && docsState.documents.length > 0 && (
         <ul>

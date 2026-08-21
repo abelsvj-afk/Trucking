@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 11 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events, documents, financial summary), navigation/accessibility polish pass next — the last Stage 3 task.
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — **done**, all 12 of 12 tasks complete. Stage 4 (industry intelligence engine) next, per `ROADMAP.md`.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -86,17 +86,29 @@ New shared `lib/use-financial-summary.ts` hook (same loading/error/loaded shape 
 
 Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (75/75 passing, including 6 new tests covering the date-fallback/exclusion logic and the aggregation math), `npx next build` (all routes present) all clean.
 
-**In Progress:** Stage 3, task 3.12 (navigation shell + shared states + accessibility pass) next — the last Stage 3 task.
+**Task 3.12 (navigation shell + shared states + accessibility pass) done — Stage 3 closed.** Confirmed the 5-tab nav matches `docs/design/ui-ux.md` exactly, and added `aria-current="page"` on the active tab (required converting `app/(app)/layout.tsx` to a client component to read the route via `usePathname()`). Switched the three screens still using ad hoc loading/error markup (Home, Money > Summary, More > Documents) onto the same shared `ListLoading`/`ListEmpty`/`ListError` components every entity list screen already used, so "shared components" is actually true everywhere, not just on the list screens built first.
+
+A real manual WCAG 2.1 AA audit (every screen, not a lint pass) found two genuine gaps, both fixed rather than just noted: no skip link (WCAG 2.4.1), and — the bigger one — **every route in the app shared one static `<title>`** ("Trucking OS" from the root layout), a real WCAG 2.4.2 failure across all 25 screens that nothing before this task had caught. Fixed with a new `lib/use-page-title.ts` hook (`document.title` in an effect, the standard technique for client-rendered routes) applied to all 22 client screens, plus `export const metadata` on the 3 Server Component index pages. Didn't just trust the build - inspected the actual generated HTML in `.next/server/app/{fleet,money,more}.html` and confirmed the distinct `<title>` tags are really there, per `CLAUDE.md`'s "prove the tool did real work" standard.
+
+Color contrast (WCAG 1.4.3) is out of scope by `docs/design/ui-ux.md`'s own explicit design — no visual styling exists yet to check. Also confirmed by manual pass: every input has a paired `<label htmlFor>`, every interactive control is a native element (no `<div onClick>` anywhere), `<html lang="en">` is set, one `<h1>` per screen.
+
+**Known gap, flagged honestly rather than silently skipped:** `docs/design/ui-ux.md`'s fuller vision — truck-detail pages showing embedded maintenance history and documents "in place" — was never built. Every task that touched this (3.9, 3.10, and now 3.12) satisfied its own narrower, already-signed-off acceptance criterion instead (a truck filter on maintenance; a type+record picker for documents), and building 4 new per-entity detail pages was out of scope for all of them. This is real technical debt against the full design doc, not forgotten — worth a dedicated task if the owner wants that fuller experience before this becomes a paid product.
+
+Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (75/75, no regressions), `npx next build` (all 39 routes present), plus the direct HTML-output check for the title fix.
+
+**Stage 3 (Core functionality) is now fully done: all 12 tasks (3.1–3.12) complete, verified, committed, and pushed.** The MVP has a working, reachable frontend for every entity in `docs/schemas.md` — trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events, documents, and the computed financial summary — satisfying `CLAUDE.md`'s "no backend-only delivery" rule as a standing fact, not a one-time claim.
+
+**In Progress:** Nothing — between Stage 3 and Stage 4.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Stage 3 task 3.12: verify the bottom-tab nav matches `docs/design/ui-ux.md`, confirm all four screen states (loading/empty/populated/error) are implemented as shared components everywhere they're needed, and run a real WCAG 2.1 AA pass across every Stage 3 screen — not just a lint pass, an actual accessibility check per `CLAUDE.md`'s verification discipline.
-- After Stage 3 closes: Stage 4 (industry intelligence engine), Stage 5 (Hardening — cross-cutting RLS/e2e/security review), Stage 6 (Deployment), per `ROADMAP.md`.
+- Per `ROADMAP.md`: Stage 4 (the industry intelligence engine — the first AI capability, already designed in `docs/design/ai-architecture.md`/`docs/automation.md` but not yet implemented), then Stage 5 (Hardening — cross-cutting RLS/e2e/security review), then Stage 6 (Deployment).
+- Real technical debt to revisit, not urgent: truck/trailer/driver/load detail pages with embedded maintenance/documents (see above); re-verify the owner's login link (`abelsvj@gmail.com`) is still live next time the Supabase MCP connector is available, since its auth has fluctuated this session.
 - **Owner login:** the owner's real Supabase Auth account (created via Supabase Dashboard, `abelsvj@gmail.com`) was linked to a new `companies` + `user_profiles` row via Supabase MCP `execute_sql` earlier this session, using a placeholder company name ("My Trucking Company") since the real name wasn't provided yet — renamable via SQL later. The Supabase MCP connector's auth has fluctuated during this session (disconnected/reconnected); **re-verify this link is still live via `list_tables`/`execute_sql` the next time the connector is available**, before relying on it for end-to-end testing or deployment.
 
 **Known Issues:** The `Dockerfile`/`fly.toml` port-mismatch and VM-memory fixes are unverified by an actual `docker build` — this sandbox has no privileged Docker daemon access. Verify with a real `fly deploy` before considering Fly.io hosting done. Also, note for future sessions in this same sandboxed environment: direct outbound HTTPS to `*.supabase.co` is blocked by org egress policy here — any test or script that calls Supabase directly (not through the MCP connector) will need to run somewhere else (CI, the owner's machine) to actually execute, even though it's correct.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.11 done; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 done — all of 3.1–3.12 complete; hosting pivoted to Fly.io)

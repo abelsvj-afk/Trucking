@@ -5,9 +5,11 @@
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Broker } from "@/types/entities";
 
 export default function BrokersListPage() {
+  usePageTitle("Brokers");
   const { state, retry } = useApiList<Broker>("brokers");
 
   return (

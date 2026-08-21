@@ -2,7 +2,14 @@
 // (Trucks/Trailers/Drivers/Maintenance) are reached via a segmented
 // control at the top of this tab - links added here as each lands
 // (tasks 3.1-3.3, 3.9), not built ahead of what exists.
+//
+// A Server Component (no "use client"), so it uses Next's own `metadata`
+// export for a distinct <title> (WCAG 2.4.2) rather than the
+// usePageTitle() client hook every data-fetching screen uses instead.
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Fleet — Trucking OS" };
 
 export default function FleetPage() {
   return (

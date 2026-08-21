@@ -5,9 +5,11 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Trailer } from "@/types/entities";
 
 export default function NewTrailerPage() {
+  usePageTitle("Add trailer");
   const router = useRouter();
   const [unitNumber, setUnitNumber] = useState("");
   const [error, setError] = useState<string | null>(null);

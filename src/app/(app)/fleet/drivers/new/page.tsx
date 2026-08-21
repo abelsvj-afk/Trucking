@@ -8,9 +8,11 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Driver, Truck } from "@/types/entities";
 
 export default function NewDriverPage() {
+  usePageTitle("Add driver");
   const router = useRouter();
   const [name, setName] = useState("");
   const [assignedTruckId, setAssignedTruckId] = useState("");

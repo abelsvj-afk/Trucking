@@ -10,9 +10,11 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Broker, Customer, Driver, Load, Truck } from "@/types/entities";
 
 export default function NewLoadPage() {
+  usePageTitle("Add load");
   const router = useRouter();
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");

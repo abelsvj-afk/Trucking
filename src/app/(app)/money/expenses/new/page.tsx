@@ -8,6 +8,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Driver, Expense, ExpenseCategory, Load, Truck } from "@/types/entities";
 
 const CATEGORIES: { label: string; value: ExpenseCategory }[] = [
@@ -18,6 +19,7 @@ const CATEGORIES: { label: string; value: ExpenseCategory }[] = [
 ];
 
 export default function NewExpensePage() {
+  usePageTitle("Add expense");
   const router = useRouter();
   const [category, setCategory] = useState<ExpenseCategory>("other");
   const [amountDollars, setAmountDollars] = useState("");

@@ -8,12 +8,15 @@
 
 import Link from "next/link";
 import { useFinancialSummary } from "@/lib/use-financial-summary";
+import { ListLoading, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
 export default function HomePage() {
+  usePageTitle("Home");
   const { state, retry } = useFinancialSummary();
 
   return (
@@ -22,15 +25,8 @@ export default function HomePage() {
 
       <section aria-label="This month's financial summary">
         <h2>This month</h2>
-        {state.status === "loading" && <p>Loading…</p>}
-        {state.status === "error" && (
-          <p role="alert">
-            {state.message}{" "}
-            <button type="button" onClick={retry}>
-              Retry
-            </button>
-          </p>
-        )}
+        {state.status === "loading" && <ListLoading />}
+        {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
         {state.status === "loaded" && (
           <dl>
             <dt>Revenue</dt>

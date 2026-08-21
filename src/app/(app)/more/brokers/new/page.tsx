@@ -5,9 +5,11 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { Broker } from "@/types/entities";
 
 export default function NewBrokerPage() {
+  usePageTitle("Add broker");
   const router = useRouter();
   const [name, setName] = useState("");
   const [mcNumber, setMcNumber] = useState("");

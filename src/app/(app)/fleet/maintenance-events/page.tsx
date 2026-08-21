@@ -9,9 +9,11 @@ import { useState } from "react";
 import { useApiList } from "@/lib/use-api-list";
 import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
 
 export default function MaintenanceEventsListPage() {
+  usePageTitle("Maintenance");
   const [truckId, setTruckId] = useState("");
   const { state, retry } = useApiList<MaintenanceEvent>(
     "maintenance-events",

@@ -6,12 +6,15 @@
 
 import { useState, type FormEvent } from "react";
 import { useFinancialSummary } from "@/lib/use-financial-summary";
+import { ListLoading, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
 export default function FinancialSummaryPage() {
+  usePageTitle("Financial summary");
   // Undefined until the owner picks a range - the hook then omits params,
   // so the server applies its own current-calendar-month default and the
   // returned range echoes back exactly what was used.
@@ -39,15 +42,8 @@ export default function FinancialSummaryPage() {
         <button type="submit">View range</button>
       </form>
 
-      {state.status === "loading" && <p>Loading…</p>}
-      {state.status === "error" && (
-        <p role="alert">
-          {state.message}{" "}
-          <button type="button" onClick={retry}>
-            Retry
-          </button>
-        </p>
-      )}
+      {state.status === "loading" && <ListLoading />}
+      {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && (
         <dl>
           <dt>Range</dt>

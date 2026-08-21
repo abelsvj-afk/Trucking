@@ -8,9 +8,11 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
 
 export default function NewMaintenanceEventPage() {
+  usePageTitle("Add maintenance event");
   const router = useRouter();
   const [truckId, setTruckId] = useState("");
   const [description, setDescription] = useState("");

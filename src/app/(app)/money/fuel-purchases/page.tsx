@@ -5,9 +5,11 @@
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { usePageTitle } from "@/lib/use-page-title";
 import type { FuelPurchase } from "@/types/entities";
 
 export default function FuelPurchasesListPage() {
+  usePageTitle("Fuel purchases");
   const { state, retry } = useApiList<FuelPurchase>("fuel-purchases");
 
   return (
