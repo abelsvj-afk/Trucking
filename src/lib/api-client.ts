@@ -18,9 +18,13 @@ export class ApiClientError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // A FormData body (document upload) must NOT get a manual Content-Type -
+  // the browser sets its own multipart boundary, which a hardcoded
+  // "application/json" would break.
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: isFormData ? init?.headers : { "Content-Type": "application/json", ...init?.headers },
   });
 
   if (!res.ok) {
@@ -54,4 +58,28 @@ export const apiClient = {
     request<T>(`/api/v1/${resource}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: (resource: string, id: string) =>
     request<void>(`/api/v1/${resource}/${id}`, { method: "DELETE" }),
+  // Documents don't fit the generic list/create/remove shape above -
+  // multipart upload, filtered by related entity, no PATCH
+  // (docs/api-contracts.md) - so they get their own three methods.
+  uploadDocument: <T>(meta: {
+    file: File;
+    related_entity_type: string;
+    related_entity_id: string;
+    file_name?: string;
+  }) => {
+    const formData = new FormData();
+    formData.append("file", meta.file);
+    formData.append("related_entity_type", meta.related_entity_type);
+    formData.append("related_entity_id", meta.related_entity_id);
+    if (meta.file_name) formData.append("file_name", meta.file_name);
+    return request<T>("/api/v1/documents", { method: "POST", body: formData });
+  },
+  listDocuments: <T>(relatedEntityType: string, relatedEntityId: string) => {
+    const qs = new URLSearchParams({
+      related_entity_type: relatedEntityType,
+      related_entity_id: relatedEntityId,
+    });
+    return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
+  },
+  removeDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
 };

@@ -98,3 +98,22 @@ export interface MaintenanceEvent extends BaseRow {
   service_date: string;
   mileage_at_service: number | null;
 }
+
+export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
+
+// Documents don't soft-delete like other entities (docs/schemas.md) - no
+// updated_at/deleted_at, so this doesn't extend BaseRow.
+export interface Document {
+  id: string;
+  company_id: string;
+  related_entity_type: RelatedEntityType;
+  related_entity_id: string;
+  file_name: string;
+  storage_path: string;
+  uploaded_at: string;
+  created_at: string;
+}
+
+export interface DocumentWithSignedUrl extends Document {
+  signed_url: string | null;
+}

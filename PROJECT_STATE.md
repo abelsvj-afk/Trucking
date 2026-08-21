@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 9 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events), documents next.
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 10 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events, documents), financial summary next.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -72,16 +72,24 @@ Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (52/52 p
 
 Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (61/61 passing), `npx next build` (all routes present) all clean.
 
-**In Progress:** Stage 3, task 3.10 (documents) next.
+**Task 3.10 (documents) done.** First entity with a genuinely different contract (docs/api-contracts.md): multipart upload, no `PATCH`, hard delete — hand-written against `createApiHandler` directly rather than the generic `createCrudRoutes` factory, since that factory's JSON-body/soft-delete assumptions don't fit. Created and applied migration `00007` live via Supabase MCP: a private `documents` Storage bucket plus tenant-isolation RLS policies on `storage.objects`, keyed off the storage path's leading folder segment (`{company_id}/{document_id}-{file_name}`) matching `private.current_company_id()` — same tenant-isolation model as every table, just expressed as a path convention instead of a `company_id` column, since Storage objects don't have arbitrary columns. Re-ran the security advisor after applying it: no new findings (still only the pre-existing, unrelated "leaked password protection disabled" auth warning — a dashboard toggle, not a code fix, noted here rather than silently ignored). `GET` attaches a 5-minute signed URL per row instead of exposing the raw storage path.
+
+Satisfies "browsable from its related truck/trailer/driver/load" via a type+record picker screen (`more/documents`) that reuses `usePickerList` for all four entity kinds, rather than building four new per-entity detail pages nothing else needed yet — a deliberately narrower reading of the acceptance criterion, chosen over the scope creep of new detail-page architecture.
+
+Caught a real `react-hooks/set-state-in-effect` violation via `npx eslint .` before it shipped: an early-return branch inside the effect-triggered fetch function was calling `setState` synchronously outside the async `.then()`/`.catch()`. Fixed by moving the "user picked a different record" loading-state update into the `<select>`'s `onChange` handler instead (a user action, not an effect) — same discipline `lib/use-api-list.ts` already established.
+
+Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (69/69 passing, including 8 new document-route tests with a Storage-aware Supabase mock), `npx next build` (all routes present, including `/more/documents` and both `/api/v1/documents` routes) all clean.
+
+**In Progress:** Stage 3, task 3.11 (financial summary) next.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Stage 3 tasks 3.10 onward: documents (upload/storage/signed URLs — the first entity with a genuinely different contract, per `docs/api-contracts.md`: multipart upload, no `PATCH`, hard delete, so it will NOT reuse the generic `createCrudRoutes`/`usePickerList` pattern wholesale), then the financial summary, then the navigation/accessibility polish pass (3.12).
+- Stage 3 tasks 3.11 onward: financial summary (computed endpoint + Home snapshot + Money > Summary screen — correct revenue/expense/net for a date range, excluding `draft` loads, per `docs/api-contracts.md`'s `/financial-summary`), then the navigation/accessibility polish pass (3.12).
 - **Owner login:** the owner's real Supabase Auth account (created via Supabase Dashboard, `abelsvj@gmail.com`) was linked to a new `companies` + `user_profiles` row via Supabase MCP `execute_sql` earlier this session, using a placeholder company name ("My Trucking Company") since the real name wasn't provided yet — renamable via SQL later. The Supabase MCP connector's auth has fluctuated during this session (disconnected/reconnected); **re-verify this link is still live via `list_tables`/`execute_sql` the next time the connector is available**, before relying on it for end-to-end testing or deployment.
 
 **Known Issues:** The `Dockerfile`/`fly.toml` port-mismatch and VM-memory fixes are unverified by an actual `docker build` — this sandbox has no privileged Docker daemon access. Verify with a real `fly deploy` before considering Fly.io hosting done. Also, note for future sessions in this same sandboxed environment: direct outbound HTTPS to `*.supabase.co` is blocked by org egress policy here — any test or script that calls Supabase directly (not through the MCP connector) will need to run somewhere else (CI, the owner's machine) to actually execute, even though it's correct.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.9 done; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.10 done; hosting pivoted to Fly.io)
