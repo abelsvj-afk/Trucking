@@ -117,3 +117,19 @@ export interface Document {
 export interface DocumentWithSignedUrl extends Document {
   signed_url: string | null;
 }
+
+export type AiConfidence = "high" | "medium" | "low";
+
+// Not part of the shared soft-delete convention: dismissed_at is this
+// resource's own "removed from the active list, never erased" field
+// (docs/schemas.md), so this doesn't extend BaseRow.
+export interface IndustryBriefing {
+  id: string;
+  company_id: string;
+  summary: string;
+  reasoning: string;
+  confidence: AiConfidence;
+  based_on: string[];
+  generated_at: string;
+  dismissed_at: string | null;
+}
