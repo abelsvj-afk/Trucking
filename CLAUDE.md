@@ -83,3 +83,18 @@ These are standing requirements for any server, API, or runtime built in this re
 - Security review is a required step before deployment (Phase 17/18): authn/authz correctness, secret handling, and dependency vulnerabilities get checked alongside functional review, not as an afterthought.
 
 Every middleware, diagnostics, or integration change must satisfy these rules at the time it's written — treat them as a merge/review checklist, not a future cleanup pass.
+
+## Verification discipline: "it builds" is not "it works"
+
+This came from a real incident: a scaffolding pass added `next build`, `npm run lint`, and a Tailwind import that all looked fine and passed a build — but `lint` had no config file to run against at all, and Tailwind's CSS was never actually being generated. `next build` succeeded through both, because neither failure shows up as a build error. Don't let that recur:
+
+- **A successful build proves the code compiles, nothing more.** If a `package.json` script exists (`lint`, `test`, `test:e2e`, `db:migrate`, etc.), the acceptance bar for whatever added it is running that exact script and confirming it does what it claims — not inferring it works because dependencies installed cleanly or the build passed.
+- **When wiring in a tool that needs its own config file** (a linter, a CSS pipeline, a test runner) **, verify the config file exists and the tool actually reads it** — check for output that proves the tool did real work (e.g. generated CSS actually containing the framework's rules), not just an absence of errors, since "silently did nothing" and "worked" often look identical from the exit code alone.
+
+## Automated PR review feedback (CodeRabbit, Codex, and similar bots)
+
+This repository may receive comments from automated code-review bots on GitHub. Handle every one of them the same way:
+
+- **Treat each finding as a claim to verify, not a fact to trust or a bot comment to dismiss.** Check it against the actual repository — read the referenced file, run the actual command it says is broken — before deciding whether it's real. Don't act on an automated finding without having verified it yourself, and don't dismiss one as noise without having actually checked.
+- **Fix everything that checks out**, not just the convenient ones. **Re-verify with the real command** the finding was about (not just a typecheck) — this is the same discipline as the section above, since these bots are good at catching exactly the class of gap that a clean build hides.
+- **Say what you skipped and why**, visibly (commit message and/or `PROJECT_STATE.md`) — a finding that turns out to be a trigger/config notice rather than an actual code finding can be set aside, but only after confirming that, and only while saying so out loud, not silently.
