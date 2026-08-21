@@ -98,3 +98,13 @@ This repository may receive comments from automated code-review bots on GitHub. 
 - **Treat each finding as a claim to verify, not a fact to trust or a bot comment to dismiss.** Check it against the actual repository — read the referenced file, run the actual command it says is broken — before deciding whether it's real. Don't act on an automated finding without having verified it yourself, and don't dismiss one as noise without having actually checked.
 - **Fix everything that checks out**, not just the convenient ones. **Re-verify with the real command** the finding was about (not just a typecheck) — this is the same discipline as the section above, since these bots are good at catching exactly the class of gap that a clean build hides.
 - **Say what you skipped and why**, visibly (commit message and/or `PROJECT_STATE.md`) — a finding that turns out to be a trigger/config notice rather than an actual code finding can be set aside, but only after confirming that, and only while saying so out loud, not silently.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
