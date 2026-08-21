@@ -31,8 +31,8 @@ Fly.io stops a machine after the idle period configured in `fly.toml` (`auto_sto
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | client + server | safe to expose |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | safe to expose — RLS is the real protection, per `docs/design/security.md`, not key secrecy |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only, migrations/admin tooling | bypasses RLS entirely — full access to every table. **Not** used by the industry-intelligence job; that would violate its least-privilege requirement (`docs/automation.md` task 4.4) — see `INDUSTRY_BRIEFING_DB_JWT` below |
-| `INDUSTRY_BRIEFING_DB_JWT` | server only | the industry-intelligence job's actual scoped credential — a dedicated Postgres role that can write `industry_briefings` and nothing else (`docs/automation.md` task 4.4), never sent to the client |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only, migrations/admin tooling | bypasses RLS entirely — full access to every table. **Not** used by the industry-intelligence job; that would violate its least-privilege requirement (`docs/automation.md` task 4.4) — see `INDUSTRY_BRIEFING_DB_URL` below |
+| `INDUSTRY_BRIEFING_DB_URL` | server only | the industry-intelligence job's actual scoped credential — a `postgres://` connection string for a dedicated Postgres role that can write `industry_briefings`/`industry_briefing_runs` and read its own kill-switch state, nothing else (`docs/automation.md` task 4.4), never sent to the client. Connected to directly via `pg`, not through the anon-key/PostgREST path — there's no user session for an unattended job to run under |
 | `OPENAI_API_KEY` | server only | used by `services/ai`'s OpenAI provider, per `docs/design/ai-architecture.md` — required for the industry-intelligence engine to run |
 | `ANTHROPIC_API_KEY` | server only | reserved for a future Anthropic provider implementation behind the same `services/ai` interface — not used by any capability yet |
 | `EIA_API_KEY` | server only | free-tier key for the EIA Open Data API, `services/integrations`' fuel-market source (`docs/design/ai-architecture.md`'s worked example) |

@@ -40,6 +40,8 @@ Nothing to roll back in the traditional sense — this capability never changes 
 
 If a source is unreachable or the AI call fails mid-run: the run fails explicitly (logged per Audit trail above), produces **no** briefing for that cycle — never a partial or low-confidence one dressed up as complete — and simply waits for the next scheduled run. No automatic immediate retry (that risks turning one bad source into a retry storm); the existing schedule interval is the retry cadence.
 
+**Clarifying a real ambiguity found while implementing this (task 4.1):** "a source," here and in `docs/design/ai-architecture.md`'s worked example, means one of the two top-level inputs — the EIA fuel-price API, or the regulatory/news source as a whole. The news source is itself a small set of RSS feeds; one individual feed timing out or erroring while the others still return content is **not** "a source unreachable" — the news source overall is still reachable, just with less coverage than ideal, which is exactly the "thin... sources" case `docs/design/ai-architecture.md`'s confidence handling already covers (`confidence: "low"`, stated plainly). A hard fail (no briefing at all) is for when EIA fails outright, or when *every* RSS feed fails, leaving nothing to summarize.
+
 ## Rate limits and timeouts
 
 - **Schedule frequency:** bounded by the owner-set minimum interval from `docs/governance.md`/`docs/vision.md`. Default, until the owner changes it: **no more than once daily** — deliberately conservative, both because industry conditions don't usually change faster than that and because every run costs real API usage, which matters given the cost-consciousness already established for this project.
