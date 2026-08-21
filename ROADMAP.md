@@ -33,7 +33,7 @@ Each entity means: its `services/db` functions, its `/api/v1/...` routes exactly
 
 ## Stage 4 — Industry intelligence engine
 
-The only AI capability that's design-complete through Phase 10 (`docs/design/ai-architecture.md`, `docs/automation.md`). Build `services/integrations` (its external sources), `services/ai` (the prompt/output contract), the internal cron-trigger route and Vercel Cron config (`docs/runtime.md`), the `industry_briefings` table's endpoints, and the briefing screen (already placeholder-listed in `docs/design/ui-ux.md`). Ships **off by default** — turning it on is the explicit, logged decision `docs/governance.md` requires, not something that happens by deploying the code.
+The only AI capability that's design-complete through Phase 10 (`docs/design/ai-architecture.md`, `docs/automation.md`). Build `services/integrations` (its external sources), `services/ai` (the prompt/output contract), the in-process scheduler and its optional secret-authenticated manual-trigger debug route (`docs/runtime.md` — Fly.io's persistent process replaced the original Vercel Cron Job design; there's no external caller to authenticate against for scheduling itself anymore), the `industry_briefings` table's endpoints, and the briefing screen (already placeholder-listed in `docs/design/ui-ux.md`). Ships **off by default** — turning it on is the explicit, logged decision `docs/governance.md` requires, not something that happens by deploying the code.
 
 **Done when:** a scheduled run produces a real briefing with a working per-capability kill switch, and the consecutive-failure escalation from `docs/runtime.md` actually surfaces in-app.
 
@@ -43,7 +43,7 @@ Not a new testing phase bolted on at the end — `docs/design/testing.md` alread
 
 ## Stage 6 — Deployment
 
-Real Vercel + Supabase production environments (per `docs/architecture.md`), real environment variables set from `.env.example`, the Vercel Cron job actually scheduled. Per the workflow doc's Phase 18 checklist: tests passing, build succeeding, docs current, secrets secured, monitoring in place (`docs/runtime.md`'s Vercel/Supabase dashboards), rollback possible (Vercel's own deployment rollback covers this at MVP scale — no custom mechanism needed).
+Real Fly.io + Supabase production environments (per `docs/architecture.md`), real environment variables set via `fly secrets set` from `.env.example`, the in-process scheduler confirmed running once the persistent process is live (no separate cron job to configure — see Stage 4). Per the workflow doc's Phase 18 checklist: tests passing, build succeeding, docs current, secrets secured, monitoring in place (`docs/runtime.md`'s Fly.io/Supabase dashboards), rollback possible (Fly.io's own release rollback, `fly releases`/`fly deploy --image`, covers this at MVP scale — no custom mechanism needed).
 
 ## Beyond the MVP
 
