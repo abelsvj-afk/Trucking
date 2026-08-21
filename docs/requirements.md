@@ -58,8 +58,8 @@ This project has previously been built with a workflow that produced backend onl
 
 ## Constraints
 
-- **Budget:** Free/near-free to start, per the decision in `docs/architecture.md` — free-tier hosting/database (Vercel + Supabase), scaling to paid tiers only once real usage or revenue justifies it.
-- **Hosting:** Vercel (app) + Supabase (database/auth/storage), decided in `docs/architecture.md`.
+- **Budget:** Free/near-free to start, per the decision in `docs/architecture.md` — free-tier hosting/database (Fly.io + Supabase), scaling to paid tiers only once real usage or revenue justifies it.
+- **Hosting:** Fly.io (app, Docker) + Supabase (database/auth/storage) — changed from an original Vercel decision when the owner chose Fly.io directly during Stage 3; see `docs/architecture.md`.
 - **Hardware:** No specialized hardware is assumed; the primary user's access is expected to be a phone and/or laptop while working as a driver. The system is designed mobile-first (`docs/design/ui-ux.md`), with a native app-store version planned for later (`docs/architecture.md`'s "Mobile and app-store path").
 - **Third-party services:** Supabase (database, auth, file storage) per `docs/architecture.md`. Any further selection (AI provider, fuel-price/load-board data source) must go through the Dependency Rule in `CLAUDE.md` — vetted, justified, and not adopted purely for convenience.
 - **Licensing:** Not yet defined.

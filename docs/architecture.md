@@ -20,7 +20,7 @@ A single web application: a phone-friendly frontend for entering and viewing tru
 | Frontend framework | **Next.js (React)** | One of the most widely-used, well-documented web frameworks — easiest to get unstuck on when learning. Supports PWA installability now and can be wrapped for iOS/Android app stores later via Capacitor without rebuilding the UI (see "Mobile and app-store path"). |
 | Backend | **Next.js route handlers**, same repo | Avoids standing up and paying for a second service. Keeps deployment to one thing. Revisit only if a real reason to split it out shows up. |
 | Database | **Postgres via Supabase** | Supabase bundles a managed Postgres database, authentication, and file storage behind one free tier — meaningfully less to wire up and secure yourself than assembling separate auth/storage/DB providers, and it's a widely-used, actively-maintained platform (satisfies the Dependency Rule in `CLAUDE.md`). |
-| Hosting | **Vercel (app) + Supabase (data)** | Both have free tiers that comfortably cover a single operator or small fleet's usage, and both scale to paid tiers later without a migration. |
+| Hosting | **Fly.io (app, Docker) + Supabase (data)** | Changed from an original Vercel decision — the owner chose Fly.io directly (via its GitHub launch flow) during Stage 3, with the explicit expectation this might change again later. Fly.io's free tier covers a single operator or small fleet's usage the same way Vercel's did; the real difference is the runtime model (see `docs/runtime.md`) — a persistent Docker container instead of serverless functions, since Fly.io doesn't offer the latter. |
 | Auth | **Supabase Auth** | Don't hand-roll authentication for a system holding financial and PII data — use a vetted, widely-used provider instead, per the security guardrails in `CLAUDE.md`. |
 
 Nothing here is locked in stone if a real problem shows up with it — but each has a reason, per the workflow doc's rule that "every major technology choice should have a reason."
@@ -98,7 +98,7 @@ None. A single operator's data volume doesn't need it, and adding a cache layer 
 
 ## Deployment strategy
 
-Vercel auto-deploys the app from the repository's main branch; Supabase hosts the managed database. No separate CI/CD pipeline beyond what Vercel provides by default — that's proportionate to a solo founder's current needs, and can grow once there's a team or release cadence that needs more.
+`fly deploy` builds the `Dockerfile` at the repo root and ships it to Fly.io; Supabase hosts the managed database, unaffected by this change. No separate CI/CD pipeline yet — deploys are triggered manually (or via Fly.io's GitHub integration, if connected) rather than a custom pipeline, proportionate to a solo founder's current needs, and can grow once there's a team or release cadence that needs more.
 
 ## Mobile and app-store path
 
@@ -106,11 +106,11 @@ Building a responsive, installable web app now (rather than a native app, or two
 
 ## Scalability plan
 
-The current architecture comfortably handles solo-to-small-fleet scale on free tiers. The `company_id` tenant-scoping decision above is the main lever for scaling into a paid, multi-operator product later; raw compute/storage scales by upgrading Vercel/Supabase tiers, not by rearchitecting the system.
+The current architecture comfortably handles solo-to-small-fleet scale on free tiers. The `company_id` tenant-scoping decision above is the main lever for scaling into a paid, multi-operator product later; raw compute/storage scales by upgrading Fly.io machine size/count and Supabase tiers, not by rearchitecting the system.
 
 ## Observability
 
-Per `CLAUDE.md`: structured logs from API routes with no secrets or PII in them, a dedicated health-check route separate from business endpoints, and (once any AI capability exists) an audit trail for anything AI-recommended. Vercel's built-in request logging is the baseline; a dedicated error-tracking service is deferred until real usage justifies the added dependency (Dependency Rule).
+Per `CLAUDE.md`: structured logs from API routes with no secrets or PII in them, a dedicated health-check route separate from business endpoints, and (once any AI capability exists) an audit trail for anything AI-recommended. Fly.io's built-in log aggregation (`fly logs`) is the baseline; a dedicated error-tracking service is deferred until real usage justifies the added dependency (Dependency Rule).
 
 ## Risks
 
