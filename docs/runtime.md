@@ -31,8 +31,11 @@ Fly.io stops a machine after the idle period configured in `fly.toml` (`auto_sto
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | client + server | safe to expose |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | safe to expose — RLS is the real protection, per `docs/design/security.md`, not key secrecy |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | bypasses RLS; used only for the industry-intelligence job's scoped write (`docs/automation.md`) — never sent to the client |
-| `ANTHROPIC_API_KEY` | server only | used by `services/ai`, per `docs/design/ai-architecture.md` |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only, migrations/admin tooling | bypasses RLS entirely — full access to every table. **Not** used by the industry-intelligence job; that would violate its least-privilege requirement (`docs/automation.md` task 4.4) — see `INDUSTRY_BRIEFING_DB_JWT` below |
+| `INDUSTRY_BRIEFING_DB_JWT` | server only | the industry-intelligence job's actual scoped credential — a dedicated Postgres role that can write `industry_briefings` and nothing else (`docs/automation.md` task 4.4), never sent to the client |
+| `OPENAI_API_KEY` | server only | used by `services/ai`'s OpenAI provider, per `docs/design/ai-architecture.md` — required for the industry-intelligence engine to run |
+| `ANTHROPIC_API_KEY` | server only | reserved for a future Anthropic provider implementation behind the same `services/ai` interface — not used by any capability yet |
+| `EIA_API_KEY` | server only | free-tier key for the EIA Open Data API, `services/integrations`' fuel-market source (`docs/design/ai-architecture.md`'s worked example) |
 | `INDUSTRY_BRIEFING_CRON_SECRET` | server only | no longer required for scheduling itself (see below — the job now triggers in-process) but kept for the optional manual-trigger debugging route |
 
 ## The industry-intelligence job's actual trigger mechanism
