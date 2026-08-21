@@ -492,14 +492,48 @@ main li:nth-child(6) { animation-delay: 200ms; }
   }
 }
 
-/* --- Random truck crossing (TruckCrossing.tsx). Fixed above the bottom
-   nav (which sits at z-index 50), decorative only. */
-.truck-crossing {
+/* --- Random truck crossing (TruckCrossing.tsx): a whole small roadside
+   scene, not a truck floating in empty space - a terrain silhouette
+   (varies per crossing) plus a road line the truck actually drives
+   along, fixed above the bottom nav (z-index 50), decorative only. */
+.truck-scene {
   position: fixed;
-  bottom: 88px;
+  bottom: 64px;
   left: 0;
+  right: 0;
+  height: 56px;
   z-index: 40;
   pointer-events: none;
+  overflow: hidden;
+  animation: fadeInUp 0.4s ease both;
+}
+
+.truck-terrain {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+}
+
+.truck-road {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  height: 2px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-border) 0,
+    var(--color-border) 12px,
+    transparent 12px,
+    transparent 22px
+  );
+}
+
+.truck-crossing {
+  position: absolute;
+  bottom: 0;
+  left: 0;
 }
 
 .truck-crossing-ltr {
@@ -524,15 +558,20 @@ main li:nth-child(6) { animation-delay: 200ms; }
   transform: scaleX(-1);
 }
 
+/* Duration varies per crossing (set inline as --truck-bob-duration by
+   TruckCrossing.tsx) so consecutive crossings don't move identically -
+   a real road isn't perfectly smooth every time. Combines a vertical
+   bounce with a slight rock, reading as suspension over uneven terrain
+   rather than a flat slide. */
 .truck-crossing svg {
   display: block;
-  animation: truckBob 0.5s ease-in-out infinite;
+  animation: truckBob var(--truck-bob-duration, 0.5s) ease-in-out infinite;
   filter: drop-shadow(0 4px 4px rgba(15, 23, 42, 0.15));
 }
 
 @keyframes truckBob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-2.5px) rotate(-0.6deg); }
 }
 
 .truck-wheel {
@@ -543,6 +582,65 @@ main li:nth-child(6) { animation-delay: 200ms; }
 
 @keyframes wheelSpin {
   to { transform: rotate(360deg); }
+}
+
+/* --- Random bird (or small flock) crossing (BirdCrossing.tsx). Higher
+   up and rarer than the truck so the two never compete for attention. */
+.bird-crossing {
+  position: fixed;
+  left: 0;
+  z-index: 35;
+  pointer-events: none;
+}
+
+.bird-crossing-ltr {
+  animation: driveLtr 9s linear forwards;
+}
+
+.bird-crossing-rtl {
+  animation: driveRtl 9s linear forwards;
+}
+
+.bird-flock {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bird-flap {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  height: 12px;
+  animation: birdBob 0.9s ease-in-out infinite;
+}
+
+@keyframes birdBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.bird-frame {
+  position: absolute;
+  inset: 0;
+}
+
+.bird-frame-up {
+  animation: birdFlapUp 0.5s steps(1, end) infinite;
+}
+
+.bird-frame-down {
+  animation: birdFlapDown 0.5s steps(1, end) infinite;
+}
+
+@keyframes birdFlapUp {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes birdFlapDown {
+  0%, 49% { opacity: 0; }
+  50%, 100% { opacity: 1; }
 }
 
 /* Motion sensitivity (WCAG 2.3.3, part of this project's WCAG 2.1 AA
@@ -563,7 +661,8 @@ main li:nth-child(6) { animation-delay: 200ms; }
     transition-duration: 0.001ms !important;
   }
 
-  .truck-crossing {
+  .truck-scene,
+  .bird-crossing {
     display: none;
   }
 }
