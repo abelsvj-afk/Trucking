@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { TruckCrossing } from "@/components/TruckCrossing";
 
 export const metadata: Metadata = {
   title: "Trucking OS",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <TruckCrossing />
+      </body>
     </html>
   );
 }

@@ -276,6 +276,12 @@ main:not(#main-content) form button[type="submit"] {
   padding: 1rem 0;
 }
 
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* --- Cards: every <section> is a grouped unit of content (financial
    summary, AI authorization settings, etc.) - give it a real elevated
    card surface instead of running directly into the page background. */
@@ -390,6 +396,7 @@ nav[aria-label="Primary"] {
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 50;
   background-color: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -434,4 +441,129 @@ nav[aria-label="Primary"] a:hover {
 nav[aria-label="Primary"] a[aria-current="page"] {
   color: var(--color-primary);
   background-color: var(--color-primary-light);
+  animation: tabPop 0.3s ease;
+}
+
+/* --- Motion: the site actually moves now, per explicit owner request -
+   not just static color/elevation. Two kinds: the random truck crossing
+   (src/components/TruckCrossing.tsx) and small entrance/feedback motion
+   on real content (cards, list rows, the active nav tab). Every rule
+   here is neutralized by the prefers-reduced-motion block at the very
+   end of this file - that block must stay last so its !important-free
+   `animation: none` still wins by source order against everything above. */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+section {
+  animation: fadeInUp 0.35s ease both;
+}
+
+main li {
+  animation: fadeInUp 0.3s ease both;
+}
+
+/* Stagger the first several rows so a list "arrives" rather than
+   popping in as one block - pure CSS, no per-item inline style needed. */
+main li:nth-child(1) { animation-delay: 0ms; }
+main li:nth-child(2) { animation-delay: 40ms; }
+main li:nth-child(3) { animation-delay: 80ms; }
+main li:nth-child(4) { animation-delay: 120ms; }
+main li:nth-child(5) { animation-delay: 160ms; }
+main li:nth-child(6) { animation-delay: 200ms; }
+
+@keyframes tabPop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* --- Random truck crossing (TruckCrossing.tsx). Fixed above the bottom
+   nav (which sits at z-index 50), decorative only. */
+.truck-crossing {
+  position: fixed;
+  bottom: 88px;
+  left: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.truck-crossing-ltr {
+  animation: driveLtr 7s linear forwards;
+}
+
+.truck-crossing-rtl {
+  animation: driveRtl 7s linear forwards;
+}
+
+@keyframes driveLtr {
+  from { transform: translateX(-15vw); }
+  to { transform: translateX(115vw); }
+}
+
+@keyframes driveRtl {
+  from { transform: translateX(115vw); }
+  to { transform: translateX(-15vw); }
+}
+
+.truck-flip {
+  transform: scaleX(-1);
+}
+
+.truck-crossing svg {
+  display: block;
+  animation: truckBob 0.5s ease-in-out infinite;
+  filter: drop-shadow(0 4px 4px rgba(15, 23, 42, 0.15));
+}
+
+@keyframes truckBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.truck-wheel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wheelSpin 0.4s linear infinite;
+}
+
+@keyframes wheelSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Motion sensitivity (WCAG 2.3.3, part of this project's WCAG 2.1 AA
+   commitment in docs/design/ui-ux.md) - must stay the LAST rule in this
+   file. TruckCrossing.tsx also independently checks this preference in
+   JS and skips scheduling entirely, so a user who asked for less motion
+   never gets a truck even if this CSS were somehow not loaded - this is
+   the second, CSS-level layer of that same guarantee, and it also
+   covers every other animation in this file (fadeInUp, tabPop, hover/
+   active transitions) in one place instead of repeating a guard on each
+   rule above. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .truck-crossing {
+    display: none;
+  }
 }
