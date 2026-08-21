@@ -5,7 +5,7 @@ Phase 6 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`, c
 ## Conventions
 
 - **Base path:** `/api/v1/...`. The `v1` prefix costs nothing to add now and avoids a painful breaking change later once this becomes a paid product used by more than one company — same reasoning as the `company_id` decision in `docs/architecture.md`.
-- **Auth:** every route requires a valid Supabase session (cookie-based). No route is exempt. Unauthenticated requests get `401` before any handler logic runs, per the middleware requirement in `CLAUDE.md`.
+- **Auth:** every route requires a valid Supabase session (cookie-based), with exactly one documented exception: `GET /api/v1/health` (see below), which exists specifically so deployment/monitoring health probes can reach it. Every other route has no exemption — unauthenticated requests get `401` before any handler logic runs, per the middleware requirement in `CLAUDE.md`.
 - **Format:** JSON in, JSON out. `Content-Type: application/json`.
 - **IDs:** UUIDs, as strings.
 - **Money:** integers, in cents, over the wire — matches storage in `docs/schemas.md`. The frontend formats for display; the API never sends or accepts floating-point currency.
@@ -52,7 +52,7 @@ Every MVP entity in `docs/schemas.md` gets the same five endpoints, scoped autom
 | PATCH | `/api/v1/{resource}/{id}` | Partial update |
 | DELETE | `/api/v1/{resource}/{id}` | Soft delete |
 
-`{resource}` is one of: `trucks`, `trailers`, `drivers`, `customers`, `brokers`, `loads`, `expenses`, `fuel-purchases`, `maintenance-events`, `documents`.
+`{resource}` is one of: `trucks`, `trailers`, `drivers`, `customers`, `brokers`, `loads`, `expenses`, `fuel-purchases`, `maintenance-events`. **Not `documents`** — it has its own contract (see "Documents" below) because it doesn't fit this shape: creation is `multipart/form-data` not JSON, there's no `PATCH` (documents aren't edited in place, per `docs/schemas.md`), and `DELETE` removes the row and file outright rather than soft-deleting. Applying this generic table to `documents` too would describe two incompatible APIs for the same resource.
 
 ### Worked example — `trucks`
 
