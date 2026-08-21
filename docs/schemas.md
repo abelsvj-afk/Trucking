@@ -196,7 +196,7 @@ Added alongside `industry_briefings` (Stage 4, `docs/automation.md` task 4.7). A
 | company_id | uuid | no | same tenant-scoping caveat as `industry_briefings` above |
 | started_at | timestamptz | no | |
 | finished_at | timestamptz | yes | null only if the process crashed mid-run without reaching its own error handler |
-| status | text | no | `success` \| `failure` |
+| status | text | no | `success` \| `failure` \| `insufficient_data` — the third value matters: per `docs/design/ai-architecture.md`'s output contract, a quiet news cycle with nothing worth surfacing is a normal, expected outcome, not a failure. Counting it toward the consecutive-failure escalation (`docs/automation.md`) would raise false alarms during ordinary quiet periods |
 | error_message | text | yes | set only when `status = 'failure'`; server-side diagnostic detail only — never shown raw to the owner, per `CLAUDE.md`'s centralized error handling |
 | briefing_id | uuid | yes | references `industry_briefings.id`; set only on `success` |
 | created_at | timestamptz | no | |

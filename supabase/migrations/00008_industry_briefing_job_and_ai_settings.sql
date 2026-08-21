@@ -29,7 +29,7 @@ create table industry_briefing_runs (
   company_id uuid not null references companies (id),
   started_at timestamptz not null,
   finished_at timestamptz,
-  status text not null check (status in ('success', 'failure')),
+  status text not null check (status in ('success', 'failure', 'insufficient_data')),
   error_message text,
   briefing_id uuid references industry_briefings (id),
   created_at timestamptz not null default now()

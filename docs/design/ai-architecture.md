@@ -14,10 +14,11 @@ Nothing here authorizes building anything — Governance stays at Level 1 (per `
 
 **Retrieval strategy:** none needed for internal data — it's structured business data queried directly through `services/db`, not unstructured text needing semantic search. If a future capability (e.g. the industry-intelligence engine) needs to work with unstructured external content (articles, reports), that's scoped when that specific capability is designed, not built speculatively now.
 
-**Output contract:** every capability produces the same shape, so the UI (`docs/design/ui-ux.md`'s Approval workflow) can render any of them generically instead of needing bespoke UI per capability:
+**Output contract:** every capability produces one of two shapes, so the UI (`docs/design/ui-ux.md`'s Approval workflow) can render any of them generically instead of needing bespoke UI per capability, and so "I don't have enough to say something real" is a machine-checkable status rather than free text a caller has to guess at from prose:
 
 ```json
 {
+  "status": "ok",
   "summary": "one-line plain-language recommendation",
   "reasoning": "why, in terms a human can verify",
   "confidence": "high | medium | low",
@@ -25,8 +26,14 @@ Nothing here authorizes building anything — Governance stays at Level 1 (per `
   "options": [ /* optional: 2-3 ranked alternatives, each with the same shape, for capabilities like the decision engine's take/negotiate/decline choice from My idea */ ]
 }
 ```
+```json
+{
+  "status": "insufficient_data",
+  "reason": "plain-language explanation of what's missing or why what's available isn't enough to say something real"
+}
+```
 
-**Confidence handling & hallucination controls:** `confidence` is mandatory, and `based_on` must name real, traceable records or sources — never invented ones. If a capability can't produce both, it doesn't produce a recommendation at all; it reports that it lacks enough data and stops, per `docs/governance.md`'s escalation rules and `CLAUDE.md`'s "AI must not invent unavailable data." No capability is allowed to fill a gap with a plausible-sounding guess.
+**Confidence handling & hallucination controls:** in the `"ok"` shape, `confidence` is mandatory, and `based_on` must name real, traceable records or sources — never invented ones. If a capability can't produce both, it returns `"insufficient_data"` instead of forcing an `"ok"` response with a weak `confidence: "low"` — it reports that it lacks enough data and stops, per `docs/governance.md`'s escalation rules and `CLAUDE.md`'s "AI must not invent unavailable data." No capability is allowed to fill a gap with a plausible-sounding guess. (`confidence: "low"` is still a real, distinct outcome from `insufficient_data` — it means "I have something to say, but it's thin," per the industry-intelligence worked example below; `insufficient_data` means there's nothing worth saying at all.)
 
 **Feedback loops:** not built yet for any capability — no capability learns from past approve/reject decisions right now. What *is* required from day one: every recommendation, and what the human did with it (approved/modified/rejected), gets logged to the audit trail `CLAUDE.md` already requires. That log is exactly the raw material a future feedback loop would need — capturing it now costs nothing extra (it's the same audit trail already mandated for other reasons) and avoids having to retrofit logging later just to make learning possible.
 
