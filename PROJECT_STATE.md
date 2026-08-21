@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Stage 4 (Industry intelligence engine) code done except task 4.4 (blocked on Supabase MCP access, see below); Stage 5 (Hardening) task 5.3 (security review) started ahead of Stage 4's formal close since 4.4's blocker doesn't prevent a code-level review — see below for what it found.
+**Current Phase:** Phase 15 — Stage 4 (Industry intelligence engine) code done except task 4.4 (blocked on Supabase MCP access, see below); Stage 5 (Hardening) task 5.3 (security review) done at the code level, started ahead of Stage 4's formal close since 4.4's blocker doesn't prevent a code-level review — see below for what it found. Tasks 5.1/5.2/5.4 not started.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -104,7 +104,7 @@ Built: `services/integrations` (EIA fuel prices, RSS industry news — **unverif
 
 **Not done — task 4.4, genuinely blocked, not skipped:** migration `00008` (the job's scoped least-privilege Postgres role, `industry_briefing_runs`, `ai_capability_settings`, `companies.ai_globally_disabled`) is written and committed but never applied — the Supabase MCP connector was disconnected for this entire stage. Once it's back, in order: apply `00008`, run a one-off **non-committed** `ALTER ROLE industry_briefing_job PASSWORD '...'` (a real password can't live in a migration file), put that password into `INDUSTRY_BRIEFING_DB_URL` as a `postgres://` connection string, then verify via `execute_sql` that the role genuinely cannot touch any table besides the ones it was granted. The industry-intelligence capability cannot actually run end-to-end until this is done, even though every other piece of it is built and tested.
 
-**Stage 5, task 5.3 (security review) started.** `npm audit`: 0 vulnerabilities. Grepped the whole tracked repo for hardcoded secrets: none found, `.env.local` confirmed never committed and excluded from the Docker build context too. Confirmed `SUPABASE_SERVICE_ROLE_KEY` is genuinely unused anywhere in application code, and every one of the 15 tables across every migration has RLS enabled.
+**Stage 5, task 5.3 (security review) code-level review done.** `npm audit`: 0 vulnerabilities. Grepped the whole tracked repo for hardcoded secrets: none found, `.env.local` confirmed never committed and excluded from the Docker build context too. Confirmed `SUPABASE_SERVICE_ROLE_KEY` is genuinely unused anywhere in application code, and every one of the 15 tables across every migration has RLS enabled.
 
 Found and fixed 3 real gaps this way — this is exactly why a review pass matters even on code that already passed its own tests:
 1. `docs/design/security.md` had two stale "Vercel" references left over from before the Fly.io pivot (env-var storage, HTTPS enforcement) — fixed.
@@ -113,9 +113,13 @@ Found and fixed 3 real gaps this way — this is exactly why a review pass matte
 
 **Also found a real functional bug, not just a security one, precisely because mocked unit tests can't catch it:** `companies` has never had an `UPDATE` RLS policy — meaning Stage 4's global-kill-switch `PATCH /api/v1/ai-settings` would silently fail against the real database (RLS blocks the write, but a mocked-Supabase unit test has no RLS to enforce, so all 122+ passing tests gave false confidence on this specific path). Added migration `00009` fixing it — blocked on live application, same as `00008`.
 
-Still open for 5.3: re-read the "Future: prompt injection" threat-model row now that `services/integrations`/`services/ai` actually exist (it was written when they were still hypothetical), and a closer pass over `services/ai`'s own code specifically.
+**Followed up with the closer pass over `services/ai`'s own code, which found one more real gap:** `based_on` was only ever shape-validated (non-empty strings) — never checked that its contents referred to anything actually present in that run's context, even though `docs/design/ai-architecture.md` states sources "must name real, traceable records... never invented ones" as a hard requirement, not something the model is merely asked nicely to follow. Added a real cross-check in `generateIndustryBriefing` (`src/services/ai/industry-briefing.ts`) against the actual fuel label/feed names/item titles the run was given — a citation that doesn't plausibly match anything real now fails the run (same `docs/automation.md` Failure-recovery path as an unreachable source), rather than being trusted on the model's word alone. Updated `docs/design/ai-architecture.md`'s hallucination-controls section to describe this as enforced, not just instructed. Re-read the "Future: prompt injection" threat-model row: still accurate as written — the real mitigation is blast-radius limitation (the job's DB credential can only ever write `industry_briefings`/`industry_briefing_runs`, enforced at the database level once task 4.4 applies), not perfect injection prevention, matching `docs/governance.md`'s own stated philosophy.
 
-**In Progress:** Stage 5 task 5.3 (security review, above). Task 4.4 remains blocked, not actively worked, pending Supabase MCP access.
+Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (128/128 passing, 3 new tests), `npx next build` all clean.
+
+**Task 5.3 (security review) is done at the code level.** Live verification of the two SQL fixes it produced (`00008`, `00009`) rides on task 4.4's already-tracked blocker below, not duplicated as a separate item.
+
+**In Progress:** Nothing. Task 4.4 remains blocked, not actively worked, pending Supabase MCP access.
 
 **Blocked:** Task 4.4 — needs live Supabase MCP access to apply migration `00008`, set the job's role password, and verify its table-scoped access. Migration `00009` (the `companies` UPDATE policy fix, found during 5.3) is in the same boat — both are ready to apply the moment the connector reconnects.
 
@@ -137,4 +141,4 @@ fly secrets set NEXT_PUBLIC_SUPABASE_URL=https://qiiztjqzlrpffyyrjkss.supabase.c
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 done; Stage 4 code done except task 4.4 (blocked); Stage 5 task 5.3 in progress, found and fixed a real functional RLS bug + a real error-leak; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 done; Stage 4 code done except task 4.4 (blocked); Stage 5 task 5.3 done at the code level — found and fixed a real functional RLS bug, a real error-leak, and a real AI hallucination-control gap; hosting pivoted to Fly.io)

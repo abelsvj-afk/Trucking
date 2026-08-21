@@ -44,6 +44,44 @@ function buildUserPrompt(sources: IndustrySources): string {
   ].join("\n");
 }
 
+// Stage 5 security review: based_on was only shape-validated (non-empty
+// strings) - never checked that its contents referred to anything the
+// model actually saw. The system prompt tells it to cite only real
+// sources, but per docs/design/ai-architecture.md's own standard ("AI
+// must not invent unavailable data" is a hard requirement, not a
+// request), a prompt instruction alone is something the model is trusted
+// to follow, not something enforced. This builds the real list of source
+// labels this run's context actually contained, so a citation that
+// doesn't plausibly match any of them can be caught rather than trusted.
+function buildKnownSourceLabels(sources: IndustrySources): string[] {
+  const labels = [sources.fuelMarket.label];
+  for (const feed of sources.news) {
+    labels.push(feed.source);
+    for (const item of feed.items) labels.push(item.title);
+  }
+  return labels;
+}
+
+function isPlausibleSource(citedSource: string, knownLabels: string[]): boolean {
+  const needle = citedSource.toLowerCase();
+  return knownLabels.some((label) => {
+    const hay = label.toLowerCase();
+    return hay.includes(needle) || needle.includes(hay);
+  });
+}
+
+function assertSourcesAreReal(basedOn: string[], knownLabels: string[]): void {
+  const unverifiable = basedOn.filter((source) => !isPlausibleSource(source, knownLabels));
+  if (unverifiable.length > 0) {
+    // Treated as a run failure, per docs/automation.md's Failure recovery -
+    // a citation that doesn't match anything real is the same problem as
+    // failing to produce based_on at all.
+    throw new Error(
+      `AI cited source(s) not present in the provided context: ${unverifiable.join(", ")}`,
+    );
+  }
+}
+
 export async function generateIndustryBriefing(
   provider: AiProvider,
   sources: IndustrySources,
@@ -52,5 +90,15 @@ export async function generateIndustryBriefing(
     system: SYSTEM_PROMPT,
     user: buildUserPrompt(sources),
   });
-  return parseAiOutput(raw);
+  const output = parseAiOutput(raw);
+
+  if (output.status === "ok") {
+    const knownLabels = buildKnownSourceLabels(sources);
+    assertSourcesAreReal(output.based_on, knownLabels);
+    for (const option of output.options ?? []) {
+      assertSourcesAreReal(option.based_on, knownLabels);
+    }
+  }
+
+  return output;
 }

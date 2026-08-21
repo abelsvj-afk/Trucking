@@ -53,4 +53,60 @@ describe("generateIndustryBriefing", () => {
     const call = complete.mock.calls[0]?.[0];
     expect(call.user).toContain("coverage is partial");
   });
+
+  it("rejects a based_on citation that doesn't match anything in the actual context", async () => {
+    const provider: AiProvider = {
+      complete: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          status: "ok",
+          summary: "s",
+          reasoning: "r",
+          confidence: "high",
+          based_on: ["Reuters exclusive report"],
+        }),
+      ),
+    };
+
+    await expect(generateIndustryBriefing(provider, SOURCES)).rejects.toThrow(
+      "cited source(s) not present in the provided context",
+    );
+  });
+
+  it("accepts a based_on citation matching the fuel snapshot's label", async () => {
+    const provider: AiProvider = {
+      complete: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          status: "ok",
+          summary: "s",
+          reasoning: "r",
+          confidence: "high",
+          based_on: ["U.S. average diesel"],
+        }),
+      ),
+    };
+
+    const result = await generateIndustryBriefing(provider, SOURCES);
+    expect(result.status).toBe("ok");
+  });
+
+  it("also validates based_on inside each option, not just the top level", async () => {
+    const provider: AiProvider = {
+      complete: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          status: "ok",
+          summary: "s",
+          reasoning: "r",
+          confidence: "high",
+          based_on: ["FMCSA Newsroom"],
+          options: [
+            { summary: "s2", reasoning: "r2", confidence: "low", based_on: ["a source that was never given"] },
+          ],
+        }),
+      ),
+    };
+
+    await expect(generateIndustryBriefing(provider, SOURCES)).rejects.toThrow(
+      "cited source(s) not present in the provided context",
+    );
+  });
 });
