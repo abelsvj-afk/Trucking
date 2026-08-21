@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 8 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases), maintenance events next.
+**Current Phase:** Phase 15 — Implementation, Stage 3 (Core functionality) — in progress: 9 of 12 tasks done (trucks, trailers, drivers, customers, brokers, loads, expenses, fuel purchases, maintenance events), documents next.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -68,16 +68,20 @@ Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (43/43 p
 
 Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (52/52 passing), `npx next build` (all routes present) all clean.
 
-**In Progress:** Stage 3, task 3.9 (maintenance events) next.
+**Task 3.9 (maintenance events) done.** `description`/`service_date`/`truck_id` required, `cost_cents`/`mileage_at_service` nullable non-negative. Lives under Fleet (not Money) since it's a truck's service record, not cash flow. Satisfies the "shows in the relevant truck's maintenance history" acceptance criterion by adding a truck filter to the list screen — reused the `filterableFields` mechanism already built for loads' `?status=` (declares `["truck_id"]`) rather than building a new truck-detail page nothing else needed yet.
+
+Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (61/61 passing), `npx next build` (all routes present) all clean.
+
+**In Progress:** Stage 3, task 3.10 (documents) next.
 
 **Blocked:** Nothing.
 
 **Next Tasks:**
-- Stage 3 tasks 3.9 onward: maintenance events, then documents, then the financial summary, then the navigation/accessibility polish pass (3.12).
+- Stage 3 tasks 3.10 onward: documents (upload/storage/signed URLs — the first entity with a genuinely different contract, per `docs/api-contracts.md`: multipart upload, no `PATCH`, hard delete, so it will NOT reuse the generic `createCrudRoutes`/`usePickerList` pattern wholesale), then the financial summary, then the navigation/accessibility polish pass (3.12).
 - **Owner login:** the owner's real Supabase Auth account (created via Supabase Dashboard, `abelsvj@gmail.com`) was linked to a new `companies` + `user_profiles` row via Supabase MCP `execute_sql` earlier this session, using a placeholder company name ("My Trucking Company") since the real name wasn't provided yet — renamable via SQL later. The Supabase MCP connector's auth has fluctuated during this session (disconnected/reconnected); **re-verify this link is still live via `list_tables`/`execute_sql` the next time the connector is available**, before relying on it for end-to-end testing or deployment.
 
 **Known Issues:** The `Dockerfile`/`fly.toml` port-mismatch and VM-memory fixes are unverified by an actual `docker build` — this sandbox has no privileged Docker daemon access. Verify with a real `fly deploy` before considering Fly.io hosting done. Also, note for future sessions in this same sandboxed environment: direct outbound HTTPS to `*.supabase.co` is blocked by org egress policy here — any test or script that calls Supabase directly (not through the MCP connector) will need to run somewhere else (CI, the owner's machine) to actually execute, even though it's correct.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.8 done; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 in progress: 3.1–3.9 done; hosting pivoted to Fly.io)

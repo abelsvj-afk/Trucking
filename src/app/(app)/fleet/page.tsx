@@ -18,6 +18,9 @@ export default function FleetPage() {
         <li>
           <Link href="/fleet/drivers">Drivers</Link>
         </li>
+        <li>
+          <Link href="/fleet/maintenance-events">Maintenance</Link>
+        </li>
       </ul>
     </div>
   );
