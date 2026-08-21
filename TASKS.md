@@ -8,14 +8,16 @@ Task sizing follows `CLAUDE.md`'s existing pattern for file/function size: "unde
 
 ## Stage 1 — Foundation
 
-| ID | Task | Depends on | Acceptance criteria |
-|---|---|---|---|
-| 1.1 | Run `npm install`, commit the lockfile | Phase 12 scaffold | `npm run dev` serves the placeholder page; `npm run typecheck` and `npm run lint` pass clean |
-| 1.2 | Create the Supabase project; populate local `.env.local` from `.env.example` | — | App can reach Supabase from a local dev run; no real values committed anywhere |
-| 1.3 | Migrate `companies` and `user_profiles` (`docs/schemas.md`), with RLS | 1.2 | Tables exist; RLS policy scopes every query to `company_id` |
-| 1.4 | Migrate all remaining MVP tables + `industry_briefings` (`docs/schemas.md`), with RLS on each | 1.3 | Every table from `docs/schemas.md` exists with its RLS policy |
-| 1.5 | Write the RLS tenant-isolation test (`docs/design/testing.md`) | 1.4 | Two-company test proves company A can never read/write company B's rows, for every table |
-| 1.6 | Wire `services/db`'s Supabase client (server + client variants) | 1.4 | A trivial read/write round-trips through `services/db` in a test |
+| ID | Task | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|
+| 1.1 | Run `npm install`, commit the lockfile | Phase 12 scaffold | `npm run dev` serves the placeholder page; `npm run typecheck` and `npm run lint` pass clean | ✅ Done — `npx tsc --noEmit` and `npx next build` both pass clean; lockfile committed |
+| 1.2 | Create the Supabase project; populate local `.env.local` from `.env.example` | — | App can reach Supabase from a local dev run; no real values committed anywhere | 🔴 **Blocked on the owner** — creating a real Supabase account/project is external account provisioning I can't do on your behalf. See the instructions this task's completion note adds below. |
+| 1.3 | Migrate `companies` and `user_profiles` (`docs/schemas.md`), with RLS | 1.2 | Tables exist; RLS policy scopes every query to `company_id` | ✅ SQL written (`supabase/migrations/00001_...sql`) — cannot be *applied* until 1.2 unblocks |
+| 1.4 | Migrate all remaining MVP tables + `industry_briefings` (`docs/schemas.md`), with RLS on each | 1.3 | Every table from `docs/schemas.md` exists with its RLS policy | ✅ SQL written (`00002`–`00005`) — same caveat as 1.3 |
+| 1.5 | Write the RLS tenant-isolation test (`docs/design/testing.md`) | 1.4 | Two-company test proves company A can never read/write company B's rows, for every table | ✅ Written (`tests/integration/rls-tenant-isolation.test.ts`) — skips itself cleanly without live credentials; cannot actually *run* until 1.2 unblocks |
+| 1.6 | Wire `services/db`'s Supabase client (server + client variants) | 1.4 | A trivial read/write round-trips through `services/db` in a test | ✅ Done (`src/services/db/server.ts`, `client.ts`) — typechecks clean; exercised for real once 1.2 unblocks |
+
+**To unblock 1.2:** create a project at [supabase.com](https://supabase.com), then from its Settings → API page, copy the Project URL, anon key, and service-role key into a local `.env.local` (copy `.env.example` first — `.env.local` is already gitignored). Paste them there, not into chat — they don't need to pass through me at all. Once that's done, tell me and I'll run the migrations and the real test suite against it.
 
 ## Stage 2 — Authentication
 

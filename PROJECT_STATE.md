@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 14 — Task Generation (complete). Next: Phase 15 — Implementation.
+**Current Phase:** Phase 15 — Implementation, Stage 1 (Foundation) — in progress, blocked on the owner for one task.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -30,15 +30,18 @@ Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Upda
 
 - Phase 14 — Task Generation (`TASKS.md`): broke `ROADMAP.md`'s 6 stages into 37 tasks with explicit dependencies and acceptance criteria. Kept every Stage 3 (core functionality) task as backend+screens together per entity, deliberately not split into separate backend/frontend tasks — splitting them is exactly how backend-only delivery happens by accident, per `CLAUDE.md`'s locked-in rule. Task sizing follows the same "warning threshold, not hard limit" framing `CLAUDE.md` already uses for file/function size.
 
-**In Progress:** Nothing — this is the last purely-planning phase. Phase 15 (Implementation) is next and is where actual feature code gets written for the first time.
+**Phase 15 — Implementation, Stage 1 (Foundation), in progress:** tasks 1.1, 1.3–1.6 done; task 1.2 blocked. Real `npm install` (409 packages, 0 vulnerabilities, lockfile committed), added `@supabase/ssr` as a new justified dependency (needed for the cookie-based sessions `docs/design/security.md` already committed to — plain `@supabase/supabase-js` doesn't handle that correctly), verified the scaffold with a real `npx tsc --noEmit` and `npx next build` (both clean). Wrote all 5 SQL migrations (`supabase/migrations/`) implementing every table in `docs/schemas.md` with RLS via a shared `current_company_id()` helper. Wrote `services/db`'s server/browser Supabase clients (`src/services/db/`). Wrote the RLS tenant-isolation test (`tests/integration/rls-tenant-isolation.test.ts`) — confirmed it skips itself cleanly (`3 skipped`, not a crash) without live credentials, per its own design. None of 1.3–1.6 have been verified against a real database yet — that's what's blocked.
 
-**Blocked:** Nothing.
+**In Progress:** Stage 1, task 1.2.
+
+**Blocked:** Task 1.2 (create the real Supabase project) needs the owner — this is external account/billing provisioning I can't do on their behalf. Instructions are in `TASKS.md` under Stage 1. Once `.env.local` has real values, migrations get applied and the RLS test gets run for real.
 
 **Next Tasks:**
-- Phase 15 — Implementation: start with Stage 1 (`TASKS.md` 1.1–1.6) — `npm install`, the real Supabase project, and the first schema migrations. Everything from here on is building against contracts that are already fully specified; no further design phases are expected before implementation starts, barring a genuine gap discovered along the way (per the workflow's own STOP → UPDATE THE SPECIFICATION rule).
+- Owner: create the Supabase project, populate `.env.local` (see `TASKS.md`).
+- Once unblocked: run `npm run db:migrate`, run the real RLS test suite, then move to Stage 2 (Authentication).
 
-**Known Issues:** None yet — no code exists beyond the Phase 12 scaffold (an unbuilt, uninstalled skeleton — `npm install` has never been run).
+**Known Issues:** None. The Phase 12 scaffold is no longer unbuilt/uninstalled — `npm install` has run, `next build` passes.
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-20 (Phase 14)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 1)

@@ -10,13 +10,16 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:generate-types": "supabase gen types typescript --linked > src/types/database.ts",
+    "db:migrate": "supabase db push"
   },
   "dependencies": {
     "next": "^16.3.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "@supabase/supabase-js": "^2.112.3",
+    "@supabase/ssr": "^0.12.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {

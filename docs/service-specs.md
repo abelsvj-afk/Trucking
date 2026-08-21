@@ -34,7 +34,7 @@ Phase 8 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`, d
 
 **Responsibilities:** validate the Supabase session on every request; resolve the authenticated user's `company_id` and `role` from `user_profiles`; produce a `401` before any handler logic runs if that fails.
 
-**Dependencies:** Supabase Auth.
+**Dependencies:** Supabase Auth, via `@supabase/ssr` — the package Supabase publishes specifically for cookie-based sessions in a Next.js App Router server/client split (per `docs/design/security.md`'s HTTP-only cookie session commitment); not `@supabase/supabase-js` alone, which doesn't handle SSR cookie sessions correctly.
 
 **Inputs:** the request's session cookie.
 
