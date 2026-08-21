@@ -4,6 +4,7 @@
 
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
+import type { ServiceStatus } from "@/types/service-status";
 
 export interface ApiErrorBody {
   error: { code: string; message: string };
@@ -98,4 +99,6 @@ export const apiClient = {
     request<AiSettings>("/api/v1/ai-settings", { method: "PATCH", body: JSON.stringify(body) }),
   dismissIndustryBriefing: <T>(id: string) =>
     request<T>(`/api/v1/industry-briefings/${id}/dismiss`, { method: "POST" }),
+  listIndustryBriefings: <T>() =>
+    request<{ data: T[]; service_status: ServiceStatus }>("/api/v1/industry-briefings"),
 };

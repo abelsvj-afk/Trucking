@@ -14,7 +14,7 @@ A bottom tab bar, not a sidebar — sidebars are a desktop pattern that doesn't 
 | **Loads** | Load list, load detail, new/edit load |
 | **Fleet** | Trucks, trailers, drivers, maintenance events |
 | **Money** | Expenses, fuel purchases, full financial summary |
-| **More** | Customers, brokers, documents, account/settings (and, once it exists, the AI status + kill switches from `docs/governance.md`) |
+| **More** | Customers, brokers, documents, account/settings (incl. the AI status + kill switches from `docs/governance.md`), industry intelligence |
 
 Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are reached via a simple segmented control at the top of that tab, not nested navigation — staying shallow matters more than looking sophisticated here.
 
@@ -43,6 +43,7 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 - **Customers / Brokers:** list + detail (contact info, notes).
 - **Documents:** browsed per related record (a truck, load, trailer, or driver) rather than one flat file list — matches how `docs/schemas.md` associates them, and matches how you'd actually look for a document ("the permit for Truck #1," not "file #482").
 - **Account/Settings:** login/session management now. Once any AI capability exists (Governance Level 2+), this is also where the AI's current authorization level and the global + per-capability kill switches from `docs/governance.md` live — visible from the main navigation, not buried, per the requirement already locked into `docs/requirements.md`.
+- **Industry intelligence:** a feed, most recent first, of dismissable cards — each showing `summary`/`reasoning`/`confidence`/`based_on` per the shared output contract (`docs/design/ai-architecture.md`), plus a `service_status` banner (per `docs/api-contracts.md`) that only appears when the consecutive-failure escalation has actually triggered, not on every visit. Lives under More since that's already where the rest of what's *about* the AI (its authorization state, the kill switches) lives — this is a feed *from* a capability, not a business record like Customers/Documents, so it gets its own entry rather than folding into either.
 
 ## Screens not yet designed
 
@@ -50,8 +51,9 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 
 - **Fuel route** — an interactive map showing the optimized route/fuel stop, not just a number. You've been explicit this needs real visual treatment, not a data table; it gets designed once Fuel Intelligence has its own architecture (including picking a mapping/routing library, which is a real dependency decision per `CLAUDE.md`'s Dependency Rule).
 - **Load recommendation ("take this load")** — the decision engine's approval-workflow card described under Workflows below, once that engine exists.
-- **Industry intelligence briefing** — a feed/digest surfacing fuel-market, regulatory, and industry-disruption findings (the new capability added to `docs/vision.md`).
 - **Home-time planner**, **parking network map**, **load-board search/integration view**, and **advanced financial reporting** (trends, margin over time, fleet-expansion readiness) — each tied to its own future engine in `docs/vision.md`.
+
+*(The industry intelligence briefing screen moved out of this list and into the More section above once Stage 4 actually designed and built it — this list is "not yet designed," not "designed but not linked here.")*
 
 None of these are being skipped — they're sequenced. Each shows up in this document once its own Requirements → Architecture → Detailed Design pass happens, the same path every MVP screen above already went through. If a screen you're expecting isn't in this list either, say so — this list should stay a complete map of "known future work," not just what happens to come up.
 
