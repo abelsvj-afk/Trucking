@@ -2,7 +2,7 @@
 
 Tracked per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` Phase 19. Update this whenever meaningful progress happens.
 
-**Current Phase:** Phase 15 — Stage 4 (Industry intelligence engine) code done except task 4.4 (blocked on Supabase MCP access, see below); Stage 5 (Hardening) task 5.3 (security review) done at the code level, started ahead of Stage 4's formal close since 4.4's blocker doesn't prevent a code-level review — see below for what it found. Tasks 5.1/5.2/5.4 not started.
+**Current Phase:** Phase 15 — Stage 4 (Industry intelligence engine) code done except task 4.4 (blocked on Supabase MCP access, see below); Stage 5 (Hardening) tasks 5.1 (full-system RLS suite) and 5.3 (security review) done at the code level, started ahead of Stage 4's formal close since 4.4's blocker doesn't prevent code-level work — see below for what they found. Tasks 5.2/5.4 not started.
 
 **Current Sprint:** N/A — no sprint cadence defined yet (solo, pre-implementation project).
 
@@ -119,9 +119,11 @@ Full verification: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (128/128
 
 **Task 5.3 (security review) is done at the code level.** Live verification of the two SQL fixes it produced (`00008`, `00009`) rides on task 4.4's already-tracked blocker below, not duplicated as a separate item.
 
+**Stage 5, task 5.1 (full-system RLS suite) written and correct; live execution still pending, same blocker as 4.4/5.3.** Extended `tests/integration/rls-tenant-isolation.test.ts` from testing `trucks` alone (as "a representative table," trusting every other table used the identical policy) to exercising all 15 tenant-scoped tables individually. Along the way, caught and corrected a real mistake in my own reasoning rather than shipping it: the first run of this file crashed, and I initially misdiagnosed it as `describe.skipIf` failing to skip `beforeAll` hooks in Vitest. Checked that claim directly instead of trusting it — ran the file with the required env vars deliberately unset (`1 skipped, 42 skipped`, clean) and then with this sandbox's real Stage-1 credentials present (crashed on the already-known `*.supabase.co` network block, not a code bug). The actual situation: this sandbox uniquely has real project credentials loaded locally *and* blocked network access, a combination that won't occur in any real target environment (CI with proper secrets, or the owner's machine, both have working network alongside their credentials). Corrected the file's comments to say this accurately rather than leave a wrong claim in a committed test file's own header.
+
 **In Progress:** Nothing. Task 4.4 remains blocked, not actively worked, pending Supabase MCP access.
 
-**Blocked:** Task 4.4 — needs live Supabase MCP access to apply migration `00008`, set the job's role password, and verify its table-scoped access. Migration `00009` (the `companies` UPDATE policy fix, found during 5.3) is in the same boat — both are ready to apply the moment the connector reconnects.
+**Blocked:** Task 4.4 — needs live Supabase MCP access to apply migrations `00008` and `00009`, set the job's role password, and verify its table-scoped access. Task 5.1's full RLS suite also needs a real network path (not this sandbox) to actually execute, though the test itself is done and correct.
 
 **Next Tasks:**
 - **First, when Supabase MCP reconnects:** close out task 4.4 (see above), then re-verify the owner's login link (`abelsvj@gmail.com` → `companies`/`user_profiles`) is still live via `list_tables`/`execute_sql` — its connection has fluctuated all session and hasn't been re-checked since it was first set up.
@@ -141,4 +143,4 @@ fly secrets set NEXT_PUBLIC_SUPABASE_URL=https://qiiztjqzlrpffyyrjkss.supabase.c
 
 **Technical Debt:** None yet. Still open in `docs/requirements.md`: a formal availability/uptime target and licensing — unresolved by design until there's a real decision to make, not an assumption.
 
-**Last Updated:** 2026-08-21 (Phase 15, Stage 3 done; Stage 4 code done except task 4.4 (blocked); Stage 5 task 5.3 done at the code level — found and fixed a real functional RLS bug, a real error-leak, and a real AI hallucination-control gap; hosting pivoted to Fly.io)
+**Last Updated:** 2026-08-21 (Phase 15, Stage 3 done; Stage 4 code done except task 4.4 (blocked); Stage 5 tasks 5.1 and 5.3 done at the code level; hosting pivoted to Fly.io)
