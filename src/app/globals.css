@@ -26,13 +26,22 @@
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+
+  /* Elevation - real shadows, not just borders, so cards/nav/buttons read
+     as raised surfaces instead of flat outlined boxes. */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10), 0 2px 4px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.14), 0 4px 8px rgba(15, 23, 42, 0.06);
 }
 
 body {
-  background-color: var(--color-surface-alt);
+  background: linear-gradient(180deg, var(--color-primary-light) 0%, var(--color-surface-alt) 260px);
+  background-attachment: local;
   color: var(--color-text);
   font-family: var(--font-sans);
   margin: 0;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Minimum 44px touch target on every tappable control, per
@@ -53,23 +62,32 @@ a[role="button"] {
  */
 
 h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0 0 1rem;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.25rem;
 }
 
+/* h2 reads as a card's own eyebrow/section header, not a second body
+   heading - every current use (Home's "This month", Settings' "AI
+   authorization") is exactly that: the title of the card it sits atop. */
 h2 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 1.5rem 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin: 0 0 0.75rem;
 }
 
 a {
   color: var(--color-primary);
+  text-decoration: none;
 }
 
 a:hover {
   color: var(--color-primary-hover);
+  text-decoration: underline;
 }
 
 /* Every screen's top-level wrapper is a bare <main> (the app shell's
@@ -78,14 +96,38 @@ a:hover {
    consistent page padding instead of repeating it per screen. */
 body main {
   display: block;
-  padding: 1rem;
+  padding: 1.5rem 1rem;
   max-width: 40rem;
   margin: 0 auto;
 }
 
 /* Only the app shell's main needs room above the fixed bottom nav. */
 #main-content {
-  padding-bottom: calc(4.5rem + 1rem);
+  padding-bottom: calc(4.5rem + 1.5rem);
+}
+
+/* --- Login: the one screen outside the app shell (see the #main-content
+   comment above) gets its own full-viewport, centered card treatment
+   instead of the shared padded-page layout, purely via CSS - no markup
+   change to login/page.tsx needed since it's the only <main> lacking the
+   #main-content id. */
+body:has(main:not(#main-content)) {
+  min-height: 100dvh;
+  display: flex;
+}
+
+main:not(#main-content) {
+  margin: auto;
+  width: 100%;
+  max-width: 24rem;
+  background-color: var(--color-surface);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-lg);
+  padding: 2.5rem 2rem;
+}
+
+main:not(#main-content) h1 {
+  text-align: center;
 }
 
 /* Buttons and button-styled links: the primary interactive surface. */
@@ -94,43 +136,73 @@ a[role="button"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 1rem;
+  padding: 0 1.25rem;
   border: 1px solid transparent;
-  border-radius: 0.5rem;
+  border-radius: 0.625rem;
   background-color: var(--color-primary);
   color: white;
   font-family: inherit;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
 
 button:hover,
 a[role="button"]:hover {
   background-color: var(--color-primary-hover);
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+}
+
+button:active,
+a[role="button"]:active {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-xs);
 }
 
 button:disabled {
   background-color: var(--color-text-muted);
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
 }
 
-/* Filter/toggle buttons (role="group" > button[aria-pressed]) read as a
-   secondary, outline style until pressed - a primary-colored button per
-   filter option would compete with the actual primary action on the
-   same screen (e.g. "Add load"). */
+/* Filter/toggle button groups (role="group" > button[aria-pressed]) read
+   as a real segmented control - one seamless pill-shaped track with an
+   inner "thumb" on the pressed option - rather than a row of separately
+   bordered buttons. */
+[role="group"] {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background-color: var(--color-border);
+  border-radius: 0.75rem;
+}
+
 [role="group"] button {
-  background-color: var(--color-surface);
+  background-color: transparent;
+  color: var(--color-text-muted);
+  border-color: transparent;
+  font-weight: 600;
+  font-size: 0.875rem;
+  min-height: 38px;
+  padding: 0 0.875rem;
+  box-shadow: none;
+}
+
+[role="group"] button:hover {
+  background-color: transparent;
+  box-shadow: none;
   color: var(--color-text);
-  border-color: var(--color-border);
-  font-weight: 500;
 }
 
 [role="group"] button[aria-pressed="true"] {
-  background-color: var(--color-primary-light);
+  background-color: var(--color-surface);
   color: var(--color-primary);
-  border-color: var(--color-primary);
+  box-shadow: var(--shadow-xs);
 }
 
 /* Forms */
@@ -142,10 +214,10 @@ form {
 }
 
 label {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--color-text-muted);
-  margin-top: 0.75rem;
+  margin-top: 1rem;
 }
 
 input,
@@ -154,16 +226,22 @@ textarea {
   font-family: inherit;
   font-size: 1rem;
   min-height: 44px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0.875rem;
+  margin-top: 0.375rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
+  border-radius: 0.625rem;
   background-color: var(--color-surface);
   color: var(--color-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input:focus,
 select:focus,
-textarea:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
 button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--color-primary);
@@ -171,8 +249,12 @@ a:focus-visible {
 }
 
 form button[type="submit"] {
-  margin-top: 1rem;
-  align-self: flex-start;
+  margin-top: 1.5rem;
+  align-self: stretch;
+}
+
+main:not(#main-content) form button[type="submit"] {
+  width: 100%;
 }
 
 /* Field-level and banner errors (docs/design/ui-ux.md's Errors section) -
@@ -181,12 +263,64 @@ form button[type="submit"] {
 [role="alert"] {
   color: var(--color-danger);
   font-weight: 500;
+  background-color: var(--color-danger-light);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  margin-top: 0.75rem;
 }
 
 /* Loading/status text (ListStates' role="status") and empty-state text
    read as secondary, not full-strength body text. */
 [role="status"] {
   color: var(--color-text-muted);
+  padding: 1rem 0;
+}
+
+/* --- Cards: every <section> is a grouped unit of content (financial
+   summary, AI authorization settings, etc.) - give it a real elevated
+   card surface instead of running directly into the page background. */
+section {
+  background-color: var(--color-surface);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+section:first-of-type {
+  margin-top: 1.5rem;
+}
+
+/* --- Stat grids: <dl> is used for the financial-summary numbers (Home,
+   Money > Summary) - a real stat grid (label + big number) instead of
+   default browser dl indentation. */
+dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1.25rem 1rem;
+  margin: 0;
+}
+
+dt {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+dd {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0.25rem 0 0;
+}
+
+section a {
+  display: inline-block;
+  margin-top: 1rem;
+  font-weight: 600;
 }
 
 /* Record lists (Loads, Fleet, Money, etc.) - not the primary nav, which
@@ -194,26 +328,38 @@ form button[type="submit"] {
    being <nav>/<ul>/<li>. */
 main ul {
   list-style: none;
-  margin: 1rem 0 0;
+  margin: 1.25rem 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.625rem;
 }
 
 main li {
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.125rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
+  border-radius: 0.875rem;
   background-color: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+main li:has(a:hover) {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 main li strong {
+  display: inline-block;
   color: var(--color-warning);
+  background-color: var(--color-warning-light);
   text-transform: uppercase;
-  font-size: 0.75rem;
-  letter-spacing: 0.02em;
-  margin-right: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.125rem 0.4375rem;
+  border-radius: 0.375rem;
+  margin-right: 0.5rem;
 }
 
 /* Skip link (WCAG 2.4.1, task 3.12) - present in the DOM for screen
@@ -229,6 +375,7 @@ a[href="#main-content"] {
   padding: 0.5rem 1rem;
   border-radius: 0 0 0.5rem 0.5rem;
   min-height: auto;
+  box-shadow: var(--shadow-md);
 }
 
 a[href="#main-content"]:focus {
@@ -236,25 +383,28 @@ a[href="#main-content"]:focus {
 }
 
 /* Bottom tab nav (docs/design/ui-ux.md's Navigation section) - fixed,
-   elevated surface, distinct active-tab treatment beyond the
-   aria-current the accessibility pass already set. */
+   elevated glass-style surface, icon + label per tab, active tab as a
+   filled pill rather than just an underline. */
 nav[aria-label="Primary"] {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  background-color: var(--color-surface);
+  background-color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--color-border);
-  box-shadow: 0 -2px 8px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 nav[aria-label="Primary"] ul {
   list-style: none;
-  margin: 0;
-  padding: 0;
+  margin: 0 auto;
+  padding: 0.5rem 0.5rem;
   display: flex;
   max-width: 40rem;
-  margin: 0 auto;
+  gap: 0.25rem;
 }
 
 nav[aria-label="Primary"] li {
@@ -263,17 +413,25 @@ nav[aria-label="Primary"] li {
 
 nav[aria-label="Primary"] a {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 56px;
+  gap: 0.1875rem;
+  min-height: 52px;
+  border-radius: 0.75rem;
   color: var(--color-text-muted);
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+nav[aria-label="Primary"] a:hover {
+  color: var(--color-text);
   text-decoration: none;
 }
 
 nav[aria-label="Primary"] a[aria-current="page"] {
   color: var(--color-primary);
-  font-weight: 700;
-  box-shadow: inset 0 2px 0 var(--color-primary);
+  background-color: var(--color-primary-light);
 }

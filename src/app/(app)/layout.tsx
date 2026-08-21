@@ -12,13 +12,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { HomeIcon, LoadsIcon, FleetIcon, MoneyIcon, MoreIcon } from "@/components/NavIcons";
 
 const TABS = [
-  { href: "/", label: "Home" },
-  { href: "/loads", label: "Loads" },
-  { href: "/fleet", label: "Fleet" },
-  { href: "/money", label: "Money" },
-  { href: "/more", label: "More" },
+  { href: "/", label: "Home", Icon: HomeIcon },
+  { href: "/loads", label: "Loads", Icon: LoadsIcon },
+  { href: "/fleet", label: "Fleet", Icon: FleetIcon },
+  { href: "/money", label: "Money", Icon: MoneyIcon },
+  { href: "/more", label: "More", Icon: MoreIcon },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -30,12 +31,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <main id="main-content">{children}</main>
       <nav aria-label="Primary">
         <ul>
-          {TABS.map((tab) => {
-            const isActive = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
+          {TABS.map(({ href, label, Icon }) => {
+            const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (
-              <li key={tab.href}>
-                <Link href={tab.href} aria-current={isActive ? "page" : undefined}>
-                  {tab.label}
+              <li key={href}>
+                <Link href={href} aria-current={isActive ? "page" : undefined}>
+                  <Icon />
+                  <span>{label}</span>
                 </Link>
               </li>
             );
