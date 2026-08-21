@@ -3,6 +3,7 @@
 // is driven off what this returns, not ad hoc per-screen fetch logic.
 
 import type { FinancialSummary } from "@/types/financial-summary";
+import type { AiSettings } from "@/types/ai-settings";
 
 export interface ApiErrorBody {
   error: { code: string; message: string };
@@ -90,4 +91,11 @@ export const apiClient = {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
     return request<FinancialSummary>(`/api/v1/financial-summary${qs}`);
   },
+  // The AI kill switches (docs/governance.md) - a normal owner-session
+  // read/write, unlike everything else about an AI capability.
+  getAiSettings: () => request<AiSettings>("/api/v1/ai-settings"),
+  updateAiSettings: (body: Partial<AiSettings>) =>
+    request<AiSettings>("/api/v1/ai-settings", { method: "PATCH", body: JSON.stringify(body) }),
+  dismissIndustryBriefing: <T>(id: string) =>
+    request<T>(`/api/v1/industry-briefings/${id}/dismiss`, { method: "POST" }),
 };

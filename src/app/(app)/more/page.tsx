@@ -24,6 +24,9 @@ export default function MorePage() {
         <li>
           <Link href="/more/documents">Documents</Link>
         </li>
+        <li>
+          <Link href="/more/settings">Account &amp; settings</Link>
+        </li>
       </ul>
     </div>
   );
