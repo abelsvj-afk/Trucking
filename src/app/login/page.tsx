@@ -16,11 +16,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setErrorDetails(null);
     setSubmitting(true);
 
     // A real bug this try/catch fixes: with no error handling here,
@@ -49,8 +51,16 @@ export default function LoginPage() {
 
       router.push("/");
       router.refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Check your connection and try again.");
+      // The generic message above is what docs/design/ui-ux.md's Errors
+      // section requires by default - never raw exception text to the
+      // user. This is the doc's own named exception: "only in a
+      // collapsed 'details' affordance, the error code - useful for you
+      // to report a bug, invisible otherwise." The owner has no
+      // dev-tools access on their phone, so this is the only way to see
+      // what's actually failing without a laptop.
+      setErrorDetails(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
     } finally {
       setSubmitting(false);
     }
@@ -80,7 +90,17 @@ export default function LoginPage() {
           autoComplete="current-password"
         />
 
-        {error && <p role="alert">{error}</p>}
+        {error && (
+          <p role="alert">
+            {error}
+            {errorDetails && (
+              <details>
+                <summary>Details</summary>
+                <p>{errorDetails}</p>
+              </details>
+            )}
+          </p>
+        )}
 
         <button type="submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}
