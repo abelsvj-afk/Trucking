@@ -28,6 +28,15 @@ export default function FleetPage() {
         <li>
           <Link href="/fleet/maintenance-events">Maintenance</Link>
         </li>
+        <li>
+          <Link href="/fleet/maintenance-schedule">Maintenance schedule</Link>
+        </li>
+        <li>
+          <Link href="/fleet/equipment-checklist">Equipment checklist</Link>
+        </li>
+        <li>
+          <Link href="/fleet/pretrip-inspections">Pre-trip inspections</Link>
+        </li>
       </ul>
     </div>
   );

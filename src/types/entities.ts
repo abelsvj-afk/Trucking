@@ -99,6 +99,37 @@ export interface MaintenanceEvent extends BaseRow {
   mileage_at_service: number | null;
 }
 
+export type MaintenanceScheduleStatus = "active" | "paused";
+
+export interface MaintenanceSchedule extends BaseRow {
+  truck_id: string | null;
+  trailer_id: string | null;
+  description: string;
+  interval_miles: number | null;
+  interval_days: number | null;
+  last_done_date: string | null;
+  last_done_mileage: number | null;
+  status: MaintenanceScheduleStatus;
+}
+
+export interface EquipmentChecklistItem extends BaseRow {
+  truck_id: string | null;
+  trailer_id: string | null;
+  item_name: string;
+  quantity_on_hand: number | null;
+  last_checked_date: string | null;
+  notes: string | null;
+}
+
+export interface PretripInspection extends BaseRow {
+  truck_id: string | null;
+  trailer_id: string | null;
+  driver_id: string | null;
+  inspected_at: string;
+  passed: boolean;
+  defects_found: string | null;
+}
+
 export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
 
 // Documents don't soft-delete like other entities (docs/schemas.md) - no

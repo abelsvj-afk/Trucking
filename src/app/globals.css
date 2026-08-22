@@ -368,6 +368,27 @@ main li strong {
   margin-right: 0.5rem;
 }
 
+/* Multi-state status badges (maintenance-schedule due status: on
+   track/due soon/overdue/paused - task 3.13) - a data attribute rather
+   than a class, matching how aria-pressed/aria-current already drive
+   styling elsewhere in this file, so the badge stays plain semantic
+   markup rather than introducing per-instance utility classes. */
+main li strong[data-status="overdue"] {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+main li strong[data-status="ok"] {
+  color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+main li strong[data-status="paused"],
+main li strong[data-status="unknown"] {
+  color: var(--color-text-muted);
+  background-color: var(--color-border);
+}
+
 /* Skip link (WCAG 2.4.1, task 3.12) - present in the DOM for screen
    readers/keyboard users at all times, but only visible once focused so
    it doesn't sit as stray text above the nav for everyone else. */

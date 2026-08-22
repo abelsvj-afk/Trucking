@@ -14,6 +14,9 @@ Phase 3 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`, d
 - As the owner-operator, I want to store broker and customer contact and relationship information, so that I don't lose track of who I've worked with.
 - As the owner-operator, I want to attach documents (bills of lading, settlement statements, permits) to the relevant truck, load, or driver record, so that records are available when I need them.
 - As the owner-operator, I want a basic financial summary (revenue vs. expenses), so that I can see whether the business is profitable even before a dedicated financial engine exists.
+- As the owner-operator, I want to track recurring/preventative maintenance (oil changes, inspections, wear-item checks) with due dates or mileage intervals, so that I catch problems before they cause a breakdown on the road instead of only logging repairs after something already failed.
+- As the owner-operator, I want a per-vehicle checklist of spares and tools that should be on board (zip ties, spare fuses, bulbs, etc.), so that I'm not caught without something I need during a roadside fix.
+- As the owner-operator, I want to log pre-trip inspections (tires, lights, brakes, coupling, etc.), so that I have a record of what was checked before each trip and can catch a developing problem — like a degrading electrical connection or a soft airbag — before it fails on the road.
 
 ### Administrator
 

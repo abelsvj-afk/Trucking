@@ -35,6 +35,8 @@ Two layers:
   - `rate_cents`, `amount_cents`, `cost_cents`, `total_cost_cents` must be non-negative.
   - `gallons` must be positive.
   - A load only counts toward the financial summary when its `status` is `confirmed` or `completed` — `draft` loads are excluded, per `docs/schemas.md`.
+  - `maintenance_schedules`, `equipment_checklist_items`, and `pretrip_inspections` each require exactly one of `truck_id`/`trailer_id` set — one vehicle's item, not shared or vehicle-less.
+  - `maintenance_schedules` requires at least one of `interval_miles`/`interval_days` — a schedule with neither has no way to ever become due.
 
 ## Lifecycle
 

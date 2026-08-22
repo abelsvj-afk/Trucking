@@ -158,6 +158,58 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | mileage_at_service | integer | yes | |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
+## maintenance_schedules
+
+Recurring/preventative maintenance, as distinct from `maintenance_events`' record of work already done. Added per the owner's explicit request after seeing a real breakdown story (a degraded trailer electrical connection) that a scheduled inspection would likely have caught — the gap being that `maintenance_events` only lets you log what already broke, never what's coming due.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| truck_id | uuid | yes | references `trucks.id` — exactly one of `truck_id`/`trailer_id` set |
+| trailer_id | uuid | yes | references `trailers.id` |
+| description | text | no | e.g. "Oil change", "Inspect trailer pigtail connection" |
+| interval_miles | integer | yes | at least one of `interval_miles`/`interval_days` set |
+| interval_days | integer | yes | |
+| last_done_date | date | yes | |
+| last_done_mileage | integer | yes | |
+| status | text | no | `active` \| `paused` — pausing stops due/overdue tracking without deleting history |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+"Next due" and "overdue" are **not stored** — computed on read from this row plus the linked truck's `current_mileage`, same "no dedicated table when a live computation is cheap enough" reasoning already applied to the financial summary. Mileage-based intervals only apply to trucks (`trailers` has no `current_mileage` column); a trailer schedule needs `interval_days` set.
+
+## equipment_checklist_items
+
+Spares/tools that should be on board — the zip ties, spare fuses, bulbs, etc. the owner wants tracked after watching other drivers describe getting stuck without them. Deliberately simple: a flat per-vehicle list, not an inventory system with locations or suppliers.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| truck_id | uuid | yes | references `trucks.id` — exactly one of `truck_id`/`trailer_id` set |
+| trailer_id | uuid | yes | references `trailers.id` |
+| item_name | text | no | e.g. "Zip ties", "Spare fuses (ATO 20A)", "Headlight bulb" |
+| quantity_on_hand | integer | yes | nullable — not every item is meaningfully counted |
+| last_checked_date | date | yes | |
+| notes | text | yes | |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## pretrip_inspections
+
+A log of pre-trip walkaround inspections — the DOT-style practice of checking tires, lights, brakes, coupling, etc. before driving. Deliberately does **not** model the checklist itself as data: the list of things to check is a fixed set rendered in the UI (see `docs/design/ui-ux.md`), not a per-company-customizable table, since it's a standardized practice rather than something that varies meaningfully per fleet at this scale. Only the outcome of running through it is stored.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| truck_id | uuid | yes | references `trucks.id` — exactly one of `truck_id`/`trailer_id` set |
+| trailer_id | uuid | yes | references `trailers.id` |
+| driver_id | uuid | yes | references `drivers.id` — who performed it |
+| inspected_at | timestamptz | no | |
+| passed | boolean | no | overall pass/fail |
+| defects_found | text | yes | free text; a failed pre-trip does not automatically create a `maintenance_events` row — the owner logs that separately if it turns into real work, keeping this table an honest record of what was observed |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
 ## documents
 
 | Column | Type | Nullable | Notes |

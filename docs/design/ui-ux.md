@@ -34,6 +34,9 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 ### Fleet
 - **Trucks / Trailers / Drivers:** list + detail. Truck detail shows current mileage/status plus its linked maintenance history and documents in place — no separate hunt required to see a truck's full picture.
 - **Maintenance:** list of events (filterable by truck), add/edit form (description, cost, date, mileage at service).
+- **Maintenance schedule** (preventative — added on the owner's request after a real breakdown story): list of recurring items per truck/trailer, each showing its due status computed against the linked truck's current mileage and today's date — badged the same way `Loads`' Draft status is (a colored, labeled badge, never color alone): green for on-track, amber for due soon, red for overdue. Add/edit form: vehicle, description, interval (miles and/or days), last done (date/mileage), status.
+- **Equipment checklist:** per-vehicle list of spares/tools that should be on board (item, quantity, last checked). Add/edit form is a single simple row — this is deliberately not a full inventory system.
+- **Pre-trip inspections:** a log, most recent first, of completed pre-trip walkarounds (vehicle, driver, date, pass/fail, defects noted). The "new inspection" form presents a fixed checklist (tires, lights, brakes, coupling/fifth wheel, mirrors, horn, wipers, fluid levels) as plain checkboxes purely to prompt the driver through it — per `docs/schemas.md`, only the outcome (pass/fail + defects text) is actually stored, not per-item state.
 
 ### Money
 - **Expenses** and **Fuel purchases:** list + add/edit forms, filterable by truck/date range.
