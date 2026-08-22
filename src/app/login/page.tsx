@@ -3,9 +3,13 @@
 // Task 2.3 (TASKS.md), per docs/design/ui-ux.md's Account/Settings section.
 // Sign-in only, deliberately no "create account" link: docs/governance.md's
 // single-admin access model has no open-signup workflow - an account is
-// provisioned directly, not self-served.
+// provisioned directly, not self-served. "Forgot password?" (added per
+// the owner's request, src/app/forgot-password/) is a different thing -
+// the same admin regaining their own existing access, not creating a
+// new one - so it doesn't conflict with that no-signup rule.
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/services/db/client";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -15,7 +19,20 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // Reads the query param directly (window.location.search) instead of
+  // next/navigation's useSearchParams(), which would force this
+  // otherwise-static page to opt into a Suspense boundary just for this
+  // one-off check. A lazy initializer, not an effect - setting state
+  // synchronously inside an effect body triggers a second render for no
+  // reason (react-hooks/set-state-in-effect, already enforced elsewhere
+  // in this codebase, e.g. task 3.10's documents page). Guarded for SSR,
+  // where `window` doesn't exist yet on the first render pass.
+  const [error, setError] = useState<string | null>(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("error") === "recovery_link_invalid"
+      ? "That password reset link is invalid or has expired. Request a new one below."
+      : null,
+  );
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -106,6 +123,7 @@ export default function LoginPage() {
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
+      <Link href="/forgot-password">Forgot password?</Link>
     </main>
   );
 }

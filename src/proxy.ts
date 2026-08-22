@@ -18,7 +18,17 @@ import { NextResponse, type NextRequest } from "next/server";
 // browser login), and enforces its own secret-header check instead
 // (INDUSTRY_BRIEFING_CRON_SECRET), same as /api/v1/health being safely
 // public because it does nothing sensitive.
-const PUBLIC_PATHS = ["/login", "/api/v1/health", "/api/internal"];
+//
+// Account recovery (added per the owner's request): /forgot-password
+// has no session yet by definition, and /auth/confirm is the link the
+// recovery email itself points to - it must be reachable with zero
+// session or the whole flow can never start. /reset-password is
+// deliberately NOT listed here: reaching it requires the session
+// /auth/confirm just established (a real, if freshly-issued, session -
+// verifyOtp signs the user in), so the existing "no user -> /login"
+// redirect below already does the right thing for a stale/invalid/
+// already-used recovery link, without any extra logic.
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

@@ -46,6 +46,12 @@ Each tab's own sections (e.g. Fleet's Trucks/Trailers/Drivers/Maintenance) are r
 - **Customers / Brokers:** list + detail (contact info, notes).
 - **Documents:** browsed per related record (a truck, load, trailer, or driver) rather than one flat file list — matches how `docs/schemas.md` associates them, and matches how you'd actually look for a document ("the permit for Truck #1," not "file #482").
 - **Account/Settings:** login/session management now. Once any AI capability exists (Governance Level 2+), this is also where the AI's current authorization level and the global + per-capability kill switches from `docs/governance.md` live — visible from the main navigation, not buried, per the requirement already locked into `docs/requirements.md`.
+
+### Sign-in / account recovery
+
+- **Sign in:** email + password, deliberately no "create account" link (`docs/governance.md`'s single-admin model — an account is provisioned directly, not self-served). A "Forgot password?" link starts recovery.
+- **Forgot password:** email address only → same confirmation message regardless of whether the address matches an account ("If an account exists for X, we've sent a link…") — never reveal account existence through the response, matching `docs/design/security.md`'s posture for a system holding financial/driver PII. A real send failure (rate limit, service unreachable) still surfaces its own error — that's not an enumeration risk, since Supabase's own reset-email endpoint already returns success regardless of account existence; only genuine failures reach this branch.
+- **Set new password:** reached only via the emailed link (new password + confirm). Not part of the main nav — there's no "change password while already signed in" screen yet; that's real, tracked technical debt (`PROJECT_STATE.md`), not an oversight.
 - **Industry intelligence:** a feed, most recent first, of dismissable cards — each showing `summary`/`reasoning`/`confidence`/`based_on` per the shared output contract (`docs/design/ai-architecture.md`), plus a `service_status` banner (per `docs/api-contracts.md`) that only appears when the consecutive-failure escalation has actually triggered, not on every visit. Lives under More since that's already where the rest of what's *about* the AI (its authorization state, the kill switches) lives — this is a feed *from* a capability, not a business record like Customers/Documents, so it gets its own entry rather than folding into either.
 
 ## Screens not yet designed

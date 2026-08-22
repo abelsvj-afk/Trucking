@@ -40,6 +40,7 @@ During the MVP, the administrator is the same person as the owner-operator. This
 
 ### Failure scenarios
 
+- As the owner-operator, if I forget my password, I want to be able to recover access to my own account myself, without losing my business data or needing a new account created for me.
 - As the owner-operator, if I enter a load with missing or invalid data (e.g. no rate, no mileage), I want the system to reject or flag it rather than silently accepting an incomplete record, so that later profitability numbers aren't built on bad data.
 - As the owner-operator, if a future third-party data feed (fuel prices, load board) becomes unavailable, I want the system to tell me it's stale or unavailable rather than silently showing outdated numbers as current.
 - As the owner-operator, if the AI layer can't make a confident recommendation (e.g. missing cost data for a load), I want it to say so explicitly rather than guessing or inventing numbers, per the "AI must not invent unavailable data" rule in `CLAUDE.md`.
