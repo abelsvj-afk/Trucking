@@ -11,16 +11,33 @@
   --color-primary-hover: #1d4ed8;
   --color-primary-light: #eff6ff;
 
-  --color-success: #16a34a;
+  /* Task 5.4's WCAG 1.4.3 audit: the original success/warning/danger
+     shades (#16a34a/#d97706/#dc2626) only met 3.15-4.41:1 against their
+     own -light backgrounds - every real usage of these three tokens is
+     the small (0.6875rem) bold status-badge/alert text in this file,
+     never large text, so 4.5:1 is the real bar, not 3:1. Darkened here
+     (a token-level fix, not per-selector overrides, since every current
+     usage needed the same fix) to 4.79-5.91:1, computed against each
+     token's paired -light background. */
+  --color-success: #15803d;
   --color-success-light: #f0fdf4;
-  --color-warning: #d97706;
+  --color-warning: #b45309;
   --color-warning-light: #fffbeb;
-  --color-danger: #dc2626;
+  --color-danger: #b91c1c;
   --color-danger-light: #fef2f2;
 
   --color-surface: #ffffff;
   --color-surface-alt: #f8fafc;
   --color-border: #e2e8f0;
+  /* Form input borders need WCAG 1.4.11's 3:1 (Non-text Contrast, for
+     essential UI-component boundaries) - the shared --color-border above
+     is only 1.23:1 on white, correct for decorative card/divider
+     borders (not a WCAG-covered use) but not for a resting, unfocused
+     input's boundary, which is otherwise invisible until focus. Scoped
+     to this one token, applied only to input/select/textarea below,
+     rather than darkening --color-border itself and changing every
+     card/divider's look for a requirement that doesn't apply to them. */
+  --color-border-strong: #7c8ba0;
   --color-text: #0f172a;
   --color-text-muted: #64748b;
 
@@ -228,7 +245,7 @@ textarea {
   min-height: 44px;
   padding: 0.5rem 0.875rem;
   margin-top: 0.375rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.625rem;
   background-color: var(--color-surface);
   color: var(--color-text);
@@ -385,7 +402,13 @@ main li strong[data-status="ok"] {
 
 main li strong[data-status="paused"],
 main li strong[data-status="unknown"] {
-  color: var(--color-text-muted);
+  /* --color-text-muted on --color-border is only 3.86:1 - fails WCAG
+     1.4.3 at this badge's actual 0.6875rem/bold size (below the "large
+     text" threshold). --color-text-muted itself stays as-is since every
+     other place it's used (dt labels, role=status text) is already
+     ≥4.5:1 against its own background - this darker shade is scoped to
+     just this one badge/background pairing. */
+  color: #475569;
   background-color: var(--color-border);
 }
 
