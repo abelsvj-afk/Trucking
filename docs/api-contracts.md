@@ -131,6 +131,55 @@ Response `200`:
 
 If `from`/`to` are omitted, defaults to the current calendar month.
 
+## Truck Fund (Wave D — `docs/design/driver-mvp.md` §9)
+
+The app never moves money (§9's law): every endpoint below reads, computes, or *records* a move the owner made himself in his bank's app.
+
+**`GET /api/v1/truck-fund`** — computed aggregate for the Money → Truck Fund tab, not backed by a single table. Response `200`:
+
+```json
+{
+  "funds": {
+    "truck_fund": { "balance_cents": 125000, "last_entry_date": "2026-10-30" },
+    "business_credit": { "balance_cents": 0, "last_entry_date": null },
+    "emergency_fund": { "balance_cents": 320000, "last_entry_date": "2026-10-12" }
+  },
+  "truck_fund_progress": {
+    "balance_cents": 125000,
+    "band": "mid",
+    "band_low_cents": 4000000,
+    "band_high_cents": 7500000,
+    "target_cents": 7500000,
+    "percent_of_target": 1.7,
+    "remaining_cents": 7375000,
+    "position": "below_band"
+  },
+  "settings": { "sweep_mode": "off", "sweep_percent": null, "sweep_flat_cents": null, "target_band": null, "target_cents": null },
+  "periods": {
+    "week": { "from": "2026-10-26", "to": "2026-11-01", "settled_income_cents": 210000, "costs_cents": 146000, "settled_net_cents": 64000 },
+    "month": { "from": "2026-10-01", "to": "2026-10-31", "settled_income_cents": 0, "costs_cents": 0, "settled_net_cents": 0 }
+  },
+  "suggestion": null,
+  "entries": [],
+  "ladder": [],
+  "accounts": []
+}
+```
+
+- Fund balances are ledger sums (`fund_entries`: deposits − withdrawals, non-deleted). `position` is `below_band` | `in_band` | `past_band` against the chosen band (null band → progress is computed against `target_cents` alone, `position: null`).
+- `periods` use the §9.3 definitions: settled income = `completed` loads only (placed by `delivery_date`, falling back to `pickup_date`); costs = the period's expenses + fuel + maintenance; week is Mon–Sun UTC, matching the financial summary's UTC convention. Earned figures are **never** a fund balance.
+- `suggestion` is `null` unless a sweep rule exists, the week's settled net is positive, and rule(net) exceeds sweep entries already recorded this week. When present: `{ "amount_cents": 32000, "period": "week", "text": "$640.00 settled this week. Your rule sends $320.00 to the Truck Fund." }`.
+- `ladder` is the §9.4 view: the six canonical steps in order, each `{ step_key, title, what_it_is, next_action, state, note, unlocked, out_of_order }` — knowledge static in code, state from `business_ladder_steps` (absent row = `not_started`).
+- `accounts` comes through the §9.5 account-visibility seam (v1: manual snapshots): each `{ id, institution, account_name, last4, balance_cents, lane, as_of_date, source: "manual_snapshot", staleness: { level, age_days, label } }`.
+
+**`PATCH /api/v1/truck-fund/settings`** — upserts the `fund_settings` singleton. Body: `{ sweep_mode, sweep_percent?, sweep_flat_cents?, target_band?, target_cents? }` — `sweep_percent` (1–100) is required when `sweep_mode` is `percent`, `sweep_flat_cents` (> 0) when `flat`. Returns the stored settings.
+
+**`fund-entries`** — standard 5 routes (see the generic resource contract) over `fund_entries`; list accepts `?fund_key=` as an exact-match filter.
+
+**`account-snapshots`** — standard 5 routes over `account_snapshots`.
+
+**`GET /api/v1/business-ladder`** — just the `ladder` array from the aggregate above. **`PATCH /api/v1/business-ladder/{step_key}`** — upserts one step's state: body `{ state, note? }`; `step_key` must be one of the six canonical keys (404 otherwise).
+
 ## Health check
 
 **`GET /api/v1/health`** — no auth required. Per the diagnostics requirement in `CLAUDE.md`, kept separate from business endpoints.

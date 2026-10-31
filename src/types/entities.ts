@@ -200,6 +200,66 @@ export interface DocumentWithSignedUrl extends Document {
   signed_url: string | null;
 }
 
+// Truck Fund + money visibility (docs/design/driver-mvp.md §9,
+// migration 00023). The enum types live in lib/truck-fund.ts next to
+// the math that uses them; these are the row shapes.
+import type {
+  FundEntryKind,
+  FundEntrySource,
+  FundKey,
+  LadderStepKey,
+  LadderStepState,
+  MoneyLane,
+  SweepMode,
+  TruckPriceBandKey,
+} from "@/lib/truck-fund";
+
+export type {
+  FundEntryKind,
+  FundEntrySource,
+  FundKey,
+  LadderStepKey,
+  LadderStepState,
+  MoneyLane,
+  SweepMode,
+  TruckPriceBandKey,
+};
+
+export interface FundEntry extends BaseRow {
+  fund_key: FundKey;
+  kind: FundEntryKind;
+  amount_cents: number;
+  entry_date: string;
+  lane: MoneyLane;
+  source: FundEntrySource;
+  note: string | null;
+  load_id: string | null;
+}
+
+export interface FundSettings extends BaseRow {
+  sweep_mode: SweepMode;
+  sweep_percent: number | null;
+  sweep_flat_cents: number | null;
+  target_band: TruckPriceBandKey | null;
+  target_cents: number | null;
+}
+
+export interface BusinessLadderStep extends BaseRow {
+  step_key: LadderStepKey;
+  state: LadderStepState;
+  note: string | null;
+}
+
+export interface AccountSnapshot extends BaseRow {
+  institution: string;
+  account_name: string;
+  last4: string;
+  balance_cents: number;
+  lane: MoneyLane;
+  as_of_date: string;
+  note: string | null;
+}
+
 export type AiConfidence = "high" | "medium" | "low";
 
 // Not part of the shared soft-delete convention: dismissed_at is this

@@ -281,6 +281,69 @@ Added alongside `telegram_messages` (design §6). The bot's durable memory store
 
 Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/context.ts`) — stated plainly in the design; no embeddings yet.
 
+## fund_entries
+
+Added by the Truck Fund pass (`docs/design/driver-mvp.md` §9, migration `00023`). One manual ledger for the owner's *existing* Finance Project buckets — the app operationalizes those names rather than inventing parallel ones. A fund's balance is computed on read (deposits − withdrawals); nothing stores a balance.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| fund_key | text | no | `truck_fund` \| `business_credit` \| `emergency_fund` (check constraint) |
+| kind | text | no | `deposit` \| `withdrawal` (check constraint) — `amount_cents` is always positive; the sign comes from `kind` |
+| amount_cents | integer | no | > 0 (check constraint) |
+| entry_date | date | no | the date the money moved (owner-recorded) |
+| lane | text | no | `business` \| `personal` (check constraint) — his Phase-1 rule: every trucking dollar tagged from load one |
+| source | text | no | `manual` \| `sweep` (check constraint) — `sweep` = recorded from a sweep suggestion (§9.3); either way the app only *records* a move he made in his bank's app — it never moves money |
+| note | text | yes | |
+| load_id | uuid | yes | references `loads.id` — optional link when an entry is tied to a specific load |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## fund_settings
+
+The Truck Fund's per-company settings singleton (`docs/design/driver-mvp.md` §9.1). One live row per company (get-or-create in the API layer; no unique constraint, matching the singleton-by-convention approach — a second row would simply never be read).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| sweep_mode | text | no | `off` \| `percent` \| `flat` (check constraint), defaults `off` — **no suggestion is ever computed until he sets a rule** |
+| sweep_percent | integer | yes | 1–100 when set (check constraint); used when `sweep_mode = 'percent'` |
+| sweep_flat_cents | integer | yes | ≥ 0 when set (check constraint); used when `sweep_mode = 'flat'` |
+| target_band | text | yes | `budget` \| `mid` \| `upper` (check constraint) — the vision §2 price bands (estimates) |
+| target_cents | integer | yes | > 0 when set; custom target override — the effective target is `target_cents` when set, else the chosen band's top |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## business_ladder_steps
+
+Owner-tracked state for the business-finance ladder (`docs/design/driver-mvp.md` §9.4, vision §8). Only state is stored — the ladder's knowledge (titles, one-line explanations, next actions, order) is static in `src/lib/truck-fund.ts`.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| step_key | text | no | `ein` \| `business_bank` \| `duns` \| `tradelines` \| `paydex` \| `real_credit` (check constraint); unique per company among live rows is enforced by the API's upsert-by-(company, step_key) behavior |
+| state | text | no | `not_started` \| `in_progress` \| `done` (check constraint), defaults `not_started` |
+| note | text | yes | e.g. where the EIN letter is filed, which vendor account was opened |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## account_snapshots
+
+Manual account snapshots — the v1 implementation behind the account-visibility seam (`docs/design/driver-mvp.md` §9.5). A snapshot is a balance *as of a date*, entered by hand; it is never presented as a live balance or a sync. Placeholder for the shape a live Plaid read will return through the same seam later.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| institution | text | no | e.g. "SoFi" |
+| account_name | text | no | e.g. "Business checking" |
+| last4 | text | no | last 4 of the account number, display only (4 alphanumeric chars, enforced in the API schema) — never a full account number |
+| balance_cents | integer | no | may be negative (a card balance owed) |
+| lane | text | no | `business` \| `personal` (check constraint) |
+| as_of_date | date | no | the date this balance was true |
+| note | text | yes | |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
 ## documents
 
 | Column | Type | Nullable | Notes |

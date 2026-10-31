@@ -5,6 +5,7 @@
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
+import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 
 export interface ApiErrorBody {
   error: { code: string; message: string };
@@ -92,6 +93,18 @@ export const apiClient = {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
     return request<FinancialSummary>(`/api/v1/financial-summary${qs}`);
   },
+  // Truck Fund + money visibility (docs/design/driver-mvp.md §9).
+  truckFund: () => request<TruckFundOverview>("/api/v1/truck-fund"),
+  updateFundSettings: (body: Record<string, unknown>) =>
+    request<FundSettingsView>("/api/v1/truck-fund/settings", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  updateLadderStep: (stepKey: string, body: Record<string, unknown>) =>
+    request<LadderStepView>(`/api/v1/business-ladder/${stepKey}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   // The AI kill switches (docs/governance.md) - a normal owner-session
   // read/write, unlike everything else about an AI capability.
   getAiSettings: () => request<AiSettings>("/api/v1/ai-settings"),

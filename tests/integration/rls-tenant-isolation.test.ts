@@ -110,6 +110,10 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
       "maintenance_events",
       "loads",
       "documents",
+      "fund_entries",
+      "fund_settings",
+      "business_ladder_steps",
+      "account_snapshots",
       "industry_briefings",
       "industry_briefing_runs",
       "ai_capability_settings",
@@ -200,6 +204,31 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
     company_id: companyId,
     capability: "industry_intelligence",
     enabled: false,
+  }));
+  // Truck Fund tables (migration 00023, docs/design/driver-mvp.md §9).
+  testStandardTable("fund_entries", (companyId) => ({
+    company_id: companyId,
+    fund_key: "truck_fund",
+    kind: "deposit",
+    amount_cents: 100,
+    entry_date: "2026-10-31",
+    lane: "business",
+    source: "manual",
+  }));
+  testStandardTable("fund_settings", (companyId) => ({ company_id: companyId }));
+  testStandardTable("business_ladder_steps", (companyId) => ({
+    company_id: companyId,
+    step_key: "ein",
+    state: "not_started",
+  }));
+  testStandardTable("account_snapshots", (companyId) => ({
+    company_id: companyId,
+    institution: "Test Bank",
+    account_name: "Checking",
+    last4: "1234",
+    balance_cents: 100,
+    lane: "business",
+    as_of_date: "2026-10-31",
   }));
 
   // Special case: industry_briefings and industry_briefing_runs are
