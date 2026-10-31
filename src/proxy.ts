@@ -28,7 +28,11 @@ import { NextResponse, type NextRequest } from "next/server";
 // verifyOtp signs the user in), so the existing "no user -> /login"
 // redirect below already does the right thing for a stale/invalid/
 // already-used recovery link, without any extra logic.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal"];
+// /api/telegram (the owner's private-bot webhook, docs/design/driver-mvp.md
+// §4) is public here for the same reason as /api/internal: Telegram's
+// servers have no user session; the route enforces its own webhook
+// secret + chat-id allowlist and fails closed without a bot token.
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

@@ -53,7 +53,10 @@ describe("GET /api/v1/ai-settings", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ globally_disabled: false, capabilities: { industry_intelligence: false } });
+    expect(body).toEqual({
+      globally_disabled: false,
+      capabilities: { industry_intelligence: false, dispatch_helper: false },
+    });
   });
 
   it("reflects a stored enabled capability and global switch", async () => {
@@ -67,7 +70,10 @@ describe("GET /api/v1/ai-settings", () => {
     const res = await GET(new NextRequest("http://localhost/api/v1/ai-settings"));
     const body = await res.json();
 
-    expect(body).toEqual({ globally_disabled: true, capabilities: { industry_intelligence: true } });
+    expect(body).toEqual({
+      globally_disabled: true,
+      capabilities: { industry_intelligence: true, dispatch_helper: false },
+    });
   });
 });
 
