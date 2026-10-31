@@ -192,6 +192,84 @@ failures are the requirements here, named so they can't recur quietly:
   keyword matching visibly weak. Also outstanding: the task 5.1 RLS
   suite's table list needs `telegram_messages` + `bot_memories` too
   (recorded as task 7.6's scope).
+  **Update 2026-10-31:** that increment shipped as §8 below (branch
+  `bot-intelligence-v2`) — with two honest deltas from the sketch
+  above: the tools live in `services/bot/tools.ts` and query through
+  the shared bot store rather than the HTTP CRUD layer (same company
+  scope, no self-HTTP hop), and item (4), embeddings, remains
+  designed-only. Task 7.6's RLS coverage shipped with it.
+
+## 8. Bot intelligence v2 — agent loop + web chat (tasks 7.8/7.10, shipped on branch `bot-intelligence-v2`)
+
+Built 2026-10-31 under the owner's standing order ("whatever it
+takes to get this completely built"). This section is the spec for
+what §6 named as the next increment; §6's history stays as written.
+
+- **Agent loop (`src/services/ai/agent-loop.ts`).** The chat path is
+  no longer one completion per turn. The provider interface gains a
+  tool-calling turn (`runToolTurn` on `AgentCapableProvider`, §6's
+  provider pattern extended, not replaced — `complete()` is untouched
+  and dispatch/briefing behavior is unchanged). The loop is bounded
+  at **6 provider rounds**; every tool call is logged (name, access,
+  outcome) and exhaustion returns an honest "I ran out of steps"
+  reply instead of a fabricated completion. Guaranteed context is
+  unchanged and non-negotiable: history + snapshot + standing
+  instructions + retrieved memories are assembled in code and ride
+  every turn whether or not the model calls a tool.
+- **Grounding guard, now in code, not just prompt.** Dollar figures
+  in the final reply are extracted and checked against the grounding
+  corpus (the context blocks, the owner's own message, and this
+  turn's tool results). A figure that traces to none of them is
+  replaced by an honest refusal-to-quote reply. Tool errors surface
+  in the reply as errors — a failed query is said out loud, never
+  papered over with an invented number.
+- **Tools (`src/services/bot/tools.ts`).** Read tools act freely —
+  it is his data: `list_loads`, `hos_summary` (reuses `lib/hos.ts`),
+  `money_summary` (expenses/fuel totals, per-load expenses when a
+  load id is given — fuel is not load-linked in the schema and the
+  tool says so), `list_contacts`, `list_documents`,
+  `search_memories`, `search_dispatch_exchanges`. Write tools —
+  `create_expense`, `create_fuel_purchase`, `log_duty_status`,
+  `save_memory`, `add_load_note` — carry a required `confirmation`
+  argument with the owner's standing rule behind it: `execute` only
+  when the owner directly ordered the write in this message (it runs
+  immediately and confirms back with the real recorded result);
+  anything the bot itself proposes is `propose` — **not executed**.
+  A proposal is stored in `bot_pending_actions` and the reply asks
+  for his yes. A bare yes/no as his next message resolves the oldest
+  pending proposal in code (before any model call); proposals
+  **expire after 2 hours** so a stale "yes" can never write a
+  time-wrong duty log days later. Write arguments are Zod-validated
+  in the tool, not trusted from the model.
+- **Kill switch.** New capability `bot_chat` under the same
+  `ai_capability_settings` pattern, governed like the others:
+  global switch first, then per-capability, no row = off (fails
+  closed). With the capability off, conversational turns reply that
+  the assistant chat is turned off and where to enable it; dispatch
+  help, `remember:`/`instruction:` capture, and the v1 reduced mode
+  (no store configured) are unaffected. Note the behavior change
+  from v1, stated plainly: once this lands, the conversational bot
+  needs "Bot chat" enabled in More → Account & settings (the
+  Telegram store reads the same settings rows through its
+  service-role path — the §4 env-revocation boundary still exists
+  on top of this).
+- **One brain, two windows (`src/services/bot/store.ts`).** The
+  store is channel-parameterized (`telegram | web`) over one
+  Supabase client + company scope. `telegram_messages` gains a
+  `channel` column (migration `00015`; `chat_id` becomes nullable —
+  it is Telegram-only provenance) and history is loaded
+  **company-wide**: web and Telegram turns interleave in a single
+  timeline, each row tagged with its channel. There is no second
+  history, memory, or snapshot for the web surface to diverge into.
+  The web chat is `POST/GET /api/v1/assistant/chat` (owner session,
+  `createApiHandler`) + More → Assistant. On the web surface the
+  dispatch intent additionally honors the `dispatch_helper` kill
+  switch (the session exists there, unlike the webhook).
+- **Still not in this increment:** embeddings retrieval (keyword +
+  recency remains, per §6's sequencing); Smart Path (§7); the bot
+  reading or joining any group; a userbot. Migration `00016`
+  (`bot_pending_actions`) joins `00011`–`00015` as committed, **not
+  applied** — same owner step as before.
 
 ## 7. Future increments (designed, deliberately not built tonight)
 
