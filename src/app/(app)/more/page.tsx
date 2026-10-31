@@ -25,6 +25,9 @@ export default function MorePage() {
           <Link href="/more/documents">Documents</Link>
         </li>
         <li>
+          <Link href="/smart-path">Smart Path — map &amp; route check</Link>
+        </li>
+        <li>
           <Link href="/more/dispatch">Dispatch helper</Link>
         </li>
         <li>
