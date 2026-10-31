@@ -101,4 +101,15 @@ export const apiClient = {
     request<T>(`/api/v1/industry-briefings/${id}/dismiss`, { method: "POST" }),
   listIndustryBriefings: <T>() =>
     request<{ data: T[]; service_status: ServiceStatus }>("/api/v1/industry-briefings"),
+  // Bot intelligence v2 (docs/design/driver-mvp.md §8): the web chat
+  // window onto the same bot brain as Telegram - one shared timeline.
+  assistantHistory: () =>
+    request<{ data: { role: "user" | "assistant"; text: string }[]; pending_summary: string | null }>(
+      "/api/v1/assistant/chat",
+    ),
+  assistantChat: (message: string) =>
+    request<{ reply: string; pending_summary: string | null }>("/api/v1/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
 };

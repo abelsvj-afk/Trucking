@@ -28,6 +28,9 @@ export default function MorePage() {
           <Link href="/more/dispatch">Dispatch helper</Link>
         </li>
         <li>
+          <Link href="/more/assistant">Assistant</Link>
+        </li>
+        <li>
           <Link href="/more/industry-intelligence">Industry intelligence</Link>
         </li>
         <li>

@@ -247,13 +247,14 @@ Added by the Driver MVP (`docs/design/driver-mvp.md` §5). One helped dispatch e
 
 ## telegram_messages
 
-Added by the Driver MVP bot-intelligence pass (`docs/design/driver-mvp.md` §6). The private Telegram bot's conversation history — persisted so every prompt carries real recent history. Written/read by the bot via its documented service-role path (design §§5/6), scoped to the owner's one company.
+Added by the Driver MVP bot-intelligence pass (`docs/design/driver-mvp.md` §6); extended by v2 (§8, migration `00015`). The bot's conversation history — persisted so every prompt carries real recent history. As of v2 this is the **shared conversation store for both bot surfaces** (the Telegram bot and the in-app web chat): one company-wide timeline, each row tagged with its channel, so the two windows can never hold different conversations. Written/read by the Telegram bot via its documented service-role path (design §§5/6) and by the web chat under the owner's session (RLS), both scoped to the owner's one company.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
 | id | uuid | no | |
 | company_id | uuid | no | |
-| chat_id | bigint | no | the owner's Telegram chat id |
+| chat_id | bigint | yes | the owner's Telegram chat id — Telegram-only provenance; null on web rows (was NOT NULL before migration 00015) |
+| channel | text | no | `telegram` \| `web` (check constraint, migration 00015; default `telegram`) |
 | role | text | no | `user` \| `assistant` (check constraint) |
 | text | text | no | |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
@@ -272,6 +273,24 @@ Added alongside `telegram_messages` (design §6). The bot's durable memory store
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/context.ts`) — stated plainly in the design; no embeddings yet.
+
+## bot_pending_actions
+
+Added by bot intelligence v2 (`docs/design/driver-mvp.md` §8, migration `00016`). Write actions the bot **proposed** (as opposed to writes the owner directly ordered, which execute immediately) wait here for his yes. Resolution — execute on yes, drop on no — soft-deletes the row; the bot treats proposals older than 2 hours as expired and never executes them. Written/read by the bot surfaces via `src/services/bot/store.ts` (service-role on Telegram, owner session on web).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| channel | text | no | `telegram` \| `web` (check constraint) — the surface the proposal was made on; a yes on either surface resolves it |
+| tool_name | text | no | the write tool to execute (`create_expense`, `create_fuel_purchase`, `log_duty_status`, `save_memory`, `add_load_note`) |
+| arguments | jsonb | no | the tool's validated arguments, exactly as proposed |
+| summary | text | no | the human-readable line the owner was shown when deciding |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | resolution (or expiry) sets `deleted_at` |
+
+## ai_capability_settings — `bot_chat`
+
+Bot intelligence v2 (§8) adds a third known capability, `bot_chat`, under the same kill-switch pattern as `industry_intelligence` and `dispatch_helper` (global switch first, then per-capability, no row = off). It governs conversational bot turns on **both** surfaces (Telegram webhook via its service-role store, web chat via the owner session); with it off, conversational turns reply that chat is turned off. Dispatch help and `remember:`/`instruction:` capture are governed by their own paths and unaffected.
 
 ## documents
 
