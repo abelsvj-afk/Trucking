@@ -130,6 +130,34 @@ export interface PretripInspection extends BaseRow {
   defects_found: string | null;
 }
 
+export type DutyStatus = "off_duty" | "sleeper" | "driving" | "on_duty";
+
+// Driver MVP (docs/design/driver-mvp.md §3): a manual paper-log helper
+// row - one per duty-status start. NOT an ELD record.
+export interface DutyLog extends BaseRow {
+  driver_id: string | null;
+  load_id: string | null;
+  duty_status: DutyStatus;
+  started_at: string;
+  location: string | null;
+  odometer: number | null;
+  notes: string | null;
+}
+
+export type DispatchExchangeSource = "web" | "telegram";
+
+// Driver MVP (docs/design/driver-mvp.md §5): one helped dispatch
+// exchange - the incoming message, the AI's output, and (when known)
+// the reply the owner actually sent.
+export interface DispatchExchange extends BaseRow {
+  incoming_message: string;
+  ai_translation: string | null;
+  ai_suggested_reply_en: string | null;
+  ai_suggested_reply_es: string | null;
+  actual_reply_sent: string | null;
+  source: DispatchExchangeSource;
+}
+
 export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
 
 // Documents don't soft-delete like other entities (docs/schemas.md) - no

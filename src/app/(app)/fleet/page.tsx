@@ -37,6 +37,12 @@ export default function FleetPage() {
         <li>
           <Link href="/fleet/pretrip-inspections">Pre-trip inspections</Link>
         </li>
+        <li>
+          <Link href="/fleet/checklists">Checklists (coupling, docking, paperwork)</Link>
+        </li>
+        <li>
+          <Link href="/fleet/hos">Hours of service (paper-log helper)</Link>
+        </li>
       </ul>
     </div>
   );

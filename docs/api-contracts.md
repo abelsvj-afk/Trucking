@@ -105,6 +105,10 @@ Every other resource in the table above follows this exact shape, substituting i
 
 All three support filtering the list endpoint by `truck_id` and by `trailer_id` (e.g. `GET /api/v1/maintenance-schedules?truck_id=...`), matching `maintenance-events`' existing `?truck_id=` filter — needed so a truck or trailer's own screen can show just its items. `maintenance-schedules`' response fields are exactly `docs/schemas.md`'s stored columns; "next due"/"overdue" are computed client-side from `interval_miles`/`interval_days`/`last_done_*` plus the linked truck's `current_mileage`, not returned by the API — see `src/lib/maintenance-schedule.ts`.
 
+### `duty-logs`, `dispatch-exchanges` — Driver MVP additions
+
+Both are standard resources (the 5-endpoint table above) with the fields in `docs/schemas.md`, added per `docs/design/driver-mvp.md` §§3/5. `duty-logs` rows are duty-status starts (warn-only HOS summaries are computed client-side in `src/lib/hos.ts`, never returned by the API — same pattern as `maintenance-schedules`' due status). `dispatch-exchanges` is written by the client only on the owner's explicit save, or by the owner's private Telegram bot (see the webhook contract below) — never automatically by `/api/v1/dispatch-suggest`.
+
 ## Financial summary (read-only, computed)
 
 **`GET /api/v1/financial-summary?from={date}&to={date}`**
@@ -168,6 +172,20 @@ Read/write from a normal authenticated owner session — this is the one thing a
 | PATCH | `/api/v1/ai-settings` | Body is any subset of `{ globally_disabled, capabilities: { [name]: boolean } }`; upserts the changed rows. Takes effect for the *next* scheduled run only, per `docs/governance.md` — never interrupts a run already in progress |
 
 Both fields for one capability's kill switch — `globally_disabled` and `capabilities.industry_intelligence`, for example — are independent per `docs/governance.md`'s "no cooperation required" and "turning one off must never require touching... any other capability" rules; the scheduler checks both before every run, in that order.
+
+### `dispatch-suggest` (Driver MVP, `docs/design/driver-mvp.md` §2)
+
+The `dispatch_helper` capability — the second entry in `KNOWN_CAPABILITIES`, kill-switched exactly like `industry_intelligence` (global first, then per-capability; no row = off).
+
+| Method | Path | Behavior |
+|---|---|---|
+| POST | `/api/v1/dispatch-suggest` | Authenticated owner session. Body: `{ message: string (1-8000 chars), context?: string }` — a pasted dispatch message (Spanish or English) plus optional context. Stateless: stores nothing. Returns `200` with `{ translation_en, whats_being_asked, likely_sender_role: owner \| dispatcher \| broker \| shipper \| receiver \| unknown, sender_reasoning, suggested_reply_en, suggested_reply_es }`. Returns `403 AI_CAPABILITY_DISABLED` when the global switch is on or the capability is off. The pasted message is untrusted third-party text, treated as data to translate — never as instructions. The endpoint drafts replies; it never sends anything. |
+
+### Telegram webhook (Driver MVP, `docs/design/driver-mvp.md` §4)
+
+| Method | Path | Behavior |
+|---|---|---|
+| POST | `/api/telegram/webhook` | Telegram Bot API webhook for the owner's **private** bot. No user session exists for this caller (listed public in `src/proxy.ts`, like `/api/internal`); the route enforces its own checks, in order: `TELEGRAM_BOT_TOKEN` unset → `503` (disabled); `TELEGRAM_WEBHOOK_SECRET` set → the `x-telegram-bot-api-secret-token` header must match, else `401`; non-private chats → ignored; chat id ≠ `TELEGRAM_ALLOWED_CHAT_ID` → ignored; allowlist unset → bootstrap mode, replies with only that chat's id and runs no AI. Allowlisted private text runs through the same dispatch-helper service as `/api/v1/dispatch-suggest` and the reply is sent back in that same private chat only. The bot never joins, reads, or sends to any group and never messages any third party. Accepted updates return `200 { ok: true }` even when deliberately ignored, so Telegram doesn't retry-storm. Note: this surface has no session, so it cannot check the in-app kill switches — its revocation is its own env surface (unset the token/allowlist), a deliberate boundary recorded in the design. **Bot intelligence (design §6):** the same webhook also carries plain conversation — every turn's prompt is assembled in code with persisted history (`telegram_messages`), a live company snapshot, the owner's standing instructions, and retrieved memories (`bot_memories`, both standard resources in `docs/schemas.md` written via the bot's documented service-role path, not through this API). Routing and capture rules are design §6, not API surface. |
 
 ---
 

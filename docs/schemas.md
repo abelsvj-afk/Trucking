@@ -210,6 +210,69 @@ A log of pre-trip walkaround inspections — the DOT-style practice of checking 
 | defects_found | text | yes | free text; a failed pre-trip does not automatically create a `maintenance_events` row — the owner logs that separately if it turns into real work, keeping this table an honest record of what was observed |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
+## duty_logs
+
+Added by the Driver MVP (`docs/design/driver-mvp.md` §3). A manual, warn-only paper-log helper: one row per duty-status start, running until the next row's `started_at`. **Not an ELD and not an HOS system of record** — the truck's ELD (or official paper logs) remains the legal record.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| driver_id | uuid | yes | references `drivers.id` |
+| load_id | uuid | yes | references `loads.id` |
+| duty_status | text | no | `off_duty` \| `sleeper` \| `driving` \| `on_duty` (check constraint) |
+| started_at | timestamptz | no | when this status began |
+| location | text | yes | free text, e.g. "Melbourne, FL" |
+| odometer | integer | yes | non-negative when set |
+| notes | text | yes | |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+Derived, never stored: the HOS warnings (driving in the current 14-hour window, driving since the last 30-minute break, on-duty in 8 days vs 70) are computed in `src/lib/hos.ts` from these rows.
+
+## dispatch_exchanges
+
+Added by the Driver MVP (`docs/design/driver-mvp.md` §5). One helped dispatch exchange — what came in, what the AI produced, and what the owner actually sent — captured as the raw material for learning how the owner writes. Written only on the owner's explicit save (web) or by his own private bot (telegram); the suggest endpoint itself stores nothing.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| incoming_message | text | no | the pasted/forwarded dispatch message, as received |
+| ai_translation | text | yes | the helper's English translation |
+| ai_suggested_reply_en | text | yes | |
+| ai_suggested_reply_es | text | yes | |
+| actual_reply_sent | text | yes | what the owner really sent; null until known (telegram rows start null — the bot can't see what he sends in other apps) |
+| source | text | no | `web` \| `telegram` (check constraint) |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## telegram_messages
+
+Added by the Driver MVP bot-intelligence pass (`docs/design/driver-mvp.md` §6). The private Telegram bot's conversation history — persisted so every prompt carries real recent history. Written/read by the bot via its documented service-role path (design §§5/6), scoped to the owner's one company.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| chat_id | bigint | no | the owner's Telegram chat id |
+| role | text | no | `user` \| `assistant` (check constraint) |
+| text | text | no | |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## bot_memories
+
+Added alongside `telegram_messages` (design §6). The bot's durable memory store — facts the owner dictates, notes, expense hints (captured for review, **not** booked expenses), and his standing instructions (kind `instruction` rows double as the bot's profile/settings and are injected into every prompt in full).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| kind | text | no | `fact` \| `note` \| `expense_hint` \| `instruction` (check constraint) |
+| content | text | no | one-line memory, in the owner's words where possible |
+| source | text | no | `telegram` \| `web` (check constraint) |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/context.ts`) — stated plainly in the design; no embeddings yet.
+
 ## documents
 
 | Column | Type | Nullable | Notes |
