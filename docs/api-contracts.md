@@ -162,6 +162,19 @@ The general rule still holds: an AI capability gets its own contract added here 
 
 There is no `POST /api/v1/industry-briefings` — the client never creates one directly. Rows are only ever written by the scheduled job described in `docs/automation.md`, using its own scoped service credential, not a user session. Every other AI-recommendation endpoint (decision engine, fuel intelligence, etc.) gets specified the same way, when it's actually designed.
 
+### `research_briefings` + the Deep Research Engine (Stage 8, `docs/design/research-engine.md`)
+
+The `deep_research` capability — the third entry in `KNOWN_CAPABILITIES`, kill-switched exactly like the others (global first, then per-capability; no row = off) and additionally bounded by hard run caps (`RESEARCH_MAX_RUNS_PER_DAY` / `RESEARCH_MAX_RUNS_PER_MONTH`, enforced from `research_runs` counts).
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/research-briefings` | The Research page's one read: `{ data: ResearchBriefing[] }` (excludes dismissed, newest first), `unread_count` (not dismissed, `read_at` null), `runs` (the 10 most recent `research_runs`, all statuses — the run log, caps/skips included), `watchers` (every `research_watcher_state` row — watcher health, failures visible), and `usage: { runs_today, runs_this_month, max_runs_per_day, max_runs_per_month }` (rolling 24h/30d counted statuses: queued/running/success/failure/insufficient_data) |
+| POST | `/api/v1/research-briefings/{id}/read` | Sets `read_at`; `404` when the briefing isn't the caller's (RLS makes cross-tenant indistinguishable from missing) |
+| POST | `/api/v1/research-briefings/{id}/dismiss` | Sets `dismissed_at`; the "delete" analog for this resource |
+| POST | `/api/v1/research-briefings/research-now` | Body: `{ topic: string (3-200 chars) }`. The owner's manual trigger and the ONLY client-side insert into the engine's tables: queues a `research_runs` row (`trigger_kind='manual'`, `status='queued'` — the exact shape migration `00019`'s RLS policy fences this insert to), returns `201` with the queued run. It never calls the AI provider itself; the engine's scheduler tick executes queued runs under the same caps and kill switch (a queued run whose capability is off is closed out as `skipped_disabled`) |
+
+Briefings themselves are never client-created: rows are written only by the engine (watchers → triggers → runner, `docs/design/research-engine.md`), running under the Stage-4 scoped job credential extended to the research tables by migration `00019`.
+
 ### AI settings (the kill switches from `docs/governance.md`)
 
 Read/write from a normal authenticated owner session — this is the one thing about AI capabilities the client *does* write directly, since flipping a switch is the owner's own action, not something the AI recommends.

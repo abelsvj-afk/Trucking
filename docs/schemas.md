@@ -332,6 +332,83 @@ Added alongside `industry_briefings` (Stage 4, `docs/governance.md`'s per-capabi
 
 No `created_at`/`deleted_at`: this is toggled in place (upserted on `(company_id, capability)`), not a record with its own lifecycle.
 
+## research_signals
+
+Added Stage 8 (Deep Research Engine, `docs/design/research-engine.md`, migration `00019`). Normalized pressure signals emitted by the watcher layer; the stored items are the evidence a later research run cites. `company_id` is **nullable**: null = a global market signal (diesel, federal rulemaking, industry news) — not one company's data.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | yes | null for global signals |
+| watcher_key | text | no | `eia_diesel` \| `federal_register` \| `industry_news` |
+| kind | text | no | e.g. `fuel_price_observation`, `federal_rule_final`, `news_burst` |
+| topic | text | no | tracked topic cluster: `fuel` \| `rates` \| `regulation` \| `carriers` \| `technology` (or a manual run's free topic on run rows) |
+| magnitude | numeric | no | 0..1 pressure read |
+| summary | text | no | plain-language one-liner |
+| items | jsonb | no | array of `{title, url, publishedAt, summary}` — the citable evidence |
+| data | jsonb | no | structured measurements (e.g. `{wowPct}`) — thresholds read this, never prose |
+| dedupe_key | text | no | unique — re-polling unchanged source state stores nothing twice |
+| observed_at | timestamptz | no | |
+| created_at | timestamptz | no | |
+
+## research_watcher_state
+
+Added Stage 8 (migration `00019`). One row per watcher — its health, made visible on the Research page (failures are shown, never silent, per the design).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| watcher_key | text | no | primary key |
+| last_polled_at | timestamptz | yes | |
+| last_status | text | yes | `ok` \| `error` \| `skipped` |
+| last_error | text | yes | the error or skip reason (e.g. `EIA_API_KEY` unset) |
+| last_signal_at | timestamptz | yes | last poll that produced a new signal |
+| state | jsonb | no | watcher-private bag (last EIA period/price, seen document numbers) |
+| updated_at | timestamptz | no | |
+
+## research_runs
+
+Added Stage 8 (migration `00019`). The engine's full run log — every decision outcome, including the governance outcomes (`skipped_cap`, `skipped_disabled`), so caps and the kill switch leave a visible trace.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| trigger_kind | text | no | `scheduled` \| `pressure` \| `manual` |
+| topic | text | no | |
+| trigger_detail | jsonb | no | `{reason, signal_dedupe_keys}` |
+| status | text | no | `queued` \| `running` \| `success` \| `failure` \| `insufficient_data` \| `skipped_cap` \| `skipped_disabled` |
+| started_at | timestamptz | yes | |
+| finished_at | timestamptz | yes | |
+| error_message | text | yes | server-side diagnostic detail; the Research page shows it only as the run's own status note |
+| briefing_id | uuid | yes | references `research_briefings.id`; set only on `success` |
+| created_at | timestamptz | no | cap counts are computed from this (rolling 24h / 30d windows) |
+
+No soft-delete: a run log is an immutable record, same deviation as `industry_briefing_runs`.
+
+## research_briefings
+
+Added Stage 8 (migration `00019`). The deep-research briefing as data (never files): the Secrets Brief shape — findings with real sources, what changed, the counter-move for a one-truck operation, exactly one takeaway, unverified items in their own field.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| run_id | uuid | yes | references `research_runs.id` |
+| topic | text | no | |
+| title | text | no | |
+| headline | text | no | one-line plain summary (also the Telegram push's core) |
+| findings | jsonb | no | array of `{claim, source_title, source_url}` — every URL validated against the run's evidence at generation time |
+| what_changed | text | no | |
+| counter_move | text | no | the concrete so-what for a one-truck operation |
+| takeaway | text | no | exactly one learn/do |
+| unverified | jsonb | no | array of strings — claims the engine could not tie to a source, kept visibly separate |
+| sources | jsonb | no | array of `{title, url}` — the distinct sources the findings cite |
+| confidence | text | no | `high` \| `medium` \| `low` |
+| telegram_notified_at | timestamptz | yes | set only when the Telegram summary was actually accepted |
+| read_at | timestamptz | yes | unread state for the Research page |
+| dismissed_at | timestamptz | yes | soft-delete analog, same as `industry_briefings` |
+| created_at | timestamptz | no | |
+
 ## companies — one addition
 
 `docs/governance.md`'s **global** kill switch (distinct from any per-capability switch above) is a single column on `companies`, since it revokes *all* AI authority for that company at once regardless of what capabilities exist:

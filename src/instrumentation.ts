@@ -9,5 +9,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { startIndustryBriefingScheduler } = await import("@/services/ai/scheduler");
     startIndustryBriefingScheduler();
+    // Deep Research Engine (docs/design/research-engine.md §9) - same
+    // in-process scheduler pattern as the industry-briefing job above.
+    const { startResearchScheduler } = await import("@/services/research/scheduler");
+    startResearchScheduler();
   }
 }

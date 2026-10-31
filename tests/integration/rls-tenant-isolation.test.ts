@@ -105,6 +105,8 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
     // failed run doesn't leave test data behind. Order matters (children
     // before parents) since several tables reference trucks/companies.
     const tables = [
+      "research_briefings",
+      "research_runs",
       "expenses",
       "fuel_purchases",
       "maintenance_events",
