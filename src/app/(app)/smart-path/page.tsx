@@ -278,6 +278,12 @@ function SmartPathInner() {
             {formatMinutes(result.verdict.assumedDriveMinutes)} ({result.verdict.driveTimeBasis})
             {result.plan?.arrivalAt && <> · arrival {formatEastern(new Date(result.plan.arrivalAt))}</>}
           </p>
+          <p>
+            Route by {result.route.provider} —{" "}
+            {result.route.truckLegal
+              ? "truck-checked against the height/weight limits and truck-prohibited roads recorded in the map data (coverage is incomplete; the truck's own nav/ELD is the final word)."
+              : "a standard car route, NOT checked against truck restrictions — see “Before you roll” below."}
+          </p>
 
           <h3>Legal</h3>
           {result.verdict.legalLines.map((line) => (

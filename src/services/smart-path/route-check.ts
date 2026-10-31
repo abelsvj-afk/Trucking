@@ -1,6 +1,8 @@
-// Smart Path v1 orchestration (docs/design/driver-mvp.md §8.3).
-// Loads the owner's own records (load, duty logs, truck profile, fuel
-// history), calls the keyless providers behind their interfaces, and
+// Smart Path v1 orchestration (docs/design/driver-mvp.md §8.3;
+// truck-legal routing §8.5). Loads the owner's own records (load,
+// duty logs, truck profile, fuel history), calls the providers
+// behind their interfaces (the truck profile is fetched first - its
+// dimensions are inputs to the truck-aware routing chain), and
 // runs the deterministic verdict in src/lib/smart-path.ts. No AI is
 // involved and no number is produced anywhere but the lib or a real
 // query - a provider failure surfaces as an honest error or an
@@ -31,9 +33,10 @@ import {
   type GeocodingProvider,
 } from "@/services/integrations/geocoding";
 import {
-  OsrmRoutingProvider,
+  defaultRoutingProvider,
   RoutingUnavailableError,
   type RoutingProvider,
+  type VehicleProfile,
 } from "@/services/integrations/routing";
 import {
   OverpassPlacesProvider,
@@ -53,7 +56,7 @@ export interface RouteCheckProviders {
 
 export const defaultProviders: RouteCheckProviders = {
   geocoding: new NominatimGeocodingProvider(),
-  routing: new OsrmRoutingProvider(),
+  routing: defaultRoutingProvider(),
   places: new OverpassPlacesProvider(),
 };
 
@@ -117,31 +120,8 @@ export async function runRouteCheck(
     );
   }
 
-  let route;
-  try {
-    route = await providers.routing.getRoute(originPoint, destinationPoint);
-  } catch (err) {
-    if (err instanceof RoutingUnavailableError) {
-      throw new ApiError(502, "ROUTING_UNAVAILABLE", `${err.message} No distance was estimated instead - a made-up number would be worse than none.`);
-    }
-    throw err;
-  }
-  warnings.push(
-    "Route geometry is a standard car route (OSRM) in this version - it is NOT checked against truck height/weight restrictions or truck-prohibited roads. Check it against the truck's own nav/ELD before rolling.",
-  );
-
-  // --- his clocks -------------------------------------------------------
-  const { data: dutyData, error: dutyError } = await supabase
-    .from("duty_logs")
-    .select("duty_status, started_at")
-    .is("deleted_at", null)
-    .gte("started_at", new Date(now.getTime() - EIGHT_DAYS_MS).toISOString())
-    .order("started_at", { ascending: true });
-  if (dutyError) throw new Error(dutyError.message);
-  const hos = summarizeHos((dutyData ?? []) as DutySegmentInput[], now);
-  const clocks = clocksFromHos(hos);
-
-  // --- the truck profile -------------------------------------------------
+  // --- the truck profile (fetched before routing: its dimensions ---
+  // --- are inputs to the truck-aware routing engines, §8.5) ---------
   let truck: Truck | null = null;
   if (load.truck_id) {
     const { data } = await supabase
@@ -154,9 +134,46 @@ export async function runRouteCheck(
   }
   if (truck && (truck.height_in === null || truck.weight_lbs === null)) {
     warnings.push(
-      "This truck's profile has no height/weight captured yet - add it under Fleet → Truck profile so future versions can check restrictions against it.",
+      "This truck's profile has no height/weight captured yet - add it under Fleet → Truck profile so truck routing can check those exact restrictions instead of the engines' generic truck limits.",
     );
   }
+  const vehicle: VehicleProfile | null = truck
+    ? { heightIn: truck.height_in, lengthIn: truck.length_in, weightLbs: truck.weight_lbs }
+    : null;
+
+  let route;
+  try {
+    route = await providers.routing.getRoute(originPoint, destinationPoint, vehicle);
+  } catch (err) {
+    if (err instanceof RoutingUnavailableError) {
+      throw new ApiError(502, "ROUTING_UNAVAILABLE", `${err.message} No distance was estimated instead - a made-up number would be worse than none.`);
+    }
+    throw err;
+  }
+  // Chain attribution/degradation notes are part of the answer, not
+  // fine print: which engine answered and what was skipped or fell
+  // back is stated to the owner (§8.5).
+  warnings.push(...route.providerNotes);
+  if (route.truckLegal) {
+    warnings.push(
+      `Route geometry came from ${route.providerName} - a truck routing engine that applies the truck restrictions recorded in OpenStreetMap data (height/weight limits, truck-prohibited roads)${vehicle ? " plus this truck's captured dimensions where the map records a limit" : ""}. OpenStreetMap's restriction data is incomplete: a road with no recorded limit is treated as passable, so check the route against the truck's own nav/ELD before rolling.`,
+    );
+  } else {
+    warnings.push(
+      "Route geometry is a standard car route (OSRM) in this version - it is NOT checked against truck height/weight restrictions or truck-prohibited roads. Check it against the truck's own nav/ELD before rolling.",
+    );
+  }
+
+  // --- his clocks -------------------------------------------------------
+  const { data: dutyData, error: dutyError } = await supabase
+    .from("duty_logs")
+    .select("duty_status, started_at")
+    .is("deleted_at", null)
+    .gte("started_at", new Date(now.getTime() - EIGHT_DAYS_MS).toISOString())
+    .order("started_at", { ascending: true });
+  if (dutyError) throw new Error(dutyError.message);
+  const hos = summarizeHos((dutyData ?? []) as DutySegmentInput[], now);
+  const clocks = clocksFromHos(hos);
 
   const departAt = new Date(request.depart_at);
   const verdict = checkRoute({
@@ -282,7 +299,7 @@ export async function runRouteCheck(
     load: { id: load.id, origin: load.origin, destination: load.destination, status: load.status },
     route: {
       provider: route.providerName,
-      truckLegal: false,
+      truckLegal: route.truckLegal,
       distanceMiles: Math.round(route.distanceMiles * 10) / 10,
       providerDurationMinutes: Math.round(route.durationMinutes),
       geometry: route.geometry,

@@ -15,8 +15,16 @@ export interface RouteCheckResponse {
   };
   route: {
     provider: string;
-    /** False claims are the failure mode this feature exists to avoid: geometry is a car route in v1. */
-    truckLegal: false;
+    /**
+     * True only when a truck-aware engine (ORS driving-hgv or
+     * Valhalla truck costing) actually served the route (§8.5);
+     * false when the chain fell back to the OSRM car profile. Even
+     * true means "checked against the restrictions recorded in
+     * OpenStreetMap data" - OSM coverage is incomplete, never a
+     * guarantee. False claims are the failure mode this feature
+     * exists to avoid.
+     */
+    truckLegal: boolean;
     distanceMiles: number;
     providerDurationMinutes: number;
     geometry: LatLng[];
