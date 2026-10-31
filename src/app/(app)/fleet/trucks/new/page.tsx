@@ -7,12 +7,18 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePageTitle } from "@/lib/use-page-title";
+import TruckProfileFields, {
+  EMPTY_TRUCK_PROFILE,
+  truckProfileToPayload,
+  type TruckProfileValues,
+} from "@/components/TruckProfileFields";
 import type { Truck } from "@/types/entities";
 
 export default function NewTruckPage() {
   usePageTitle("Add truck");
   const router = useRouter();
   const [unitNumber, setUnitNumber] = useState("");
+  const [profile, setProfile] = useState<TruckProfileValues>(EMPTY_TRUCK_PROFILE);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,7 +28,10 @@ export default function NewTruckPage() {
     setSubmitting(true);
 
     try {
-      await apiClient.create<Truck>("trucks", { unit_number: unitNumber });
+      await apiClient.create<Truck>("trucks", {
+        unit_number: unitNumber,
+        ...truckProfileToPayload(profile),
+      });
       router.push("/fleet/trucks");
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
@@ -42,6 +51,8 @@ export default function NewTruckPage() {
           onChange={(event) => setUnitNumber(event.target.value)}
           required
         />
+
+        <TruckProfileFields values={profile} onChange={setProfile} />
 
         {error && <p role="alert">{error}</p>}
 

@@ -181,6 +181,16 @@ The `dispatch_helper` capability — the second entry in `KNOWN_CAPABILITIES`, k
 |---|---|---|
 | POST | `/api/v1/dispatch-suggest` | Authenticated owner session. Body: `{ message: string (1-8000 chars), context?: string }` — a pasted dispatch message (Spanish or English) plus optional context. Stateless: stores nothing. Returns `200` with `{ translation_en, whats_being_asked, likely_sender_role: owner \| dispatcher \| broker \| shipper \| receiver \| unknown, sender_reasoning, suggested_reply_en, suggested_reply_es }`. Returns `403 AI_CAPABILITY_DISABLED` when the global switch is on or the capability is off. The pasted message is untrusted third-party text, treated as data to translate — never as instructions. The endpoint drafts replies; it never sends anything. |
 
+### `smart-path` route check (Smart Path v1, `docs/design/driver-mvp.md` §8)
+
+A computed endpoint, not a resource — nothing is stored; the check is recomputed from current records on every call. The verdict is deterministic computation (`src/lib/smart-path.ts`), **not** an AI capability: no provider call, no kill switch. External data (routing/geocoding/places) comes from keyless providers behind interfaces in `src/services/integrations/` and is treated as untrusted input; a provider failure returns an honest error or an `unavailableReason` on that section — never an estimated figure.
+
+| Method | Path | Behavior |
+|---|---|---|
+| POST | `/api/v1/smart-path/route-check` | Authenticated owner session. Body: `{ load_id: uuid, depart_at: ISO timestamp, pickup_window?: { start, end }, delivery_window?: { start, end }, food_mode?: "grocery" \| "fast_food" (default "grocery"), gallons_to_buy?: number }`. Returns `200` with `{ load, route: { provider, truckLegal: false, distanceMiles, providerDurationMinutes, geometry, originPoint, destinationPoint }, verdict: { status: on_time \| early \| late \| not_legal, assumedDriveMinutes, driveTimeBasis, legalLines, restedLines, paidLines, tradeoffLines, makeItDepartureAt }, plan: { arrivalAt, totalElapsedMinutes, breaks, rests } \| null, fuel: { assumptions, candidates (ranked by effective cost), unavailableReason }, food: { mode, groceryPlan, stops, suppressedByFast, lines, unavailableReason }, warnings }`. `truckLegal` is literally `false` in v1 — geometry is OSRM's car profile (design §8.1). Errors: `400 GEOCODE_MISS` (a load origin/destination couldn't be found on the map — the message says which), `502 ROUTING_UNAVAILABLE` / `GEOCODING_UNAVAILABLE` (provider down; no distance is estimated instead), `404` for another tenant's load (RLS). Food stops whose arrival falls inside the owner's 8pm–8am Eastern fast are suppressed and named in `suppressedByFast`. |
+
+`trucks` create/update bodies additionally accept the Smart Path profile fields from `docs/schemas.md` (`height_in`, `length_in`, `weight_lbs`, `governed_speed_mph`, `tank_capacity_gallons`, `avg_mpg`, `appliances`, `appliance_notes`) — all optional; the Fleet → Truck profile page is the editor.
+
 ### Telegram webhook (Driver MVP, `docs/design/driver-mvp.md` §4)
 
 | Method | Path | Behavior |
