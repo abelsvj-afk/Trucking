@@ -288,6 +288,15 @@ Added by bot intelligence v2 (`docs/design/driver-mvp.md` §8, migration `00016`
 | summary | text | no | the human-readable line the owner was shown when deciding |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | resolution (or expiry) sets `deleted_at` |
 
+Agent omnipresence (design §9, migration `00021`) extends this table for **dump batches**: when the bot extracts several records from one dumped message, each extracted item is stored as its own `bot_pending_actions` row and the rows share batch columns (all nullable — a plain §8 single proposal leaves them null):
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| batch_id | uuid | yes | shared by every item staged from one dump |
+| item_number | integer | yes | the item's stable number within its batch — the number the owner uses to approve selectively or correct ("3 is wrong, it's 4417") |
+| source_quote | text | yes | the verbatim span of the owner's dumped message the item was extracted from (grounding evidence, shown to him in the proposal) |
+| confidence | text | yes | `high` \| `medium` \| `low` (check constraint) — the extraction confidence shown in the proposal |
+
 ## ai_capability_settings — `bot_chat`
 
 Bot intelligence v2 (§8) adds a third known capability, `bot_chat`, under the same kill-switch pattern as `industry_intelligence` and `dispatch_helper` (global switch first, then per-capability, no row = off). It governs conversational bot turns on **both** surfaces (Telegram webhook via its service-role store, web chat via the owner session); with it off, conversational turns reply that chat is turned off. Dispatch help and `remember:`/`instruction:` capture are governed by their own paths and unaffected.
@@ -304,6 +313,7 @@ Bot intelligence v2 (§8) adds a third known capability, `bot_chat`, under the s
 | storage_path | text | no | path in Supabase Storage |
 | uploaded_at | timestamptz | no | |
 | created_at | timestamptz | no | (documents are not edited in place, and are hard-deleted like any file — no `deleted_at`/`updated_at`) |
+| extracted_text | text | yes | **Contract with the document-scan work (design §9):** the document's OCR/extracted text, added by that branch's migration; null until extraction runs. The bot's document tools (`get_document`, `search_documents`) code against this column name with graceful absence — before the scan migration lands they report that no extracted text is available yet; after it, the agent can answer questions about a document's actual content, not just its file name |
 
 ## industry_briefings
 

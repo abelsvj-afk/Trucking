@@ -20,6 +20,10 @@ import type { AgentTool } from "@/services/ai/agent-loop";
 import { pickRelevantMemories } from "@/services/telegram/context";
 import type { BotBrainStore } from "./store";
 import type { DutyLog } from "@/types/entities";
+import { validateWith } from "./tool-helpers";
+import { buildExtendedReadTools } from "./tools-read";
+import { buildExtendedWriteTools } from "./tools-write";
+import { validateDumpItems } from "./dump-intake";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -189,21 +193,23 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "list_documents",
-      description: "List his most recent documents on file (BOLs, paperwork photos, etc.) - file name, what they're attached to, and when they were added.",
+      description: "List his most recent documents on file (BOLs, paperwork photos, etc.) - id, file name, what they're attached to, and when they were added. Use get_document to read a document's actual content.",
       parameters: { type: "object", properties: {} },
       access: "read",
       async run() {
+        // documents has no deleted_at column (hard-delete table,
+        // docs/schemas.md) - never filter on it (design §9; §8's
+        // version of this tool did, which the real database rejects).
         const { data, error } = await client
           .from("documents")
-          .select("file_name, related_entity_type, created_at")
+          .select("id, file_name, related_entity_type, created_at")
           .eq("company_id", companyId)
-          .is("deleted_at", null)
           .order("created_at", { ascending: false })
           .limit(15);
         if (error) throw new Error(error.message);
-        const rows = (data ?? []) as { file_name: string; related_entity_type: string; created_at: string }[];
+        const rows = (data ?? []) as { id: string; file_name: string; related_entity_type: string; created_at: string }[];
         if (rows.length === 0) return "No documents on file yet.";
-        return rows.map((r) => `- ${r.file_name} (attached to ${r.related_entity_type}, added ${r.created_at.slice(0, 10)})`).join("\n");
+        return rows.map((r) => `- [${r.id}] ${r.file_name} (attached to ${r.related_entity_type}, added ${r.created_at.slice(0, 10)})`).join("\n");
       },
     },
     {
@@ -252,7 +258,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "create_expense",
-      description: "Record an expense in his books (Money). Use when he tells you about money he spent on the business.",
+      description: "Record an expense in his books (Money). Use when he tells you about money he spent on the business. Link it to a load/truck/driver when he names one (ids from the list tools).",
       parameters: {
         type: "object",
         properties: {
@@ -260,10 +266,14 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           amount_dollars: { type: "number", description: "Amount spent, in dollars." },
           description: { type: "string" },
           expense_date: { type: "string", description: "Date spent, YYYY-MM-DD. Defaults to today." },
+          load_id: { type: "string", description: "Load id (uuid) this expense belongs to, if any." },
+          truck_id: { type: "string", description: "Truck id (uuid) this expense belongs to, if any." },
+          driver_id: { type: "string", description: "Driver id (uuid) this expense belongs to, if any." },
         },
         required: ["category", "amount_dollars"],
       },
       access: "write",
+      validateArgs: validateWith(createExpenseArgs),
       summarize(args) {
         const parsed = createExpenseArgs.parse(args);
         return `Expense: ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category})${parsed.description ? ` — ${parsed.description}` : ""} on ${parsed.expense_date ?? "today"}`;
@@ -279,6 +289,9 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
             amount_cents: Math.round(parsed.amount_dollars * 100),
             expense_date: expenseDate,
             description: parsed.description ?? null,
+            load_id: parsed.load_id ?? null,
+            truck_id: parsed.truck_id ?? null,
+            driver_id: parsed.driver_id ?? null,
           })
           .select("id")
           .single();
@@ -288,17 +301,20 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "create_fuel_purchase",
-      description: "Record a fuel purchase in his books. Needs the total paid and gallons; if he doesn't name the truck and he has exactly one truck on file, that truck is used.",
+      description: "Record a fuel purchase in his books. Needs the total paid and gallons; pass truck_id when he names the truck (from list_trucks) - otherwise, if he has exactly one truck on file, that truck is used.",
       parameters: {
         type: "object",
         properties: {
           total_dollars: { type: "number", description: "Total paid at the pump, in dollars." },
           gallons: { type: "number" },
           location: { type: "string", description: "Station / city, if he said." },
+          truck_id: { type: "string", description: "Truck id (uuid), if he named the truck." },
+          purchased_at: { type: "string", description: "ISO timestamp of the purchase. Defaults to now." },
         },
         required: ["total_dollars", "gallons"],
       },
       access: "write",
+      validateArgs: validateWith(createFuelArgs),
       summarize(args) {
         const parsed = createFuelArgs.parse(args);
         return `Fuel purchase: ${dollars(Math.round(parsed.total_dollars * 100))} for ${parsed.gallons} gal${parsed.location ? ` at ${parsed.location}` : ""}`;
@@ -313,7 +329,12 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         if (trucksError) throw new Error(trucksError.message);
         const truckRows = (trucks ?? []) as { id: string; unit_number: string }[];
         if (truckRows.length === 0) throw new Error("No truck on file to attach the fuel purchase to.");
-        if (truckRows.length > 1) {
+        let truck = truckRows[0]!;
+        if (parsed.truck_id) {
+          const named = truckRows.find((t) => t.id === parsed.truck_id);
+          if (!named) throw new Error(`No truck with id ${parsed.truck_id} in his records.`);
+          truck = named;
+        } else if (truckRows.length > 1) {
           throw new Error(
             `More than one truck on file (${truckRows.map((t) => t.unit_number).join(", ")}) - ask him which truck this fuel went into.`,
           );
@@ -323,44 +344,50 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           .from("fuel_purchases")
           .insert({
             company_id: companyId,
-            truck_id: truckRows[0]!.id,
+            truck_id: truck.id,
             location: parsed.location ?? null,
             gallons: parsed.gallons,
             price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
             total_cost_cents: totalCents,
-            purchased_at: new Date().toISOString(),
+            purchased_at: parsed.purchased_at ?? new Date().toISOString(),
           })
           .select("id")
           .single();
         if (error) throw new Error(error.message);
-        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truckRows[0]!.unit_number}. Record id ${(data as { id: string }).id}.`;
+        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}. Record id ${(data as { id: string }).id}.`;
       },
     },
     {
       name: "log_duty_status",
-      description: "Log a duty-status change in his paper-log helper (NOT the ELD - the helper never replaces the legal record): off_duty, sleeper, driving, or on_duty, starting now.",
+      description: "Log a duty-status change in his paper-log helper (NOT the ELD - the helper never replaces the legal record): off_duty, sleeper, driving, or on_duty. Starts now unless he names a start time.",
       parameters: {
         type: "object",
         properties: {
           duty_status: { type: "string", enum: ["off_duty", "sleeper", "driving", "on_duty"] },
           location: { type: "string" },
           notes: { type: "string" },
+          started_at: { type: "string", description: "ISO timestamp the status began. Defaults to now." },
+          odometer: { type: "number", description: "Odometer reading at the change, if he gave one." },
+          load_id: { type: "string", description: "Load id (uuid) this duty period belongs to, if any." },
         },
         required: ["duty_status"],
       },
       access: "write",
+      validateArgs: validateWith(logDutyArgs),
       summarize(args) {
         const parsed = logDutyArgs.parse(args);
-        return `Duty status: ${parsed.duty_status} starting now${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`;
+        return `Duty status: ${parsed.duty_status} starting ${parsed.started_at ? `at ${parsed.started_at}` : "now"}${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`;
       },
       async run(args) {
         const parsed = logDutyArgs.parse(args);
         const { error } = await client.from("duty_logs").insert({
           company_id: companyId,
           duty_status: parsed.duty_status,
-          started_at: new Date().toISOString(),
+          started_at: parsed.started_at ?? new Date().toISOString(),
           location: parsed.location ?? null,
           notes: parsed.notes ?? null,
+          odometer: parsed.odometer ?? null,
+          load_id: parsed.load_id ?? null,
         });
         if (error) throw new Error(error.message);
         const { data } = await client
@@ -392,6 +419,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         required: ["kind", "content"],
       },
       access: "write",
+      validateArgs: validateWith(saveMemoryArgs),
       summarize(args) {
         const parsed = saveMemoryArgs.parse(args);
         return `Memory (${parsed.kind}): "${parsed.content}"`;
@@ -414,6 +442,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         required: ["load_id", "note"],
       },
       access: "write",
+      validateArgs: validateWith(addLoadNoteArgs),
       summarize(args) {
         const parsed = addLoadNoteArgs.parse(args);
         return `Note on load ${parsed.load_id}: "${parsed.note}"`;
@@ -444,6 +473,90 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
   ];
 
+  // Agent omnipresence (§9): full read/write coverage from
+  // tools-read.ts / tools-write.ts, then the two meta tools that
+  // work over the registry itself - dump staging and proposal
+  // revision.
+  tools.push(...buildExtendedReadTools(store), ...buildExtendedWriteTools(store));
+
+  const writeRegistry = new Map(
+    tools.filter((t) => t.access === "write").map((t) => [t.name, t] as const),
+  );
+
+  tools.push({
+    name: "stage_dump_items",
+    description:
+      "Stage EVERYTHING recordable from a dumped message (a forwarded dispatch thread, a pasted rate con or settlement, a brain-dump paragraph) as ONE batch proposal. Extract each record as an item: the write tool that records it, its arguments, a source_quote copied VERBATIM from his message, and your honest confidence. Rules: unknown fields stay OUT (never guess a value, rate, date, or id - ids come from the read tools, called BEFORE staging when an item updates an existing record); every number in an item must appear in his message (code rejects any that doesn't); deletes cannot ride in a dump. Call this ONCE with all items instead of calling the write tools one by one - nothing is recorded until he approves the batch.",
+    parameters: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "Every record extracted from the dump, in the order he should review them.",
+          items: {
+            type: "object",
+            properties: {
+              tool_name: { type: "string", description: "The write tool that records this item." },
+              args: { type: "object", description: "That tool's arguments, exactly as it defines them." },
+              source_quote: { type: "string", description: "The verbatim span of his message this item came from." },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
+            },
+            required: ["tool_name", "args", "source_quote", "confidence"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+    access: "write",
+    alwaysPropose: true,
+    expandProposals: (args, ctx) => validateDumpItems(ctx.userText, args.items, writeRegistry),
+    async run() {
+      // Unreachable by design: the loop always stages this tool's
+      // expanded items as proposals, and stored proposals name the
+      // ITEM tools, never this one - so a post-yes execution of the
+      // staging call itself can never be legitimate.
+      throw new Error("stage_dump_items never executes directly - its items are stored as individual proposals.");
+    },
+  });
+
+  tools.push({
+    name: "revise_pending_item",
+    description:
+      "Correct ONE item of a pending dump batch after the owner points out a wrong value (e.g. \"3 is wrong, it's 4417\"). patch holds ONLY the fields to change, in the item's own tool argument shape. This edits the stored proposal - nothing is recorded until he approves the batch. Use confirmation \"execute\": the correction is his direct order about the proposal itself.",
+    parameters: {
+      type: "object",
+      properties: {
+        item_number: { type: "number", description: "The item's number in the pending batch." },
+        patch: { type: "object", description: "Only the fields to change, in the item tool's argument shape." },
+      },
+      required: ["item_number", "patch"],
+    },
+    access: "write",
+    summarize: (args) =>
+      `Correct proposal item ${args.item_number}: ${JSON.stringify(args.patch ?? {})}`,
+    async run(args) {
+      const itemNumber = typeof args.item_number === "number" ? args.item_number : Number.NaN;
+      const patch =
+        args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
+      const batch = await store.loadPendingBatch();
+      const item = batch.find((row) => row.item_number === itemNumber);
+      if (!item) {
+        throw new Error(`There is no pending proposal item numbered ${itemNumber} to correct.`);
+      }
+      const tool = writeRegistry.get(item.tool_name);
+      if (!tool || !tool.validateArgs || !tool.summarize) {
+        throw new Error(`Proposal item ${itemNumber} (${item.tool_name}) can't be revised.`);
+      }
+      const validation = tool.validateArgs({ ...item.arguments, ...patch });
+      if (!validation.ok) {
+        throw new Error(`That correction doesn't hold up: ${validation.error}. The proposal is unchanged.`);
+      }
+      const summary = tool.summarize(validation.args);
+      await store.updatePendingAction(item.id, validation.args, summary);
+      return `Corrected proposal item ${itemNumber}: ${summary}. Still NOT recorded - it takes effect only when he approves it.`;
+    },
+  });
+
   return tools;
 }
 
@@ -452,18 +565,26 @@ const createExpenseArgs = z.object({
   amount_dollars: z.number().positive(),
   description: z.string().min(1).optional(),
   expense_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  load_id: z.string().uuid().optional(),
+  truck_id: z.string().uuid().optional(),
+  driver_id: z.string().uuid().optional(),
 });
 
 const createFuelArgs = z.object({
   total_dollars: z.number().positive(),
   gallons: z.number().positive(),
   location: z.string().min(1).optional(),
+  truck_id: z.string().uuid().optional(),
+  purchased_at: z.string().min(1).optional(),
 });
 
 const logDutyArgs = z.object({
   duty_status: z.enum(["off_duty", "sleeper", "driving", "on_duty"]),
   location: z.string().min(1).optional(),
   notes: z.string().min(1).optional(),
+  started_at: z.string().min(1).optional(),
+  odometer: z.number().int().nonnegative().optional(),
+  load_id: z.string().uuid().optional(),
 });
 
 const saveMemoryArgs = z.object({

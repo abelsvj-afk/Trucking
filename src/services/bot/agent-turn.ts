@@ -36,6 +36,12 @@ import {
 } from "@/services/telegram/context";
 import type { BotBrainStore, PendingAction } from "./store";
 import { buildBotTools, executeWriteTool } from "./tools";
+import {
+  formatBatchItemLine,
+  formatBatchProposal,
+  parseBatchCommand,
+  type BatchCommand,
+} from "./dump-intake";
 
 export const BOT_DISABLED_REPLY =
   "My chat brain is turned off right now. You can turn it on in the app: More -> Account & settings -> Bot chat. Dispatch help and remember: still work either way.";
@@ -47,6 +53,14 @@ const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own truc
 TOOLS: Read tools query his real records - use them whenever a question needs specifics beyond the context blocks (a load, a total, a contact, a past message). Write tools record things in his books. Every figure you state must come from a context block, a tool result, or the owner's own message - never estimate, never fill a gap with a plausible number. If a tool reports an error, tell him that lookup failed instead of covering for it.
 
 WRITES: If he directly tells you to record something ("log fuel $120 at Pilot"), call the write tool with confirmation "execute" and then confirm back what was actually recorded. If YOU think something should be recorded but he didn't ask, call it with confirmation "propose" - it will not be recorded unless he replies yes, and your message must say so plainly.
+
+FULL COVERAGE: You have read and write tools for every tab of his app - loads, expenses, fuel purchases, brokers, customers, drivers, trucks (including the profile and the appliance inventory), trailers, pre-trip inspections, equipment checklist items, maintenance events and schedules, duty logs, documents, memories, dispatch history, and industry briefings. get_document reads a document's actual extracted text when the document has been scanned. If he asks about any part of the business, look it up with the tools - never tell him you can't see a part of the app, and never answer from a guess when a tool can check.
+
+DELETES: delete_record always stages a proposal, even when he orders the delete directly. Tell him it is staged and needs his yes on the proposal - never say a delete is done until a proposal resolves.
+
+DUMPS: When one message carries several recordable facts at once (a forwarded dispatch thread, a pasted rate con or settlement, a brain-dump paragraph), extract ALL of them and call stage_dump_items ONCE with every item - not the individual write tools one by one, and never with confirmation "execute" for dump content. Each item needs a source_quote copied verbatim from his message, and an honest confidence. Leave unknown fields out entirely - never guess a rate, a date, a gate code, or an id; ids for updates come from the read tools, called BEFORE staging when an item touches an existing record. Code rejects any item whose numbers don't appear in his message; the tool result names the rejections - relay them plainly and don't re-stage a rejected value.
+
+CORRECTIONS: When a numbered dump batch is pending (the context block lists it) and he corrects an item ("3 is wrong, it's 4417"), call revise_pending_item with confirmation "execute" - that edits the stored proposal only; it still is not recorded until he approves. Never re-stage a whole dump for a correction, and never execute a batch item yourself - approvals are resolved outside you, in code.
 
 HOS: The duty-log tool data is the paper-log helper, never the ELD and never legal advice - keep the §6 framing when HOS comes up: helper numbers are a cross-check against the ELD, and the ELD governs.
 
@@ -122,6 +136,78 @@ async function resolvePending(
   }
 }
 
+function batchItemLine(item: PendingAction): string {
+  return formatBatchItemLine(item.item_number ?? 0, {
+    summary: item.summary,
+    sourceQuote: item.source_quote,
+    confidence: item.confidence,
+  });
+}
+
+/** Executes stored batch items in order after the owner's yes - each result (or failure) is reported per item, never hidden. */
+async function executeBatchItems(store: BotBrainStore, items: PendingAction[]): Promise<string> {
+  const lines: string[] = [];
+  for (const item of items) {
+    // Cleared before executing, exactly like single proposals, so a
+    // crash mid-batch can never double-record an item on a retry.
+    await store.clearPendingAction(item.id);
+    try {
+      const result = await executeWriteTool(store, item.tool_name, item.arguments);
+      lines.push(`✓ ${item.item_number ?? ""}. ${result}`);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "unknown error";
+      lines.push(
+        `✗ ${item.item_number ?? ""}. ${item.summary} — FAILED (${detail}). Nothing was saved for this one.`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Resolves a reply to a pending dump batch, in code (§9): approve
+ * all, approve by number, drop all / drop the rest. Expiry is
+ * handled by the caller before this runs.
+ */
+async function resolveBatch(
+  store: BotBrainStore,
+  batch: PendingAction[],
+  command: Exclude<BatchCommand, { kind: "other" }>,
+): Promise<BotChatOutput> {
+  if (command.kind === "drop_all" || command.kind === "drop_rest") {
+    await store.clearPendingActions(batch.map((i) => i.id));
+    return {
+      reply:
+        `Dropped — I didn't record ${batch.length === 1 ? "it" : `any of the ${batch.length} items`}: ` +
+        batch.map((i) => i.summary).join("; "),
+    };
+  }
+  if (command.kind === "approve_all") {
+    const results = await executeBatchItems(store, batch);
+    return { reply: `Done — recorded all ${batch.length}:\n${results}` };
+  }
+  // approve_some
+  const chosen = batch.filter(
+    (i) => i.item_number != null && command.numbers.includes(i.item_number),
+  );
+  if (chosen.length === 0) {
+    return {
+      reply:
+        `None of those numbers match the waiting items (${batch.map((i) => i.item_number).join(", ")}). ` +
+        "Nothing was recorded — the batch is still waiting for your call.",
+    };
+  }
+  const results = await executeBatchItems(store, chosen);
+  const remaining = batch.filter((i) => !chosen.includes(i));
+  let reply = `Done — recorded ${chosen.length}:\n${results}`;
+  if (remaining.length > 0) {
+    reply +=
+      `\n\nStill waiting:\n${remaining.map(batchItemLine).join("\n")}\n\n` +
+      'Reply YES to record the rest, correct any of them by number, or say "drop the rest".';
+  }
+  return { reply };
+}
+
 export interface AgentTurnHooks {
   onToolLog?: (entry: AgentToolLogEntry) => void;
 }
@@ -134,8 +220,30 @@ export async function runAgentTurn(
 ): Promise<BotChatOutput> {
   // 1. A waiting proposal + a plain yes/no is resolved in code,
   // before any model call - deterministic, auditable, cheap.
+  // §9: a pending dump batch has its own grammar (approve all /
+  // by number / drop the rest), resolved the same way.
   const pending = await store.loadPendingAction();
-  if (pending) {
+  let pendingBatch: PendingAction[] = [];
+  if (pending?.batch_id) {
+    pendingBatch = await store.loadPendingBatch();
+    if (pendingBatch.length > 0) {
+      const oldest = pendingBatch[0]!;
+      if (Date.now() - new Date(oldest.created_at).getTime() > PENDING_EXPIRY_MS) {
+        await store.clearPendingActions(pendingBatch.map((i) => i.id));
+        return {
+          reply:
+            `That batch proposal expired — it was over 2 hours old, so I dropped all ${pendingBatch.length} item(s) instead of recording something late. ` +
+            "Dump it again if you still want it filed.",
+        };
+      }
+      const command = parseBatchCommand(input.userText);
+      if (command.kind !== "other") {
+        return resolveBatch(store, pendingBatch, command);
+      }
+      // "other" (typically a correction) falls through to the model
+      // with the batch in context - see the context block below.
+    }
+  } else if (pending) {
     const kind = classifyConfirmation(input.userText);
     if (kind !== "other") {
       return resolvePending(store, pending, kind);
@@ -157,7 +265,12 @@ export async function runAgentTurn(
   if (input.instructions.length > 0) {
     contextBlocks.push(`STANDING INSTRUCTIONS FROM THE OWNER:\n${input.instructions.map((i) => `- ${i}`).join("\n")}`);
   }
-  if (pending) {
+  if (pendingBatch.length > 0) {
+    contextBlocks.push(
+      `A DUMP BATCH IS WAITING FOR HIS APPROVAL (item numbers are stable; batches expire after 2 hours):\n${pendingBatch.map(batchItemLine).join("\n")}\n` +
+        "Approvals and drops are handled in code before you ever see them, so this message is NOT an approval. If he is correcting an item, use revise_pending_item (confirmation \"execute\") and confirm the corrected line back. Do not execute any batch item yourself and do not re-stage the dump.",
+    );
+  } else if (pending) {
     contextBlocks.push(
       `A PROPOSED ACTION IS WAITING FOR HIS YES/NO (over 2 hours old proposals expire): ${pending.summary}. If he says yes or no, it is handled - anything else, answer normally and it stays waiting.`,
     );
@@ -181,20 +294,57 @@ export async function runAgentTurn(
 
   let reply = result.reply;
   if (result.proposals.length > 0) {
+    // §9: dump items arrive as proposals sharing a batch id - they
+    // are stored with stable item numbers and shown as ONE
+    // consolidated numbered list; plain §8 proposals keep their
+    // existing single-proposal path.
+    const singles = result.proposals.filter((p) => !p.batchId);
+    const batches = new Map<string, typeof result.proposals>();
     for (const proposal of result.proposals) {
+      if (!proposal.batchId) continue;
+      const group = batches.get(proposal.batchId) ?? [];
+      group.push(proposal);
+      batches.set(proposal.batchId, group);
+    }
+    for (const proposal of singles) {
       await store.savePendingAction({
         toolName: proposal.tool,
         args: proposal.args,
         summary: proposal.summary,
       });
     }
+    for (const [batchId, items] of batches) {
+      let itemNumber = 0;
+      for (const proposal of items) {
+        itemNumber += 1;
+        await store.savePendingAction({
+          toolName: proposal.tool,
+          args: proposal.args,
+          summary: proposal.summary,
+          batchId,
+          itemNumber,
+          sourceQuote: proposal.sourceQuote,
+          confidence: proposal.confidence,
+        });
+      }
+    }
+
+    const suffixes: string[] = [];
+    if (singles.length > 0) suffixes.push(proposalSuffix(singles.map((p) => p.summary)));
+    for (const items of batches.values()) {
+      suffixes.push(
+        formatBatchProposal(
+          items.map((p) => ({ summary: p.summary, sourceQuote: p.sourceQuote, confidence: p.confidence })),
+        ),
+      );
+    }
     // Appended AFTER the loop, so the grounding guard can't strip
     // the tool-produced summaries (they carry the figures he must
     // see to decide). The step-exhaustion line stands on its own.
     if (!result.ranOutOfSteps) {
-      reply += proposalSuffix(result.proposals.map((p) => p.summary));
+      reply += suffixes.join("");
     } else {
-      reply = `${RAN_OUT_OF_STEPS_REPLY}\n\nOne thing I did line up before running out:${proposalSuffix(result.proposals.map((p) => p.summary))}`;
+      reply = `${RAN_OUT_OF_STEPS_REPLY}\n\nWhat I did line up before running out:${suffixes.join("")}`;
     }
   }
 

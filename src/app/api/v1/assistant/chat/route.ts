@@ -21,8 +21,9 @@ import {
   suggestDispatchReply,
 } from "@/services/ai/dispatch";
 import type { BotChatOutput } from "@/services/ai/bot-chat";
-import { createBotStore } from "@/services/bot/store";
+import { createBotStore, type BotBrainStore } from "@/services/bot/store";
 import { loadBotContext, runAgentTurn } from "@/services/bot/agent-turn";
+import { formatBatchItemLine } from "@/services/bot/dump-intake";
 import {
   buildDispatchContext,
   classifyTelegramText,
@@ -53,16 +54,44 @@ async function isDispatchHelperEnabled(supabase: SupabaseClient, companyId: stri
   return !globallyDisabled && capabilityEnabled;
 }
 
+/**
+ * The banner summary for whatever proposal is waiting (§9: when a
+ * dump batch is pending, the banner shows the whole numbered batch
+ * so the page's existing pending display stays truthful).
+ */
+async function pendingSummaryFor(store: BotBrainStore): Promise<string | null> {
+  const pending = await store.loadPendingAction();
+  if (!pending) return null;
+  if (pending.batch_id) {
+    const batch = await store.loadPendingBatch();
+    if (batch.length > 0) {
+      return (
+        `Waiting on a ${batch.length}-item batch from a dump:\n` +
+        batch
+          .map((item) =>
+            formatBatchItemLine(item.item_number ?? 0, {
+              summary: item.summary,
+              sourceQuote: item.source_quote,
+              confidence: item.confidence,
+            }),
+          )
+          .join("\n")
+      );
+    }
+  }
+  return pending.summary;
+}
+
 export const GET = createApiHandler(async (_req, ctx) => {
   const supabase = await createClient();
   const store = createBotStore(supabase, ctx.auth.companyId, "web");
-  const [history, pending] = await Promise.all([
+  const [history, pendingSummary] = await Promise.all([
     store.loadConversationHistory(40),
-    store.loadPendingAction(),
+    pendingSummaryFor(store),
   ]);
   return NextResponse.json({
     data: history,
-    pending_summary: pending?.summary ?? null,
+    pending_summary: pendingSummary,
   });
 });
 
@@ -113,9 +142,8 @@ export const POST = createApiHandler(async (req, ctx) => {
   await store.saveConversationMessage("user", text);
   await store.saveConversationMessage("assistant", output.reply);
 
-  const pending = await store.loadPendingAction();
   return NextResponse.json({
     reply: output.reply,
-    pending_summary: pending?.summary ?? null,
+    pending_summary: await pendingSummaryFor(store),
   });
 });

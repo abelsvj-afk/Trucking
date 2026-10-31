@@ -15,6 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { summarizeHos } from "@/lib/hos";
 import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
+import { isMissingColumnError } from "./tool-helpers";
 import type { DispatchSuggestion } from "@/services/ai/dispatch";
 import type { BotChatTurn } from "@/services/ai/bot-chat";
 import type { TelegramStore } from "@/services/telegram/store";
@@ -30,6 +31,11 @@ export interface PendingAction {
   summary: string;
   channel: BotChannel;
   created_at: string;
+  /** §9 dump batches (migration 00021) - null on plain §8 proposals, and null everywhere until 00021 is applied. */
+  batch_id: string | null;
+  item_number: number | null;
+  source_quote: string | null;
+  confidence: string | null;
 }
 
 export interface BotBrainStore extends TelegramStore {
@@ -40,12 +46,21 @@ export interface BotBrainStore extends TelegramStore {
   loadConversationHistory(limit?: number): Promise<BotChatTurn[]>;
   saveConversationMessage(role: "user" | "assistant", text: string): Promise<void>;
   loadPendingAction(): Promise<PendingAction | null>;
+  /** §9: every pending item of the oldest pending dump batch (empty when the oldest pending proposal is a single, or none is pending). */
+  loadPendingBatch(): Promise<PendingAction[]>;
   savePendingAction(action: {
     toolName: string;
     args: Record<string, unknown>;
     summary: string;
+    batchId?: string;
+    itemNumber?: number;
+    sourceQuote?: string;
+    confidence?: string;
   }): Promise<void>;
+  /** §9: rewrite a stored proposal's arguments + summary (the revise_pending_item path - a correction before approval). */
+  updatePendingAction(id: string, args: Record<string, unknown>, summary: string): Promise<void>;
   clearPendingAction(id: string): Promise<void>;
+  clearPendingActions(ids: string[]): Promise<void>;
   /** The bot_chat kill switch (docs/governance.md): global switch first, then per-capability, no row = off. */
   isBotChatEnabled(): Promise<boolean>;
 }
@@ -82,6 +97,39 @@ export function createBotStore(
       .limit(limit);
     if (error) throw new Error(error.message);
     return ((data ?? []) as BotChatTurn[]).reverse();
+  }
+
+  const PENDING_BASE_COLUMNS = "id, tool_name, arguments, summary, channel, created_at";
+  const PENDING_BATCH_COLUMNS = `${PENDING_BASE_COLUMNS}, batch_id, item_number, source_quote, confidence`;
+
+  async function loadPendingRows(): Promise<PendingAction[]> {
+    const runQuery = (columns: string) =>
+      supabase
+        .from("bot_pending_actions")
+        .select(columns)
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: true })
+        .limit(50);
+    let result = await runQuery(PENDING_BATCH_COLUMNS);
+    if (result.error && isMissingColumnError(result.error)) {
+      // Graceful absence (design §9): migration 00021 not applied
+      // yet - §8 single-proposal behavior is unaffected.
+      result = await runQuery(PENDING_BASE_COLUMNS);
+    }
+    if (result.error) throw new Error(result.error.message);
+    return ((result.data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      tool_name: String(row.tool_name),
+      arguments: (row.arguments ?? {}) as Record<string, unknown>,
+      summary: String(row.summary),
+      channel: row.channel as BotChannel,
+      created_at: String(row.created_at),
+      batch_id: typeof row.batch_id === "string" ? row.batch_id : null,
+      item_number: typeof row.item_number === "number" ? row.item_number : null,
+      source_quote: typeof row.source_quote === "string" ? row.source_quote : null,
+      confidence: typeof row.confidence === "string" ? row.confidence : null,
+    }));
   }
 
   return {
@@ -220,26 +268,57 @@ export function createBotStore(
     },
 
     async loadPendingAction() {
-      const { data, error } = await supabase
-        .from("bot_pending_actions")
-        .select("id, tool_name, arguments, summary, channel, created_at")
-        .eq("company_id", company)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: true })
-        .limit(1);
-      if (error) throw new Error(error.message);
-      const row = (data ?? [])[0] as PendingAction | undefined;
-      return row ?? null;
+      const rows = await loadPendingRows();
+      return rows[0] ?? null;
+    },
+
+    async loadPendingBatch() {
+      const rows = await loadPendingRows();
+      const first = rows[0];
+      if (!first || !first.batch_id) return [];
+      return rows
+        .filter((row) => row.batch_id === first.batch_id)
+        .sort((a, b) => (a.item_number ?? 0) - (b.item_number ?? 0));
     },
 
     async savePendingAction(action) {
-      const { error } = await supabase.from("bot_pending_actions").insert({
+      const base = {
         company_id: company,
         channel,
         tool_name: action.toolName,
         arguments: action.args,
         summary: action.summary,
-      });
+      };
+      if (action.batchId === undefined) {
+        const { error } = await supabase.from("bot_pending_actions").insert(base);
+        if (error) throw new Error(error.message);
+        return;
+      }
+      const withBatch = {
+        ...base,
+        batch_id: action.batchId,
+        item_number: action.itemNumber ?? null,
+        source_quote: action.sourceQuote ?? null,
+        confidence: action.confidence ?? null,
+      };
+      const { error } = await supabase.from("bot_pending_actions").insert(withBatch);
+      if (error) {
+        // Graceful absence (design §9): before migration 00021 the
+        // batch columns don't exist - store the proposal as a plain
+        // §8 row rather than losing it.
+        if (!isMissingColumnError(error)) throw new Error(error.message);
+        const { error: fallbackError } = await supabase.from("bot_pending_actions").insert(base);
+        if (fallbackError) throw new Error(fallbackError.message);
+      }
+    },
+
+    async updatePendingAction(id, args, summary) {
+      const { error } = await supabase
+        .from("bot_pending_actions")
+        .update({ arguments: args, summary })
+        .eq("id", id)
+        .eq("company_id", company)
+        .is("deleted_at", null);
       if (error) throw new Error(error.message);
     },
 
@@ -248,6 +327,17 @@ export function createBotStore(
         .from("bot_pending_actions")
         .update({ deleted_at: new Date().toISOString() })
         .eq("id", id)
+        .eq("company_id", company)
+        .is("deleted_at", null);
+      if (error) throw new Error(error.message);
+    },
+
+    async clearPendingActions(ids) {
+      if (ids.length === 0) return;
+      const { error } = await supabase
+        .from("bot_pending_actions")
+        .update({ deleted_at: new Date().toISOString() })
+        .in("id", ids)
         .eq("company_id", company)
         .is("deleted_at", null);
       if (error) throw new Error(error.message);
