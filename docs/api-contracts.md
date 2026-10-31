@@ -191,6 +191,15 @@ A computed endpoint, not a resource — nothing is stored; the check is recomput
 
 `trucks` create/update bodies additionally accept the Smart Path profile fields from `docs/schemas.md` (`height_in`, `length_in`, `weight_lbs`, `governed_speed_mph`, `tank_capacity_gallons`, `avg_mpg`, `appliances`, `appliance_notes`) — all optional; the Fleet → Truck profile page is the editor.
 
+### `assistant/chat` (Bot intelligence v2, `docs/design/driver-mvp.md` §8)
+
+The web chat window onto the **same bot brain** as the Telegram bot — same store (`src/services/bot/store.ts`, channel `web`), same shared `telegram_messages` timeline, same `bot_memories`, same snapshot and standing instructions, same agent loop. Conversational turns are governed by the `bot_chat` capability (global switch first, then per-capability, no row = off); with it off the reply itself says chat is turned off (the endpoint still returns `200` — the "reply" is the product surface here, unlike `dispatch-suggest`'s `403`). Messages that route to dispatch help additionally honor the `dispatch_helper` capability; with that off they fall through to the assistant instead of erroring.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/assistant/chat` | Authenticated owner session. Returns `200` with `{ data: [{ role: "user" \| "assistant", text }] , pending_summary: string \| null }` — the recent shared conversation timeline across BOTH channels (oldest first) plus the summary of any bot-proposed write still awaiting his yes. |
+| POST | `/api/v1/assistant/chat` | Authenticated owner session. Body: `{ message: string (1-8000 chars) }`. Routes exactly like the Telegram bot: `remember:`/`instruction:` capture writes a `bot_memories` row with no AI call; a pending proposal + a plain yes/no resolves it in code (execute or drop — proposals expire after 2 hours); dispatch-style messages get the dispatch helper when its capability is on; everything else runs the agent loop (tools over his own records; bot-proposed writes are stored in `bot_pending_actions`, never executed without his yes). Both turns are persisted to the shared timeline. Returns `200` with `{ reply: string, pending_summary: string \| null }`. Nothing is ever sent to any third party from this endpoint. |
+
 ### Telegram webhook (Driver MVP, `docs/design/driver-mvp.md` §4)
 
 | Method | Path | Behavior |
