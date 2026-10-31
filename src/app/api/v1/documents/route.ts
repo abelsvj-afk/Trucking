@@ -10,6 +10,7 @@ import { createApiHandler } from "@/services/api/handler";
 import { validationError } from "@/services/api/errors";
 import { createClient } from "@/services/db/server";
 import { relatedEntityTypeSchema } from "@/data/schemas/documents";
+import { processUploadedDocument } from "@/services/documents/process-document";
 import type { DocumentWithSignedUrl } from "@/types/entities";
 
 const relatedEntityIdSchema = z.string().uuid();
@@ -102,7 +103,25 @@ export const POST = createApiHandler(async (req, ctx) => {
     throw new Error(insertError?.message ?? "Failed to save document metadata.");
   }
 
-  return NextResponse.json(row, { status: 201 });
+  // Scan rendition + AI extraction (docs/design/driver-mvp.md §8).
+  // processUploadedDocument never throws - its outcomes are state on
+  // the row - so the upload's 201 doesn't depend on either succeeding.
+  // The row is re-read so the response carries that state.
+  await processUploadedDocument(supabase, {
+    companyId: ctx.auth.companyId,
+    documentId: row.id as string,
+    fileBuffer: Buffer.from(await file.arrayBuffer()),
+    contentType: file.type,
+    fileName,
+  });
+
+  const { data: finalRow } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("id", row.id as string)
+    .single();
+
+  return NextResponse.json(finalRow ?? row, { status: 201 });
 });
 
 export const GET = createApiHandler(async (req) => {
@@ -110,17 +129,23 @@ export const GET = createApiHandler(async (req) => {
   const url = new URL(req.url);
   const relatedEntityType = url.searchParams.get("related_entity_type");
   const relatedEntityId = url.searchParams.get("related_entity_id");
+  const query = url.searchParams.get("q")?.trim();
 
-  if (!relatedEntityType || !relatedEntityId) {
+  // Search mode (docs/api-contracts.md): q alone is enough - it
+  // searches every document's extracted text. Without q, the entity
+  // filter stays required together, exactly as the contract has
+  // always said.
+  if (!query && (!relatedEntityType || !relatedEntityId)) {
     throw validationError("related_entity_type and related_entity_id are required.");
   }
 
-  const { data, error } = await supabase
-    .from("documents")
-    .select("*")
-    .eq("related_entity_type", relatedEntityType)
-    .eq("related_entity_id", relatedEntityId)
-    .order("uploaded_at", { ascending: false });
+  let builder = supabase.from("documents").select("*");
+  if (relatedEntityType) builder = builder.eq("related_entity_type", relatedEntityType);
+  if (relatedEntityId) builder = builder.eq("related_entity_id", relatedEntityId);
+  if (query) {
+    builder = builder.textSearch("extracted_tsv", query, { type: "websearch" });
+  }
+  const { data, error } = await builder.order("uploaded_at", { ascending: false });
 
   if (error) throw new Error(error.message);
 
@@ -130,7 +155,18 @@ export const GET = createApiHandler(async (req) => {
       const { data: signed, error: signError } = await supabase.storage
         .from("documents")
         .createSignedUrl(doc.storage_path, SIGNED_URL_TTL_SECONDS);
-      return { ...doc, signed_url: signError ? null : (signed?.signedUrl ?? null) };
+      let scanSignedUrl: string | null = null;
+      if (doc.scan_storage_path) {
+        const { data: scanSigned, error: scanSignError } = await supabase.storage
+          .from("documents")
+          .createSignedUrl(doc.scan_storage_path, SIGNED_URL_TTL_SECONDS);
+        scanSignedUrl = scanSignError ? null : (scanSigned?.signedUrl ?? null);
+      }
+      return {
+        ...doc,
+        signed_url: signError ? null : (signed?.signedUrl ?? null),
+        scan_signed_url: scanSignedUrl,
+      };
     }),
   );
 

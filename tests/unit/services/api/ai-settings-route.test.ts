@@ -55,7 +55,7 @@ describe("GET /api/v1/ai-settings", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual({
       globally_disabled: false,
-      capabilities: { industry_intelligence: false, dispatch_helper: false },
+      capabilities: { industry_intelligence: false, dispatch_helper: false, document_extraction: false },
     });
   });
 
@@ -72,7 +72,7 @@ describe("GET /api/v1/ai-settings", () => {
 
     expect(body).toEqual({
       globally_disabled: true,
-      capabilities: { industry_intelligence: true, dispatch_helper: false },
+      capabilities: { industry_intelligence: true, dispatch_helper: false, document_extraction: false },
     });
   });
 });

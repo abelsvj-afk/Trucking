@@ -85,6 +85,18 @@ export const apiClient = {
     });
     return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
   },
+  // Full-text search over extracted document text (docs/api-contracts.md,
+  // design driver-mvp.md §8) - searches across all records unless the
+  // caller scopes it to one.
+  searchDocuments: <T>(query: string, scope?: { relatedEntityType: string; relatedEntityId: string }) => {
+    const params: Record<string, string> = { q: query };
+    if (scope) {
+      params.related_entity_type = scope.relatedEntityType;
+      params.related_entity_id = scope.relatedEntityId;
+    }
+    const qs = new URLSearchParams(params);
+    return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
+  },
   removeDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
   // Computed, read-only (docs/api-contracts.md) - omit params for the
   // server's current-calendar-month default.

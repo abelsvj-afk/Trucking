@@ -26,6 +26,7 @@ import type { AiSettings } from "@/types/ai-settings";
 const CAPABILITY_LABELS: Record<string, string> = {
   industry_intelligence: "Industry intelligence briefings",
   dispatch_helper: "Dispatch helper (translation + reply drafts)",
+  document_extraction: "Document text extraction (reads uploaded paperwork so the assistant can answer questions about it)",
 };
 
 type SettingsState =

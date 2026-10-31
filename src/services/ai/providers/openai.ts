@@ -12,11 +12,11 @@
 // current before relying on this in production.
 
 import OpenAI from "openai";
-import type { AiCompletionRequest, AiProvider } from "../provider";
+import type { AiCompletionRequest, AiProvider, AiVisionProvider, AiVisionRequest } from "../provider";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 
-export class OpenAiProvider implements AiProvider {
+export class OpenAiProvider implements AiProvider, AiVisionProvider {
   private client: OpenAI;
   private model: string;
 
@@ -35,6 +35,32 @@ export class OpenAiProvider implements AiProvider {
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("OpenAI returned an empty response.");
+    }
+    return content;
+  }
+
+  async completeWithImage({ system, user, imageBase64, mediaType }: AiVisionRequest): Promise<string> {
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: user },
+            {
+              type: "image_url",
+              image_url: { url: `data:${mediaType};base64,${imageBase64}`, detail: "high" },
+            },
+          ],
+        },
       ],
       response_format: { type: "json_object" },
     });

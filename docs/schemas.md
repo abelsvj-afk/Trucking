@@ -285,6 +285,14 @@ Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/cont
 | storage_path | text | no | path in Supabase Storage |
 | uploaded_at | timestamptz | no | |
 | created_at | timestamptz | no | (documents are not edited in place, and are hard-deleted like any file — no `deleted_at`/`updated_at`) |
+| scan_storage_path | text | yes | Document scan (design `driver-mvp.md` §8, migration `00022`): path of the enhanced black-and-white rendition in the same Storage bucket; null when no scan exists (PDFs, HEIC/HEIF, or enhancement failed). The original at `storage_path` is always kept |
+| doc_type | text | yes | AI-classified document kind: `bol` \| `rate_confirmation` \| `scale_ticket` \| `fuel_receipt` \| `settlement` \| `other`; null until extraction succeeds |
+| extracted_text | text | yes | The document's full text as read by the extraction capability — stored raw, never summarized; this is what the agent quotes from |
+| extracted_fields | jsonb | yes | Schema-light flat record of key values the model copied off the document (numbers, dates, amounts, parties); values are copied, never computed |
+| extraction_status | text | no | `pending` \| `done` \| `failed` \| `disabled` (capability off at upload) \| `not_applicable` (PDF). Default `pending` — pre-`00022` rows read `pending` |
+| extraction_error | text | yes | Short failure note when `extraction_status = 'failed'`; detail stays in server logs |
+| extracted_at | timestamptz | yes | when extraction last completed (success or failure) |
+| extracted_tsv | tsvector | no | Generated always from `extracted_text` + `file_name`, GIN-indexed — the full-text search layer behind `GET /api/v1/documents?q=` |
 
 ## industry_briefings
 

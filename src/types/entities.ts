@@ -160,6 +160,21 @@ export interface DispatchExchange extends BaseRow {
 
 export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
 
+export type DocumentType =
+  | "bol"
+  | "rate_confirmation"
+  | "scale_ticket"
+  | "fuel_receipt"
+  | "settlement"
+  | "other";
+
+export type DocumentExtractionStatus =
+  | "pending"
+  | "done"
+  | "failed"
+  | "disabled"
+  | "not_applicable";
+
 // Documents don't soft-delete like other entities (docs/schemas.md) - no
 // updated_at/deleted_at, so this doesn't extend BaseRow.
 export interface Document {
@@ -171,10 +186,19 @@ export interface Document {
   storage_path: string;
   uploaded_at: string;
   created_at: string;
+  // Scan + extraction (docs/design/driver-mvp.md §8, migration 00022).
+  scan_storage_path: string | null;
+  doc_type: DocumentType | null;
+  extracted_text: string | null;
+  extracted_fields: Record<string, string | number | null> | null;
+  extraction_status: DocumentExtractionStatus;
+  extraction_error: string | null;
+  extracted_at: string | null;
 }
 
 export interface DocumentWithSignedUrl extends Document {
   signed_url: string | null;
+  scan_signed_url: string | null;
 }
 
 export type AiConfidence = "high" | "medium" | "low";
