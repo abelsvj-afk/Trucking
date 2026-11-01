@@ -24,6 +24,7 @@ import { validateWith } from "./tool-helpers";
 import { buildExtendedReadTools } from "./tools-read";
 import { buildExtendedWriteTools } from "./tools-write";
 import { validateDumpItems } from "./dump-intake";
+import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -408,12 +409,44 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
     },
     {
-      name: "save_memory",
-      description: "Save a fact or note to his long-term bot memory, so future conversations on BOTH Telegram and the web chat remember it. Use for facts he dictates that aren't standing instructions (those he sets with 'instruction:' himself).",
+      name: "evaluate_pay_offer",
+      description:
+        "Grade a pay offer or a load's pay IN CODE (never do pay math yourself - call this). Give the structure (cpm_all_miles, cpm_loaded_only, percentage_gross, percentage_net, flat_per_load, flat_per_day), the quoted numbers, loaded + empty miles, and what you know about days/loads-per-week, W2-vs-1099, and who pays fuel. Returns computed pay for the load, effective CPM on ALL miles, a weekly projection, the W2<->1099 tax adjustment, a strong/fair/weak verdict against the market bands for his seat, and the questions whose answers would change the verdict. If he hasn't given a number the math needs, ASK him for it instead of guessing one into the arguments.",
       parameters: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["fact", "note"] },
+          structure: {
+            type: "string",
+            enum: ["cpm_all_miles", "cpm_loaded_only", "percentage_gross", "percentage_net", "flat_per_load", "flat_per_day"],
+          },
+          cpm_dollars: { type: "number", description: "Quoted per-mile rate in dollars (0.60 = 60 cents), for cpm structures." },
+          percentage: { type: "number", description: "The driver's percentage cut (0-100), for percentage structures." },
+          load_gross_dollars: { type: "number", description: "What the load pays the truck, in dollars." },
+          flat_dollars: { type: "number", description: "Flat amount (per load, or per day), for flat structures." },
+          loaded_miles: { type: "number" },
+          empty_miles: { type: "number", description: "Deadhead/empty miles for the load (0 if none or unknown)." },
+          days_on_load: { type: "number" },
+          loads_per_week: { type: "number" },
+          employment: { type: "string", enum: ["w2", "1099"], description: "Omit if he doesn't know yet." },
+          fuel_paid_by: { type: "string", enum: ["owner", "driver", "unknown"] },
+          detention_terms_known: { type: "boolean" },
+        },
+        required: ["structure", "loaded_miles"],
+      },
+      access: "read",
+      async run(args) {
+        const parsed = payOfferArgs.parse(args);
+        return formatPayEvaluation(evaluatePayOffer(parsed));
+      },
+    },
+    {
+      name: "save_memory",
+      description:
+        "Save to his long-term bot memory, so future conversations on BOTH Telegram and the web chat remember it. Kinds: 'fact'/'note' for dictated facts (standing instructions come through his 'instruction:' messages, not this tool); 'person_profile' when you learn something durable about a PERSON he works with (the truck owner, a dispatcher, a broker, a shipper contact) - content MUST be one line in the format 'PERSON — <Name> | role: <role> | <facts in plain sentences>'; 'business_fact' for how his operation runs (how this carrier pays, a facility's rules, a lane's pattern) - content MUST be 'BUSINESS — <subject> | <fact>'. When a new fact corrects or extends an existing profile, save the profile line whole, updated - one current profile per person, not a pile of fragments. NEVER invent a profile detail: only save what his messages or the forwarded conversations actually show.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["fact", "note", "person_profile", "business_fact"] },
           content: { type: "string", description: "The fact, in one line, in his words where possible." },
         },
         required: ["kind", "content"],
@@ -588,7 +621,11 @@ const logDutyArgs = z.object({
 });
 
 const saveMemoryArgs = z.object({
-  kind: z.enum(["fact", "note"]),
+  // person_profile / business_fact are the Job Brain (§12) learning
+  // kinds - their content MUST use the structured formats from
+  // services/bot/people.ts (enforced in the tool description and
+  // parsed back by profilesForPerson / parseBusinessFact).
+  kind: z.enum(["fact", "note", "person_profile", "business_fact"]),
   content: z.string().min(1),
 });
 

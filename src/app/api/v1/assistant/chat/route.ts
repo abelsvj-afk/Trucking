@@ -24,6 +24,7 @@ import type { BotChatOutput } from "@/services/ai/bot-chat";
 import { createBotStore, type BotBrainStore } from "@/services/bot/store";
 import { loadBotContext, runAgentTurn } from "@/services/bot/agent-turn";
 import { formatBatchItemLine } from "@/services/bot/dump-intake";
+import { formatRecordableOutcome, stageRecordables } from "@/services/bot/stage-recordables";
 import {
   buildDispatchContext,
   classifyTelegramText,
@@ -128,7 +129,14 @@ export const POST = createApiHandler(async (req, ctx) => {
       context: buildDispatchContext(botCtx.snapshotText, botCtx.instructions, botCtx.memories),
     });
     await store.storeExchange(text, suggestion);
-    output = { reply: formatDispatchSuggestion(suggestion) };
+    let reply = formatDispatchSuggestion(suggestion);
+    // §11: same staging as the Telegram surface - recordables ride
+    // propose->yes; his approval resolves through runAgentTurn.
+    if (suggestion.recordable_items.length > 0) {
+      const outcome = await stageRecordables(store, text, suggestion.recordable_items);
+      reply += formatRecordableOutcome(outcome);
+    }
+    output = { reply };
   } else {
     const botCtx = await loadBotContext(store, text);
     output = await runAgentTurn(

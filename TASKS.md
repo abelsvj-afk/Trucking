@@ -143,4 +143,15 @@ Design first, per the workflow: `docs/design/research-engine.md`, with `docs/sch
 
 ---
 
+## Stage 9 — Abel Job Brain (2026-10-31, owner's live-use correction + mandate)
+
+| # | Task | Depends on | Acceptance | Status |
+|---|---|---|---|---|
+| 9.1 | Forwarded-conversation correction (design §11): code language gate — English forwards never translated (enforced on the parsed output, fixture-tested); workup-first schema (who → what → meaning only if unclear → one draft in the sender's language); recordable facts from a forward staged as a numbered propose→yes batch via the §9 validator | Stage 7 (§9) | All-English forward fixture: no translation section anywhere; broken-English fixture: meaning note, no translation; Spanish fixture: translation + workup; grounded item stages, invented number rejected | ✅ Code done on branch `abel-forward-fix` |
+| 9.2 | Job knowledge module (design §12): lifecycle, paperwork guides, dock-problem responses, pay-structure teaching, exported PAY_BANDS (labeled estimates, as-of) — rendered into the agent + fallback prompts from the same constants the advisor grades against | 7.8 | Prompt-assembly test shows the brief + figures derived from PAY_BANDS verbatim | ✅ Code done on branch `abel-forward-fix` |
+| 9.3 | People & business learning: `person_profile`/`business_fact` memory kinds (migration `00028`, additive), structured one-line format, propose→yes only, retrievable by name; nothing seeded about real people | 7.8, 9.2 | Round-trip tests: propose → nothing stored → yes → profile stored and parsed back by name | ✅ Code done on branch `abel-forward-fix`; ⏳ migration 00028 **not yet applied** (owner Supabase step at merge) |
+| 9.4 | Pay advisor tool `evaluate_pay_offer`: code-only math (effective CPM on all miles, weekly projection, percentage equivalent, W2↔1099 tax adjustment), strong/fair/weak verdict vs PAY_BANDS, questions that would change the answer | 9.2 | Pay-math unit tests incl. loaded-only trap + 1099 conversion against independently restated statutory rates | ✅ Code done on branch `abel-forward-fix` |
+
+---
+
 *Every task here implements something already fully specified in `docs/`. If implementing a task reveals a real gap or contradiction in the design, stop and fix the relevant doc first, per the workflow's own escalation rule — don't silently improvise inside the code.*
