@@ -678,6 +678,99 @@ after 2 hours).
   graceful-absence fallback, so §8 behavior survives even before
   `00021` is applied; batching activates when the columns exist.
 
+## 10. Forwarded-conversation handling — the owner's correction (branch `abel-forward-fix`)
+
+The owner used the live dispatch helper on 2026-10-31 and corrected
+its behavior in substance: he did NOT ask for translation. The
+dispatch feature's original §2 shape — translate first, draft
+second — is **superseded** by this section for both surfaces
+(Telegram bot and web More → Dispatch, which share
+`services/ai/dispatch.ts`):
+
+- **No translation of content already in English.** Language is
+  classified in code (`detectMessageLanguage`: Spanish/English
+  lexicon scoring plus accent and ¿¡ signals; genuinely mixed
+  two-language threads are `mixed`, broken or imperfect English is
+  `en` — his circle's typed English is imperfect and he understands
+  it fine). `enforceLanguageGate` then strips any `translation_en`
+  the model produced anyway for an English message — the rule is
+  enforced by code on the parsed result, tested with fixtures,
+  never left to the prompt. Only genuinely Spanish (or mixed)
+  content earns a translation.
+- **Workup first, draft last.** The suggestion schema leads with
+  the work: `likely_sender_role` (who is speaking), what's being
+  asked/told, plain facts, and `meaning_notes` — a brief "what they
+  mean" interpretation, present ONLY where imperfect wording makes
+  the meaning genuinely unclear. One reply draft, in the language
+  the other side is using, only when a reply is evidently needed;
+  dual EN+ES drafts only on his explicit request (the old
+  always-both behavior is gone).
+- **Recordable facts become proposals.** Load-shaped facts in a
+  forward (lane, rate, dates) are extracted as `recordable_items`
+  and staged through the §9 dump-intake validator
+  (`validateDumpItems`: real write tool, verbatim `source_quote`,
+  every number present in his message) into `bot_pending_actions`
+  as a numbered batch (`services/bot/stage-recordables.ts`). The
+  dispatch reply appends the batch proposal text; his yes/no —
+  given in the assistant chat, resolved in code — is the only path
+  that records them. If another proposal is already waiting,
+  staging holds off and says so rather than stacking batches.
+- Standing instructions, the grounding guard, and the `bot_chat`
+  toggle semantics are unchanged. Saved dispatch exchanges store
+  the single draft in the column matching its language; the other
+  stays null.
+
+## 11. Abel Job Brain — coaching, people, and pay (branch `abel-forward-fix`)
+
+The owner's mandate (2026-10-31): Abel is his JOB BRAIN — from
+conversations it teaches him the job, learns the people and the
+business, and advises on pay. Three pieces, all built on the
+existing brain (no new tables except the memory-kind widening):
+
+- **Job knowledge** (`services/ai/job-knowledge.ts`): a curated,
+  static module injected into the agent's system prompt (and the
+  no-tools fallback prompt) — the load lifecycle end to end;
+  paperwork guides (BOL, rate confirmation, scale ticket, lumper
+  receipt, settlement: what each is, what to check before signing,
+  what to photograph, what goes wrong); facility/dock problem
+  responses (detention, refused freight, seal mismatch, lumper
+  fees, late arrival — steps plus the words to say); and how driver
+  pay is structured. Market bands for a new-CDL driver in an
+  owner-operator's second truck live in the exported `PAY_BANDS`
+  constants — labeled estimates with an as-of date — and the brief
+  is RENDERED from those constants, so coaching and math cannot
+  drift apart.
+- **People & business learning** (`services/bot/people.ts`):
+  durable knowledge about people he works with and how his
+  operation runs, stored in `bot_memories` under two new kinds —
+  `person_profile` and `business_fact` (migration `00028` widens
+  the kind check; nothing else changes). Content is one structured
+  line (`PERSON — <Name> | role: <role> | <facts…>` /
+  `BUSINESS — <subject> | <fact>`) written only through the
+  `save_memory` propose→yes path; a correction re-proposes the
+  whole updated line (one current profile per person). Retrieval
+  is the existing memory machinery — profiles surface in the
+  remembered-facts block by name. Nothing about any real person
+  is seeded in code; profiles start empty and fill from his
+  actual forwards and corrections. Until `00028` is applied, the
+  new kinds fail loudly at the database constraint and the bot
+  reports the failure instead of pretending to save.
+- **Pay advisor** (`services/bot/pay-advisor.ts`): a read tool,
+  `evaluate_pay_offer`, where CODE does all the math — the model
+  supplies the structure and the numbers from his words, never a
+  computed figure. It converts any offer shape (CPM loaded-only or
+  all-miles, percentage of gross or net, flat per load/day) into
+  total load pay, effective CPM on ALL miles, a weekly projection,
+  the percentage-of-gross equivalent, and the W2↔1099
+  payroll-tax adjustment (SE tax 15.3% on 92.35% ≈ 14.13%
+  effective vs 7.65% employee FICA — taxes only; lost protections
+  are surfaced as a question, not a number), grades the result
+  strong/fair/weak against `PAY_BANDS`, and returns the questions
+  whose answers would change the verdict (who pays fuel, net
+  deductions, detention terms, pay timing). The grounding guard
+  applies as everywhere: figures in the reply trace to the tool's
+  output.
+
 ## Out of scope for this pass
 
 Certified ELD anything; the bot joining or reading any group; a
