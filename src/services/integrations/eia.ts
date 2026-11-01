@@ -34,6 +34,48 @@ const EIA_QUERY_PARAMS = {
   length: "1",
 };
 
+export interface FuelMarketPoint {
+  period: string;
+  pricePerGallon: number;
+  units: string;
+}
+
+/**
+ * The most recent `limit` weekly points, newest first. The research
+ * engine's diesel watcher (docs/design/research-engine.md §2) needs the
+ * last two to compute a week-over-week move; fetchFuelMarketSnapshot
+ * below keeps its Stage-4 single-point shape on top of this.
+ */
+export async function fetchFuelMarketHistory(limit: number): Promise<FuelMarketPoint[]> {
+  const apiKey = process.env.EIA_API_KEY;
+  if (!apiKey) {
+    throw new Error("EIA_API_KEY is not configured.");
+  }
+
+  const url = new URL(EIA_SERIES_URL);
+  url.searchParams.set("api_key", apiKey);
+  for (const [key, value] of Object.entries(EIA_QUERY_PARAMS)) {
+    url.searchParams.set(key, key === "length" ? String(limit) : value);
+  }
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) {
+    throw new Error(`EIA API request failed: ${res.status} ${res.statusText}`);
+  }
+
+  const json: unknown = await res.json();
+  const parsed = eiaResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error(`EIA API response didn't match the expected shape: ${parsed.error.message}`);
+  }
+
+  return parsed.data.response.data.map((point) => ({
+    period: point.period,
+    pricePerGallon: point.value,
+    units: point.units,
+  }));
+}
+
 const eiaResponseSchema = z.object({
   response: z.object({
     data: z
@@ -56,38 +98,16 @@ export interface FuelMarketSnapshot {
 }
 
 export async function fetchFuelMarketSnapshot(): Promise<FuelMarketSnapshot> {
-  const apiKey = process.env.EIA_API_KEY;
-  if (!apiKey) {
-    throw new Error("EIA_API_KEY is not configured.");
-  }
-
-  const url = new URL(EIA_SERIES_URL);
-  url.searchParams.set("api_key", apiKey);
-  for (const [key, value] of Object.entries(EIA_QUERY_PARAMS)) {
-    url.searchParams.set(key, value);
-  }
-
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) {
-    throw new Error(`EIA API request failed: ${res.status} ${res.statusText}`);
-  }
-
-  // Untrusted external content (CLAUDE.md) - parsed and validated, never
-  // treated as instructions or trusted without a schema check.
-  const json: unknown = await res.json();
-  const parsed = eiaResponseSchema.safeParse(json);
-  if (!parsed.success) {
-    throw new Error(`EIA API response didn't match the expected shape: ${parsed.error.message}`);
-  }
-
-  const latest = parsed.data.response.data[0];
+  // Untrusted external content (CLAUDE.md) - parsed and validated inside
+  // fetchFuelMarketHistory, never trusted without the schema check.
+  const [latest] = await fetchFuelMarketHistory(1);
   if (!latest) {
     throw new Error("EIA API response's data array was unexpectedly empty after validation.");
   }
   return {
     label: "U.S. average diesel retail price",
     period: latest.period,
-    pricePerGallon: latest.value,
+    pricePerGallon: latest.pricePerGallon,
     units: latest.units,
   };
 }
