@@ -238,12 +238,18 @@ export function createBotStore(
     },
 
     async storeExchange(incoming, suggestion) {
+      // §10: the suggestion now carries ONE reply draft in the other
+      // side's language - it lands in the column matching its
+      // language (both columns nullable); the translation column
+      // stays null for English messages, which is exactly the point.
       const { error } = await supabase.from("dispatch_exchanges").insert({
         company_id: company,
         incoming_message: incoming,
         ai_translation: suggestion.translation_en,
-        ai_suggested_reply_en: suggestion.suggested_reply_en,
-        ai_suggested_reply_es: suggestion.suggested_reply_es,
+        ai_suggested_reply_en:
+          suggestion.suggested_reply_language === "en" ? suggestion.suggested_reply : null,
+        ai_suggested_reply_es:
+          suggestion.suggested_reply_language === "es" ? suggestion.suggested_reply : null,
         actual_reply_sent: null, // the bot can't see what he sends elsewhere (design §5)
         source: channel,
       });

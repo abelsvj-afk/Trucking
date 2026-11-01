@@ -24,6 +24,7 @@ import {
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
 import { runAgentTurn } from "@/services/bot/agent-turn";
+import { stageRecordables } from "@/services/bot/stage-recordables";
 
 export const runtime = "nodejs";
 
@@ -110,6 +111,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           runAgentTurn(new OpenAiProvider(), brainStore, input, {
             onToolLog: (entry) => console.log("[telegram] bot tool", entry),
           })
+      : undefined,
+    // §10: recordables extracted from a forwarded/pasted dispatch
+    // message are staged as a propose->yes batch on the same brain
+    // store - his "yes" resolves them through the agent turn.
+    stageRecordables: brainStore
+      ? (userText, items) => stageRecordables(brainStore, userText, items)
       : undefined,
     // Null when TELEGRAM_COMPANY_ID / service key aren't configured:
     // the bot then runs reduced (dispatch replies, no context) instead

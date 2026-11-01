@@ -13,6 +13,8 @@ import { ApiError } from "@/services/api/errors";
 import { createClient } from "@/services/db/server";
 import { OpenAiProvider } from "@/services/ai/providers/openai";
 import { DISPATCH_HELPER_CAPABILITY, suggestDispatchReply } from "@/services/ai/dispatch";
+import { createBotStore } from "@/services/bot/store";
+import { stageRecordables } from "@/services/bot/stage-recordables";
 
 const dispatchSuggestRequestSchema = z.object({
   message: z.string().min(1, "message is required.").max(8000),
@@ -57,5 +59,26 @@ export const POST = createApiHandler(async (req, ctx) => {
     message: body.message,
     context: body.context,
   });
-  return NextResponse.json(suggestion);
+
+  // §10: recordables spotted in the message are staged as a
+  // propose->yes batch on the owner's session store (channel "web")
+  // - the page shows what was staged; approving happens in the
+  // Assistant, whose turn resolves pending batches in code. The
+  // suggestion itself stays the pure workup either way.
+  let recordables: {
+    staged: string[];
+    rejected: { summary: string; reason: string }[];
+    blocked_by_pending: boolean;
+  } = { staged: [], rejected: [], blocked_by_pending: false };
+  if (suggestion.recordable_items.length > 0) {
+    const supabase = await createClient();
+    const store = createBotStore(supabase, ctx.auth.companyId, "web");
+    const outcome = await stageRecordables(store, body.message, suggestion.recordable_items);
+    recordables = {
+      staged: outcome.proposals.map((p) => p.summary),
+      rejected: outcome.rejected,
+      blocked_by_pending: outcome.blockedByPending,
+    };
+  }
+  return NextResponse.json({ ...suggestion, recordables });
 });

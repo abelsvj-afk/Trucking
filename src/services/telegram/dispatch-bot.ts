@@ -21,6 +21,10 @@ import {
   formatDispatchSuggestion,
   type DispatchSuggestion,
 } from "@/services/ai/dispatch";
+import {
+  formatRecordableOutcome,
+  type StageRecordablesResult,
+} from "@/services/bot/stage-recordables";
 import type { BotChatInput, BotChatOutput } from "@/services/ai/bot-chat";
 import {
   buildDispatchContext,
@@ -72,6 +76,17 @@ export interface TelegramDeps {
    * changes. Absent = the v1 single-completion chat, unchanged.
    */
   runAgent?: (input: BotChatInput) => Promise<BotChatOutput>;
+  /**
+   * §10: stages recordable items extracted from a dispatch message
+   * as a propose->yes batch (validation lives in the helper - the
+   * items are checked in code before anything is stored). Wired
+   * only when the brain store exists; absent = the workup simply
+   * carries no proposals, exactly like reduced mode.
+   */
+  stageRecordables?: (
+    userText: string,
+    items: unknown,
+  ) => Promise<StageRecordablesResult>;
   /** Null = reduced mode (no history/snapshot/memory). */
   store?: TelegramStore | null;
 }
@@ -149,7 +164,7 @@ export async function handleTelegramUpdate(
   if (!text) {
     await deps.sendMessage(
       chat.id,
-      "I can only work with text for now - paste or forward the dispatch message as text and I'll translate it and draft a reply.",
+      "I can only work with text for now - paste or forward the dispatch message as text and I'll work it over: who's asking, what they want, and a reply draft if you need one.",
     );
     return "no_text_replied";
   }
@@ -202,7 +217,19 @@ export async function handleTelegramUpdate(
         text,
         buildDispatchContext(ctx.snapshotText, instructions, relevantMemories),
       );
-      const reply = formatDispatchSuggestion(suggestion);
+      let reply = formatDispatchSuggestion(suggestion);
+      // §10: recordables the helper spotted ride the same
+      // propose->yes discipline as dump intake - staged in code,
+      // approved (or corrected/dropped) by his reply, resolved by
+      // the agent turn's pending-batch grammar on the chat path.
+      if (deps.stageRecordables && suggestion.recordable_items.length > 0) {
+        try {
+          const outcome = await deps.stageRecordables(text, suggestion.recordable_items);
+          reply += formatRecordableOutcome(outcome);
+        } catch (err) {
+          console.error("[telegram] failed to stage dispatch recordables", err);
+        }
+      }
       await deps.sendMessage(chat.id, reply);
       if (store) {
         try {
