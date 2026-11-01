@@ -326,6 +326,166 @@ instructions (full) → company snapshot (chat; also dispatch context)
 message. Dispatch calls carry instructions + snapshot + memories as
 their `context` argument.
 
+## 8. Smart Path v1 (built 2026-10-31, Wave C — expands §7's sketch)
+
+The owner's full Smart Map spec lives in the product vision doc
+(§9 "Smart lanes & mapping"). This section is the v1 increment's
+contract: what ships, what is honestly stubbed, and what stays
+designed-only. Priority order is fixed by the owner and is the
+verdict's structure: **legal first, rested second, paid third.**
+
+### 8.1 Stack choices (and their limits, stated now)
+
+- **Map rendering: MapLibre GL JS over OpenStreetMap raster tiles.**
+  Keyless, open, actively maintained — the engine the vision doc
+  names as the leading open option. The map is native in the app
+  (`/smart-path`): pan/zoom, route line, origin/destination, sleep
+  stop and stop-candidate markers. An "open in Google Maps" handoff
+  link exists as an escape hatch only, per spec.
+  **Limits:** OSM's tile policy is fair-use for light volume — fine
+  at one-truck scale, not a production tile plan for a fleet; a paid
+  tile provider is the later swap (the style is isolated in one
+  component constant so the swap is one place). Raster tiles, no
+  traffic layer, **no offline corridor caching in v1** (designed in
+  the vision doc, not built here).
+- **Routing: provider interface, OSRM public demo implementation.**
+  `src/services/integrations/routing.ts` defines `RoutingProvider`
+  (`getRoute(from, to)` → distance, duration, GeoJSON geometry);
+  the only implementation is `OsrmRoutingProvider` against
+  `router.project-osrm.org`. Keyless. **Limits, never hidden in the
+  UI copy:** OSRM's public server is a demo service (fair-use, can
+  rate-limit), and its driving profile is a **car** profile —
+  **v1 route geometry is NOT truck-legal**: it does not enforce
+  height/weight restrictions or truck-prohibited roads. The truck
+  profile (§8.2) governs the plan's speed assumption and the
+  verdict's warnings; it does not reshape the geometry. A truck
+  routing provider (HERE/PTV-class, keyed) drops in behind the same
+  interface later. If the provider is unreachable, the endpoint
+  fails honestly — no estimated distance is ever fabricated.
+- **Geocoding: provider interface, Nominatim implementation.**
+  `src/services/integrations/geocoding.ts`; load origin/destination
+  free text → coordinates, cached in-process per query string.
+  Keyless, low volume only (Nominatim fair-use: ≤1 req/s, which a
+  single-owner route check respects by construction).
+- **Places (fuel/food candidates): provider interface, Overpass
+  implementation.** `src/services/integrations/places.ts` queries
+  OpenStreetMap (Overpass API, keyless) for `amenity=fuel`,
+  `amenity=fast_food`, `shop=supermarket` near sampled points along
+  the route geometry. **Limits:** OSM coverage of truck parking /
+  truck-access at a given exit is spotty — a candidate is a place
+  that exists on the map, not a promise a 53' trailer fits; the UI
+  says so. Overpass failure degrades that section to "unavailable",
+  never to invented stops.
+
+### 8.2 Truck profile (migration 00017)
+
+`trucks` gains the Smart Path profile — the design in §7 flagged
+this exact schema change ("`trucks` needs an `appliances`
+field/list — deliberately no schema change tonight") and v1 is
+when it lands:
+
+- Dimensions: `height_in`, `length_in`, `weight_lbs` (integers,
+  nullable — unknown until captured).
+- Running profile: `governed_speed_mph` (caps the plan's assumed
+  average speed), `tank_capacity_gallons`, `avg_mpg` (seeded by
+  hand; sharpened later from `fuel_purchases`, not auto-computed
+  in v1).
+- **Appliance inventory:** `appliances text[]` (known values:
+  `fridge`, `cooler`, `microwave`, `air_fryer`, `hot_plate`,
+  `coffee_maker`, `inverter`, `none`) + `appliance_notes` free
+  text (inverter watts, cooler size — the detail the vision doc
+  asks for). `none` is exclusive: it means "nothing in the cab"
+  and cannot combine with other values (enforced in the Zod
+  schema, not the DB).
+- **UI:** the New Truck form gains the full (optional) profile,
+  and Fleet gains a **Truck profile** page (`/fleet/truck-profile`)
+  to view/edit any truck's profile via the existing
+  `PATCH /api/v1/trucks/[id]` — this is the page the owner uses to
+  capture Steven's truck on the first run. Nothing is seeded: the
+  first real profile is Steven's truck, captured by the owner.
+- No new table → the RLS suite's table list is unchanged.
+
+### 8.3 Route check (`POST /api/v1/smart-path/route-check`)
+
+Authenticated, validated (Zod), computed — not a CRUD resource.
+No AI provider is involved: the verdict is deterministic
+computation in `src/lib/smart-path.ts`, unit-tested without any
+network. Orchestration in `src/services/smart-path/route-check.ts`.
+
+- **Input:** `load_id` (origin/destination/rate/miles/truck come
+  from the load), `depart_at` (planned departure from the pickup,
+  loaded — the deadhead leg to the pickup is not routed in v1,
+  stated in the response), optional `pickup_window` /
+  `delivery_window` (`{start, end}` ISO timestamps; the page
+  defaults them from the load's pickup/delivery dates and the
+  owner adjusts — **storing windows on the load is a later
+  increment**, deliberately no `loads` columns in v1), `food_mode`
+  (`grocery` | `fast_food`), optional `gallons_to_buy`.
+- **Clocks:** the driver's `duty_logs` (last 8 days) through the
+  existing `summarizeHos` — remaining drive (11h), remaining
+  window (14h), driving-until-break (30-min rule), remaining
+  8-day on-duty (70h). No logs → the plan runs against fresh
+  clocks and the response says so out loud (assumption, not fact).
+  Warn-only, same standing as §3: the ELD is the legal record.
+- **Simulation:** drive the route against the clocks in wall-clock
+  order — insert a 30-minute break when the break clock runs out,
+  a 10-hour rest when the drive or window clock runs out (rest
+  resets both), and stop as **not legal** if the 70-hour clock
+  can't cover the drive (a rest doesn't fix that; a 34-hour reset
+  or roll-off does, and the verdict says which). The sleep stop's
+  position is interpolated along the route geometry for the map.
+- **Verdict, in the owner's priority order:**
+  - *Legal:* `on_time` / `early` / `late` / `not_legal`, with the
+    rest/break plan that makes it legal, or the clock that makes
+    it impossible.
+  - *Rested:* where the planned sleep lands (Eastern time) —
+    a rest forced into midday is flagged as a bad sleep, not
+    silently accepted; a rest inside his normal night hours is
+    confirmed in words.
+  - *Paid:* rate per mile and load gross from the load's own
+    `rate_cents`/`miles`, when present.
+  - *Tradeoff lines in plain words,* e.g. "Leaving at 7:00 AM
+    gets you there 1h 20m after the window closes. Leaving by
+    5:40 AM makes it, with the same rest plan." — computed
+    (`latestDeparture` / `neededDeparture`), never templated
+    guesses.
+  - Pickup window, when given, is a warning line (planned
+    departure outside it), not a legality gate — loading time
+    isn't modeled in v1.
+- **Fuel candidates:** his own `fuel_purchases` locations (grouped,
+  average price) that geocode within a corridor of the route,
+  plus Overpass `amenity=fuel` along the route, ranked by
+  **effective cost** (`src/lib/smart-path.ts`): pump cost for the
+  planned gallons + detour fuel + detour time priced at a stated
+  value-of-time + a fixed stop/idle allowance. Constants are named
+  in code and shown in the response, not buried. History is the
+  price source where it exists; Overpass candidates carry no price
+  (OSM rarely has one) and rank on detour alone, labeled as such.
+- **Food candidates:** Overpass near the route, by `food_mode`.
+  Grocery stops are filtered/explained by the truck's appliance
+  inventory (full cook plan needs a cooking appliance + cold
+  storage; cooler-only = cold/sandwich plan; no storage and no
+  cooking appliance = grocery mode reported not workable, with
+  the reason — the stop isn't dressed up as a plan it can't be).
+  **Fast window:** any food suggestion whose arrival time falls
+  inside **8pm–8am America/New_York** is suppressed entirely,
+  and the response says food was suppressed and why (§7's rule).
+- **Phone-away law (vision §9):** v1's surface is the *parked*
+  planning surface — but the verdict block is glance-grade by
+  design: the status and the one tradeoff line in large type at
+  the top, detail below. Voice in/out via the Telegram bot is
+  the bot's increment, not this page's; nothing on this page is
+  needed while rolling.
+
+### 8.4 Designed-only after v1 (not built, not stubbed silently)
+
+Lane intelligence from load history (rate/mile by lane, deadhead,
+reload probability — §7/§9c); offline corridor tile caching;
+truck-legal route geometry (keyed provider); traffic; parking
+availability; storing appointment windows on loads; learning
+`avg_mpg` from fuel history; spoken Smart Path via the bot (§9g);
+the personal preference layer learned from Telegram (§9b.5).
+
 ## 9. Agent omnipresence — full tool coverage + dump intake (task 7.12, stacked on §8)
 
 Owner's requirement, 2026-10-31: the agent must know everything it

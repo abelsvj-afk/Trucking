@@ -57,7 +57,8 @@ export default function LoadsListPage() {
           {state.result.data.map((load) => (
             <li key={load.id}>
               {load.status === "draft" && <strong>Draft</strong>} {load.origin} → {load.destination}
-              {load.rate_cents != null && ` — $${(load.rate_cents / 100).toFixed(2)}`}
+              {load.rate_cents != null && ` — $${(load.rate_cents / 100).toFixed(2)}`}{" "}
+              <Link href={`/smart-path?load_id=${load.id}`}>Route check</Link>
             </li>
           ))}
         </ul>

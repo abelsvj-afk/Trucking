@@ -45,6 +45,14 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | year | integer | yes | |
 | status | text | no | `active` \| `maintenance` \| `inactive` |
 | current_mileage | integer | yes | |
+| height_in | integer | yes | Smart Path truck profile (migration `00017`, `docs/design/driver-mvp.md` §8.2) — total height in inches |
+| length_in | integer | yes | truck + trailer length in inches |
+| weight_lbs | integer | yes | typical loaded weight |
+| governed_speed_mph | integer | yes | caps the route check's assumed average speed |
+| tank_capacity_gallons | numeric | yes | |
+| avg_mpg | numeric | yes | hand-entered for now; sharpening from `fuel_purchases` is later work |
+| appliances | text[] | no | cab appliance inventory: any of `fridge` \| `cooler` \| `microwave` \| `air_fryer` \| `hot_plate` \| `coffee_maker` \| `inverter`, or `none` alone (exclusivity enforced in the API schema, not the DB). Defaults to `{}` — not captured yet |
+| appliance_notes | text | yes | free text: inverter watts, cooler size, anything the list can't say |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 ## trailers
