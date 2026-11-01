@@ -47,12 +47,48 @@ export interface AgentTool {
   run: (args: Record<string, unknown>) => Promise<string>;
   /** One-line human summary of what a call would record - required for write tools (shown to the owner in a proposal). */
   summarize?: (args: Record<string, unknown>) => string;
+  /**
+   * Agent omnipresence (§9): this write NEVER executes inside the
+   * loop, even when the owner directly orders it and the model
+   * passes confirmation: "execute" - it is always staged as a
+   * proposal for his explicit yes. Used by destructive tools
+   * (delete_record) and by the dump staging tool (a dump is
+   * agent-proposed by definition). Execution after his yes goes
+   * through the caller's normal stored-proposal path, which calls
+   * run() directly - the flag governs only the loop.
+   */
+  alwaysPropose?: boolean;
+  /**
+   * Validates raw proposed arguments without executing (§9). Used
+   * by dump staging to check an extracted item against the target
+   * tool's own Zod schema before it is stored as a proposal.
+   */
+  validateArgs?: (
+    args: Record<string, unknown>,
+  ) => { ok: true; args: Record<string, unknown> } | { ok: false; error: string };
+  /**
+   * Turns one proposed call into several proposals (§9 dump
+   * staging: one call carries every extracted item). Called only
+   * on the proposal path. Rejected items come back with reasons
+   * and are reported to the model - they are never stored.
+   */
+  expandProposals?: (
+    args: Record<string, unknown>,
+    ctx: { userText: string },
+  ) => {
+    proposals: ProposedWrite[];
+    rejected: { summary: string; reason: string }[];
+  };
 }
 
 export interface ProposedWrite {
   tool: string;
   args: Record<string, unknown>;
   summary: string;
+  /** §9 dump batches: items expanded from one staging call share a batch id and carry their extraction evidence. */
+  batchId?: string;
+  sourceQuote?: string;
+  confidence?: "high" | "medium" | "low";
 }
 
 export interface AgentToolLogEntry {
@@ -94,7 +130,9 @@ function specFor(tool: AgentTool): AiToolSpec {
     name: tool.name,
     description:
       tool.description +
-      ' The "confirmation" argument is required: use "execute" ONLY when the owner directly told you in this message to record this (e.g. "log fuel $120 at Pilot"); use "propose" for anything you are suggesting yourself - a proposal is NOT recorded unless the owner replies yes.',
+      (tool.alwaysPropose
+        ? ' This tool NEVER records anything immediately, even when the owner directly orders it: every call is staged as a proposal and takes effect only when he replies yes to it. Tell him that plainly.'
+        : ' The "confirmation" argument is required: use "execute" ONLY when the owner directly told you in this message to record this (e.g. "log fuel $120 at Pilot"); use "propose" for anything you are suggesting yourself - a proposal is NOT recorded unless the owner replies yes.'),
     parameters: {
       ...tool.parameters,
       properties: {
@@ -210,9 +248,32 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
         continue;
       }
 
-      if (tool.access === "write" && args.confirmation !== "execute") {
+      if (tool.access === "write" && (args.confirmation !== "execute" || tool.alwaysPropose)) {
         const { confirmation: _dropped, ...writeArgs } = args;
         void _dropped;
+
+        // §9 dump staging: one call expands into many proposals,
+        // each validated in code before it is stored; rejected
+        // extractions are reported, never staged.
+        if (tool.expandProposals) {
+          const expanded = tool.expandProposals(writeArgs, { userText: input.userText });
+          for (const proposal of expanded.proposals) {
+            proposals.push(proposal);
+            log({ tool: proposal.tool, access: "write", outcome: "proposed", detail: proposal.summary });
+          }
+          const lines = [
+            expanded.proposals.length > 0
+              ? `STAGED ${expanded.proposals.length} proposed item(s) from his message - NOTHING is recorded yet; the items are listed to him verbatim after your reply and take effect only when he approves them:`
+              : "No items were staged from that message.",
+            ...expanded.proposals.map((p, i) => `${i + 1}. ${p.summary}`),
+            ...expanded.rejected.map((r) => `REJECTED (not staged): ${r.summary} - ${r.reason}`),
+          ];
+          const content = lines.join("\n");
+          groundingParts.push(content);
+          messages.push({ role: "tool", toolCallId: call.id, content });
+          continue;
+        }
+
         const summary = tool.summarize ? tool.summarize(writeArgs) : `${tool.name} (proposed)`;
         proposals.push({ tool: tool.name, args: writeArgs, summary });
         log({ tool: tool.name, access: "write", outcome: "proposed", detail: summary });

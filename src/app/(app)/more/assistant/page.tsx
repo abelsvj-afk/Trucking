@@ -71,15 +71,22 @@ export default function AssistantPage() {
       <h1>Assistant</h1>
       <p>
         The same assistant as your Telegram bot - one conversation
-        across both. Ask about your loads, hours, or money; tell it
-        to log things (&quot;log fuel $120 at Pilot&quot;); when it
-        suggests recording something itself, reply YES or NO.
+        across both. Ask about anything in the app - loads, hours,
+        money, fleet, documents; tell it to log or update things
+        (&quot;log fuel $120 at Pilot&quot;); or paste a whole dump -
+        a dispatch thread, a rate con, a brain-dump - and it will
+        pull out everything recordable as one numbered list for your
+        approval. Nothing it proposes is recorded without your YES.
+        (Files themselves still upload under More → Documents; paste
+        text here.)
       </p>
 
       {pendingSummary && (
-        <p role="status">
-          <strong>Waiting on your yes:</strong> {pendingSummary} - reply
-          YES to record it, or NO to drop it.
+        <p role="status" style={{ whiteSpace: "pre-wrap" }}>
+          <strong>Waiting on your yes:</strong> {pendingSummary} — reply
+          YES to record it (all of it, for a batch), name item numbers
+          to record only those, correct one by its number, or say NO
+          to drop it.
         </p>
       )}
 
