@@ -486,6 +486,135 @@ availability; storing appointment windows on loads; learning
 `avg_mpg` from fuel history; spoken Smart Path via the bot (§9g);
 the personal preference layer learned from Telegram (§9b.5).
 
+## 9. Agent omnipresence — full tool coverage + dump intake (task 7.12, stacked on §8)
+
+Owner's requirement, 2026-10-31: the agent must know everything it
+needs to know and have the tools to interact with and do ANYTHING
+based on a conversation — it can fill in ANY of the app's tabs on
+its own, from conversation and from info/document dumps he hands
+it. §8 shipped 7 read + 5 write tools; that is partial coverage of
+the schema in `docs/schemas.md`. This section closes the gap. All
+§8 invariants carry over unchanged: guaranteed code-assembled
+context, the grounding guard, tool-call logging, the `bot_chat`
+kill switch, one shared brain across Telegram and web, and the
+standing write rule (his direct imperative executes and confirms;
+anything the bot proposes waits for his yes; proposals expire
+after 2 hours).
+
+- **Full read coverage.** Every business entity in
+  `docs/schemas.md` is queryable in conversation: loads, expenses
+  (line items, not just §8's totals), fuel purchases, brokers,
+  customers, drivers (detail incl. assigned truck; CDL reported as
+  on-file yes/no, never quoted in chat), trucks, trailers,
+  pretrip inspections (incl. pass/fail and defects), equipment
+  checklist items, maintenance events, maintenance schedules
+  (with due status computed by `lib/maintenance-schedule.ts`),
+  duty logs (raw entries alongside §8's HOS summary), documents
+  (metadata **and content** — see the extracted-text contract
+  below), bot memories, dispatch exchanges, and industry
+  briefings (read-only; generation stays with that capability's
+  own scheduler). There is **no invoices/settlements table** in
+  the schema — settlements exist as documents and as load rates;
+  the agent says so rather than inventing a ledger.
+- **Full write coverage.** Create + update tools for loads
+  (including status changes), expenses, fuel purchases, brokers,
+  customers, drivers, trucks, trailers, maintenance events,
+  maintenance schedules (incl. mark-done), checklist items (incl.
+  mark-checked), pretrip inspections (logging a completed
+  inspection), duty entries (§8's `log_duty_status` gains explicit
+  start time/odometer/load), document attach-to-load (re-pointing
+  a document's related entity — the file itself still arrives via
+  More → Documents), and §8's memory/note tools. Bot-facing
+  arguments use driver units (dollars, not cents) exactly as §8
+  established; before any insert/update runs, the built row is
+  validated against the **same Zod schemas the UI/API use**
+  (`src/data/schemas/*`) — the tool layer may translate units, it
+  may not weaken validation.
+- **Deletes always confirm.** One `delete_record` tool (soft
+  delete, per the global convention; `documents` excluded — that
+  table hard-deletes by design and the bot does not delete files).
+  The loop gains an `alwaysPropose` tool flag: a delete is staged
+  as a proposal **even when the owner orders it directly** —
+  `confirmation: "execute"` cannot run it. His yes (the §8 code
+  path) is the only execution route. Destructive is the one place
+  the direct-imperative rule does not apply, by design.
+- **Dump intake (the centerpiece).** A dump is any message
+  carrying several recordable facts at once — a forwarded dispatch
+  thread, a rate con pasted as text, a settlement, a brain-dump
+  paragraph. The model extracts candidates and calls ONE staging
+  tool, `stage_dump_items`, carrying every item in a single call:
+  `{ tool_name, args, source_quote, confidence }` per item.
+  Staging never writes (dumps are agent-proposed by definition,
+  even if he says "record all that"). Before anything is stored,
+  **code validates every item** (`services/bot/dump-intake.ts`):
+  (1) the target is a real write tool and its args pass that
+  tool's Zod validation; (2) `source_quote` is a verbatim span of
+  his message; (3) numeric grounding — every number in the item's
+  values (amounts, codes like a gate code, counts) must appear in
+  his message text; a value that appears nowhere is **rejected**,
+  named in the reply with its reason, and never staged. Unknown
+  fields stay absent — the model is instructed to omit, never
+  guess, and updates must reference records it actually read
+  (ids come from read tools, not from the dump). Accepted items
+  are stored as individual `bot_pending_actions` rows sharing a
+  `batch_id` with stable item numbers (migration `00021`), and
+  the reply is ONE consolidated, numbered proposal: each item in
+  plain words with its values, its source quote, and its
+  confidence. His replies, resolved **in code** before any model
+  call: a plain yes / "approve all" executes every item in order;
+  "approve 1, 3" executes exactly those and leaves the rest
+  pending under their original numbers; "drop the rest" / a plain
+  no clears what remains; a correction ("3 is wrong, it's 4417")
+  goes to the model with the batch in context and one job — call
+  `revise_pending_item`, which re-validates the patched args
+  against the target tool's schema, re-summarizes, and updates
+  the stored proposal (a revision writes nothing to the books;
+  only his later yes does). The 2-hour expiry applies to the
+  batch as a whole. **Step budget:** the §8 6-step cap is NOT
+  raised. A dump turn spends its steps as: optional read calls to
+  resolve referenced records → one `stage_dump_items` call → the
+  closing text. The staging call carries all items at once
+  precisely so extraction never needs a step per record.
+- **Documents: the extracted-text contract.** The document-scan
+  work (its own branch) adds OCR text to documents. The agreed
+  field is **`documents.extracted_text`** (nullable text; null =
+  not yet extracted). This branch codes against that name with
+  graceful absence: document tools first try selecting it, and on
+  a missing-column error retry without it and say plainly that no
+  extracted text is available yet — so the agent answers questions
+  about a document's content the moment the scan branch lands,
+  and degrades honestly before it. (Found while building this:
+  §8's `list_documents` filtered on `documents.deleted_at`, a
+  column that table does not have — documents hard-delete by
+  design, `docs/schemas.md`. Fixed here; document tools never
+  filter on it.)
+- **Truck profile: the Smart Path contract.** The truck profile
+  fields (migration `00017`, Smart Path branch: `height_in`,
+  `length_in`, `weight_lbs`, `governed_speed_mph`,
+  `tank_capacity_gallons`, `avg_mpg`, `appliances text[]`,
+  `appliance_notes`) are read/written by the truck tools under
+  the same graceful-absence rule as extracted text: this branch
+  stacks on §8, where `00017` does not exist yet, so until both
+  branches are merged and the migration applied, profile reads
+  report "not captured yet" and profile writes surface the
+  missing-column error honestly instead of pretending to save.
+- **Deliberately not covered.** `companies` / `user_profiles`
+  (identity, not business records), `ai_capability_settings`
+  (the agent never touches its own kill switches — Settings is
+  the only hand on those), briefing generation, and document
+  file upload from chat: on the web surface a dump is pasted
+  text (files go through More → Documents, then the agent reads
+  them back via the document tools); on Telegram a photo's
+  extracted text reaches the agent the same way once the scan
+  branch lands. Dump intake is otherwise identical on both
+  channels — same staging, same validation, same batch grammar.
+- **Migration `00021`** adds the batch columns to
+  `bot_pending_actions` (`batch_id`, `item_number`,
+  `source_quote`, `confidence` — all nullable; single §8
+  proposals are untouched). The store reads them with the same
+  graceful-absence fallback, so §8 behavior survives even before
+  `00021` is applied; batching activates when the columns exist.
+
 ## Out of scope for this pass
 
 Certified ELD anything; the bot joining or reading any group; a
