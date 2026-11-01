@@ -381,6 +381,93 @@ export interface ResearchWatcherState {
   updated_at: string;
 }
 
+// Gaming System (docs/design/gaming-system.md, migrations
+// 00024-00026). The target he aims at and the versioned projections
+// gamed against it - a plan is a projection, never a promise, and
+// nothing here moves money or executes anything.
+import type {
+  AssumptionEntry,
+  DataSufficiency,
+  GameMetric,
+  GameOutput,
+  GamePosture,
+  GameSnapshot,
+  ValidityViolation,
+} from "@/lib/game-plan";
+
+// What services/game actually stores in game_plans.scenarios: the
+// engine output plus the §5.5 validity verdict and, when a game had
+// to be repaired, what the nearest-valid replacement removed.
+export interface StoredGameScenarios extends GameOutput {
+  validity: { valid: boolean; violations: ValidityViolation[] };
+  removedForValidity: string[];
+}
+
+export type { GameMetric, GamePosture };
+
+export interface GameTarget extends BaseRow {
+  metric: GameMetric;
+  target_value_cents: number;
+  target_date: string | null;
+  posture: GamePosture;
+  posture_mix_pct: number;
+  notes: string | null;
+  is_active: boolean;
+}
+
+export type GamePlanStatus = "current" | "superseded" | "what_if" | "invalid_rules";
+export type GamePlanTrigger =
+  | "target_set"
+  | "target_edit"
+  | "checkpoint"
+  | "settlement"
+  | "fund_milestone"
+  | "research_briefing"
+  | "maintenance_event"
+  | "manual"
+  | "what_if";
+
+export interface GamePlan extends BaseRow {
+  target_id: string;
+  version: number;
+  status: GamePlanStatus;
+  trigger: GamePlanTrigger;
+  snapshot: GameSnapshot;
+  assumptions: AssumptionEntry[];
+  scenarios: StoredGameScenarios;
+  narration: string;
+  diff_summary: string | null;
+  data_sufficiency: DataSufficiency;
+}
+
+export type GamePlanRunStatus =
+  | "success"
+  | "failure"
+  | "skipped_cap"
+  | "skipped_disabled"
+  | "invalid_replaced";
+
+export interface GamePlanRun extends BaseRow {
+  target_id: string | null;
+  trigger: GamePlanTrigger;
+  status: GamePlanRunStatus;
+  plan_id: string | null;
+  detail: string | null;
+}
+
+export type GameCheckpointVerdict = "on_plan" | "ahead" | "behind" | "no_data";
+
+export interface GameCheckpoint extends BaseRow {
+  target_id: string;
+  period_month: string;
+  planned_value_cents: number;
+  actual_value_cents: number | null;
+  verdict: GameCheckpointVerdict | null;
+  gap_cents: number | null;
+  lever_note: string | null;
+  telegram_sent_at: string | null;
+}
+
 /** GET /api/v1/research-briefings response envelope (docs/api-contracts.md). */
 export interface ResearchPageData {
   data: ResearchBriefing[];

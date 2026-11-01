@@ -105,6 +105,10 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
     // failed run doesn't leave test data behind. Order matters (children
     // before parents) since several tables reference trucks/companies.
     const tables = [
+      "game_checkpoints",
+      "game_plans",
+      "game_plan_runs",
+      "game_targets",
       "research_briefings",
       "research_runs",
       "expenses",
@@ -270,6 +274,42 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
     balance_cents: 100,
     lane: "business",
     as_of_date: "2026-10-31",
+  }));
+
+  // Gaming System (migrations 00024-00026): the target, its plans,
+  // the run log, and the monthly checkpoints. game_plans and
+  // game_checkpoints reference the target this suite seeded for the
+  // same company just above (seededIds is filled in order).
+  const seededTargetId = (companyId: string) =>
+    seededIds["game_targets"]![companyId === companyA ? 0 : 1]!;
+  testStandardTable("game_targets", (companyId) => ({
+    company_id: companyId,
+    metric: "monthly_net_cents",
+    target_value_cents: 100_000,
+    posture: "conservative",
+  }));
+  testStandardTable("game_plans", (companyId) => ({
+    company_id: companyId,
+    target_id: seededTargetId(companyId),
+    version: 1,
+    status: "current",
+    trigger: "manual",
+    snapshot: {},
+    assumptions: [],
+    scenarios: {},
+    narration: "test plan",
+    data_sufficiency: {},
+  }));
+  testStandardTable("game_plan_runs", (companyId) => ({
+    company_id: companyId,
+    trigger: "manual",
+    status: "success",
+  }));
+  testStandardTable("game_checkpoints", (companyId) => ({
+    company_id: companyId,
+    target_id: seededTargetId(companyId),
+    period_month: "2026-10-01",
+    planned_value_cents: 100_000,
   }));
 
   // Special case: industry_briefings and industry_briefing_runs are

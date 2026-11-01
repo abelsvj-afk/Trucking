@@ -7,6 +7,8 @@ import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
 import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
+import type { GamePlanPageData } from "@/types/game-plan";
+import type { GamePlan, GameTarget } from "@/types/entities";
 
 export interface ApiErrorBody {
   error: { code: string; message: string };
@@ -117,6 +119,33 @@ export const apiClient = {
     request<LadderStepView>(`/api/v1/business-ladder/${stepKey}`, {
       method: "PATCH",
       body: JSON.stringify(body),
+    }),
+  // Gaming System (docs/design/gaming-system.md).
+  gamePlan: () => request<GamePlanPageData>("/api/v1/game-plan"),
+  createGameTarget: (body: Record<string, unknown>) =>
+    request<{ target: GameTarget; game: unknown }>("/api/v1/game-targets", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateGameTarget: (id: string, body: Record<string, unknown>) =>
+    request<{ target: GameTarget; game: unknown }>(`/api/v1/game-targets/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  regameGamePlan: () =>
+    request<{ game: unknown }>("/api/v1/game-plan/regame", {
+      method: "POST",
+      body: JSON.stringify({ trigger: "manual" }),
+    }),
+  gameWhatIf: (overrides: Record<string, unknown>) =>
+    request<{ game: unknown }>("/api/v1/game-plan/what-if", {
+      method: "POST",
+      body: JSON.stringify({ overrides }),
+    }),
+  promoteGamePlan: (planId: string) =>
+    request<{ plan: GamePlan }>("/api/v1/game-plan/promote", {
+      method: "POST",
+      body: JSON.stringify({ plan_id: planId }),
     }),
   // The AI kill switches (docs/governance.md) - a normal owner-session
   // read/write, unlike everything else about an AI capability.
