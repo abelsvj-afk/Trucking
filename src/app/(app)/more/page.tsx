@@ -24,6 +24,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/more/brokers", label: "Brokers", desc: "The brokers you book through — MC numbers and contacts." },
   { href: "/more/industry-intelligence", label: "Industry intelligence", desc: "Briefings on fuel, rules, and the market that affect your lanes." },
   { href: "/more/research", label: "Research", desc: "Deep research engine — watches fuel, rules & news; briefs you when pressure hits." },
+  { href: "/more/game-plan", label: "Game Plan", desc: "Your target, gamed: the path from your real numbers to the truck, the authority, the company — projections, not promises." },
   { href: "/more/settings", label: "Account & settings", desc: "Your account, and the switches for what the AI may do." },
 ];
 

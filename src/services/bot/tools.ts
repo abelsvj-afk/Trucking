@@ -22,6 +22,7 @@ import type { BotBrainStore } from "./store";
 import type { DutyLog } from "@/types/entities";
 import { validateWith } from "./tool-helpers";
 import { buildExtendedReadTools } from "./tools-read";
+import { buildGameTools } from "./tools-game";
 import { buildExtendedWriteTools } from "./tools-write";
 import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
@@ -594,6 +595,13 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       return `Corrected proposal item ${itemNumber}: ${summary}. Still NOT recorded - it takes effect only when he approves it.`;
     },
   });
+
+  // Gaming System (docs/design/gaming-system.md): the Game Plan's
+  // conversational surface, in tools-game.ts. Pushed last, after
+  // the write registry is built - game writes are direct commands
+  // (his own target settings execute immediately, §1.3), never
+  // staged inside dump batches.
+  tools.push(...buildGameTools(store));
 
   return tools;
 }

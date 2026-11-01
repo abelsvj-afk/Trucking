@@ -13,5 +13,10 @@ export async function register() {
     // in-process scheduler pattern as the industry-briefing job above.
     const { startResearchScheduler } = await import("@/services/research/scheduler");
     startResearchScheduler();
+    // Gaming System (docs/design/gaming-system.md §4) - same
+    // in-process scheduler pattern: monthly checkpoint closes +
+    // daily data-trigger re-games, all due-ness from DB state.
+    const { startGameScheduler } = await import("@/services/game/scheduler");
+    startGameScheduler();
   }
 }
