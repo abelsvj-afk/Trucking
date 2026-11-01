@@ -215,3 +215,84 @@ export interface IndustryBriefing {
   generated_at: string;
   dismissed_at: string | null;
 }
+
+// Deep Research Engine (docs/design/research-engine.md, migration
+// 00019). Findings/sources/unverified are jsonb arrays with these
+// element shapes - validated at generation time by
+// services/ai/research-briefing.ts's output contract.
+export interface ResearchFinding {
+  claim: string;
+  source_title: string;
+  source_url: string;
+}
+
+export interface ResearchSourceRef {
+  title: string;
+  url: string;
+}
+
+export interface ResearchBriefing {
+  id: string;
+  company_id: string;
+  run_id: string | null;
+  topic: string;
+  title: string;
+  headline: string;
+  findings: ResearchFinding[];
+  what_changed: string;
+  counter_move: string;
+  takeaway: string;
+  unverified: string[];
+  sources: ResearchSourceRef[];
+  confidence: AiConfidence;
+  telegram_notified_at: string | null;
+  read_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+}
+
+export type ResearchRunStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failure"
+  | "insufficient_data"
+  | "skipped_cap"
+  | "skipped_disabled";
+
+export interface ResearchRun {
+  id: string;
+  company_id: string;
+  trigger_kind: "scheduled" | "pressure" | "manual";
+  topic: string;
+  trigger_detail: { reason?: string; signal_dedupe_keys?: string[] };
+  status: ResearchRunStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+  briefing_id: string | null;
+  created_at: string;
+}
+
+export interface ResearchWatcherState {
+  watcher_key: string;
+  last_polled_at: string | null;
+  last_status: "ok" | "error" | "skipped" | null;
+  last_error: string | null;
+  last_signal_at: string | null;
+  updated_at: string;
+}
+
+/** GET /api/v1/research-briefings response envelope (docs/api-contracts.md). */
+export interface ResearchPageData {
+  data: ResearchBriefing[];
+  unread_count: number;
+  runs: ResearchRun[];
+  watchers: ResearchWatcherState[];
+  usage: {
+    runs_today: number;
+    runs_this_month: number;
+    max_runs_per_day: number;
+    max_runs_per_month: number;
+  };
+}

@@ -5,6 +5,7 @@
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
+import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
 
 export interface ApiErrorBody {
   error: { code: string; message: string };
@@ -111,5 +112,16 @@ export const apiClient = {
     request<{ reply: string; pending_summary: string | null }>("/api/v1/assistant/chat", {
       method: "POST",
       body: JSON.stringify({ message }),
+    }),
+  // Deep Research Engine (docs/design/research-engine.md).
+  listResearchBriefings: () => request<ResearchPageData>("/api/v1/research-briefings"),
+  markResearchBriefingRead: (id: string) =>
+    request<ResearchBriefing>(`/api/v1/research-briefings/${id}/read`, { method: "POST" }),
+  dismissResearchBriefing: (id: string) =>
+    request<ResearchBriefing>(`/api/v1/research-briefings/${id}/dismiss`, { method: "POST" }),
+  researchNow: (topic: string) =>
+    request<ResearchRun>("/api/v1/research-briefings/research-now", {
+      method: "POST",
+      body: JSON.stringify({ topic }),
     }),
 };
