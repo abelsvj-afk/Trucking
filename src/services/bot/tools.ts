@@ -25,6 +25,7 @@ import { buildExtendedReadTools } from "./tools-read";
 import { buildExtendedWriteTools } from "./tools-write";
 import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
+import { buildRouteCheckTool } from "./route-check-tool";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -439,6 +440,10 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         return formatPayEvaluation(evaluatePayOffer(parsed));
       },
     },
+    // §13: the Smart Path route check as a read tool — built in its
+    // own module (services/bot/route-check-tool.ts) because it wraps
+    // the Smart Path engine rather than a table.
+    buildRouteCheckTool(store),
     {
       name: "save_memory",
       description:

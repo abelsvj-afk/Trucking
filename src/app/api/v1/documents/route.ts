@@ -3,6 +3,19 @@
 // response carries a short-lived signed URL per row instead of the raw
 // storage path. So this is hand-written against the same createApiHandler
 // pipeline every other route uses, not the shared factory.
+//
+// The storage write itself lives in the shared documents pipeline
+// (services/documents/store-document.ts) — the same code the Telegram
+// photo intake stores through (§13), so both doors enforce the same
+// size cap, the same content-type allowlist (task 5.3), and the same
+// no-orphan cleanup. This route keeps the surface-specific work:
+// multipart parsing, the entity picklist validation, mapping the
+// pipeline's typed errors onto this API's error shape (validation
+// kinds are the caller's 400s; provider failures stay generic Errors
+// so createApiHandler never surfaces raw provider detail) — and the
+// post-store processing (§10): scan rendition + AI extraction via
+// processUploadedDocument, the same entry point the Telegram intake
+// invokes for its stored photos (§13).
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -10,33 +23,16 @@ import { createApiHandler } from "@/services/api/handler";
 import { validationError } from "@/services/api/errors";
 import { createClient } from "@/services/db/server";
 import { relatedEntityTypeSchema } from "@/data/schemas/documents";
+import {
+  StoreDocumentError,
+  storeDocumentFile,
+} from "@/services/documents/store-document";
 import { processUploadedDocument } from "@/services/documents/process-document";
-import type { DocumentWithSignedUrl } from "@/types/entities";
+import type { Document, DocumentWithSignedUrl } from "@/types/entities";
 
 const relatedEntityIdSchema = z.string().uuid();
 
-// Generous enough for scanned paperwork (BOLs, receipts, permits) without
-// being unbounded - docs/schemas.md doesn't set a limit, so this is a
-// reasonable default rather than trusting an arbitrarily large upload.
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 5 * 60;
-
-// Task 5.3 (Stage 5 security review) - a real gap found and fixed:
-// docs/design/security.md's threat model already promised content-type
-// validation here, but this route only ever checked size. An allowlist
-// matching this document's actual use case (scans/photos of paperwork),
-// checked against the client-declared content-type - not byte-level
-// signature sniffing, a deliberate simplicity tradeoff documented in
-// docs/design/security.md given this app's real risk level (single
-// authenticated admin, files never executed).
-const ALLOWED_CONTENT_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-]);
 
 export const POST = createApiHandler(async (req, ctx) => {
   const formData = await req.formData();
@@ -46,11 +42,6 @@ export const POST = createApiHandler(async (req, ctx) => {
   const fileNameRaw = formData.get("file_name");
 
   if (!(file instanceof File)) throw validationError("file is required.");
-  if (file.size === 0) throw validationError("file must not be empty.");
-  if (file.size > MAX_FILE_BYTES) throw validationError("file exceeds the 25MB limit.");
-  if (!ALLOWED_CONTENT_TYPES.has(file.type)) {
-    throw validationError("file must be a PDF or an image (JPEG, PNG, WebP, HEIC).");
-  }
 
   const typeResult = relatedEntityTypeSchema.safeParse(relatedEntityTypeRaw);
   if (!typeResult.success) {
@@ -67,40 +58,28 @@ export const POST = createApiHandler(async (req, ctx) => {
   if (!fileName) throw validationError("file_name is required.");
 
   const supabase = await createClient();
-  const storagePath = `${ctx.auth.companyId}/${crypto.randomUUID()}-${fileName}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from("documents")
-    .upload(storagePath, file, { contentType: file.type || undefined });
-  if (uploadError) {
-    // Task 5.3 (Stage 5 security review) - a real gap found and fixed:
-    // this used to throw validationError(`Upload failed: ${uploadError.message}`),
-    // which put the raw Storage provider error straight into the client
-    // response. A failed upload isn't the caller's fault either (this
-    // wasn't really a validation error), and CLAUDE.md/docs/design/ui-ux.md
-    // are explicit that raw exception text is never surfaced to the user -
-    // a plain Error here gets createApiHandler's generic "unexpected error"
-    // treatment instead, with the real detail only in the server log.
-    throw new Error(`Document upload to Storage failed: ${uploadError.message}`);
-  }
-
-  const { data: row, error: insertError } = await supabase
-    .from("documents")
-    .insert({
-      company_id: ctx.auth.companyId,
-      related_entity_type: typeResult.data,
-      related_entity_id: idResult.data,
-      file_name: fileName,
-      storage_path: storagePath,
-      uploaded_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-
-  if (insertError || !row) {
-    // Don't leave an orphaned file in Storage when the DB write fails.
-    await supabase.storage.from("documents").remove([storagePath]);
-    throw new Error(insertError?.message ?? "Failed to save document metadata.");
+  let row: Document;
+  try {
+    row = await storeDocumentFile(supabase, {
+      companyId: ctx.auth.companyId,
+      relatedEntityType: typeResult.data,
+      relatedEntityId: idResult.data,
+      fileName,
+      body: file,
+      contentType: file.type,
+      size: file.size,
+    });
+  } catch (err) {
+    if (err instanceof StoreDocumentError) {
+      // Validation kinds are this caller's 400s, with the pipeline's
+      // own message (identical to the checks this route used to run
+      // inline). Provider failures keep the old treatment: a plain
+      // Error, so the handler's generic response is all the client
+      // sees and the detail stays in the server log.
+      if (err.kind === "validation") throw validationError(err.message);
+      throw new Error(err.message);
+    }
+    throw err;
   }
 
   // Scan rendition + AI extraction (docs/design/driver-mvp.md §10).

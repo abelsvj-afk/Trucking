@@ -80,15 +80,23 @@ export async function runRouteCheck(
   request: RouteCheckRequest,
   providers: RouteCheckProviders = defaultProviders,
   now: Date = new Date(),
+  // §13: the web endpoint's session client is scoped by RLS, but the
+  // agent tool runs this engine on the Telegram surface's
+  // service-role client, where RLS does not apply — so a caller with
+  // an unscoped client passes its company id and every read below
+  // is filtered by it in code. Null (the endpoint's call) keeps the
+  // original RLS-only behavior untouched.
+  companyId: string | null = null,
 ): Promise<RouteCheckResponse> {
   const warnings: string[] = [];
 
-  const { data: loadData, error: loadError } = await supabase
+  let loadQuery = supabase
     .from("loads")
     .select("*")
     .eq("id", request.load_id)
-    .is("deleted_at", null)
-    .maybeSingle();
+    .is("deleted_at", null);
+  if (companyId) loadQuery = loadQuery.eq("company_id", companyId);
+  const { data: loadData, error: loadError } = await loadQuery.maybeSingle();
   if (loadError) throw new Error(loadError.message);
   if (!loadData) throw new ApiError(404, "NOT_FOUND", "That load could not be found.");
   const load = loadData as Load;
@@ -124,12 +132,13 @@ export async function runRouteCheck(
   // --- are inputs to the truck-aware routing engines, §8.5) ---------
   let truck: Truck | null = null;
   if (load.truck_id) {
-    const { data } = await supabase
+    let truckQuery = supabase
       .from("trucks")
       .select("*")
       .eq("id", load.truck_id)
-      .is("deleted_at", null)
-      .maybeSingle();
+      .is("deleted_at", null);
+    if (companyId) truckQuery = truckQuery.eq("company_id", companyId);
+    const { data } = await truckQuery.maybeSingle();
     truck = (data as Truck | null) ?? null;
   }
   if (truck && (truck.height_in === null || truck.weight_lbs === null)) {
@@ -165,12 +174,15 @@ export async function runRouteCheck(
   }
 
   // --- his clocks -------------------------------------------------------
-  const { data: dutyData, error: dutyError } = await supabase
+  let dutyQuery = supabase
     .from("duty_logs")
     .select("duty_status, started_at")
     .is("deleted_at", null)
-    .gte("started_at", new Date(now.getTime() - EIGHT_DAYS_MS).toISOString())
-    .order("started_at", { ascending: true });
+    .gte("started_at", new Date(now.getTime() - EIGHT_DAYS_MS).toISOString());
+  if (companyId) dutyQuery = dutyQuery.eq("company_id", companyId);
+  const { data: dutyData, error: dutyError } = await dutyQuery.order("started_at", {
+    ascending: true,
+  });
   if (dutyError) throw new Error(dutyError.message);
   const hos = summarizeHos((dutyData ?? []) as DutySegmentInput[], now);
   const clocks = clocksFromHos(hos);
@@ -209,10 +221,9 @@ export async function runRouteCheck(
   }
 
   // --- fuel: his history near the corridor + map stations ---------------
-  const { data: fuelData, error: fuelError } = await supabase
-    .from("fuel_purchases")
-    .select("*")
-    .is("deleted_at", null)
+  let fuelQuery = supabase.from("fuel_purchases").select("*").is("deleted_at", null);
+  if (companyId) fuelQuery = fuelQuery.eq("company_id", companyId);
+  const { data: fuelData, error: fuelError } = await fuelQuery
     .order("purchased_at", { ascending: false })
     .limit(200);
   if (fuelError) throw new Error(fuelError.message);
