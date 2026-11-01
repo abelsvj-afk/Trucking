@@ -29,7 +29,13 @@ export interface ProcessDocumentDeps {
   createVisionProvider?: () => AiVisionProvider;
 }
 
-async function isExtractionEnabled(
+/**
+ * The extraction gate, shared: the processor checks it before any
+ * provider call, and the Telegram photo intake (§13) checks it to
+ * decide whether a stored photo enters processing at all — one
+ * definition of "on" for both doors.
+ */
+export async function isExtractionEnabled(
   supabase: SupabaseClient,
   companyId: string,
 ): Promise<boolean> {

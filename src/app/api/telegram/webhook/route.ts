@@ -23,6 +23,7 @@ import {
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
+import { handleTelegramPhoto } from "@/services/telegram/photo-intake";
 import { runAgentTurn } from "@/services/bot/agent-turn";
 import { stageRecordables } from "@/services/bot/stage-recordables";
 
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // the bot_chat kill switch). It wraps the same service-role client
   // and company scope as the v1 store - both are null together.
   const brainStore = createTelegramBrainStore(config.companyId);
+  const photoCompanyId = config.companyId;
   await handleTelegramUpdate(update, config, {
     sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
     // Lazy provider construction: bootstrap/ignored updates must work
@@ -118,6 +120,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     stageRecordables: brainStore
       ? (userText, items) => stageRecordables(brainStore, userText, items)
       : undefined,
+    // §13: photo messages store through the shared documents
+    // pipeline on the same service-role client + company scope.
+    // Absent in reduced mode - the bot then says so honestly.
+    handlePhoto:
+      brainStore && photoCompanyId
+        ? (photo, caption) =>
+            handleTelegramPhoto(
+              { client: brainStore.client, companyId: photoCompanyId, botToken },
+              photo,
+              caption,
+            )
+        : undefined,
     // Null when TELEGRAM_COMPANY_ID / service key aren't configured:
     // the bot then runs reduced (dispatch replies, no context) instead
     // of failing - see services/telegram/store.ts.
