@@ -22,7 +22,8 @@ import {
   handleTelegramUpdate,
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
-import { createTelegramStore } from "@/services/telegram/store";
+import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
+import { runAgentTurn } from "@/services/bot/agent-turn";
 
 export const runtime = "nodejs";
 
@@ -92,6 +93,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const botToken = config.botToken;
+  // v2 (§8): the brain store powers the agent loop (tools, proposals,
+  // the bot_chat kill switch). It wraps the same service-role client
+  // and company scope as the v1 store - both are null together.
+  const brainStore = createTelegramBrainStore(config.companyId);
   await handleTelegramUpdate(update, config, {
     sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
     // Lazy provider construction: bootstrap/ignored updates must work
@@ -100,6 +105,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     getSuggestion: (message, context) =>
       suggestDispatchReply(new OpenAiProvider(), { message, context }),
     runChat: (input) => runBotChat(new OpenAiProvider(), input),
+    runAgent: brainStore
+      ? (input) =>
+          runAgentTurn(new OpenAiProvider(), brainStore, input, {
+            onToolLog: (entry) => console.log("[telegram] bot tool", entry),
+          })
+      : undefined,
     // Null when TELEGRAM_COMPANY_ID / service key aren't configured:
     // the bot then runs reduced (dispatch replies, no context) instead
     // of failing - see services/telegram/store.ts.
