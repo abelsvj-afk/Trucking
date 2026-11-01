@@ -19,6 +19,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/money/expenses", label: "Expenses", desc: "What the business spends — insurance, permits, repairs, the rest." },
   { href: "/money/fuel-purchases", label: "Fuel purchases", desc: "Every fuel stop: gallons, price, and where." },
   { href: "/money/summary", label: "Summary", desc: "Revenue, costs, and what's actually left — by period." },
+  { href: "/money/truck-fund", label: "Truck Fund", desc: "Saving toward your own truck — the fund log, target bands, and the business-credit ladder." },
 ];
 
 export default function MoneyPage() {

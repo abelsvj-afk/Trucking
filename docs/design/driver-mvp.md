@@ -678,6 +678,180 @@ after 2 hours).
   graceful-absence fallback, so §8 behavior survives even before
   `00021` is applied; batching activates when the columns exist.
 
+## 9. Truck Fund + money visibility (Wave D — vision doc §2 + §8)
+
+Written 2026-10-31, ahead of code, per the spec-first workflow.
+Implements the money-visibility half of the vision doc's Phase 2:
+the Truck Fund tracker, the sweep suggestion, the business-finance
+ladder (vision §8), and an honest seam where live Plaid will go
+(vision §2). The standing law from both vision sections, restated
+because it shapes every choice below: **the app reads, computes,
+and suggests — it never moves money.** There is no transfer
+capability in this design, not "disabled" — not built.
+
+### 9.1 Fund ledger — one ledger, his existing buckets (migration 00023)
+
+`fund_entries` is a single manual ledger for the buckets that
+already exist in the owner's Finance Project architecture — the
+app operationalizes those names, it does not invent parallel
+ones:
+
+- `fund_key`: `truck_fund` (his transportation/car fund, aimed at
+  his own truck) | `business_credit` (the business-credit bucket)
+  | `emergency_fund` (the stability bucket; its $10,000 target is
+  a Finance Project rule shown as *context* on the surface — the
+  app displays it, it does not enforce or re-decide it).
+- `kind`: `deposit` | `withdrawal`; `amount_cents` is positive,
+  the sign comes from `kind`.
+- `entry_date` (date), `lane` (`business` | `personal` — his
+  Phase-1 rule: every trucking dollar tagged from load one),
+  `source` (`manual` | `sweep` — a sweep entry is one he recorded
+  from a suggestion, §9.3), optional `note`, optional `load_id`.
+
+A fund's balance is **computed on read** (deposits − withdrawals
+over non-deleted rows), same reasoning as the financial summary:
+no stored balance to drift from the ledger. "Last moved" is the
+newest entry's date.
+
+`fund_settings` is the per-company singleton holding the sweep
+rule and the target: `sweep_mode` (`off` | `percent` | `flat`,
+**default `off`** — no rule exists until he sets one, and no
+suggestion is ever computed without a rule), `sweep_percent`
+(1–100, used by `percent`), `sweep_flat_cents` (used by `flat`),
+`target_band` (`budget` | `mid` | `upper`), and `target_cents`
+(an optional custom override; the effective target is
+`target_cents` when set, else the chosen band's top).
+
+### 9.2 Truck Fund progress — against the vision's price bands
+
+The bands are the vision doc §2's **estimates**, labeled as such
+on the surface: budget $20,000–$40,000, mid $40,000–$75,000,
+upper $75,000–$120,000+. Progress is the fund balance against the
+effective target, plus where the balance sits inside the chosen
+band's range (below it / inside it / past its top). The vision's
+warning rides along in the UI copy: a real target is *truck +
+repair reserve + startup filings*, not just a sticker price —
+that's what `target_cents` is for.
+
+### 9.3 Earned toward the fund + the sweep suggestion
+
+Two computed views over data the app already holds, both in
+`src/lib/truck-fund.ts` (pure, unit-tested) and served by
+`GET /api/v1/truck-fund`:
+
+- **Earned toward the fund (never called a balance):** for the
+  current week (Mon–Sun, UTC — the same convention the financial
+  summary uses) and the current month: *settled income* = gross
+  `rate_cents` of loads with status `completed`, placed in the
+  period by `delivery_date` falling back to `pickup_date` (the
+  financial summary's placement rule), and *settled net* =
+  settled income − the period's `expenses` + `fuel_purchases` +
+  `maintenance_events` (the financial summary's cost formula).
+  `completed` is the app's only honest proxy for "the work is
+  done and the money is earned" — there is no payment-received
+  flag in the schema, and the design does not pretend otherwise.
+  Draft/confirmed loads never count (STABILIZE: real income
+  only).
+- **The suggestion:** when a sweep rule exists and the period's
+  settled net is positive, the app suggests moving
+  `rule(net) − already-swept-this-period` to the Truck Fund
+  (percent → floor of net × percent; flat → the flat amount).
+  Sweep entries already recorded in the period are subtracted so
+  recording a suggestion never re-suggests the same dollars.
+  The card says what it is: *"$X settled this week. Your rule
+  sends $Y to the Truck Fund."* **Record it** writes one
+  `fund_entries` row (`source: sweep`, kind `deposit`) — a
+  *record* of a move he makes himself in his bank's app. The
+  surface says, in words, that the app does not move money.
+
+### 9.4 Business finance ladder (vision §8) — guided order, owner state
+
+`business_ladder_steps` stores only state: (`company_id`,
+`step_key`) → `state` (`not_started` | `in_progress` | `done`) +
+optional `note`. The knowledge is static, in
+`src/lib/truck-fund.ts` — the six rungs in the vision's order,
+each with a one-line *what it is* and a *next action*:
+
+1. `ein` — EIN on file for the LLC.
+2. `business_bank` — a business bank account in the LLC's name,
+   separate from personal money.
+3. `duns` — DUNS number, with company details matching exactly
+   everywhere.
+4. `tradelines` — starter tradelines that report (vendor net-30,
+   a secured/starter business card).
+5. `paydex` — payment history feeding the Paydex score (80+ is
+   the conventional "good" zone; estimate/rule-of-thumb, labeled).
+6. `real_credit` — first real business credit line in the
+   company's name.
+
+The ladder *walks the boxes in order*: the view computes which
+rungs are unlocked (all previous rungs `done`). Marking a rung
+done ahead of an unfinished earlier rung is **allowed but
+flagged** ("out of order") rather than hard-blocked — he may
+already hold an EIN from before the app existed, and a checklist
+that refuses reality teaches nothing. No external calls; the
+⚠️ VERIFY items from the vision (vendor programs change, Paydex
+details) stay labeled as verify-before-relying in the copy.
+
+### 9.5 Plaid — the seam, and what live actually requires
+
+**Why a seam and not wiring:** live in-app Plaid needs *the
+app's own* Plaid developer credentials and a Link flow served by
+the app itself. The Plaid access King uses in chat is a separate
+connector pipe into the assistant's environment — the Fly-hosted
+app cannot call it, and pretending otherwise would be fake
+wiring. So v1 builds the read seam honestly:
+
+- `src/services/fund/account-visibility.ts` defines
+  `AccountVisibilityProvider` — one method, `listAccounts`,
+  returning account views shaped the way a Plaid `/accounts`
+  response would be normalized (institution, name, mask/last-4,
+  balance, lane) plus a `source` tag and an `as_of` date.
+- The v1 implementation, `ManualSnapshotAccountVisibility`,
+  reads `account_snapshots` — manual snapshots (institution,
+  account name, last-4, balance, lane, **as-of date**) entered by
+  the owner or by King. A snapshot is real data *as of its date*,
+  displayed with that date and a staleness label computed in
+  `lib/truck-fund.ts`: **current** (≤7 days), **aging** (≤30),
+  **stale** (>30 — "may be out of date," the same honesty the
+  Plaid connector itself applies to lagged balances). Nothing
+  anywhere calls a snapshot a live balance or a sync.
+
+**What a live build requires (the named follow-up):**
+
+1. His own Plaid developer account (dashboard.plaid.com) —
+   production access is an approval Plaid grants, not a signup
+   formality.
+2. `PLAID_CLIENT_ID` + `PLAID_SECRET` + `PLAID_ENV` as **Fly
+   secrets** (placeholders documented in `.env.example`; never
+   committed, never in the client bundle — secret is server-only).
+3. The Link flow: server creates a `link_token`
+   (`/link/token/create`), the app opens Plaid Link, the returned
+   `public_token` is exchanged server-side (`/item/public_token/
+   exchange`) for an `access_token` stored **server-side only**,
+   per company, never sent to the client.
+4. Products: **read-only only** — `transactions` and `auth`
+   (account/routing verification) plus balance reads via
+   `/accounts/balance/get`. The transfer/payment products are
+   never requested, keeping §9's law at the credential level,
+   not just the UI level.
+5. A token-refresh/webhook path (`ITEM_LOGIN_REQUIRED` →
+   re-link surface) and a new `plaid_items` table — its own
+   migration and design pass when the follow-up is authorized.
+
+### 9.6 Surfaces
+
+- API: `GET /api/v1/truck-fund` (aggregate tab state),
+  `PATCH /api/v1/truck-fund/settings`, standard CRUD at
+  `/api/v1/fund-entries` and `/api/v1/account-snapshots`,
+  `GET /api/v1/business-ladder` + `PATCH
+  /api/v1/business-ladder/{step_key}` (state upsert).
+- UI: Money → **Truck Fund** (`/money/truck-fund`), linked from
+  the Money index: Truck Fund progress + target picker, the
+  suggestion card with one-tap **Record it**, earned-this-week /
+  this-month, the two context buckets, account snapshots with
+  as-of labels, the ladder, and the fund log with an add-entry
+  form (fund, kind, dollars, date, lane, note).
 
 
 ## 10. Document scan + AI-readable documents (migration 00022)
