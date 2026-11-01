@@ -192,6 +192,84 @@ failures are the requirements here, named so they can't recur quietly:
   keyword matching visibly weak. Also outstanding: the task 5.1 RLS
   suite's table list needs `telegram_messages` + `bot_memories` too
   (recorded as task 7.6's scope).
+  **Update 2026-10-31:** that increment shipped as §8 below (branch
+  `bot-intelligence-v2`) — with two honest deltas from the sketch
+  above: the tools live in `services/bot/tools.ts` and query through
+  the shared bot store rather than the HTTP CRUD layer (same company
+  scope, no self-HTTP hop), and item (4), embeddings, remains
+  designed-only. Task 7.6's RLS coverage shipped with it.
+
+## 8. Bot intelligence v2 — agent loop + web chat (tasks 7.8/7.10, shipped on branch `bot-intelligence-v2`)
+
+Built 2026-10-31 under the owner's standing order ("whatever it
+takes to get this completely built"). This section is the spec for
+what §6 named as the next increment; §6's history stays as written.
+
+- **Agent loop (`src/services/ai/agent-loop.ts`).** The chat path is
+  no longer one completion per turn. The provider interface gains a
+  tool-calling turn (`runToolTurn` on `AgentCapableProvider`, §6's
+  provider pattern extended, not replaced — `complete()` is untouched
+  and dispatch/briefing behavior is unchanged). The loop is bounded
+  at **6 provider rounds**; every tool call is logged (name, access,
+  outcome) and exhaustion returns an honest "I ran out of steps"
+  reply instead of a fabricated completion. Guaranteed context is
+  unchanged and non-negotiable: history + snapshot + standing
+  instructions + retrieved memories are assembled in code and ride
+  every turn whether or not the model calls a tool.
+- **Grounding guard, now in code, not just prompt.** Dollar figures
+  in the final reply are extracted and checked against the grounding
+  corpus (the context blocks, the owner's own message, and this
+  turn's tool results). A figure that traces to none of them is
+  replaced by an honest refusal-to-quote reply. Tool errors surface
+  in the reply as errors — a failed query is said out loud, never
+  papered over with an invented number.
+- **Tools (`src/services/bot/tools.ts`).** Read tools act freely —
+  it is his data: `list_loads`, `hos_summary` (reuses `lib/hos.ts`),
+  `money_summary` (expenses/fuel totals, per-load expenses when a
+  load id is given — fuel is not load-linked in the schema and the
+  tool says so), `list_contacts`, `list_documents`,
+  `search_memories`, `search_dispatch_exchanges`. Write tools —
+  `create_expense`, `create_fuel_purchase`, `log_duty_status`,
+  `save_memory`, `add_load_note` — carry a required `confirmation`
+  argument with the owner's standing rule behind it: `execute` only
+  when the owner directly ordered the write in this message (it runs
+  immediately and confirms back with the real recorded result);
+  anything the bot itself proposes is `propose` — **not executed**.
+  A proposal is stored in `bot_pending_actions` and the reply asks
+  for his yes. A bare yes/no as his next message resolves the oldest
+  pending proposal in code (before any model call); proposals
+  **expire after 2 hours** so a stale "yes" can never write a
+  time-wrong duty log days later. Write arguments are Zod-validated
+  in the tool, not trusted from the model.
+- **Kill switch.** New capability `bot_chat` under the same
+  `ai_capability_settings` pattern, governed like the others:
+  global switch first, then per-capability, no row = off (fails
+  closed). With the capability off, conversational turns reply that
+  the assistant chat is turned off and where to enable it; dispatch
+  help, `remember:`/`instruction:` capture, and the v1 reduced mode
+  (no store configured) are unaffected. Note the behavior change
+  from v1, stated plainly: once this lands, the conversational bot
+  needs "Bot chat" enabled in More → Account & settings (the
+  Telegram store reads the same settings rows through its
+  service-role path — the §4 env-revocation boundary still exists
+  on top of this).
+- **One brain, two windows (`src/services/bot/store.ts`).** The
+  store is channel-parameterized (`telegram | web`) over one
+  Supabase client + company scope. `telegram_messages` gains a
+  `channel` column (migration `00015`; `chat_id` becomes nullable —
+  it is Telegram-only provenance) and history is loaded
+  **company-wide**: web and Telegram turns interleave in a single
+  timeline, each row tagged with its channel. There is no second
+  history, memory, or snapshot for the web surface to diverge into.
+  The web chat is `POST/GET /api/v1/assistant/chat` (owner session,
+  `createApiHandler`) + More → Assistant. On the web surface the
+  dispatch intent additionally honors the `dispatch_helper` kill
+  switch (the session exists there, unlike the webhook).
+- **Still not in this increment:** embeddings retrieval (keyword +
+  recency remains, per §6's sequencing); Smart Path (§7); the bot
+  reading or joining any group; a userbot. Migration `00016`
+  (`bot_pending_actions`) joins `00011`–`00015` as committed, **not
+  applied** — same owner step as before.
 
 ## 7. Future increments (designed, deliberately not built tonight)
 
@@ -403,10 +481,202 @@ network. Orchestration in `src/services/smart-path/route-check.ts`.
 
 Lane intelligence from load history (rate/mile by lane, deadhead,
 reload probability — §7/§9c); offline corridor tile caching;
-truck-legal route geometry (keyed provider); traffic; parking
-availability; storing appointment windows on loads; learning
-`avg_mpg` from fuel history; spoken Smart Path via the bot (§9g);
-the personal preference layer learned from Telegram (§9b.5).
+traffic; parking availability; storing appointment windows on
+loads; learning `avg_mpg` from fuel history; spoken Smart Path via
+the bot (§9g); the personal preference layer learned from Telegram
+(§9b.5). (Truck-legal route geometry was on this list in v1; §8.5
+is the increment that lands it.)
+
+### 8.5 Truck-legal routing (built 2026-10-31, Wave C follow-up — task 7.13)
+
+The owner ruled the v1 gap unacceptable and set the budget law for
+closing it: **free first — everything free; only if no free option
+exists, the cheapest possible.** Two free truck-aware stacks were
+evaluated against the `RoutingProvider` interface; both route on
+OpenStreetMap data and take the truck's real dimensions
+(height/width/length in meters, weight in metric tons):
+
+| | OpenRouteService `driving-hgv` | Valhalla `truck` costing (public endpoint) |
+|---|---|---|
+| Dimension/restriction support | `options.profile_params.restrictions` (length/width/height m, weight/axleload t, hazmat) under the HGV profile; HGV road-access filtering is in the routing graph itself | `costing_options.truck` (height/width/length m, weight t, axle_load, hazmat); truck costing checks truck access + height/width/weight limits |
+| Cost / free tier | Free Standard plan: **2,000 directions/day, 40/min**, published on the plans page; needs a free API key (`ORS_API_KEY`) | Keyless. Public FOSSGIS endpoint (`valhalla1.openstreetmap.de`) is a community demo service — fair use, **no published quota or SLA** |
+| Fit for this app | A handful of route checks/day is ~0.1% of the free quota; a hosted, maintained service (HeiGIT) is the one to depend on | Same dimension support, zero setup — but a demo endpoint is not a thing to build the primary path on |
+| Escape hatch | Open source — self-hostable later (same posture as ORS's own docs suggest past the free tier) | Open source — self-hostable later; `VALHALLA_URL` already points the client at any instance |
+
+**Choice: OpenRouteService is primary; Valhalla is the keyless
+fallback; OSRM car remains the last resort.** The chain
+(`defaultRoutingProvider()` in `src/services/integrations/routing.ts`)
+is: ORS (only when `ORS_API_KEY` is set) → Valhalla → OSRM. Route
+checks pass the load's truck profile (§8.2: `height_in`,
+`length_in`, `weight_lbs`, converted to meters/tons) into every
+truck-aware request. The profile has no width column, so width is
+never sent — the engines apply their HGV defaults; adding a width
+capture is a §8.2 schema change for a later increment, not an
+assumption to invent here.
+
+**What `truckLegal` means now — the honest version.** `RouteResult`
+carries `truckLegal` from the provider that actually served the
+route: `true` only when ORS-HGV or Valhalla-truck produced the
+geometry, `false` for OSRM. If the chain falls back to OSRM, the
+v1 car-route warning returns **verbatim** — a fallback never
+upgrades the claim silently. Even when `truckLegal` is `true`,
+the word has a boundary the UI states: the engines respect the
+restrictions **recorded in OpenStreetMap data** (maxheight /
+maxweight / maxwidth / hgv access tags). OSM's restriction
+coverage is incomplete, especially off the interstates — a road
+with no recorded limit is treated as passable. So: truck-checked
+against the map data that exists, **not** a guarantee, and the
+truck's own nav/ELD remains the final word. The response keeps a
+provider attribution (`route.provider`) and merges the chain's
+notes (e.g. "ORS not configured — skipped", "Valhalla
+unreachable — fell back") into `warnings`, so which engine
+answered, and what was skipped or degraded, is never hidden.
+
+**Config (`.env.example`):** `ORS_API_KEY` (server-only; absent =
+ORS skipped in the chain, noted in the result), `VALHALLA_URL`
+(optional; full route-endpoint URL, defaults to the public
+FOSSGIS endpoint). **Owner setup, once the free ORS key exists:**
+`fly secrets set ORS_API_KEY=<key> -a trucking` and redeploy —
+no code change; the key drops into the env the chain already
+reads. Until the key lands, Valhalla carries truck-legal routing
+keylessly, which is exactly why it is in the chain ahead of OSRM.
+
+**Failure posture is unchanged from v1:** every provider response
+is Zod-validated; a provider failure degrades to the next in the
+chain with a note; if the whole chain fails the endpoint returns
+the honest 502 — no geometry, distance, or duration is ever
+fabricated. Written from the providers' documented API shapes and
+fixture-tested, **not live-verified from this sandbox** (egress
+blocked, same caveat as §8.1/EIA) — verify after deploy.
+
+## 9. Agent omnipresence — full tool coverage + dump intake (task 7.12, stacked on §8)
+
+Owner's requirement, 2026-10-31: the agent must know everything it
+needs to know and have the tools to interact with and do ANYTHING
+based on a conversation — it can fill in ANY of the app's tabs on
+its own, from conversation and from info/document dumps he hands
+it. §8 shipped 7 read + 5 write tools; that is partial coverage of
+the schema in `docs/schemas.md`. This section closes the gap. All
+§8 invariants carry over unchanged: guaranteed code-assembled
+context, the grounding guard, tool-call logging, the `bot_chat`
+kill switch, one shared brain across Telegram and web, and the
+standing write rule (his direct imperative executes and confirms;
+anything the bot proposes waits for his yes; proposals expire
+after 2 hours).
+
+- **Full read coverage.** Every business entity in
+  `docs/schemas.md` is queryable in conversation: loads, expenses
+  (line items, not just §8's totals), fuel purchases, brokers,
+  customers, drivers (detail incl. assigned truck; CDL reported as
+  on-file yes/no, never quoted in chat), trucks, trailers,
+  pretrip inspections (incl. pass/fail and defects), equipment
+  checklist items, maintenance events, maintenance schedules
+  (with due status computed by `lib/maintenance-schedule.ts`),
+  duty logs (raw entries alongside §8's HOS summary), documents
+  (metadata **and content** — see the extracted-text contract
+  below), bot memories, dispatch exchanges, and industry
+  briefings (read-only; generation stays with that capability's
+  own scheduler). There is **no invoices/settlements table** in
+  the schema — settlements exist as documents and as load rates;
+  the agent says so rather than inventing a ledger.
+- **Full write coverage.** Create + update tools for loads
+  (including status changes), expenses, fuel purchases, brokers,
+  customers, drivers, trucks, trailers, maintenance events,
+  maintenance schedules (incl. mark-done), checklist items (incl.
+  mark-checked), pretrip inspections (logging a completed
+  inspection), duty entries (§8's `log_duty_status` gains explicit
+  start time/odometer/load), document attach-to-load (re-pointing
+  a document's related entity — the file itself still arrives via
+  More → Documents), and §8's memory/note tools. Bot-facing
+  arguments use driver units (dollars, not cents) exactly as §8
+  established; before any insert/update runs, the built row is
+  validated against the **same Zod schemas the UI/API use**
+  (`src/data/schemas/*`) — the tool layer may translate units, it
+  may not weaken validation.
+- **Deletes always confirm.** One `delete_record` tool (soft
+  delete, per the global convention; `documents` excluded — that
+  table hard-deletes by design and the bot does not delete files).
+  The loop gains an `alwaysPropose` tool flag: a delete is staged
+  as a proposal **even when the owner orders it directly** —
+  `confirmation: "execute"` cannot run it. His yes (the §8 code
+  path) is the only execution route. Destructive is the one place
+  the direct-imperative rule does not apply, by design.
+- **Dump intake (the centerpiece).** A dump is any message
+  carrying several recordable facts at once — a forwarded dispatch
+  thread, a rate con pasted as text, a settlement, a brain-dump
+  paragraph. The model extracts candidates and calls ONE staging
+  tool, `stage_dump_items`, carrying every item in a single call:
+  `{ tool_name, args, source_quote, confidence }` per item.
+  Staging never writes (dumps are agent-proposed by definition,
+  even if he says "record all that"). Before anything is stored,
+  **code validates every item** (`services/bot/dump-intake.ts`):
+  (1) the target is a real write tool and its args pass that
+  tool's Zod validation; (2) `source_quote` is a verbatim span of
+  his message; (3) numeric grounding — every number in the item's
+  values (amounts, codes like a gate code, counts) must appear in
+  his message text; a value that appears nowhere is **rejected**,
+  named in the reply with its reason, and never staged. Unknown
+  fields stay absent — the model is instructed to omit, never
+  guess, and updates must reference records it actually read
+  (ids come from read tools, not from the dump). Accepted items
+  are stored as individual `bot_pending_actions` rows sharing a
+  `batch_id` with stable item numbers (migration `00021`), and
+  the reply is ONE consolidated, numbered proposal: each item in
+  plain words with its values, its source quote, and its
+  confidence. His replies, resolved **in code** before any model
+  call: a plain yes / "approve all" executes every item in order;
+  "approve 1, 3" executes exactly those and leaves the rest
+  pending under their original numbers; "drop the rest" / a plain
+  no clears what remains; a correction ("3 is wrong, it's 4417")
+  goes to the model with the batch in context and one job — call
+  `revise_pending_item`, which re-validates the patched args
+  against the target tool's schema, re-summarizes, and updates
+  the stored proposal (a revision writes nothing to the books;
+  only his later yes does). The 2-hour expiry applies to the
+  batch as a whole. **Step budget:** the §8 6-step cap is NOT
+  raised. A dump turn spends its steps as: optional read calls to
+  resolve referenced records → one `stage_dump_items` call → the
+  closing text. The staging call carries all items at once
+  precisely so extraction never needs a step per record.
+- **Documents: the extracted-text contract.** The document-scan
+  work (its own branch) adds OCR text to documents. The agreed
+  field is **`documents.extracted_text`** (nullable text; null =
+  not yet extracted). This branch codes against that name with
+  graceful absence: document tools first try selecting it, and on
+  a missing-column error retry without it and say plainly that no
+  extracted text is available yet — so the agent answers questions
+  about a document's content the moment the scan branch lands,
+  and degrades honestly before it. (Found while building this:
+  §8's `list_documents` filtered on `documents.deleted_at`, a
+  column that table does not have — documents hard-delete by
+  design, `docs/schemas.md`. Fixed here; document tools never
+  filter on it.)
+- **Truck profile: the Smart Path contract.** The truck profile
+  fields (migration `00017`, Smart Path branch: `height_in`,
+  `length_in`, `weight_lbs`, `governed_speed_mph`,
+  `tank_capacity_gallons`, `avg_mpg`, `appliances text[]`,
+  `appliance_notes`) are read/written by the truck tools under
+  the same graceful-absence rule as extracted text: this branch
+  stacks on §8, where `00017` does not exist yet, so until both
+  branches are merged and the migration applied, profile reads
+  report "not captured yet" and profile writes surface the
+  missing-column error honestly instead of pretending to save.
+- **Deliberately not covered.** `companies` / `user_profiles`
+  (identity, not business records), `ai_capability_settings`
+  (the agent never touches its own kill switches — Settings is
+  the only hand on those), briefing generation, and document
+  file upload from chat: on the web surface a dump is pasted
+  text (files go through More → Documents, then the agent reads
+  them back via the document tools); on Telegram a photo's
+  extracted text reaches the agent the same way once the scan
+  branch lands. Dump intake is otherwise identical on both
+  channels — same staging, same validation, same batch grammar.
+- **Migration `00021`** adds the batch columns to
+  `bot_pending_actions` (`batch_id`, `item_number`,
+  `source_quote`, `confidence` — all nullable; single §8
+  proposals are untouched). The store reads them with the same
+  graceful-absence fallback, so §8 behavior survives even before
+  `00021` is applied; batching activates when the columns exist.
 
 ## 9. Truck Fund + money visibility (Wave D — vision doc §2 + §8)
 

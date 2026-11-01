@@ -1,10 +1,13 @@
 "use client";
 
-// Task 3.8 (TASKS.md). Same pattern as money/expenses/page.tsx.
+// Task 3.8 (TASKS.md), UI/UX upgrade: same treatment as Expenses -
+// purpose header, teaching empty state, amount-led rows with the
+// per-gallon truth visible.
 
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
+import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { FuelPurchase } from "@/types/entities";
 
@@ -14,24 +17,37 @@ export default function FuelPurchasesListPage() {
 
   return (
     <div>
-      <h1>Fuel purchases</h1>
-      <Link href="/money/fuel-purchases/new">Add fuel purchase</Link>
+      <PageHeader
+        title="Fuel purchases"
+        purpose="Every fuel stop — fuel is your biggest rolling cost, and Smart Path ranks stops from this history."
+        action={
+          <Link href="/money/fuel-purchases/new" className="page-action">
+            Log fuel
+          </Link>
+        }
+      />
 
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
-        <ListEmpty
-          message="No fuel purchases yet — add your first one."
-          action={<Link href="/money/fuel-purchases/new">Add fuel purchase</Link>}
+        <TeachingEmpty
+          title="No fuel purchases yet"
+          message="Log each stop: gallons, total, where. This history is what your cost-per-mile and Smart Path's fuel picks are computed from."
+          action={<Link href="/money/fuel-purchases/new">Log your first fuel stop</Link>}
         />
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (
         <ul>
           {state.result.data.map((purchase) => (
             <li key={purchase.id}>
-              {purchase.purchased_at} — {purchase.gallons} gal — $
-              {(purchase.total_cost_cents / 100).toFixed(2)}
-              {purchase.location && ` at ${purchase.location}`}
+              <span className="row-title">
+                ${(purchase.total_cost_cents / 100).toFixed(2)} — {purchase.gallons} gal
+                {purchase.location ? ` at ${purchase.location}` : ""}
+              </span>
+              <span className="row-sub">
+                {new Date(purchase.purchased_at).toLocaleDateString()} · $
+                {(purchase.price_per_gallon_cents / 100).toFixed(2)}/gal
+              </span>
             </li>
           ))}
         </ul>

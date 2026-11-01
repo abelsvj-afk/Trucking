@@ -5,6 +5,7 @@
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
+import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 
 export interface ApiErrorBody {
@@ -114,4 +115,26 @@ export const apiClient = {
     request<T>(`/api/v1/industry-briefings/${id}/dismiss`, { method: "POST" }),
   listIndustryBriefings: <T>() =>
     request<{ data: T[]; service_status: ServiceStatus }>("/api/v1/industry-briefings"),
+  // Bot intelligence v2 (docs/design/driver-mvp.md §8): the web chat
+  // window onto the same bot brain as Telegram - one shared timeline.
+  assistantHistory: () =>
+    request<{ data: { role: "user" | "assistant"; text: string }[]; pending_summary: string | null }>(
+      "/api/v1/assistant/chat",
+    ),
+  assistantChat: (message: string) =>
+    request<{ reply: string; pending_summary: string | null }>("/api/v1/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+  // Deep Research Engine (docs/design/research-engine.md).
+  listResearchBriefings: () => request<ResearchPageData>("/api/v1/research-briefings"),
+  markResearchBriefingRead: (id: string) =>
+    request<ResearchBriefing>(`/api/v1/research-briefings/${id}/read`, { method: "POST" }),
+  dismissResearchBriefing: (id: string) =>
+    request<ResearchBriefing>(`/api/v1/research-briefings/${id}/dismiss`, { method: "POST" }),
+  researchNow: (topic: string) =>
+    request<ResearchRun>("/api/v1/research-briefings/research-now", {
+      method: "POST",
+      body: JSON.stringify({ topic }),
+    }),
 };

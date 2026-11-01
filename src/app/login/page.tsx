@@ -86,6 +86,9 @@ export default function LoginPage() {
   return (
     <main>
       <h1>Sign in</h1>
+      <p className="page-purpose">
+        Your loads, hours, money, and the assistant — sign in to pick up where you left off.
+      </p>
       <form onSubmit={handleSubmit}>
         <label htmlFor="email">Email</label>
         <input

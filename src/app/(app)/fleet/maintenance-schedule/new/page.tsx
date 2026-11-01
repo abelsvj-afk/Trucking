@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { MaintenanceSchedule, Truck, Trailer } from "@/types/entities";
 
 export default function NewMaintenanceSchedulePage() {
@@ -55,7 +56,7 @@ export default function NewMaintenanceSchedulePage() {
 
   return (
     <div>
-      <h1>Add schedule item</h1>
+      <PageHeader title="Add schedule item" purpose="Work that repeats — set the interval once and this watches miles and days for you." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="vehicle_type">Vehicle type</label>
         <select

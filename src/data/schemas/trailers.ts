@@ -7,6 +7,8 @@ export const createTrailerSchema = z.object({
   vin: z.string().optional(),
   trailer_type: z.string().optional(),
   status: trailerStatusSchema.optional(),
+  // The documents row holding this trailer's photo (migration 00027).
+  photo_document_id: z.string().uuid().nullable().optional(),
 });
 
 export const updateTrailerSchema = createTrailerSchema.partial();

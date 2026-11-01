@@ -17,6 +17,7 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import { formatEastern, formatMinutes } from "@/lib/smart-path";
 import type { SmartPathMapStop } from "@/components/SmartPathMap";
 import type { Load } from "@/types/entities";
@@ -179,7 +180,7 @@ function SmartPathInner() {
 
   return (
     <div>
-      <h1>Smart Path</h1>
+      <PageHeader title="Smart Path" purpose="One route, checked three ways — legal first (your hours), rested second, paid third — with fuel and food that fit the truck." />
       <p>
         One plan for the whole run — legal first, rested second, paid third. Times are Eastern.
         Plan while you&apos;re parked; on the road, the bot speaks the plan.
@@ -277,6 +278,12 @@ function SmartPathInner() {
             {Math.round(result.route.distanceMiles)} miles · drive time planned at{" "}
             {formatMinutes(result.verdict.assumedDriveMinutes)} ({result.verdict.driveTimeBasis})
             {result.plan?.arrivalAt && <> · arrival {formatEastern(new Date(result.plan.arrivalAt))}</>}
+          </p>
+          <p>
+            Route by {result.route.provider} —{" "}
+            {result.route.truckLegal
+              ? "truck-checked against the height/weight limits and truck-prohibited roads recorded in the map data (coverage is incomplete; the truck's own nav/ELD is the final word)."
+              : "a standard car route, NOT checked against truck restrictions — see “Before you roll” below."}
           </p>
 
           <h3>Legal</h3>

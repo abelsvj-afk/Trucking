@@ -14,7 +14,7 @@
 // caught by testing trucks alone. This file now exercises every
 // tenant-scoped table individually instead of trusting the pattern.
 //
-// Requires a real (or local) Supabase project with migrations 00001-00009
+// Requires a real (or local) Supabase project with migrations 00001-00016
 // applied - this cannot run until Task 1.2 is done (see PROJECT_STATE.md)
 // and SUPABASE_URL / a service-role key are available as env vars. It
 // skips itself with a clear message rather than failing confusingly when
@@ -105,6 +105,8 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
     // failed run doesn't leave test data behind. Order matters (children
     // before parents) since several tables reference trucks/companies.
     const tables = [
+      "research_briefings",
+      "research_runs",
       "expenses",
       "fuel_purchases",
       "maintenance_events",
@@ -117,6 +119,11 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
       "industry_briefings",
       "industry_briefing_runs",
       "ai_capability_settings",
+      "duty_logs",
+      "dispatch_exchanges",
+      "telegram_messages",
+      "bot_memories",
+      "bot_pending_actions",
       "drivers",
       "trailers",
       "customers",
@@ -204,6 +211,40 @@ describe.skipIf(!canRun)("RLS tenant isolation", () => {
     company_id: companyId,
     capability: "industry_intelligence",
     enabled: false,
+  }));
+  // Driver MVP tables (migrations 00011-00016, docs/design/driver-mvp.md
+  // §§3/5/6/8 - task 7.6's leftover coverage, completed with v2). The
+  // bot itself writes these through the service role, but the owner's
+  // session must still be tenant-isolated on them like every other
+  // table - that is exactly what this suite exists to prove.
+  testStandardTable("duty_logs", (companyId) => ({
+    company_id: companyId,
+    duty_status: "on_duty",
+    started_at: "2026-08-21T08:00:00Z",
+  }));
+  testStandardTable("dispatch_exchanges", (companyId) => ({
+    company_id: companyId,
+    incoming_message: "Test dispatch message",
+    source: "telegram",
+  }));
+  testStandardTable("telegram_messages", (companyId) => ({
+    company_id: companyId,
+    chat_id: 4242,
+    role: "user",
+    text: "Test message",
+  }));
+  testStandardTable("bot_memories", (companyId) => ({
+    company_id: companyId,
+    kind: "fact",
+    content: "Test memory",
+    source: "telegram",
+  }));
+  testStandardTable("bot_pending_actions", (companyId) => ({
+    company_id: companyId,
+    channel: "telegram",
+    tool_name: "create_expense",
+    arguments: { category: "other", amount_dollars: 10 },
+    summary: "Expense: $10.00 (other)",
   }));
   // Truck Fund tables (migration 00023, docs/design/driver-mvp.md §9).
   testStandardTable("fund_entries", (companyId) => ({

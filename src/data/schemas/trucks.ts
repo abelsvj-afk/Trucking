@@ -35,6 +35,14 @@ export const createTruckSchema = z.object({
   year: z.number().int().optional(),
   status: truckStatusSchema.optional(),
   current_mileage: z.number().int().nonnegative("current_mileage must not be negative.").optional(),
+  // UI/UX upgrade (migration 00027): what kind of truck this is. Free
+  // text, same precedent as trailers.trailer_type - the UI offers a
+  // picklist (sleeper_semi, day_cab_semi, box_truck, straight_truck,
+  // hotshot) and stores the owner's own words for anything else.
+  truck_type: z.string().min(1).max(60).optional(),
+  // The documents row holding this truck's photo (migration 00027) -
+  // the file itself rides the documents storage pipeline.
+  photo_document_id: z.string().uuid().nullable().optional(),
   // Truck profile (migration 00017) - all optional until captured.
   height_in: z.number().int().positive("height_in must be positive.").optional(),
   length_in: z.number().int().positive("length_in must be positive.").optional(),

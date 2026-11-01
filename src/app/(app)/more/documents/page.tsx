@@ -7,10 +7,12 @@
 // usePickerList hook every relationship dropdown already uses), see and
 // manage that record's documents.
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
+import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import type {
   Driver,
@@ -43,9 +45,24 @@ function labelFor(entityType: RelatedEntityType, record: Truck | Trailer | Drive
 }
 
 export default function DocumentsPage() {
+  return (
+    <Suspense fallback={<p>Loading documents…</p>}>
+      <DocumentsInner />
+    </Suspense>
+  );
+}
+
+function DocumentsInner() {
   usePageTitle("Documents");
-  const [entityType, setEntityType] = useState<RelatedEntityType>("truck");
-  const [entityId, setEntityId] = useState("");
+  // UI/UX upgrade: detail screens (a truck, a driver, a load) link
+  // straight here with the record preselected - the params only set
+  // the INITIAL picker state; the pickers stay fully usable after.
+  const searchParams = useSearchParams();
+  const paramType = searchParams.get("related_entity_type");
+  const initialType: RelatedEntityType =
+    paramType === "trailer" || paramType === "driver" || paramType === "load" ? paramType : "truck";
+  const [entityType, setEntityType] = useState<RelatedEntityType>(initialType);
+  const [entityId, setEntityId] = useState(() => searchParams.get("related_entity_id") ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -125,7 +142,10 @@ export default function DocumentsPage() {
 
   return (
     <div>
-      <h1>Documents</h1>
+      <PageHeader
+        title="Documents"
+        purpose="Paperwork and photos, filed against the truck, trailer, driver, or load they belong to — BOLs, permits, registrations, receipts. The assistant can read these."
+      />
 
       <label htmlFor="entity_type">Type</label>
       <select
@@ -178,7 +198,10 @@ export default function DocumentsPage() {
         <ListError message={docsState.message} onRetry={fetchDocuments} />
       )}
       {entityId && docsState.status === "loaded" && docsState.documents.length === 0 && (
-        <ListEmpty message="No documents yet for this record." />
+        <TeachingEmpty
+          title="Nothing filed here yet"
+          message="Upload the first document for this record above — a BOL photo, a permit scan, a registration. Filed here, the assistant can find and read it later."
+        />
       )}
       {entityId && docsState.status === "loaded" && docsState.documents.length > 0 && (
         <ul>

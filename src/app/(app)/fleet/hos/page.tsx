@@ -6,8 +6,9 @@
 
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import { summarizeHos } from "@/lib/hos";
 import type { DutyLog } from "@/types/entities";
 
@@ -31,7 +32,10 @@ export default function HosPage() {
 
   return (
     <div>
-      <h1>Hours of service</h1>
+      <PageHeader
+        title="Hours of service"
+        purpose="Track your hours so you never run illegal — every status change you log, turned into what's left today and this week."
+      />
       <p>
         <strong>Paper-log helper, not an ELD.</strong> These numbers come
         from what you log here by hand. The truck&apos;s ELD (or your
@@ -60,9 +64,10 @@ export default function HosPage() {
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
-        <ListEmpty
-          message="No duty statuses logged yet - log your first one."
-          action={<Link href="/fleet/hos/new">Log duty status</Link>}
+        <TeachingEmpty
+          title="No duty statuses logged yet"
+          message="Tap Log duty status each time your status changes — off duty, sleeper, driving, on duty. From those taps this screen computes your 11-hour drive limit, 14-hour window, 8-hour break, and 70-hour week, and warns you before you run past one."
+          action={<Link href="/fleet/hos/new">Log your first status</Link>}
         />
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (

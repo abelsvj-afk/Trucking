@@ -21,11 +21,14 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { createClient } from "@/services/db/client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { AiSettings } from "@/types/ai-settings";
 
 const CAPABILITY_LABELS: Record<string, string> = {
   industry_intelligence: "Industry intelligence briefings",
   dispatch_helper: "Dispatch helper (translation + reply drafts)",
+  bot_chat: "Bot chat (Telegram + web assistant)",
+  deep_research: "Deep research engine (watches fuel, rules & news; briefs you when pressure hits)",
 };
 
 type SettingsState =
@@ -91,7 +94,7 @@ export default function AccountSettingsPage() {
 
   return (
     <div>
-      <h1>Account &amp; settings</h1>
+      <PageHeader title="Account & settings" purpose="Your account — and the switches that decide what the AI is allowed to do. Everything AI starts OFF until you turn it on here." />
 
       <section aria-label="Sign out">
         <button type="button" onClick={handleSignOut} disabled={signingOut}>
