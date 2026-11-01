@@ -14,12 +14,15 @@ import type { DispatchSuggestion } from "@/services/ai/dispatch";
 import type { TelegramStore } from "@/services/telegram/store";
 
 const SUGGESTION: DispatchSuggestion = {
-  translation_en: "Arrive at 6.",
-  whats_being_asked: "Arrival time.",
   likely_sender_role: "dispatcher",
   sender_reasoning: "Assigns a time.",
-  suggested_reply_en: "Understood.",
-  suggested_reply_es: "Entendido.",
+  whats_being_asked: "Arrival time.",
+  meaning_notes: null,
+  translation_en: "Arrive at 6.",
+  suggested_reply: "Entendido.",
+  suggested_reply_language: "es",
+  recordable_items: [],
+  source_language: "es",
 };
 
 function deps(store: TelegramStore | null = null): TelegramDeps & {
@@ -147,6 +150,99 @@ describe("handleTelegramUpdate", () => {
     expect(result).toBe("replied");
     expect(d.getSuggestion).toHaveBeenCalled();
     expect(d.runChat).not.toHaveBeenCalled();
+  });
+
+  it("shows no Translation section when the gate stripped it (English forward)", async () => {
+    const englishSuggestion: DispatchSuggestion = {
+      ...SUGGESTION,
+      source_language: "en",
+      translation_en: null,
+      meaning_notes: "'Be at the dock' = arrive at the dock.",
+      suggested_reply: "I'll be there at 6.",
+      suggested_reply_language: "en",
+    };
+    const d = deps();
+    d.getSuggestion.mockResolvedValue(englishSuggestion);
+    const result = await handleTelegramUpdate(
+      { message: { chat: { id: 4242, type: "private" }, text: "Be at the dock at 6", forward_date: 123 } },
+      CONFIG,
+      d,
+    );
+    expect(result).toBe("replied");
+    const sent = d.sendMessage.mock.calls[0]?.[1] as string;
+    expect(sent).not.toContain("Translation:");
+    expect(sent).toContain("What they mean:");
+    expect(sent).toContain("Suggested reply (English):");
+    expect(sent).not.toContain("Suggested reply (Spanish):");
+  });
+
+  it("stages recordables spotted in a forward as a propose->yes batch (§11)", async () => {
+    const withItems: DispatchSuggestion = {
+      ...SUGGESTION,
+      recordable_items: [
+        {
+          tool_name: "create_load",
+          args: { origin: "Savannah, GA", destination: "Atlanta, GA" },
+          source_quote: "carga para Atlanta",
+          confidence: "high",
+        },
+      ],
+    };
+    const d = deps();
+    d.getSuggestion.mockResolvedValue(withItems);
+    const stageRecordables = vi.fn().mockResolvedValue({
+      proposals: [
+        {
+          tool: "create_load",
+          args: { origin: "Savannah, GA", destination: "Atlanta, GA" },
+          summary: "Load: Savannah, GA → Atlanta, GA",
+          batchId: "batch-1",
+          sourceQuote: "carga para Atlanta",
+          confidence: "high",
+        },
+      ],
+      rejected: [],
+      blockedByPending: false,
+    });
+    const result = await handleTelegramUpdate(
+      { message: { chat: { id: 4242, type: "private" }, text: "Tengo una carga para Atlanta", forward_date: 123 } },
+      CONFIG,
+      { ...d, stageRecordables },
+    );
+    expect(result).toBe("replied");
+    expect(stageRecordables).toHaveBeenCalledTimes(1);
+    const sent = d.sendMessage.mock.calls[0]?.[1] as string;
+    expect(sent).toContain("I have NOT recorded any of this yet");
+    expect(sent).toContain("Load: Savannah, GA → Atlanta, GA");
+  });
+
+  it("says to settle the waiting proposal when staging is blocked by one", async () => {
+    const withItems: DispatchSuggestion = {
+      ...SUGGESTION,
+      recordable_items: [
+        {
+          tool_name: "create_load",
+          args: { origin: "Savannah, GA", destination: "Atlanta, GA" },
+          source_quote: "carga para Atlanta",
+          confidence: "high",
+        },
+      ],
+    };
+    const d = deps();
+    d.getSuggestion.mockResolvedValue(withItems);
+    const stageRecordables = vi.fn().mockResolvedValue({
+      proposals: [],
+      rejected: [],
+      blockedByPending: true,
+    });
+    await handleTelegramUpdate(
+      { message: { chat: { id: 4242, type: "private" }, text: "Tengo una carga para Atlanta", forward_date: 123 } },
+      CONFIG,
+      { ...d, stageRecordables },
+    );
+    const sent = d.sendMessage.mock.calls[0]?.[1] as string;
+    expect(sent).toContain("another proposal is still waiting");
+    expect(sent).not.toContain("I have NOT recorded any of this yet");
   });
 
   it("captures a 'remember:' dictation without calling any AI", async () => {
