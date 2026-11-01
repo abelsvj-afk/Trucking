@@ -53,6 +53,38 @@ describe("OpenAiProvider", () => {
     );
   });
 
+  it("completeWithImage sends the image as a data-URI part and returns the content", async () => {
+    createMock.mockResolvedValue({ choices: [{ message: { content: '{"doc_type":"bol"}' } }] });
+    const provider = new OpenAiProvider();
+
+    const result = await provider.completeWithImage({
+      system: "sys",
+      user: "read this",
+      imageBase64: "aGVsbG8=",
+      mediaType: "image/png",
+    });
+
+    expect(result).toBe('{"doc_type":"bol"}');
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "system", content: "sys" },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "read this" },
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,aGVsbG8=", detail: "high" },
+              },
+            ],
+          },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    );
+  });
+
   it("uses OPENAI_MODEL when set, falling back to the default otherwise", async () => {
     createMock.mockResolvedValue({ choices: [{ message: { content: "{}" } }] });
     process.env.OPENAI_MODEL = "gpt-test-model";

@@ -3,6 +3,7 @@ import { INDUSTRY_INTELLIGENCE_CAPABILITY } from "@/services/ai/run-industry-bri
 import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
 import { DEEP_RESEARCH_CAPABILITY } from "@/services/research/run-research";
+import { DOCUMENT_EXTRACTION_CAPABILITY } from "@/services/ai/document-extraction";
 
 // Every capability that has a kill switch (docs/governance.md). Extend
 // this as each new capability is built - an unknown capability name in a
@@ -13,6 +14,7 @@ export const KNOWN_CAPABILITIES = [
   DISPATCH_HELPER_CAPABILITY,
   BOT_CHAT_CAPABILITY,
   DEEP_RESEARCH_CAPABILITY,
+  DOCUMENT_EXTRACTION_CAPABILITY,
 ] as const;
 
 export const aiSettingsPatchSchema = z.object({
