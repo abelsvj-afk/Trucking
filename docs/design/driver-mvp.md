@@ -1098,6 +1098,79 @@ existing brain (no new tables except the memory-kind widening):
   applies as everywhere: figures in the reply trace to the tool's
   output.
 
+## 13. Abel intake & routing — photos in, route checks out (branch `abel-intake-routing`, stacked on §11/§12)
+
+Two gaps between the chat surface and the rest of the app, closed
+on the same propose/ground discipline as everything above:
+
+- **Telegram photo → document intake** (`services/telegram/photo-intake.ts`):
+  a photo sent to the private bot is filed as a document — "snap a
+  picture, send it, done." Gating is unchanged and runs first
+  (token, webhook secret, private chat, allowlist, bootstrap runs
+  nothing); only then is a photo handled, entirely before any AI
+  path. The largest rendition Telegram offers is downloaded via the
+  Bot API (`getFile` → file bytes), size-checked against the
+  documents cap at three points (declared size, `getFile` size,
+  actual bytes), and stored through the **shared documents
+  pipeline** (`services/documents/store-document.ts`) — the web
+  upload route was refactored onto the same helper, so both doors
+  enforce the same bucket, `{company_id}/{uuid}-{file_name}` path
+  convention, size cap, content-type allowlist, and no-orphan
+  cleanup. The row is filed under the company itself
+  (`related_entity_type "company"`, `related_entity_id` = the
+  company id — the documents table's text column carries no check
+  constraint; the picklist enum governs the web form only): a photo
+  off the dock doesn't know which load it belongs to, and guessing
+  an attachment would file it wrong. He can re-file it from
+  More → Documents; the agent's document tools list by company, so
+  Abel finds and reads it either way. Failures are honest replies
+  that stored nothing (oversize, Telegram download failure, store
+  failure — the pipeline's cleanup covers the insert-failure case).
+  The turn persists to the shared timeline as `[photo]` (+ caption).
+- **Extraction: a seam on the branch, wired at the union**
+  (`services/documents/extraction-hook.ts` + the processor
+  invocation in `photo-intake.ts`): on the intake branch, document
+  scan + extraction lived on the document-scan branch (§10) and
+  none of its code was copied; the branch carried only the read
+  side of the agreed contract — the `document_extraction`
+  capability row (no row = off, fails closed) and, when on, the
+  document row's `doc_type` / `extracted_text` / `extraction_status`
+  (migration 00022, already applied live). The reply states the
+  state plainly — off is said as off; done quotes the doc type and
+  the text's opening; pending is called pending. **The merge-time
+  wiring landed in the intake merge prep:** photo-intake now
+  invokes that same processor (`processUploadedDocument`, the web
+  upload's own entry point) for Telegram-stored rows whenever the
+  extraction gate — the processor's own check: capability on and
+  not globally disabled — is open, so a Telegram photo gets the
+  scan rendition + extraction exactly like a web upload. Gate
+  closed, the photo is stored plainly and no processing runs.
+- **Route check as an agent tool** (`services/bot/route-check-tool.ts`):
+  `check_route`, a read tool wrapping the Smart Path engine
+  (`services/smart-path/route-check.ts`) — the same computation as
+  the Smart Path page, so chat and page can never disagree. The
+  engine is **load-based by design (§8.3)**: origin, destination,
+  the truck profile, and the live duty clocks come from his
+  records, never from free-typed parameters, so the tool's inputs
+  are the engine's own contract — `load_id` (from `list_loads`),
+  optional `depart_at`, pickup/delivery appointment windows,
+  `food_mode`, `gallons_to_buy` — Zod-validated with the endpoint's
+  own window schema. The result text is the engine's response
+  formatted, never re-derived: verdict (ON TIME / EARLY / LATE /
+  NOT LEGAL), leave-by, the breaks/rests it inserted, engine +
+  truckLegal flag, fuel/food notes, and its warnings verbatim — all
+  grounding for the loop's guard. The forwarded-load flow this
+  serves: forward → the load is recorded (his order or an approved
+  dump) → Abel proposes/runs the check → verdict in plain words. A
+  check on an unrecorded load does not exist, and the tool says so
+  via the engine's own not-found error. Because the Telegram
+  surface's client is service-role (RLS does not scope it), the
+  engine gained an optional `companyId` parameter that filters
+  every read in code; the web endpoint's call is unchanged
+  (null = RLS-only, as before). No new migration, no new
+  capability, no webhook change — photo messages already arrive
+  under the registered `["message"]` updates.
+
 ## Out of scope for this pass
 
 Certified ELD anything; the bot joining or reading any group; a

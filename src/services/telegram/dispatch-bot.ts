@@ -37,6 +37,7 @@ import {
   type BotMemoryRow,
 } from "./context";
 import type { TelegramStore } from "./store";
+import type { TelegramPhotoSize } from "./photo-intake";
 
 export interface TelegramConfig {
   botToken: string | null;
@@ -58,6 +59,9 @@ export interface TelegramUpdate {
   message?: {
     chat?: { id?: number; type?: string };
     text?: string;
+    /** §13: a photo message carries renditions instead of text (plus an optional caption). */
+    photo?: TelegramPhotoSize[];
+    caption?: string;
     forward_origin?: unknown;
     forward_from?: unknown;
     forward_date?: number;
@@ -87,6 +91,17 @@ export interface TelegramDeps {
     userText: string,
     items: unknown,
   ) => Promise<StageRecordablesResult>;
+  /**
+   * §13: stores a photo message through the documents pipeline and
+   * returns the plain-words reply (what was stored, extraction
+   * state). Wired only when the brain store exists; absent = the
+   * bot says honestly that photo filing isn't configured and stores
+   * nothing.
+   */
+  handlePhoto?: (
+    photo: TelegramPhotoSize[],
+    caption: string | undefined,
+  ) => Promise<string>;
   /** Null = reduced mode (no history/snapshot/memory). */
   store?: TelegramStore | null;
 }
@@ -98,6 +113,7 @@ export type TelegramHandleResult =
   | "ignored_not_allowlisted"
   | "bootstrap_replied"
   | "no_text_replied"
+  | "photo_replied"
   | "replied"
   | "remembered"
   | "instruction_saved"
@@ -160,11 +176,45 @@ export async function handleTelegramUpdate(
     return "bootstrap_replied";
   }
 
+  // §13: a photo message is document intake, not conversation — it
+  // runs before the text paths (a photo's caption is a note on the
+  // document, never a message to answer). Same gating as everything
+  // else: this point is only reached by the allowlisted private
+  // chat, after the bootstrap check.
+  const photo = update.message?.photo;
+  if (photo && photo.length > 0) {
+    const caption = update.message?.caption?.trim() || undefined;
+    let reply: string;
+    if (deps.handlePhoto) {
+      try {
+        reply = await deps.handlePhoto(photo, caption);
+      } catch (err) {
+        console.error("[telegram] photo intake failed", err);
+        reply =
+          "I got your photo but something went wrong storing it — nothing was saved. Try sending it again.";
+      }
+    } else {
+      reply =
+        "I got your photo, but photo filing isn't configured on the server yet (it needs the bot's company setup), so I couldn't store it. For now, upload it from More → Documents in the app.";
+    }
+    await deps.sendMessage(chat.id, reply);
+    const storeForPhoto = deps.store ?? null;
+    if (storeForPhoto) {
+      try {
+        await storeForPhoto.saveMessage(chatId, "user", caption ? `[photo] ${caption}` : "[photo]");
+        await storeForPhoto.saveMessage(chatId, "assistant", reply);
+      } catch (err) {
+        console.error("[telegram] failed to persist photo turn", err);
+      }
+    }
+    return "photo_replied";
+  }
+
   const text = update.message?.text?.trim();
   if (!text) {
     await deps.sendMessage(
       chat.id,
-      "I can only work with text for now - paste or forward the dispatch message as text and I'll work it over: who's asking, what they want, and a reply draft if you need one.",
+      "I work with text and photos — paste or forward the dispatch message as text and I'll work it over (who's asking, what they want, a reply draft if you need one), or send a photo of paperwork and I'll file it as a document.",
     );
     return "no_text_replied";
   }
