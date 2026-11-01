@@ -4,12 +4,16 @@
 // client-side (src/lib/maintenance-schedule.ts) against the linked
 // truck's current_mileage, badged the same way Loads' Draft status is -
 // a labeled badge, never color alone.
+//
+// UI/UX upgrade: purpose header, teaching empty state, and the
+// interval/last-done facts on each row so "due soon" says why.
 
 import Link from "next/link";
 import { useState } from "react";
 import { useApiList } from "@/lib/use-api-list";
 import { usePickerList } from "@/lib/use-picker-list";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
+import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import { computeDueStatus, type DueStatus } from "@/lib/maintenance-schedule";
 import type { MaintenanceSchedule, Truck, Trailer } from "@/types/entities";
@@ -45,10 +49,27 @@ export default function MaintenanceSchedulePage() {
     return status;
   }
 
+  function intervalLine(schedule: MaintenanceSchedule) {
+    const parts: string[] = [];
+    if (schedule.interval_miles != null) parts.push(`every ${schedule.interval_miles.toLocaleString("en-US")} mi`);
+    if (schedule.interval_days != null) parts.push(`every ${schedule.interval_days} days`);
+    if (schedule.last_done_date) {
+      parts.push(`last done ${new Date(`${schedule.last_done_date}T12:00:00`).toLocaleDateString()}`);
+    }
+    return parts.join(" · ");
+  }
+
   return (
     <div>
-      <h1>Maintenance schedule</h1>
-      <Link href="/fleet/maintenance-schedule/new">Add schedule item</Link>
+      <PageHeader
+        title="Maintenance schedule"
+        purpose="Recurring work — oil, inspections, tires — tracked against miles and days so it warns you before it's overdue."
+        action={
+          <Link href="/fleet/maintenance-schedule/new" className="page-action">
+            Add item
+          </Link>
+        }
+      />
 
       <label htmlFor="truck_filter">Truck</label>
       <select
@@ -67,9 +88,10 @@ export default function MaintenanceSchedulePage() {
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
-        <ListEmpty
-          message="No recurring maintenance items yet — add your first one."
-          action={<Link href="/fleet/maintenance-schedule/new">Add schedule item</Link>}
+        <TeachingEmpty
+          title="No recurring items yet"
+          message="Add the work that repeats — oil every 15,000 miles, inspection every year — and this screen watches the odometer and the calendar for you."
+          action={<Link href="/fleet/maintenance-schedule/new">Add your first item</Link>}
         />
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (
@@ -78,8 +100,14 @@ export default function MaintenanceSchedulePage() {
             const status = dueBadge(schedule);
             return (
               <li key={schedule.id}>
-                <strong data-status={status}>{STATUS_LABELS[status]}</strong>
-                {vehicleLabel(schedule)} — {schedule.description}
+                <span className="row-title">
+                  <strong data-status={status}>{STATUS_LABELS[status]}</strong>
+                  {schedule.description}
+                </span>
+                <span className="row-sub">
+                  {vehicleLabel(schedule)}
+                  {intervalLine(schedule) ? ` · ${intervalLine(schedule)}` : ""}
+                </span>
               </li>
             );
           })}

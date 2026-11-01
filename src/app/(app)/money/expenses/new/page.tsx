@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { Driver, Expense, ExpenseCategory, Load, Truck } from "@/types/entities";
 
 const CATEGORIES: { label: string; value: ExpenseCategory }[] = [
@@ -60,7 +61,7 @@ export default function NewExpensePage() {
 
   return (
     <div>
-      <h1>Add expense</h1>
+      <PageHeader title="Add expense" purpose="One cost, with its category — it lands in the summary, and on its load if you tie it to one." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="category">Category</label>
         <select

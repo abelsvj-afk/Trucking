@@ -51,6 +51,7 @@ export default function ResetPasswordPage() {
   return (
     <main>
       <h1>Set new password</h1>
+      <p className="page-purpose">Choose a new password for your account — you&apos;ll sign in with it from here on.</p>
       <form onSubmit={handleSubmit}>
         <label htmlFor="password">New password</label>
         <input

@@ -10,6 +10,7 @@
 import { useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { DispatchSuggestion } from "@/services/ai/dispatch";
 import type { DispatchExchange } from "@/types/entities";
 
@@ -82,13 +83,10 @@ export default function DispatchHelperPage() {
 
   return (
     <div>
-      <h1>Dispatch helper</h1>
-      <p>
-        Paste a message from dispatch, the owner, or a broker - Spanish
-        or English. You&apos;ll get the translation, what they&apos;re
-        actually asking, and a draft reply in both languages. Nothing is
-        ever sent for you.
-      </p>
+      <PageHeader
+        title="Dispatch helper"
+        purpose="Paste a message from dispatch, the owner, or a broker — Spanish or English. You get the translation, what they're actually asking, and a draft reply in both languages. Nothing is ever sent for you."
+      />
 
       <form onSubmit={handleSubmit}>
         <label htmlFor="message">Message you received</label>

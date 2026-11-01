@@ -129,4 +129,17 @@ Design first, per the workflow: `docs/design/research-engine.md`, with `docs/sch
 
 ---
 
+## Stage 8 — UI/UX upgrade (2026-10-31, owner's verdict on the live app)
+
+| # | Task | Depends on | Acceptance | Status |
+|---|---|---|---|---|
+| 8.1 | Every screen teaches: shared `PageHeader` (title + one-line plain-language purpose + primary action) on all screens; every list empty state becomes a teaching state (what goes here, why it matters, the button that starts it) | Stage 3, 7 | No blank lists, no dead ends; purposes in plain words for a driver in a cab | ✅ Code done on branch `ui-ux-upgrade` (design: `docs/design/ui-ux.md` "UI/UX upgrade" section) |
+| 8.2 | Visual system completion: dark scheme via `prefers-color-scheme` token overrides; shared row/card/chip/bubble classes in `globals.css` | 8.1 | One consistent look incl. dark mode, no new UI framework | ✅ Code done on branch `ui-ux-upgrade` |
+| 8.3 | Home = dashboard: computed next-step card, quick actions (pre-trip / fuel / load / assistant), duty-clock summary from `lib/hos.ts` | 7.3 | Home answers "what now, how are my hours, how's the money" at a glance | ✅ Code done on branch `ui-ux-upgrade` |
+| 8.4 | AI discoverability: Assistant capability card (every line mapped to a real omnipresence tool — never more), starter chips, contextual "Ask the assistant" deep links (`/more/assistant?q=…` seeds the draft) | 7.12 | A first-time user can find the AI and know what to ask within one screen | ✅ Code done on branch `ui-ux-upgrade` |
+| 8.5 | Fleet profiles: truck type picklist + truck/driver/trailer photos via the documents pipeline + complete driver profiles (role/phone/CDL expiry/photo) — migration `00027` (additive) + detail screens with cross-links | Stage 3 | Type shown on fleet lists; photo uploadable from the phone and visible on list + detail; driver add/edit complete and obvious | ✅ Code done on branch `ui-ux-upgrade`; ⏳ migration 00027 **not yet applied** (owner Supabase step); not merged/deployed |
+| 8.6 | Populated feel + cross-links: summary data on every list row; new load detail screen (expenses/documents/duty entries/route check on the load); Documents screen honors `?related_entity_type/id` preselection; `load_id` filter whitelists added to expenses + duty-logs routes | 8.1 | Lists show real data, not bare names; fuel per load deliberately absent (`fuel_purchases` has no `load_id` — not invented) | ✅ Code done on branch `ui-ux-upgrade` |
+
+---
+
 *Every task here implements something already fully specified in `docs/`. If implementing a task reveals a real gap or contradiction in the design, stop and fix the relevant doc first, per the workflow's own escalation rule — don't silently improvise inside the code.*

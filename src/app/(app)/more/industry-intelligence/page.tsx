@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
+import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { IndustryBriefing } from "@/types/entities";
 import type { ServiceStatus } from "@/types/service-status";
@@ -60,7 +61,7 @@ export default function IndustryIntelligencePage() {
 
   return (
     <div>
-      <h1>Industry intelligence</h1>
+      <PageHeader title="Industry intelligence" purpose="Briefings on fuel prices, rule changes, and the freight market — with the reasoning shown, so you can judge them." />
 
       {state.status === "loaded" && state.serviceStatus.escalated && (
         <p role="alert">
@@ -72,7 +73,10 @@ export default function IndustryIntelligencePage() {
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={fetchBriefings} />}
       {state.status === "loaded" && state.briefings.length === 0 && (
-        <ListEmpty message="No briefings yet. Turn this on in Account & settings to start receiving them." />
+        <TeachingEmpty
+          title="No briefings yet"
+          message="When this is on, briefings land here — fuel-price moves, rule changes, market shifts, each with its reasoning shown. Turn it on under More → Account & settings; it starts OFF and stays off until you do."
+        />
       )}
       {state.status === "loaded" && state.briefings.length > 0 && (
         <ul>

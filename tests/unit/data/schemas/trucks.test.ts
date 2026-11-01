@@ -79,3 +79,47 @@ describe("updateTruckSchema", () => {
     expect(result.success).toBe(true);
   });
 });
+
+// UI/UX upgrade (migration 00027): truck type + photo pointer.
+describe("createTruckSchema (UI/UX upgrade fields)", () => {
+  it("accepts a picklist truck_type and a photo pointer", () => {
+    const result = createTruckSchema.safeParse({
+      unit_number: "Truck #1",
+      truck_type: "sleeper_semi",
+      photo_document_id: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts free-text truck_type (the Other case)", () => {
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", truck_type: "Yard dog" }).success,
+    ).toBe(true);
+  });
+
+  it("accepts an explicit null photo_document_id (photo removed)", () => {
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", photo_document_id: null }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an empty truck_type and an over-long one", () => {
+    expect(createTruckSchema.safeParse({ unit_number: "Truck #1", truck_type: "" }).success).toBe(
+      false,
+    );
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", truck_type: "x".repeat(61) }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a non-UUID photo_document_id", () => {
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", photo_document_id: "doc-1" }).success,
+    ).toBe(false);
+  });
+
+  it("update schema accepts just the new fields", () => {
+    expect(updateTruckSchema.safeParse({ truck_type: "hotshot" }).success).toBe(true);
+    expect(updateTruckSchema.safeParse({ photo_document_id: null }).success).toBe(true);
+  });
+});

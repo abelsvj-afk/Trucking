@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { Broker } from "@/types/entities";
 
 export default function NewBrokerPage() {
@@ -36,7 +37,7 @@ export default function NewBrokerPage() {
 
   return (
     <div>
-      <h1>Add broker</h1>
+      <PageHeader title="Add broker" purpose="Name and MC number at minimum — so you can verify before you book, not after." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="name">Name</label>
         <input id="name" value={name} onChange={(event) => setName(event.target.value)} required />
