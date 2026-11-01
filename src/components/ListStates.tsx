@@ -39,6 +39,30 @@ export function ListEmpty({ message, action }: { message: string; action?: React
   );
 }
 
+// UI/UX upgrade: the teaching empty state. An empty list is a screen
+// whose job is to explain itself - what belongs here, why it's worth
+// recording, and the one button that starts it - not a blank with a
+// link. `title` is the plain headline ("No loads yet"), `message`
+// carries the what-and-why, `action` is the primary button (rendered
+// with the .page-action button treatment by the .empty-state CSS).
+export function TeachingEmpty({
+  title,
+  message,
+  action,
+}: {
+  title: string;
+  message: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="empty-state">
+      <p className="empty-state-title">{title}</p>
+      <p>{message}</p>
+      {action}
+    </div>
+  );
+}
+
 export function ListError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div role="alert">

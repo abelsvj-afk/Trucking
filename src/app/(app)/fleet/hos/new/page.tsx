@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { DutyLog, DutyStatus, Driver, Load } from "@/types/entities";
 
 export default function NewDutyLogPage() {
@@ -52,7 +53,7 @@ export default function NewDutyLogPage() {
 
   return (
     <div>
-      <h1>Log duty status</h1>
+      <PageHeader title="Log duty status" purpose="One entry per status change — your hours are computed from these. Paper-log helper, not an ELD." />
       <p>
         Log the moment a status <strong>starts</strong> - it runs until
         the next status you log. Paper-log helper, not an ELD.

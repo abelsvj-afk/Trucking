@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { FuelPurchase, Truck } from "@/types/entities";
 
 export default function NewFuelPurchasePage() {
@@ -49,7 +50,7 @@ export default function NewFuelPurchasePage() {
 
   return (
     <div>
-      <h1>Add fuel purchase</h1>
+      <PageHeader title="Add fuel purchase" purpose="Gallons, total, and where — thirty seconds now is your cost per mile later." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="truck_id">Truck</label>
         <select

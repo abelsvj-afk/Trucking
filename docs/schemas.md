@@ -53,6 +53,8 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | avg_mpg | numeric | yes | hand-entered for now; sharpening from `fuel_purchases` is later work |
 | appliances | text[] | no | cab appliance inventory: any of `fridge` \| `cooler` \| `microwave` \| `air_fryer` \| `hot_plate` \| `coffee_maker` \| `inverter`, or `none` alone (exclusivity enforced in the API schema, not the DB). Defaults to `{}` — not captured yet |
 | appliance_notes | text | yes | free text: inverter watts, cooler size, anything the list can't say |
+| truck_type | text | yes | UI/UX upgrade (migration `00027`) — what kind of truck: app picklist stores `sleeper_semi` \| `day_cab_semi` \| `box_truck` \| `straight_truck` \| `hotshot`, anything else is the owner's own words (free text, same precedent as `trailers.trailer_type`) |
+| photo_document_id | uuid | yes | references `documents.id` — the truck's photo, stored via the documents pipeline (migration `00027`) |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 ## trailers
@@ -65,6 +67,7 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | vin | text | yes | |
 | trailer_type | text | yes | |
 | status | text | no | `active` \| `maintenance` \| `inactive` |
+| photo_document_id | uuid | yes | references `documents.id` — the trailer's photo, stored via the documents pipeline (migration `00027`) |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 ## drivers
@@ -74,7 +77,11 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | id | uuid | no | |
 | company_id | uuid | no | |
 | name | text | no | |
+| phone | text | yes | UI/UX upgrade (migration `00027`) — the driver's own phone number |
+| role | text | yes | `owner_operator` \| `company_driver` \| `contract_driver` \| `other` (closed set enforced in the API schema, migration `00027`) |
 | cdl_number | text | yes | |
+| cdl_expires_on | date | yes | UI/UX upgrade (migration `00027`) — CDL expiry, shown on the driver profile |
+| photo_document_id | uuid | yes | references `documents.id` — the driver's photo, stored via the documents pipeline (migration `00027`) |
 | assigned_truck_id | uuid | yes | references `trucks.id` |
 | status | text | no | `active` \| `inactive` |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |

@@ -45,6 +45,34 @@ export const APPLIANCE_LABELS: { value: TruckAppliance; label: string }[] = [
   { value: "none", label: "None — nothing in the cab" },
 ];
 
+// The reverse direction, for editors that start from an existing
+// truck (Fleet → Truck profile, and the truck detail screen from the
+// UI/UX upgrade) - one conversion, shared, so every editor opens with
+// the same values for the same truck.
+export function truckProfileFromTruck(truck: {
+  height_in: number | null;
+  length_in: number | null;
+  weight_lbs: number | null;
+  governed_speed_mph: number | null;
+  tank_capacity_gallons: number | null;
+  avg_mpg: number | null;
+  appliances: TruckAppliance[] | null;
+  appliance_notes: string | null;
+}): TruckProfileValues {
+  return {
+    heightFt: truck.height_in !== null ? String(Math.floor(truck.height_in / 12)) : "",
+    heightIn: truck.height_in !== null ? String(truck.height_in % 12) : "",
+    lengthFt: truck.length_in !== null ? String(truck.length_in / 12) : "",
+    weightLbs: truck.weight_lbs !== null ? String(truck.weight_lbs) : "",
+    governedSpeedMph: truck.governed_speed_mph !== null ? String(truck.governed_speed_mph) : "",
+    tankCapacityGallons:
+      truck.tank_capacity_gallons !== null ? String(truck.tank_capacity_gallons) : "",
+    avgMpg: truck.avg_mpg !== null ? String(truck.avg_mpg) : "",
+    appliances: truck.appliances ?? [],
+    applianceNotes: truck.appliance_notes ?? "",
+  };
+}
+
 export function truckProfileToPayload(values: TruckProfileValues): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   const heightFt = Number(values.heightFt);

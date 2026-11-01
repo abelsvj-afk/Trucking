@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { EquipmentChecklistItem, Truck, Trailer } from "@/types/entities";
 
 export default function NewEquipmentChecklistItemPage() {
@@ -47,7 +48,7 @@ export default function NewEquipmentChecklistItemPage() {
 
   return (
     <div>
-      <h1>Add checklist item</h1>
+      <PageHeader title="Add checklist item" purpose="One thing that must be on board — check it off when you have verified it is." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="vehicle_type">Vehicle type</label>
         <select

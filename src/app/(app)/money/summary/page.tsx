@@ -8,6 +8,7 @@ import { useState, type FormEvent } from "react";
 import { useFinancialSummary } from "@/lib/use-financial-summary";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -30,7 +31,10 @@ export default function FinancialSummaryPage() {
 
   return (
     <div>
-      <h1>Financial summary</h1>
+      <PageHeader
+        title="Financial summary"
+        purpose="Revenue against every cost, for any stretch of days — the honest answer to how the business is doing."
+      />
 
       <form onSubmit={handleSubmit}>
         <label htmlFor="from">From</label>

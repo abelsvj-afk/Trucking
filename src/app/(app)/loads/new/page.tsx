@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { Broker, Customer, Driver, Load, LoadStatus, Truck } from "@/types/entities";
 
 const STATUS_OPTIONS: { label: string; value: LoadStatus }[] = [
@@ -80,7 +81,7 @@ export default function NewLoadPage() {
 
   return (
     <div>
-      <h1>Add load</h1>
+      <PageHeader title="Add load" purpose="The lane, the rate, and the dates — profit, route checks, and per-mile math all compute from this." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="origin">Origin</label>
         <input id="origin" value={origin} onChange={(event) => setOrigin(event.target.value)} required />

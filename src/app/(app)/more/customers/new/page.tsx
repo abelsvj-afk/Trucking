@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { Customer } from "@/types/entities";
 
 export default function NewCustomerPage() {
@@ -38,7 +39,7 @@ export default function NewCustomerPage() {
 
   return (
     <div>
-      <h1>Add customer</h1>
+      <PageHeader title="Add customer" purpose="The shipper and how to reach them, kept with the business." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="name">Name</label>
         <input id="name" value={name} onChange={(event) => setName(event.target.value)} required />

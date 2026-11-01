@@ -11,30 +11,19 @@
 // values as its initial state - no effect-syncing, per the repo's
 // react-hooks/set-state-in-effect rule.
 
+import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { useApiList } from "@/lib/use-api-list";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import TruckProfileFields, {
+  truckProfileFromTruck,
   truckProfileToPayload,
   type TruckProfileValues,
 } from "@/components/TruckProfileFields";
+import PageHeader from "@/components/PageHeader";
 import type { Truck } from "@/types/entities";
-
-function valuesFromTruck(truck: Truck): TruckProfileValues {
-  return {
-    heightFt: truck.height_in !== null ? String(Math.floor(truck.height_in / 12)) : "",
-    heightIn: truck.height_in !== null ? String(truck.height_in % 12) : "",
-    lengthFt: truck.length_in !== null ? String(truck.length_in / 12) : "",
-    weightLbs: truck.weight_lbs !== null ? String(truck.weight_lbs) : "",
-    governedSpeedMph: truck.governed_speed_mph !== null ? String(truck.governed_speed_mph) : "",
-    tankCapacityGallons: truck.tank_capacity_gallons !== null ? String(truck.tank_capacity_gallons) : "",
-    avgMpg: truck.avg_mpg !== null ? String(truck.avg_mpg) : "",
-    appliances: truck.appliances ?? [],
-    applianceNotes: truck.appliance_notes ?? "",
-  };
-}
 
 export default function TruckProfilePage() {
   usePageTitle("Truck profile");
@@ -50,16 +39,19 @@ export default function TruckProfilePage() {
 
   return (
     <div>
-      <h1>Truck profile</h1>
-      <p>
-        Size, governed speed, and the appliance inventory — Smart Path plans routes, fuel, and
-        food from this. Measure the real truck; a wrong height in here is worse than none.
-      </p>
+      <PageHeader
+        title="Truck profile"
+        purpose="Size, governed speed, and what's in the cab — Smart Path plans routes, fuel stops, and food from this. Measure the real truck; a wrong height here is worse than none."
+      />
 
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && trucks.length === 0 && (
-        <ListEmpty message="No trucks yet — add one first, then capture its profile here." />
+        <TeachingEmpty
+          title="No trucks yet"
+          message="The truck profile describes a truck — so add the truck first, then come back here to capture its size, speed, and cab setup for Smart Path."
+          action={<Link href="/fleet/trucks/new">Add a truck</Link>}
+        />
       )}
 
       {trucks.length > 0 && selected && (
@@ -85,7 +77,7 @@ export default function TruckProfilePage() {
 }
 
 function TruckProfileForm({ truck, onSaved }: { truck: Truck; onSaved: () => void }) {
-  const [values, setValues] = useState<TruckProfileValues>(() => valuesFromTruck(truck));
+  const [values, setValues] = useState<TruckProfileValues>(() => truckProfileFromTruck(truck));
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);

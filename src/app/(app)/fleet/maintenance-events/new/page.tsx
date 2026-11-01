@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
 
 export default function NewMaintenanceEventPage() {
@@ -47,7 +48,7 @@ export default function NewMaintenanceEventPage() {
 
   return (
     <div>
-      <h1>Add maintenance event</h1>
+      <PageHeader title="Add maintenance event" purpose="Work done on a truck, with what it cost — the history the schedule and a future buyer both read." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="truck_id">Truck</label>
         <select
