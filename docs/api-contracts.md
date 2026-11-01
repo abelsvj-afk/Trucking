@@ -143,11 +143,15 @@ If `from`/`to` are omitted, defaults to the current calendar month.
 
 Documents differ from the other resources — creating one involves a file, not just JSON:
 
-**`POST /api/v1/documents`** — `multipart/form-data`: the file, plus `related_entity_type`, `related_entity_id`, `file_name`. The server uploads to Supabase Storage and creates the corresponding row from `docs/schemas.md`.
+**`POST /api/v1/documents`** — `multipart/form-data`: the file, plus `related_entity_type`, `related_entity_id`, `file_name`. The server uploads to Supabase Storage and creates the corresponding row from `docs/schemas.md`. For image uploads (JPEG/PNG/WebP) it then produces the enhanced scan rendition (design `driver-mvp.md` §10) and, when the `document_extraction` AI capability is enabled, runs text extraction — both inside the same request, and neither can fail the upload: their outcomes land on the returned row as `scan_storage_path` / `extraction_status` (see the row shape below).
 
 **`GET /api/v1/documents?related_entity_type={type}&related_entity_id={id}`** — list response, `data` containing document metadata plus a short-lived signed URL for downloading the file.
 
-**`DELETE /api/v1/documents/{id}`** — per `docs/schemas.md`, documents don't soft-delete like other resources; this removes the row and the underlying file.
+**Document row shape (list, search, and POST responses)** — every row carries, beyond the original columns: `scan_storage_path: string | null`, `scan_signed_url: string | null` (short-lived, same TTL as `signed_url`; null when no scan exists), `doc_type: "bol" | "rate_confirmation" | "scale_ticket" | "fuel_receipt" | "settlement" | "other" | null`, `extracted_text: string | null` (the document's full text, raw — the field an agent quotes from), `extracted_fields: Record<string, string | number | null> | null`, `extraction_status: "pending" | "done" | "failed" | "disabled" | "not_applicable"`, `extraction_error: string | null`, `extracted_at: string | null`.
+
+**`GET /api/v1/documents?q={terms}`** — full-text search over every document's `extracted_text` + `file_name` (Postgres `websearch_to_tsquery` semantics), newest first, same row shape as the list. `related_entity_type` + `related_entity_id` may accompany `q` to scope the search to one record; without `q` they remain required together, exactly as before. **This is the agent's document read path**: the bot's document tooling searches with `q`, then answers from the returned rows' `extracted_text`/`extracted_fields` — no separate bot-only endpoint exists.
+
+**`DELETE /api/v1/documents/{id}`** — per `docs/schemas.md`, documents don't soft-delete like other resources; this removes the row and the underlying files (original and scan rendition).
 
 ## AI and integration endpoints
 

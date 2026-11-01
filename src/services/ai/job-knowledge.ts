@@ -1,4 +1,4 @@
-// Abel Job Brain (docs/design/driver-mvp.md §11). The job-knowledge
+// Abel Job Brain (docs/design/driver-mvp.md §12). The job-knowledge
 // module: what the assistant coaches FROM when the owner asks how
 // to handle the work - the load lifecycle, the paperwork, facility
 // problems, and how driver pay is actually structured. Static,

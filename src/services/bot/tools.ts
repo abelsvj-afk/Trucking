@@ -621,7 +621,7 @@ const logDutyArgs = z.object({
 });
 
 const saveMemoryArgs = z.object({
-  // person_profile / business_fact are the Job Brain (§11) learning
+  // person_profile / business_fact are the Job Brain (§12) learning
   // kinds - their content MUST use the structured formats from
   // services/bot/people.ts (enforced in the tool description and
   // parsed back by profilesForPerson / parseBusinessFact).

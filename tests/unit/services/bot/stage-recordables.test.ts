@@ -1,4 +1,4 @@
-// Abel forward-fix (docs/design/driver-mvp.md §10). The staging
+// Abel forward-fix (docs/design/driver-mvp.md §11). The staging
 // bridge between the dispatch helper's extraction and the bot's
 // propose->yes batches: items are validated in code (real tool,
 // verbatim quote, numbers traced to the message) before they are

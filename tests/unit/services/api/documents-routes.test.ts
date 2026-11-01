@@ -27,6 +27,8 @@ function mockSupabase(options: {
     eq: () => queryBuilder,
     order: () => queryBuilder,
     insert: () => queryBuilder,
+    update: () => queryBuilder,
+    textSearch: () => queryBuilder,
     delete: () => queryBuilder,
     single: () => queryBuilder,
     maybeSingle: () => queryBuilder,
@@ -203,6 +205,57 @@ describe("GET /api/v1/documents", () => {
   });
 });
 
+describe("GET /api/v1/documents?q= (search mode, design §8)", () => {
+  const scannedRow = {
+    id: "doc-9",
+    related_entity_type: "load",
+    related_entity_id: VALID_ENTITY_ID,
+    file_name: "bol.jpg",
+    storage_path: "company-1/uuid-bol.jpg",
+    scan_storage_path: "company-1/uuid-scan-bol.png",
+    doc_type: "bol",
+    extracted_text: "BILL OF LADING Pickup #: 4417 Jacksonville",
+    extracted_fields: { pickup_number: "4417" },
+    extraction_status: "done",
+    uploaded_at: "2026-08-21T00:00:00Z",
+  };
+
+  it("searches without requiring an entity filter", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ queryResult: { data: [scannedRow] }, signedUrl: "https://example.test/signed" }) as never,
+    );
+    const res = await GET(new NextRequest("http://localhost/api/v1/documents?q=4417"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data[0].extracted_text).toContain("4417");
+    expect(body.data[0].extracted_fields).toEqual({ pickup_number: "4417" });
+  });
+
+  it("attaches a scan_signed_url alongside signed_url when a scan exists", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ queryResult: { data: [scannedRow] }, signedUrl: "https://example.test/signed" }) as never,
+    );
+    const res = await GET(new NextRequest("http://localhost/api/v1/documents?q=jacksonville"));
+    const body = await res.json();
+    expect(body.data[0].signed_url).toBe("https://example.test/signed");
+    expect(body.data[0].scan_signed_url).toBe("https://example.test/signed");
+  });
+
+  it("leaves scan_signed_url null when the document has no scan rendition", async () => {
+    const plainRow = { ...scannedRow, scan_storage_path: null };
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ queryResult: { data: [plainRow] }, signedUrl: "https://example.test/signed" }) as never,
+    );
+    const res = await GET(
+      new NextRequest(
+        `http://localhost/api/v1/documents?related_entity_type=load&related_entity_id=${VALID_ENTITY_ID}`,
+      ),
+    );
+    const body = await res.json();
+    expect(body.data[0].scan_signed_url).toBeNull();
+  });
+});
+
 describe("DELETE /api/v1/documents/{id}", () => {
   it("404s when the document doesn't exist or belongs to another company", async () => {
     vi.mocked(createClient).mockResolvedValue(
@@ -222,5 +275,36 @@ describe("DELETE /api/v1/documents/{id}", () => {
       params: Promise.resolve({ id: "doc-1" }),
     });
     expect(res.status).toBe(204);
+  });
+
+  it("removes the scan rendition along with the original", async () => {
+    const removeSpy = vi.fn().mockResolvedValue({ error: null });
+    const builder: Record<string, unknown> & { then: (resolve: (v: unknown) => void) => void } = {
+      select: () => builder,
+      eq: () => builder,
+      delete: () => builder,
+      maybeSingle: () => builder,
+      then: (resolve: (v: unknown) => void) =>
+        resolve({
+          data: {
+            storage_path: "company-1/uuid-bol.jpg",
+            scan_storage_path: "company-1/uuid-scan-bol.png",
+          },
+        }),
+    };
+    vi.mocked(createClient).mockResolvedValue({
+      from: () => builder,
+      storage: { from: () => ({ remove: removeSpy }) },
+    } as never);
+
+    const res = await DELETE(new NextRequest("http://localhost/api/v1/documents/doc-1"), {
+      params: Promise.resolve({ id: "doc-1" }),
+    });
+
+    expect(res.status).toBe(204);
+    expect(removeSpy).toHaveBeenCalledWith([
+      "company-1/uuid-bol.jpg",
+      "company-1/uuid-scan-bol.png",
+    ]);
   });
 });

@@ -238,7 +238,7 @@ export function createBotStore(
     },
 
     async storeExchange(incoming, suggestion) {
-      // §10: the suggestion now carries ONE reply draft in the other
+      // §11: the suggestion now carries ONE reply draft in the other
       // side's language - it lands in the column matching its
       // language (both columns nullable); the translation column
       // stays null for English messages, which is exactly the point.

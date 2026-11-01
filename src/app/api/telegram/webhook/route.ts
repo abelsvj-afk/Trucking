@@ -112,7 +112,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             onToolLog: (entry) => console.log("[telegram] bot tool", entry),
           })
       : undefined,
-    // §10: recordables extracted from a forwarded/pasted dispatch
+    // §11: recordables extracted from a forwarded/pasted dispatch
     // message are staged as a propose->yes batch on the same brain
     // store - his "yes" resolves them through the agent turn.
     stageRecordables: brainStore

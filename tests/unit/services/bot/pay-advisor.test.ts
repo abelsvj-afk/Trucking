@@ -1,4 +1,4 @@
-// Abel Job Brain (§11). The pay advisor: CODE does the math. These
+// Abel Job Brain (§12). The pay advisor: CODE does the math. These
 // tests pin the conversions that make offers comparable - effective
 // CPM on ALL miles (the loaded-only trap), percentage math, the
 // W2<->1099 payroll-tax adjustment - and the band verdicts, using

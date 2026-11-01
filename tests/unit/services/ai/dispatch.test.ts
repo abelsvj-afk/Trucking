@@ -1,5 +1,5 @@
 // Driver MVP dispatch helper, reworked by the Abel forward-fix
-// (docs/design/driver-mvp.md §10). The owner's rule, enforced in
+// (docs/design/driver-mvp.md §11). The owner's rule, enforced in
 // code and pinned here: English is NEVER translated - the language
 // gate decides in code and strips any translation the model returns
 // for an English message. Spanish is translated; broken English is

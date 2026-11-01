@@ -1,4 +1,4 @@
-// Abel forward-fix (docs/design/driver-mvp.md §10). The bridge
+// Abel forward-fix (docs/design/driver-mvp.md §11). The bridge
 // between the dispatch helper's extraction and the bot's
 // propose->yes staging: recordable items spotted in a forwarded or
 // pasted dispatch message are validated in code (validateDumpItems -

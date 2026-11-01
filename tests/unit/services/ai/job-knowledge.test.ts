@@ -1,4 +1,4 @@
-// Abel Job Brain (§11). The job-knowledge module is the coaching
+// Abel Job Brain (§12). The job-knowledge module is the coaching
 // source AND the pay advisor's bands - these tests pin that the
 // brief the prompt renders is assembled from the same constants
 // (so the two can never drift), and that the safety-critical

@@ -60,7 +60,7 @@ export const POST = createApiHandler(async (req, ctx) => {
     context: body.context,
   });
 
-  // §10: recordables spotted in the message are staged as a
+  // §11: recordables spotted in the message are staged as a
   // propose->yes batch on the owner's session store (channel "web")
   // - the page shows what was staged; approving happens in the
   // Assistant, whose turn resolves pending batches in code. The

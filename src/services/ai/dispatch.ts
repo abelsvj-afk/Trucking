@@ -1,10 +1,10 @@
 // Driver MVP (docs/design/driver-mvp.md §2), reworked by the Abel
-// forward-fix (design §10). The dispatch helper: one shared service
+// forward-fix (design §11). The dispatch helper: one shared service
 // behind the web page (/api/v1/dispatch-suggest), the web Assistant,
 // and the owner's private Telegram bot (/api/telegram/webhook), so
 // the surfaces can never drift into different behavior.
 //
-// What changed in §10, and why: the v1 helper was translation-first -
+// What changed in §11, and why: the v1 helper was translation-first -
 // it translated everything, including messages already in English,
 // and always drafted two replies. The owner never asked for that.
 // The helper now works a forwarded message like an experienced

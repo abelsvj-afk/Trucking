@@ -1,4 +1,4 @@
-// Abel Job Brain (§11). People & business learning formats: the
+// Abel Job Brain (§12). People & business learning formats: the
 // structured one-line profile format must round-trip exactly -
 // profiles are proposed as text, stored as text in bot_memories,
 // and parsed back whenever the brain needs "what do we know about

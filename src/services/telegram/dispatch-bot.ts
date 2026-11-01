@@ -77,7 +77,7 @@ export interface TelegramDeps {
    */
   runAgent?: (input: BotChatInput) => Promise<BotChatOutput>;
   /**
-   * §10: stages recordable items extracted from a dispatch message
+   * §11: stages recordable items extracted from a dispatch message
    * as a propose->yes batch (validation lives in the helper - the
    * items are checked in code before anything is stored). Wired
    * only when the brain store exists; absent = the workup simply
@@ -218,7 +218,7 @@ export async function handleTelegramUpdate(
         buildDispatchContext(ctx.snapshotText, instructions, relevantMemories),
       );
       let reply = formatDispatchSuggestion(suggestion);
-      // §10: recordables the helper spotted ride the same
+      // §11: recordables the helper spotted ride the same
       // propose->yes discipline as dump intake - staged in code,
       // approved (or corrected/dropped) by his reply, resolved by
       // the agent turn's pending-batch grammar on the chat path.

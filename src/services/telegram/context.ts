@@ -57,7 +57,7 @@ export function memoryKindFor(text: string): "fact" | "expense_hint" {
 }
 
 export interface BotMemoryRow {
-  // person_profile / business_fact arrive with the Job Brain (§11,
+  // person_profile / business_fact arrive with the Job Brain (§12,
   // migration 00028) - structured profiles of the people he works
   // with and how his business runs, in services/bot/people.ts format.
   kind: "fact" | "note" | "expense_hint" | "instruction" | "person_profile" | "business_fact";

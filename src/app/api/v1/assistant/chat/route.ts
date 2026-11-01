@@ -130,7 +130,7 @@ export const POST = createApiHandler(async (req, ctx) => {
     });
     await store.storeExchange(text, suggestion);
     let reply = formatDispatchSuggestion(suggestion);
-    // §10: same staging as the Telegram surface - recordables ride
+    // §11: same staging as the Telegram surface - recordables ride
     // propose->yes; his approval resolves through runAgentTurn.
     if (suggestion.recordable_items.length > 0) {
       const outcome = await stageRecordables(store, text, suggestion.recordable_items);

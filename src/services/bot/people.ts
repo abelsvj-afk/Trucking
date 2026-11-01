@@ -1,4 +1,4 @@
-// Abel Job Brain (docs/design/driver-mvp.md §11). People & business
+// Abel Job Brain (docs/design/driver-mvp.md §12). People & business
 // learning: structured profiles of the people the owner works with
 // (the truck owner, carrier dispatchers, brokers, shippers) and the
 // business facts of how his operation actually runs, learned from

@@ -176,7 +176,7 @@ describe("handleTelegramUpdate", () => {
     expect(sent).not.toContain("Suggested reply (Spanish):");
   });
 
-  it("stages recordables spotted in a forward as a propose->yes batch (§10)", async () => {
+  it("stages recordables spotted in a forward as a propose->yes batch (§11)", async () => {
     const withItems: DispatchSuggestion = {
       ...SUGGESTION,
       recordable_items: [

@@ -1,4 +1,4 @@
-// Abel Job Brain (§11) through the agent loop, against an in-memory
+// Abel Job Brain (§12) through the agent loop, against an in-memory
 // fake Supabase client (harness pattern copied from agent-turn.test.ts):
 // - the knowledge brief is IN the assembled system prompt, and the
 //   pay advisor is among the tools on offer (prompt assembly);
@@ -230,7 +230,7 @@ function telegramStore(client: SupabaseClient): BotBrainStore {
   return createBotStore(client, COMPANY, "telegram");
 }
 
-describe("Job Brain prompt assembly (§11)", () => {
+describe("Job Brain prompt assembly (§12)", () => {
   it("puts the job knowledge and the pay tool in front of the model on every turn", async () => {
     const { client } = fakeClient(baseSeed());
     const store = telegramStore(client);
@@ -253,7 +253,7 @@ describe("Job Brain prompt assembly (§11)", () => {
   });
 });
 
-describe("Job Brain pay coaching (§11)", () => {
+describe("Job Brain pay coaching (§12)", () => {
   it("answers a pay question through the evaluate_pay_offer tool - figures trace to code output", async () => {
     const { client } = fakeClient(baseSeed());
     const store = telegramStore(client);
@@ -295,7 +295,7 @@ describe("Job Brain pay coaching (§11)", () => {
   });
 });
 
-describe("Job Brain people learning (§11)", () => {
+describe("Job Brain people learning (§12)", () => {
   it("stores a proposed person profile only after the owner's yes, and finds it again by name", async () => {
     const { client, db } = fakeClient(baseSeed());
     const store = telegramStore(client);

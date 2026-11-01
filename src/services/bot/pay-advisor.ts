@@ -1,4 +1,4 @@
-// Abel Job Brain (docs/design/driver-mvp.md §11). The pay advisor:
+// Abel Job Brain (docs/design/driver-mvp.md §12). The pay advisor:
 // given a pay structure and a load's numbers, CODE does the math -
 // the model never computes a figure. It converts any offer shape
 // (CPM loaded-only or all-miles, percentage of gross or net, flat)
