@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { INDUSTRY_INTELLIGENCE_CAPABILITY } from "@/services/ai/run-industry-briefing";
 import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
+import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
+import { DEEP_RESEARCH_CAPABILITY } from "@/services/research/run-research";
 import { DOCUMENT_EXTRACTION_CAPABILITY } from "@/services/ai/document-extraction";
 
 // Every capability that has a kill switch (docs/governance.md). Extend
@@ -10,6 +12,8 @@ import { DOCUMENT_EXTRACTION_CAPABILITY } from "@/services/ai/document-extractio
 export const KNOWN_CAPABILITIES = [
   INDUSTRY_INTELLIGENCE_CAPABILITY,
   DISPATCH_HELPER_CAPABILITY,
+  BOT_CHAT_CAPABILITY,
+  DEEP_RESEARCH_CAPABILITY,
   DOCUMENT_EXTRACTION_CAPABILITY,
 ] as const;
 

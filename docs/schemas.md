@@ -45,6 +45,16 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | year | integer | yes | |
 | status | text | no | `active` \| `maintenance` \| `inactive` |
 | current_mileage | integer | yes | |
+| height_in | integer | yes | Smart Path truck profile (migration `00017`, `docs/design/driver-mvp.md` §8.2) — total height in inches |
+| length_in | integer | yes | truck + trailer length in inches |
+| weight_lbs | integer | yes | typical loaded weight |
+| governed_speed_mph | integer | yes | caps the route check's assumed average speed |
+| tank_capacity_gallons | numeric | yes | |
+| avg_mpg | numeric | yes | hand-entered for now; sharpening from `fuel_purchases` is later work |
+| appliances | text[] | no | cab appliance inventory: any of `fridge` \| `cooler` \| `microwave` \| `air_fryer` \| `hot_plate` \| `coffee_maker` \| `inverter`, or `none` alone (exclusivity enforced in the API schema, not the DB). Defaults to `{}` — not captured yet |
+| appliance_notes | text | yes | free text: inverter watts, cooler size, anything the list can't say |
+| truck_type | text | yes | UI/UX upgrade (migration `00027`) — what kind of truck: app picklist stores `sleeper_semi` \| `day_cab_semi` \| `box_truck` \| `straight_truck` \| `hotshot`, anything else is the owner's own words (free text, same precedent as `trailers.trailer_type`) |
+| photo_document_id | uuid | yes | references `documents.id` — the truck's photo, stored via the documents pipeline (migration `00027`) |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 ## trailers
@@ -57,6 +67,7 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | vin | text | yes | |
 | trailer_type | text | yes | |
 | status | text | no | `active` \| `maintenance` \| `inactive` |
+| photo_document_id | uuid | yes | references `documents.id` — the trailer's photo, stored via the documents pipeline (migration `00027`) |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 ## drivers
@@ -66,7 +77,11 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | id | uuid | no | |
 | company_id | uuid | no | |
 | name | text | no | |
+| phone | text | yes | UI/UX upgrade (migration `00027`) — the driver's own phone number |
+| role | text | yes | `owner_operator` \| `company_driver` \| `contract_driver` \| `other` (closed set enforced in the API schema, migration `00027`) |
 | cdl_number | text | yes | |
+| cdl_expires_on | date | yes | UI/UX upgrade (migration `00027`) — CDL expiry, shown on the driver profile |
+| photo_document_id | uuid | yes | references `documents.id` — the driver's photo, stored via the documents pipeline (migration `00027`) |
 | assigned_truck_id | uuid | yes | references `trucks.id` |
 | status | text | no | `active` \| `inactive` |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
@@ -247,13 +262,14 @@ Added by the Driver MVP (`docs/design/driver-mvp.md` §5). One helped dispatch e
 
 ## telegram_messages
 
-Added by the Driver MVP bot-intelligence pass (`docs/design/driver-mvp.md` §6). The private Telegram bot's conversation history — persisted so every prompt carries real recent history. Written/read by the bot via its documented service-role path (design §§5/6), scoped to the owner's one company.
+Added by the Driver MVP bot-intelligence pass (`docs/design/driver-mvp.md` §6); extended by v2 (§8, migration `00015`). The bot's conversation history — persisted so every prompt carries real recent history. As of v2 this is the **shared conversation store for both bot surfaces** (the Telegram bot and the in-app web chat): one company-wide timeline, each row tagged with its channel, so the two windows can never hold different conversations. Written/read by the Telegram bot via its documented service-role path (design §§5/6) and by the web chat under the owner's session (RLS), both scoped to the owner's one company.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
 | id | uuid | no | |
 | company_id | uuid | no | |
-| chat_id | bigint | no | the owner's Telegram chat id |
+| chat_id | bigint | yes | the owner's Telegram chat id — Telegram-only provenance; null on web rows (was NOT NULL before migration 00015) |
+| channel | text | no | `telegram` \| `web` (check constraint, migration 00015; default `telegram`) |
 | role | text | no | `user` \| `assistant` (check constraint) |
 | text | text | no | |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
@@ -273,6 +289,33 @@ Added alongside `telegram_messages` (design §6). The bot's durable memory store
 
 Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/context.ts`) — stated plainly in the design; no embeddings yet.
 
+## bot_pending_actions
+
+Added by bot intelligence v2 (`docs/design/driver-mvp.md` §8, migration `00016`). Write actions the bot **proposed** (as opposed to writes the owner directly ordered, which execute immediately) wait here for his yes. Resolution — execute on yes, drop on no — soft-deletes the row; the bot treats proposals older than 2 hours as expired and never executes them. Written/read by the bot surfaces via `src/services/bot/store.ts` (service-role on Telegram, owner session on web).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| channel | text | no | `telegram` \| `web` (check constraint) — the surface the proposal was made on; a yes on either surface resolves it |
+| tool_name | text | no | the write tool to execute (`create_expense`, `create_fuel_purchase`, `log_duty_status`, `save_memory`, `add_load_note`) |
+| arguments | jsonb | no | the tool's validated arguments, exactly as proposed |
+| summary | text | no | the human-readable line the owner was shown when deciding |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | resolution (or expiry) sets `deleted_at` |
+
+Agent omnipresence (design §9, migration `00021`) extends this table for **dump batches**: when the bot extracts several records from one dumped message, each extracted item is stored as its own `bot_pending_actions` row and the rows share batch columns (all nullable — a plain §8 single proposal leaves them null):
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| batch_id | uuid | yes | shared by every item staged from one dump |
+| item_number | integer | yes | the item's stable number within its batch — the number the owner uses to approve selectively or correct ("3 is wrong, it's 4417") |
+| source_quote | text | yes | the verbatim span of the owner's dumped message the item was extracted from (grounding evidence, shown to him in the proposal) |
+| confidence | text | yes | `high` \| `medium` \| `low` (check constraint) — the extraction confidence shown in the proposal |
+
+## ai_capability_settings — `bot_chat`
+
+Bot intelligence v2 (§8) adds a third known capability, `bot_chat`, under the same kill-switch pattern as `industry_intelligence` and `dispatch_helper` (global switch first, then per-capability, no row = off). It governs conversational bot turns on **both** surfaces (Telegram webhook via its service-role store, web chat via the owner session); with it off, conversational turns reply that chat is turned off. Dispatch help and `remember:`/`instruction:` capture are governed by their own paths and unaffected.
+
 ## documents
 
 | Column | Type | Nullable | Notes |
@@ -285,9 +328,9 @@ Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/cont
 | storage_path | text | no | path in Supabase Storage |
 | uploaded_at | timestamptz | no | |
 | created_at | timestamptz | no | (documents are not edited in place, and are hard-deleted like any file — no `deleted_at`/`updated_at`) |
-| scan_storage_path | text | yes | Document scan (design `driver-mvp.md` §8, migration `00022`): path of the enhanced black-and-white rendition in the same Storage bucket; null when no scan exists (PDFs, HEIC/HEIF, or enhancement failed). The original at `storage_path` is always kept |
+| scan_storage_path | text | yes | Document scan (design `driver-mvp.md` §10, migration `00022`): path of the enhanced black-and-white rendition in the same Storage bucket; null when no scan exists (PDFs, HEIC/HEIF, or enhancement failed). The original at `storage_path` is always kept |
 | doc_type | text | yes | AI-classified document kind: `bol` \| `rate_confirmation` \| `scale_ticket` \| `fuel_receipt` \| `settlement` \| `other`; null until extraction succeeds |
-| extracted_text | text | yes | The document's full text as read by the extraction capability — stored raw, never summarized; this is what the agent quotes from |
+| extracted_text | text | yes | The document's full text as read by the extraction capability — stored raw, never summarized; this is what the agent quotes from. The bot's document tools (`get_document`, `search_documents`, design §9) read this column — null until extraction runs |
 | extracted_fields | jsonb | yes | Schema-light flat record of key values the model copied off the document (numbers, dates, amounts, parties); values are copied, never computed |
 | extraction_status | text | no | `pending` \| `done` \| `failed` \| `disabled` (capability off at upload) \| `not_applicable` (PDF). Default `pending` — pre-`00022` rows read `pending` |
 | extraction_error | text | yes | Short failure note when `extraction_status = 'failed'`; detail stays in server logs |
@@ -339,6 +382,83 @@ Added alongside `industry_briefings` (Stage 4, `docs/governance.md`'s per-capabi
 | updated_at | timestamptz | no | |
 
 No `created_at`/`deleted_at`: this is toggled in place (upserted on `(company_id, capability)`), not a record with its own lifecycle.
+
+## research_signals
+
+Added Stage 8 (Deep Research Engine, `docs/design/research-engine.md`, migration `00019`). Normalized pressure signals emitted by the watcher layer; the stored items are the evidence a later research run cites. `company_id` is **nullable**: null = a global market signal (diesel, federal rulemaking, industry news) — not one company's data.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | yes | null for global signals |
+| watcher_key | text | no | `eia_diesel` \| `federal_register` \| `industry_news` |
+| kind | text | no | e.g. `fuel_price_observation`, `federal_rule_final`, `news_burst` |
+| topic | text | no | tracked topic cluster: `fuel` \| `rates` \| `regulation` \| `carriers` \| `technology` (or a manual run's free topic on run rows) |
+| magnitude | numeric | no | 0..1 pressure read |
+| summary | text | no | plain-language one-liner |
+| items | jsonb | no | array of `{title, url, publishedAt, summary}` — the citable evidence |
+| data | jsonb | no | structured measurements (e.g. `{wowPct}`) — thresholds read this, never prose |
+| dedupe_key | text | no | unique — re-polling unchanged source state stores nothing twice |
+| observed_at | timestamptz | no | |
+| created_at | timestamptz | no | |
+
+## research_watcher_state
+
+Added Stage 8 (migration `00019`). One row per watcher — its health, made visible on the Research page (failures are shown, never silent, per the design).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| watcher_key | text | no | primary key |
+| last_polled_at | timestamptz | yes | |
+| last_status | text | yes | `ok` \| `error` \| `skipped` |
+| last_error | text | yes | the error or skip reason (e.g. `EIA_API_KEY` unset) |
+| last_signal_at | timestamptz | yes | last poll that produced a new signal |
+| state | jsonb | no | watcher-private bag (last EIA period/price, seen document numbers) |
+| updated_at | timestamptz | no | |
+
+## research_runs
+
+Added Stage 8 (migration `00019`). The engine's full run log — every decision outcome, including the governance outcomes (`skipped_cap`, `skipped_disabled`), so caps and the kill switch leave a visible trace.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| trigger_kind | text | no | `scheduled` \| `pressure` \| `manual` |
+| topic | text | no | |
+| trigger_detail | jsonb | no | `{reason, signal_dedupe_keys}` |
+| status | text | no | `queued` \| `running` \| `success` \| `failure` \| `insufficient_data` \| `skipped_cap` \| `skipped_disabled` |
+| started_at | timestamptz | yes | |
+| finished_at | timestamptz | yes | |
+| error_message | text | yes | server-side diagnostic detail; the Research page shows it only as the run's own status note |
+| briefing_id | uuid | yes | references `research_briefings.id`; set only on `success` |
+| created_at | timestamptz | no | cap counts are computed from this (rolling 24h / 30d windows) |
+
+No soft-delete: a run log is an immutable record, same deviation as `industry_briefing_runs`.
+
+## research_briefings
+
+Added Stage 8 (migration `00019`). The deep-research briefing as data (never files): the Secrets Brief shape — findings with real sources, what changed, the counter-move for a one-truck operation, exactly one takeaway, unverified items in their own field.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| run_id | uuid | yes | references `research_runs.id` |
+| topic | text | no | |
+| title | text | no | |
+| headline | text | no | one-line plain summary (also the Telegram push's core) |
+| findings | jsonb | no | array of `{claim, source_title, source_url}` — every URL validated against the run's evidence at generation time |
+| what_changed | text | no | |
+| counter_move | text | no | the concrete so-what for a one-truck operation |
+| takeaway | text | no | exactly one learn/do |
+| unverified | jsonb | no | array of strings — claims the engine could not tie to a source, kept visibly separate |
+| sources | jsonb | no | array of `{title, url}` — the distinct sources the findings cite |
+| confidence | text | no | `high` \| `medium` \| `low` |
+| telegram_notified_at | timestamptz | yes | set only when the Telegram summary was actually accepted |
+| read_at | timestamptz | yes | unread state for the Research page |
+| dismissed_at | timestamptz | yes | soft-delete analog, same as `industry_briefings` |
+| created_at | timestamptz | no | |
 
 ## companies — one addition
 

@@ -1,4 +1,4 @@
-// Post-upload document processing (docs/design/driver-mvp.md §8):
+// Post-upload document processing (docs/design/driver-mvp.md §10):
 // produces the scan rendition and runs AI text extraction, writing
 // both outcomes onto the documents row the upload route just created.
 //
@@ -61,7 +61,7 @@ export async function processUploadedDocument(
 ): Promise<void> {
   const updates: Record<string, unknown> = {};
   try {
-    // --- Scan rendition (images only; design §8.1) ---
+    // --- Scan rendition (images only; design §10.1) ---
     let extractionImage: { buffer: Buffer; mediaType: string } = {
       buffer: input.fileBuffer,
       mediaType: input.contentType,
@@ -85,7 +85,7 @@ export async function processUploadedDocument(
       }
     }
 
-    // --- Text extraction (kill-switched capability; design §8.2) ---
+    // --- Text extraction (kill-switched capability; design §10.2) ---
     if (input.contentType === "application/pdf") {
       updates.extraction_status = "not_applicable";
     } else {

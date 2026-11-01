@@ -64,6 +64,14 @@ export interface TelegramDeps {
   sendMessage: (chatId: number, text: string) => Promise<void>;
   getSuggestion: (message: string, context?: string) => Promise<DispatchSuggestion>;
   runChat: (input: BotChatInput) => Promise<BotChatOutput>;
+  /**
+   * Bot intelligence v2 (design §8): the agent-loop turn (tools,
+   * write proposals, kill switch). When wired AND a store exists,
+   * the conversational path uses this instead of runChat - the
+   * context loaded above is identical; only the answering engine
+   * changes. Absent = the v1 single-completion chat, unchanged.
+   */
+  runAgent?: (input: BotChatInput) => Promise<BotChatOutput>;
   /** Null = reduced mode (no history/snapshot/memory). */
   store?: TelegramStore | null;
 }
@@ -209,13 +217,24 @@ export async function handleTelegramUpdate(
 
     // Conversation: questions about his business, how-do-I-handle-this,
     // dictated facts the model spots (returned in its memory field).
-    const output = await deps.runChat({
+    // v2 (§8): with the agent wired and a store present, the agent
+    // loop answers - memories go through its save_memory tool then,
+    // so the v1 memory field below is simply never set on this path.
+    const chatInput: BotChatInput = {
       userText: text,
       history: ctx.history,
       snapshotText: ctx.snapshotText,
       instructions,
       memories: relevantMemories,
-    });
+    };
+    if (deps.runAgent && store) {
+      const agentOutput = await deps.runAgent(chatInput);
+      await deps.sendMessage(chat.id, agentOutput.reply);
+      await persistTurn(agentOutput.reply);
+      return "chatted";
+    }
+
+    const output = await deps.runChat(chatInput);
 
     let reply = output.reply;
     if (output.memory && store) {

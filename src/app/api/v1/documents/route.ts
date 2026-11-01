@@ -103,7 +103,7 @@ export const POST = createApiHandler(async (req, ctx) => {
     throw new Error(insertError?.message ?? "Failed to save document metadata.");
   }
 
-  // Scan rendition + AI extraction (docs/design/driver-mvp.md §8).
+  // Scan rendition + AI extraction (docs/design/driver-mvp.md §10).
   // processUploadedDocument never throws - its outcomes are state on
   // the row - so the upload's 201 doesn't depend on either succeeding.
   // The row is re-read so the response carries that state.

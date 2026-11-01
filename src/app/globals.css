@@ -664,6 +664,345 @@ main li:nth-child(6) { animation-delay: 200ms; }
   50%, 100% { opacity: 1; }
 }
 
+/* --- UI/UX upgrade (docs/design/ui-ux.md, "UI/UX upgrade" section):
+   dark scheme + the teaching/discoverability components. The design
+   system is CSS-variable driven, so the dark scheme is one token
+   override block - every screen follows at once, in a cab at night
+   where a white screen is a hazard, not a preference. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #3b82f6;
+    --color-primary-hover: #60a5fa;
+    --color-primary-light: #172554;
+    --color-success: #4ade80;
+    --color-success-light: #052e16;
+    --color-warning: #fbbf24;
+    --color-warning-light: #451a03;
+    --color-danger: #f87171;
+    --color-danger-light: #450a0a;
+    --color-surface: #111827;
+    --color-surface-alt: #0b1120;
+    --color-border: #1f2937;
+    --color-text: #f1f5f9;
+    --color-text-muted: #94a3b8;
+  }
+
+  body {
+    background: linear-gradient(180deg, #0f2040 0%, var(--color-surface-alt) 260px);
+  }
+
+  nav[aria-label="Primary"] {
+    background-color: rgba(17, 24, 39, 0.92);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Page header: title, the one-line purpose statement under it, and the
+   screen's primary action as a real button (PageHeader.tsx). */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.page-header h1 {
+  margin-bottom: 0.375rem;
+}
+
+.page-purpose {
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  margin: 0 0 0.5rem;
+  max-width: 32rem;
+}
+
+/* Button treatment for the primary action link (Add truck, Add load,
+   ...) wherever it appears: page headers and teaching empty states.
+   Same surface as a real <button> so the main action on a screen
+   never reads as a stray text link. */
+a.page-action,
+.empty-state a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border-radius: 0.625rem;
+  background-color: var(--color-primary);
+  color: white;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+
+a.page-action:hover,
+.empty-state a:hover {
+  background-color: var(--color-primary-hover);
+  color: white;
+  text-decoration: none;
+}
+
+/* Teaching empty state (TeachingEmpty in ListStates.tsx): a dashed
+   "nothing here yet" card that explains what belongs on the screen
+   and offers the one button that starts it. */
+.empty-state {
+  border: 1.5px dashed var(--color-border);
+  border-radius: 1rem;
+  padding: 1.5rem 1.25rem;
+  margin-top: 1.25rem;
+  text-align: center;
+  background-color: var(--color-surface);
+}
+
+.empty-state-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.empty-state p {
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0 auto 1rem;
+  max-width: 26rem;
+}
+
+.empty-state .empty-state-title {
+  color: var(--color-text);
+}
+
+.empty-state a {
+  margin-top: 0.25rem;
+}
+
+/* List rows with a real hierarchy (UI/UX upgrade): a bold title line
+   and a muted summary line, instead of one run-on string. Used inside
+   the existing main li card. */
+.row-title {
+  display: block;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.row-sub {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.row-with-photo {
+  display: flex;
+  gap: 0.875rem;
+  align-items: center;
+}
+
+.row-with-photo .row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Entity photos (EntityPhoto.tsx). Thumb sits in list rows; hero tops
+   a detail screen. The empty variant is a quiet placeholder silhouette
+   so a missing photo never looks like a broken image. */
+.entity-photo {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.entity-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entity-photo-thumb {
+  width: 64px;
+  height: 64px;
+}
+
+.entity-photo-hero {
+  width: 100%;
+  height: 220px;
+  margin-top: 1rem;
+}
+
+.entity-photo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.photo-upload {
+  margin-top: 1rem;
+}
+
+.photo-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+}
+
+.photo-upload-input {
+  display: none;
+}
+
+/* Quick actions (Home dashboard): a 2-column grid of big, thumb-sized
+   shortcuts to the four things a driver does most. */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.quick-actions a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0.5rem;
+  border-radius: 0.875rem;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 700;
+  text-align: center;
+  margin-top: 0;
+}
+
+.quick-actions a:hover {
+  text-decoration: none;
+  color: var(--color-primary-hover);
+}
+
+/* The single next step on Home: the one card that answers "what do I
+   do now?" before anything else on the screen. */
+.next-step {
+  border: 1.5px solid var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.next-step p {
+  line-height: 1.5;
+  margin: 0 0 0.5rem;
+}
+
+/* Assistant discoverability (AskAssistant.tsx + the Assistant page):
+   tappable example questions instead of a blank box. */
+.prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.375rem 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-top: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.prompt-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.ask-assistant-open {
+  font-weight: 600;
+}
+
+/* What-the-assistant-can-do list (Assistant page): one capability per
+   line, each mapped to tools that actually exist in the agent. */
+.capability-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.capability-list li {
+  padding: 0.25rem 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  animation: none;
+  line-height: 1.5;
+}
+
+/* Chat turns as bubbles instead of "You: / King:" paragraphs, so the
+   conversation reads like the messaging apps the owner lives in. */
+.chat-turn {
+  max-width: 85%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  margin: 0 0 0.625rem;
+}
+
+.chat-turn-user {
+  background-color: var(--color-primary);
+  color: white;
+  margin-left: auto;
+  border-bottom-right-radius: 0.25rem;
+}
+
+.chat-turn-assistant {
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  margin-right: auto;
+  border-bottom-left-radius: 0.25rem;
+}
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1rem;
+}
+
+/* Index hubs (Fleet / Money / More): each entry gets its one-line
+   "what is this for" under the link, so the hub teaches too. */
+.hub-desc {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.hub-link {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
 /* Motion sensitivity (WCAG 2.3.3, part of this project's WCAG 2.1 AA
    commitment in docs/design/ui-ux.md) - must stay the LAST rule in this
    file. TruckCrossing.tsx also independently checks this preference in

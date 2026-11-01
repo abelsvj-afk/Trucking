@@ -12,11 +12,20 @@
 // current before relying on this in production.
 
 import OpenAI from "openai";
-import type { AiCompletionRequest, AiProvider, AiVisionProvider, AiVisionRequest } from "../provider";
+import type {
+  AiAgentMessage,
+  AiCompletionRequest,
+  AiProvider,
+  AiToolSpec,
+  AiToolTurnResult,
+  AiVisionProvider,
+  AiVisionRequest,
+  AgentCapableProvider,
+} from "../provider";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 
-export class OpenAiProvider implements AiProvider, AiVisionProvider {
+export class OpenAiProvider implements AgentCapableProvider, AiVisionProvider {
   private client: OpenAI;
   private model: string;
 
@@ -46,6 +55,59 @@ export class OpenAiProvider implements AiProvider, AiVisionProvider {
     return content;
   }
 
+  /**
+   * One tool-calling turn for the agent loop (§8). Deliberately does
+   * NOT use complete()'s json_object response format: the loop's
+   * final answer is plain chat text, and forcing JSON here would
+   * fight the tool-call protocol. Arguments are returned as the raw
+   * JSON string the model produced - the loop parses defensively.
+   */
+  async runToolTurn(messages: AiAgentMessage[], tools: AiToolSpec[]): Promise<AiToolTurnResult> {
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: messages.map((message) => {
+        if (message.role === "tool") {
+          return { role: "tool" as const, tool_call_id: message.toolCallId, content: message.content };
+        }
+        if (message.role === "assistant" && message.toolCalls) {
+          return {
+            role: "assistant" as const,
+            content: message.content,
+            tool_calls: message.toolCalls.map((call) => ({
+              id: call.id,
+              type: "function" as const,
+              function: { name: call.name, arguments: call.arguments },
+            })),
+          };
+        }
+        return { role: message.role, content: message.content ?? "" };
+      }),
+      tools: tools.map((tool) => ({
+        type: "function" as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
+      })),
+      tool_choice: "auto",
+    });
+
+    const message = response.choices[0]?.message;
+    if (!message) {
+      throw new Error("OpenAI returned an empty response.");
+    }
+
+    const toolCalls = (message.tool_calls ?? [])
+      .filter((call) => call.type === "function")
+      .map((call) => ({
+        id: call.id,
+        name: call.function.name,
+        arguments: call.function.arguments,
+      }));
+
+    return { text: message.content ?? null, toolCalls };
+  }
   async completeWithImage({ system, user, imageBase64, mediaType }: AiVisionRequest): Promise<string> {
     const response = await this.client.chat.completions.create({
       model: this.model,

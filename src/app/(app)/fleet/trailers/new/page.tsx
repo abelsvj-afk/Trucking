@@ -1,17 +1,26 @@
 "use client";
 
-// Task 3.2 (TASKS.md). Same pattern as fleet/trucks/new/page.tsx.
+// Task 3.2 (TASKS.md), UI/UX upgrade. Add Trailer with its full field
+// set (unit, type, VIN, status) via the shared TrailerFields. The
+// photo comes after saving, on the trailer's own screen.
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import TrailerFields, {
+  EMPTY_TRAILER,
+  trailerToPayload,
+  type TrailerValues,
+} from "@/components/TrailerFields";
 import type { Trailer } from "@/types/entities";
 
 export default function NewTrailerPage() {
   usePageTitle("Add trailer");
   const router = useRouter();
-  const [unitNumber, setUnitNumber] = useState("");
+  const [values, setValues] = useState<TrailerValues>(EMPTY_TRAILER);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -21,8 +30,8 @@ export default function NewTrailerPage() {
     setSubmitting(true);
 
     try {
-      await apiClient.create<Trailer>("trailers", { unit_number: unitNumber });
-      router.push("/fleet/trailers");
+      const trailer = await apiClient.create<Trailer>("trailers", trailerToPayload(values));
+      router.push(`/fleet/trailers/${trailer.id}`);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
     } finally {
@@ -32,22 +41,24 @@ export default function NewTrailerPage() {
 
   return (
     <div>
-      <h1>Add trailer</h1>
+      <PageHeader
+        title="Add trailer"
+        purpose="The trailer, described — type, VIN, and status — so equipment and maintenance records have something real to hang on."
+      />
       <form onSubmit={handleSubmit}>
-        <label htmlFor="unit_number">Unit number</label>
-        <input
-          id="unit_number"
-          value={unitNumber}
-          onChange={(event) => setUnitNumber(event.target.value)}
-          required
-        />
+        <TrailerFields values={values} onChange={setValues} />
+
+        <p className="row-sub">After saving, you&apos;ll land on the trailer&apos;s page — add its photo there.</p>
 
         {error && <p role="alert">{error}</p>}
 
         <button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save"}
+          {submitting ? "Saving…" : "Save trailer"}
         </button>
       </form>
+      <p>
+        <Link href="/fleet/trailers">Back to trailers</Link>
+      </p>
     </div>
   );
 }

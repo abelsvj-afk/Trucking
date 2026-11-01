@@ -1,7 +1,7 @@
 "use client";
 
 // Document preview with the Original | Scan rendition toggle
-// (docs/design/driver-mvp.md §8). The original photo is always the
+// (docs/design/driver-mvp.md §10). The original photo is always the
 // record; the scan is the enhanced black-and-white rendition made at
 // upload. Extracted text - what the assistant reads - is one tap away
 // so the owner can see exactly what the AI sees.

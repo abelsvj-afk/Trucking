@@ -1,4 +1,4 @@
-// Document scan pixel stage (docs/design/driver-mvp.md §8). Pure
+// Document scan pixel stage (docs/design/driver-mvp.md §10). Pure
 // functions over a raw single-channel (grayscale) buffer, deliberately
 // free of any image-library dependency so the whole stage is unit-
 // testable without sharp: scan-image.ts decodes/encodes, everything
@@ -221,7 +221,7 @@ function angleDegrees(
 /**
  * Tries to find the document's four corners in a grayscale photo.
  * Returns null — a normal, expected outcome — unless every sanity
- * check in design §8.1 passes: the page (assumed lighter or darker
+ * check in design §10.1 passes: the page (assumed lighter or darker
  * than its surroundings, decided by the border) forms one dominant
  * blob covering 35–97% of the frame, and its hull reduces to a
  * plausible rectangle that isn't already the whole frame.

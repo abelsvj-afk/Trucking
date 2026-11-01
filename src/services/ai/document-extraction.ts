@@ -1,4 +1,4 @@
-// Document scan + extraction (docs/design/driver-mvp.md §8.2). The
+// Document scan + extraction (docs/design/driver-mvp.md §10.2). The
 // `document_extraction` AI capability: reads a document photo - the
 // enhanced scan rendition when one exists, the original otherwise -
 // through the provider's vision path and returns the document's full
@@ -32,7 +32,7 @@ export const documentExtractionSchema = z.object({
   // The full text is the point of the feature - it is stored raw and
   // quoted by the agent later, so it must be non-empty and complete.
   text: z.string().min(1).max(100_000),
-  // Schema-light on purpose (design §8.2): a flat record of whatever
+  // Schema-light on purpose (design §10.2): a flat record of whatever
   // key values the document actually carries. Bounded in count and
   // value length so a runaway response can't bloat the row.
   fields: z

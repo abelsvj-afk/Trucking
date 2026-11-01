@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import PageHeader from "@/components/PageHeader";
 import type { PretripInspection, Truck, Trailer, Driver } from "@/types/entities";
 
 const CHECKLIST_ITEMS = [
@@ -69,7 +70,7 @@ export default function NewPretripInspectionPage() {
 
   return (
     <div>
-      <h1>Log inspection</h1>
+      <PageHeader title="Log inspection" purpose="The walk-around, on record — pass it, or name the defect." />
 
       <section aria-label="Checklist">
         <h2>Walk through before logging</h2>

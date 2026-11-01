@@ -1,4 +1,4 @@
-// Document scan rendition (docs/design/driver-mvp.md §8.1). Decodes
+// Document scan rendition (docs/design/driver-mvp.md §10.1). Decodes
 // and encodes with sharp - already in the shipped tree as Next.js's
 // own image dependency, promoted to a declared dependency at the same
 // version (see the design note's Dependency Rule justification). All

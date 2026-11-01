@@ -14,6 +14,19 @@ export interface BaseRow {
 
 export type EntityStatus = "active" | "maintenance" | "inactive";
 
+// Smart Path v1 (docs/design/driver-mvp.md §8.2): the known cab
+// appliance values. `none` is exclusive - "nothing in the cab" - and
+// cannot combine with the others (enforced in the Zod schema).
+export type TruckAppliance =
+  | "fridge"
+  | "cooler"
+  | "microwave"
+  | "air_fryer"
+  | "hot_plate"
+  | "coffee_maker"
+  | "inverter"
+  | "none";
+
 export interface Truck extends BaseRow {
   unit_number: string;
   vin: string | null;
@@ -22,6 +35,21 @@ export interface Truck extends BaseRow {
   year: number | null;
   status: EntityStatus;
   current_mileage: number | null;
+  // UI/UX upgrade (migration 00027): what kind of truck this is (UI
+  // picklist slug or the owner's own words) and the documents row
+  // holding its photo. Both null until captured.
+  truck_type: string | null;
+  photo_document_id: string | null;
+  // Truck profile (migration 00017). All optional until captured -
+  // the first real profile is Steven's truck, entered by the owner.
+  height_in: number | null;
+  length_in: number | null;
+  weight_lbs: number | null;
+  governed_speed_mph: number | null;
+  tank_capacity_gallons: number | null;
+  avg_mpg: number | null;
+  appliances: TruckAppliance[];
+  appliance_notes: string | null;
 }
 
 export interface Trailer extends BaseRow {
@@ -29,11 +57,20 @@ export interface Trailer extends BaseRow {
   vin: string | null;
   trailer_type: string | null;
   status: EntityStatus;
+  // UI/UX upgrade (migration 00027): the documents row holding its photo.
+  photo_document_id: string | null;
 }
+
+export type DriverRole = "owner_operator" | "company_driver" | "contract_driver" | "other";
 
 export interface Driver extends BaseRow {
   name: string;
+  // UI/UX upgrade (migration 00027): the rest of a real driver profile.
+  phone: string | null;
+  role: DriverRole | null;
   cdl_number: string | null;
+  cdl_expires_on: string | null;
+  photo_document_id: string | null;
   assigned_truck_id: string | null;
   status: "active" | "inactive";
 }
@@ -215,4 +252,85 @@ export interface IndustryBriefing {
   based_on: string[];
   generated_at: string;
   dismissed_at: string | null;
+}
+
+// Deep Research Engine (docs/design/research-engine.md, migration
+// 00019). Findings/sources/unverified are jsonb arrays with these
+// element shapes - validated at generation time by
+// services/ai/research-briefing.ts's output contract.
+export interface ResearchFinding {
+  claim: string;
+  source_title: string;
+  source_url: string;
+}
+
+export interface ResearchSourceRef {
+  title: string;
+  url: string;
+}
+
+export interface ResearchBriefing {
+  id: string;
+  company_id: string;
+  run_id: string | null;
+  topic: string;
+  title: string;
+  headline: string;
+  findings: ResearchFinding[];
+  what_changed: string;
+  counter_move: string;
+  takeaway: string;
+  unverified: string[];
+  sources: ResearchSourceRef[];
+  confidence: AiConfidence;
+  telegram_notified_at: string | null;
+  read_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+}
+
+export type ResearchRunStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failure"
+  | "insufficient_data"
+  | "skipped_cap"
+  | "skipped_disabled";
+
+export interface ResearchRun {
+  id: string;
+  company_id: string;
+  trigger_kind: "scheduled" | "pressure" | "manual";
+  topic: string;
+  trigger_detail: { reason?: string; signal_dedupe_keys?: string[] };
+  status: ResearchRunStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+  briefing_id: string | null;
+  created_at: string;
+}
+
+export interface ResearchWatcherState {
+  watcher_key: string;
+  last_polled_at: string | null;
+  last_status: "ok" | "error" | "skipped" | null;
+  last_error: string | null;
+  last_signal_at: string | null;
+  updated_at: string;
+}
+
+/** GET /api/v1/research-briefings response envelope (docs/api-contracts.md). */
+export interface ResearchPageData {
+  data: ResearchBriefing[];
+  unread_count: number;
+  runs: ResearchRun[];
+  watchers: ResearchWatcherState[];
+  usage: {
+    runs_today: number;
+    runs_this_month: number;
+    max_runs_per_day: number;
+    max_runs_per_month: number;
+  };
 }
