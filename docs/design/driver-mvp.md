@@ -481,73 +481,10 @@ network. Orchestration in `src/services/smart-path/route-check.ts`.
 
 Lane intelligence from load history (rate/mile by lane, deadhead,
 reload probability — §7/§9c); offline corridor tile caching;
-traffic; parking availability; storing appointment windows on
-loads; learning `avg_mpg` from fuel history; spoken Smart Path via
-the bot (§9g); the personal preference layer learned from Telegram
-(§9b.5). (Truck-legal route geometry was on this list in v1; §8.5
-is the increment that lands it.)
-
-### 8.5 Truck-legal routing (built 2026-10-31, Wave C follow-up — task 7.13)
-
-The owner ruled the v1 gap unacceptable and set the budget law for
-closing it: **free first — everything free; only if no free option
-exists, the cheapest possible.** Two free truck-aware stacks were
-evaluated against the `RoutingProvider` interface; both route on
-OpenStreetMap data and take the truck's real dimensions
-(height/width/length in meters, weight in metric tons):
-
-| | OpenRouteService `driving-hgv` | Valhalla `truck` costing (public endpoint) |
-|---|---|---|
-| Dimension/restriction support | `options.profile_params.restrictions` (length/width/height m, weight/axleload t, hazmat) under the HGV profile; HGV road-access filtering is in the routing graph itself | `costing_options.truck` (height/width/length m, weight t, axle_load, hazmat); truck costing checks truck access + height/width/weight limits |
-| Cost / free tier | Free Standard plan: **2,000 directions/day, 40/min**, published on the plans page; needs a free API key (`ORS_API_KEY`) | Keyless. Public FOSSGIS endpoint (`valhalla1.openstreetmap.de`) is a community demo service — fair use, **no published quota or SLA** |
-| Fit for this app | A handful of route checks/day is ~0.1% of the free quota; a hosted, maintained service (HeiGIT) is the one to depend on | Same dimension support, zero setup — but a demo endpoint is not a thing to build the primary path on |
-| Escape hatch | Open source — self-hostable later (same posture as ORS's own docs suggest past the free tier) | Open source — self-hostable later; `VALHALLA_URL` already points the client at any instance |
-
-**Choice: OpenRouteService is primary; Valhalla is the keyless
-fallback; OSRM car remains the last resort.** The chain
-(`defaultRoutingProvider()` in `src/services/integrations/routing.ts`)
-is: ORS (only when `ORS_API_KEY` is set) → Valhalla → OSRM. Route
-checks pass the load's truck profile (§8.2: `height_in`,
-`length_in`, `weight_lbs`, converted to meters/tons) into every
-truck-aware request. The profile has no width column, so width is
-never sent — the engines apply their HGV defaults; adding a width
-capture is a §8.2 schema change for a later increment, not an
-assumption to invent here.
-
-**What `truckLegal` means now — the honest version.** `RouteResult`
-carries `truckLegal` from the provider that actually served the
-route: `true` only when ORS-HGV or Valhalla-truck produced the
-geometry, `false` for OSRM. If the chain falls back to OSRM, the
-v1 car-route warning returns **verbatim** — a fallback never
-upgrades the claim silently. Even when `truckLegal` is `true`,
-the word has a boundary the UI states: the engines respect the
-restrictions **recorded in OpenStreetMap data** (maxheight /
-maxweight / maxwidth / hgv access tags). OSM's restriction
-coverage is incomplete, especially off the interstates — a road
-with no recorded limit is treated as passable. So: truck-checked
-against the map data that exists, **not** a guarantee, and the
-truck's own nav/ELD remains the final word. The response keeps a
-provider attribution (`route.provider`) and merges the chain's
-notes (e.g. "ORS not configured — skipped", "Valhalla
-unreachable — fell back") into `warnings`, so which engine
-answered, and what was skipped or degraded, is never hidden.
-
-**Config (`.env.example`):** `ORS_API_KEY` (server-only; absent =
-ORS skipped in the chain, noted in the result), `VALHALLA_URL`
-(optional; full route-endpoint URL, defaults to the public
-FOSSGIS endpoint). **Owner setup, once the free ORS key exists:**
-`fly secrets set ORS_API_KEY=<key> -a trucking` and redeploy —
-no code change; the key drops into the env the chain already
-reads. Until the key lands, Valhalla carries truck-legal routing
-keylessly, which is exactly why it is in the chain ahead of OSRM.
-
-**Failure posture is unchanged from v1:** every provider response
-is Zod-validated; a provider failure degrades to the next in the
-chain with a note; if the whole chain fails the endpoint returns
-the honest 502 — no geometry, distance, or duration is ever
-fabricated. Written from the providers' documented API shapes and
-fixture-tested, **not live-verified from this sandbox** (egress
-blocked, same caveat as §8.1/EIA) — verify after deploy.
+truck-legal route geometry (keyed provider); traffic; parking
+availability; storing appointment windows on loads; learning
+`avg_mpg` from fuel history; spoken Smart Path via the bot (§9g);
+the personal preference layer learned from Telegram (§9b.5).
 
 ## 9. Agent omnipresence — full tool coverage + dump intake (task 7.12, stacked on §8)
 

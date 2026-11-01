@@ -36,8 +36,6 @@ Fly.io stops a machine after the idle period configured in `fly.toml` (`auto_sto
 | `OPENAI_API_KEY` | server only | used by `services/ai`'s OpenAI provider, per `docs/design/ai-architecture.md` — required for the industry-intelligence engine to run |
 | `ANTHROPIC_API_KEY` | server only | reserved for a future Anthropic provider implementation behind the same `services/ai` interface — not used by any capability yet |
 | `EIA_API_KEY` | server only | free-tier key for the EIA Open Data API, `services/integrations`' fuel-market source (`docs/design/ai-architecture.md`'s worked example) |
-| `ORS_API_KEY` | server only | FREE OpenRouteService key (Standard plan) — Smart Path's primary truck-routing provider (`services/integrations/openrouteservice.ts`, design §8.5). Optional: unset = skipped in the routing chain (noted in route-check results), Valhalla/OSRM fallbacks carry on. On Fly: `fly secrets set ORS_API_KEY=<key> -a trucking` |
-| `VALHALLA_URL` | server only | optional override for Smart Path's keyless truck-routing fallback endpoint (`services/integrations/valhalla.ts`, design §8.5); defaults to the public `https://valhalla1.openstreetmap.de/route` |
 | `INDUSTRY_BRIEFING_CRON_SECRET` | server only | no longer required for scheduling itself (see below — the job now triggers in-process) but kept for the optional manual-trigger debugging route |
 
 ## Deployment

@@ -2,12 +2,15 @@
 
 // Task 3.15 (TASKS.md). A log of completed pre-trip walkarounds, most
 // recent first - per docs/schemas.md, only the outcome is stored.
+//
+// UI/UX upgrade: purpose header, teaching empty state, outcome-led rows.
 
 import Link from "next/link";
 import { useState } from "react";
 import { useApiList } from "@/lib/use-api-list";
 import { usePickerList } from "@/lib/use-picker-list";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
+import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { PretripInspection, Truck, Trailer, Driver } from "@/types/entities";
 
@@ -36,8 +39,15 @@ export default function PretripInspectionsPage() {
 
   return (
     <div>
-      <h1>Pre-trip inspections</h1>
-      <Link href="/fleet/pretrip-inspections/new">Log inspection</Link>
+      <PageHeader
+        title="Pre-trip inspections"
+        purpose="The walk-around before you roll — logged, so a passed inspection (and every defect) is on record."
+        action={
+          <Link href="/fleet/pretrip-inspections/new" className="page-action">
+            Log inspection
+          </Link>
+        }
+      />
 
       <label htmlFor="truck_filter">Truck</label>
       <select id="truck_filter" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
@@ -52,9 +62,10 @@ export default function PretripInspectionsPage() {
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
-        <ListEmpty
-          message="No pre-trip inspections logged yet."
-          action={<Link href="/fleet/pretrip-inspections/new">Log inspection</Link>}
+        <TeachingEmpty
+          title="No inspections logged yet"
+          message="Before the first roll of the day, walk the truck and log it here — coupling, air lines, lights, tires. Thirty seconds now beats a roadside violation later."
+          action={<Link href="/fleet/pretrip-inspections/new">Log your first inspection</Link>}
         />
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (
@@ -63,12 +74,18 @@ export default function PretripInspectionsPage() {
             const driver = driverLabel(inspection);
             return (
               <li key={inspection.id}>
-                <strong data-status={inspection.passed ? "ok" : "overdue"}>
-                  {inspection.passed ? "Passed" : "Failed"}
-                </strong>
-                {new Date(inspection.inspected_at).toLocaleDateString()} — {vehicleLabel(inspection)}
-                {driver && ` — ${driver}`}
-                {inspection.defects_found && ` — ${inspection.defects_found}`}
+                <span className="row-title">
+                  <strong data-status={inspection.passed ? "ok" : "overdue"}>
+                    {inspection.passed ? "Passed" : "Failed"}
+                  </strong>
+                  {new Date(inspection.inspected_at).toLocaleDateString()} — Truck/Trailer{" "}
+                  {vehicleLabel(inspection)}
+                </span>
+                {(driver || inspection.defects_found) && (
+                  <span className="row-sub">
+                    {[driver, inspection.defects_found].filter(Boolean).join(" · ")}
+                  </span>
+                )}
               </li>
             );
           })}

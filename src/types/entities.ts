@@ -35,6 +35,11 @@ export interface Truck extends BaseRow {
   year: number | null;
   status: EntityStatus;
   current_mileage: number | null;
+  // UI/UX upgrade (migration 00027): what kind of truck this is (UI
+  // picklist slug or the owner's own words) and the documents row
+  // holding its photo. Both null until captured.
+  truck_type: string | null;
+  photo_document_id: string | null;
   // Truck profile (migration 00017). All optional until captured -
   // the first real profile is Steven's truck, entered by the owner.
   height_in: number | null;
@@ -52,11 +57,20 @@ export interface Trailer extends BaseRow {
   vin: string | null;
   trailer_type: string | null;
   status: EntityStatus;
+  // UI/UX upgrade (migration 00027): the documents row holding its photo.
+  photo_document_id: string | null;
 }
+
+export type DriverRole = "owner_operator" | "company_driver" | "contract_driver" | "other";
 
 export interface Driver extends BaseRow {
   name: string;
+  // UI/UX upgrade (migration 00027): the rest of a real driver profile.
+  phone: string | null;
+  role: DriverRole | null;
   cdl_number: string | null;
+  cdl_expires_on: string | null;
+  photo_document_id: string | null;
   assigned_truck_id: string | null;
   status: "active" | "inactive";
 }

@@ -4,6 +4,7 @@
 // be worked top-to-bottom at the truck, in order.
 
 import type { Metadata } from "next";
+import PageHeader from "@/components/PageHeader";
 
 export const metadata: Metadata = { title: "Checklists — Trucking OS" };
 
@@ -20,7 +21,7 @@ function Steps({ items }: { items: string[] }) {
 export default function ChecklistsPage() {
   return (
     <div>
-      <h1>Checklists</h1>
+      <PageHeader title="Checklists" purpose="Coupling, uncoupling, docking, and paperwork — step by step, written to be worked top to bottom at the truck." />
 
       <section aria-label="Coupling">
         <h2>Coupling (hooking up to a trailer)</h2>
