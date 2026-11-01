@@ -11,8 +11,9 @@ import { Suspense, useCallback, useEffect, useState, type FormEvent } from "reac
 import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
-import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
+import { ListLoading, ListEmpty, ListError, TeachingEmpty } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
+import { DocumentPreview, extractionStatusText } from "@/components/DocumentPreview";
 import { usePageTitle } from "@/lib/use-page-title";
 import type {
   Driver,
@@ -34,6 +35,19 @@ type DocsState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "loaded"; documents: DocumentWithSignedUrl[] };
+
+type SearchState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "loaded"; documents: DocumentWithSignedUrl[] };
+
+/** A short excerpt of what the assistant read, for search results. */
+function snippet(doc: DocumentWithSignedUrl): string | null {
+  if (!doc.extracted_text) return null;
+  const flat = doc.extracted_text.replace(/\s+/g, " ").trim();
+  return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
+}
 
 function labelFor(entityType: RelatedEntityType, record: Truck | Trailer | Driver | Load) {
   if (entityType === "driver") return (record as Driver).name;
@@ -67,6 +81,9 @@ function DocumentsInner() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [docsState, setDocsState] = useState<DocsState>({ status: "loaded", documents: [] });
+  const [previewDoc, setPreviewDoc] = useState<DocumentWithSignedUrl | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
 
   const trucks = usePickerList<Truck>("trucks");
   const trailers = usePickerList<Trailer>("trailers");
@@ -134,10 +151,29 @@ function DocumentsInner() {
   async function handleRemove(id: string) {
     try {
       await apiClient.removeDocument(id);
+      setPreviewDoc((current) => (current?.id === id ? null : current));
       fetchDocuments();
     } catch {
       setUploadError("Couldn't remove that document. Try again.");
     }
+  }
+
+  // Full-text search across every document's extracted text
+  // (docs/api-contracts.md) - pickup numbers, cities, amounts,
+  // anything the paperwork says, not just one record's files.
+  function handleSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = searchText.trim();
+    if (!query) return;
+    setSearchState({ status: "loading" });
+    apiClient
+      .searchDocuments<DocumentWithSignedUrl>(query)
+      .then((result) => setSearchState({ status: "loaded", documents: result.data }))
+      .catch((err: unknown) => {
+        const message =
+          err instanceof ApiClientError ? err.message : "Couldn't reach the server. Try again.";
+        setSearchState({ status: "error", message });
+      });
   }
 
   return (
@@ -146,6 +182,41 @@ function DocumentsInner() {
         title="Documents"
         purpose="Paperwork and photos, filed against the truck, trailer, driver, or load they belong to — BOLs, permits, registrations, receipts. The assistant can read these."
       />
+
+      <form onSubmit={handleSearch}>
+        <label htmlFor="document_search">Search your paperwork</label>
+        <input
+          id="document_search"
+          type="search"
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          placeholder="Pickup number, city, amount…"
+        />
+        <button type="submit" disabled={!searchText.trim()}>
+          Search
+        </button>
+      </form>
+
+      {searchState.status === "loading" && <ListLoading />}
+      {searchState.status === "error" && (
+        <ListError message={searchState.message} onRetry={() => setSearchState({ status: "idle" })} />
+      )}
+      {searchState.status === "loaded" && searchState.documents.length === 0 && (
+        <ListEmpty message="No documents match that search yet. Text search covers documents whose text has been extracted." />
+      )}
+      {searchState.status === "loaded" && searchState.documents.length > 0 && (
+        <ul>
+          {searchState.documents.map((doc) => (
+            <li key={doc.id}>
+              {doc.file_name} ({doc.related_entity_type}){" "}
+              <button type="button" onClick={() => setPreviewDoc(doc)}>
+                View
+              </button>
+              {snippet(doc) && <p>{snippet(doc)}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <label htmlFor="entity_type">Type</label>
       <select
@@ -214,13 +285,19 @@ function DocumentsInner() {
               ) : (
                 doc.file_name
               )}{" "}
+              <button type="button" onClick={() => setPreviewDoc(doc)}>
+                View
+              </button>{" "}
               <button type="button" onClick={() => handleRemove(doc.id)}>
                 Remove
               </button>
+              <p>{extractionStatusText(doc)}</p>
             </li>
           ))}
         </ul>
       )}
+
+      {previewDoc && <DocumentPreview key={previewDoc.id} doc={previewDoc} />}
     </div>
   );
 }

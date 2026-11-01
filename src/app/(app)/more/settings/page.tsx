@@ -29,6 +29,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   dispatch_helper: "Dispatch helper (translation + reply drafts)",
   bot_chat: "Bot chat (Telegram + web assistant)",
   deep_research: "Deep research engine (watches fuel, rules & news; briefs you when pressure hits)",
+  document_extraction: "Document text extraction (reads uploaded paperwork so the assistant can answer questions about it)",
 };
 
 type SettingsState =
