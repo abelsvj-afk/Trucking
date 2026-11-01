@@ -14,6 +14,19 @@ export interface BaseRow {
 
 export type EntityStatus = "active" | "maintenance" | "inactive";
 
+// Smart Path v1 (docs/design/driver-mvp.md §8.2): the known cab
+// appliance values. `none` is exclusive - "nothing in the cab" - and
+// cannot combine with the others (enforced in the Zod schema).
+export type TruckAppliance =
+  | "fridge"
+  | "cooler"
+  | "microwave"
+  | "air_fryer"
+  | "hot_plate"
+  | "coffee_maker"
+  | "inverter"
+  | "none";
+
 export interface Truck extends BaseRow {
   unit_number: string;
   vin: string | null;
@@ -22,6 +35,16 @@ export interface Truck extends BaseRow {
   year: number | null;
   status: EntityStatus;
   current_mileage: number | null;
+  // Truck profile (migration 00017). All optional until captured -
+  // the first real profile is Steven's truck, entered by the owner.
+  height_in: number | null;
+  length_in: number | null;
+  weight_lbs: number | null;
+  governed_speed_mph: number | null;
+  tank_capacity_gallons: number | null;
+  avg_mpg: number | null;
+  appliances: TruckAppliance[];
+  appliance_notes: string | null;
 }
 
 export interface Trailer extends BaseRow {

@@ -43,6 +43,9 @@ export default function FleetPage() {
         <li>
           <Link href="/fleet/hos">Hours of service (paper-log helper)</Link>
         </li>
+        <li>
+          <Link href="/fleet/truck-profile">Truck profile (size, speed, appliances)</Link>
+        </li>
       </ul>
     </div>
   );

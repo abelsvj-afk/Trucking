@@ -27,6 +27,50 @@ describe("createTruckSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // Smart Path v1 truck profile (docs/design/driver-mvp.md §8.2).
+  it("accepts a full truck profile", () => {
+    const result = createTruckSchema.safeParse({
+      unit_number: "Truck #1",
+      height_in: 162,
+      length_in: 840,
+      weight_lbs: 80000,
+      governed_speed_mph: 65,
+      tank_capacity_gallons: 120,
+      avg_mpg: 6.8,
+      appliances: ["fridge", "microwave", "inverter"],
+      appliance_notes: "2000W inverter",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects 'none' combined with other appliances", () => {
+    const result = createTruckSchema.safeParse({
+      unit_number: "Truck #1",
+      appliances: ["none", "fridge"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown appliance and implausible profile numbers", () => {
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", appliances: ["jacuzzi"] }).success,
+    ).toBe(false);
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", avg_mpg: 30 }).success,
+    ).toBe(false);
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", governed_speed_mph: 10 }).success,
+    ).toBe(false);
+    expect(
+      createTruckSchema.safeParse({ unit_number: "Truck #1", height_in: -1 }).success,
+    ).toBe(false);
+  });
+
+  it("update schema accepts a partial profile", () => {
+    const result = updateTruckSchema.safeParse({ appliances: ["cooler"] });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("updateTruckSchema", () => {
