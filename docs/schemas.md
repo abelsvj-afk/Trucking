@@ -536,6 +536,82 @@ Added Stage 8 (migration `00019`). The deep-research briefing as data (never fil
 
 Not a stored table. It's computed on read from `loads` (status `confirmed`/`completed`) and `expenses`/`fuel_purchases`/`maintenance_events` within a date range — see `docs/api-contracts.md`'s `/financial-summary` endpoint. No dedicated table exists yet because there's no real performance reason for one (matches the "no caching yet" decision in `docs/architecture.md`) — revisit only if computing it live actually becomes slow.
 
+## ai_capability_settings — `game_plan`
+
+The Gaming System adds a sixth known capability, `game_plan`, under the same kill-switch pattern (global switch first, then per-capability, no row = off). It governs every re-game — tab, API, bot tools, and the unattended checkpoint scheduler all check it before any plan is generated; with it off, re-game attempts land in `game_plan_runs` as `skipped_disabled`, visibly, and target saves still succeed.
+
+## game_targets
+
+Added by the Gaming System (design `docs/design/gaming-system.md`, migration `00024`). The owner's ONE active outcome everything is gamed against; old targets are history (deactivated, never deleted by the set flow). Exactly one active target per company, enforced by a partial unique index on `(company_id) where is_active and deleted_at is null`.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| metric | text | no | `monthly_net_cents` \| `truck_fund_cents` \| `business_value_cents` \| `net_worth_cents` (check constraint) — net worth renders partial (business-only) until accounts connect |
+| target_value_cents | bigint | no | > 0 (check constraint) |
+| target_date | date | yes | null = open-ended (gamed over 24 months) |
+| posture | text | no | `conservative` \| `mixed` (check constraint) |
+| posture_mix_pct | integer | no | 0–100 (check constraint), default 0 — the share of the gap side income may carry |
+| notes | text | yes | what the target means, in his words |
+| is_active | boolean | no | default false |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+## game_plans
+
+One row per game (migration `00024`). A plan is a frozen projection: the snapshot it was gamed from, the assumption sheet (every value with its source), the full engine output, and the narration that passed the honesty fence. Versions never overwrite — a new game supersedes. No `updated_at` (rows are immutable once stored; status changes are the only mutation).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| target_id | uuid | no | references `game_targets.id` |
+| version | integer | no | per-target sequence |
+| status | text | no | `current` \| `superseded` \| `what_if` \| `invalid_rules` (check constraint) |
+| trigger | text | no | `target_set` \| `target_edit` \| `checkpoint` \| `settlement` \| `fund_milestone` \| `research_briefing` \| `maintenance_event` \| `manual` \| `what_if` (check constraint) |
+| snapshot | jsonb | no | the `GameSnapshot` the game ran on (his real records, frozen) |
+| assumptions | jsonb | no | the assumption sheet: `[{key, value, source, adjustable}]` — source is `his_data` \| `vision_estimate` \| `his_override` \| `briefing:<id>` |
+| scenarios | jsonb | no | the engine `GameOutput` (three lines + recommended + gap + levers) plus `validity` (the §5.5 verdict) and `removedForValidity` (what the nearest-valid repair removed, when it did) |
+| narration | text | no | model-written, code-checked (banned promise language; figures grounded in the plan's own numbers) |
+| diff_summary | text | yes | code-computed comparison vs the previous current version; null on version 1 |
+| data_sufficiency | jsonb | no | `{completed_loads, weeks_of_history, thin_data}` — the stamp rides every rendering |
+| created_at / deleted_at | timestamptz | see global conventions | |
+
+## game_plan_runs
+
+The generation run log (migration `00024`) — every re-game attempt, including the governance outcomes, the same discipline as `research_runs`. The 4/day cap is counted from this table, never from memory.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| target_id | uuid | yes | references `game_targets.id` |
+| trigger | text | no | same trigger set as `game_plans` (check constraint) |
+| status | text | no | `success` \| `failure` \| `skipped_cap` \| `skipped_disabled` \| `invalid_replaced` (check constraint) — only success/failure/invalid_replaced count against the daily cap |
+| plan_id | uuid | yes | references `game_plans.id` — the plan the run produced, when it produced one |
+| detail | text | yes | why a run failed or was skipped, in plain words |
+| created_at / deleted_at | timestamptz | see global conventions | |
+
+## game_checkpoints
+
+The monthly scoreboard (migration `00025`). One close per month per target, enforced by a unique index on `(company_id, target_id, period_month) where deleted_at is null` — the scheduler's close is idempotent because the index refuses a second row. Closing a checkpoint never edits a plan.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| target_id | uuid | no | references `game_targets.id` |
+| period_month | date | no | first of the month, America/New_York |
+| planned_value_cents | bigint | no | what the then-current plan projected for the month (a projection) |
+| actual_value_cents | bigint | yes | filled at close; null until then |
+| verdict | text | yes | `on_plan` \| `ahead` \| `behind` \| `no_data` (check constraint), graded within a ±2% band |
+| gap_cents | bigint | yes | actual − planned |
+| lever_note | text | yes | the single lever named for next month (§4.3) |
+| telegram_sent_at | timestamptz | yes | when the one-message digest actually sent |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
+Migration `00026` adds the game lookup indexes and widens the `bot_memories` kind check to admit `game_assumption` — the Gaming System's persistent assumption overrides (design §2.5), stored as JSON `{"key","value"}` rows, listed/clearable via the bot tools, and excluded from conversational memory retrieval in code.
+
 ---
 
 *Column-level detail beyond what's needed to satisfy `docs/requirements.md`'s MVP scope is deliberately not included — e.g. no `documents` versioning, no `loads` rate-negotiation history. Add fields here, not silently in code, when a real need shows up.*

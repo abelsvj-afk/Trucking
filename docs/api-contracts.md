@@ -180,6 +180,34 @@ The app never moves money (§9's law): every endpoint below reads, computes, or 
 
 **`GET /api/v1/business-ladder`** — just the `ladder` array from the aggregate above. **`PATCH /api/v1/business-ladder/{step_key}`** — upserts one step's state: body `{ state, note? }`; `step_key` must be one of the six canonical keys (404 otherwise).
 
+## Gaming System (Game Plan — `docs/design/gaming-system.md`)
+
+A plan is a projection, never a promise, and nothing here moves money or executes anything. All generation runs through the governed pipeline (`services/game/run-game-plan.ts`): capability check (`game_plan`, ships OFF) → 4/day re-game cap counted from `game_plan_runs` → snapshot → deterministic engine → STABILIZE validity fence → narration honesty fence. Governance outcomes are returned, never swallowed.
+
+**`GET /api/v1/game-targets`** — the company's targets, newest first: `{ "data": [GameTarget] }`. **`POST /api/v1/game-targets`** — body `{ metric, target_value_cents, target_date?, posture, posture_mix_pct?, notes? }`; deactivates the previous active target, inserts the new active one, and re-games (trigger `target_set`). Returns `201 { target, game }` where `game` is the run outcome (`{ status: "success", plan, material }` | `{ status: "skipped_disabled" }` | `{ status: "skipped_cap" }` | `{ status: "invalid_replaced", plan, violations }` | `{ status: "failure", detail }`) — the target saves even when the game is skipped. **`GET /api/v1/game-targets/{id}`** — one target. **`PATCH /api/v1/game-targets/{id}`** — partial edit; editing the ACTIVE target re-games (trigger `target_edit`), editing history does not; returns `{ target, game }`. **`DELETE /api/v1/game-targets/{id}`** — soft delete (also deactivates).
+
+**`GET /api/v1/game-plan`** — computed aggregate for the More → Game Plan tab (read-only; all math happened at generation time and is frozen on the plan rows):
+
+```json
+{
+  "capability_enabled": true,
+  "target": { "id": "…", "metric": "monthly_net_cents", "target_value_cents": 1000000, "target_date": "2027-06-30", "posture": "conservative", "posture_mix_pct": 0, "notes": null, "is_active": true },
+  "current_plan": { "id": "…", "version": 3, "status": "current", "trigger": "settlement", "snapshot": {}, "assumptions": [], "scenarios": {}, "narration": "…", "diff_summary": "Plan v3 (was v2). …", "data_sufficiency": { "completedLoads": 24, "weeksOfHistory": 12, "thinData": false } },
+  "versions": [],
+  "checkpoints": [],
+  "side_income_candidates": [{ "sourceType": "briefing", "sourceId": "…", "label": "…" }],
+  "usage": { "re_games_today": 1, "max_re_games_per_day": 4 }
+}
+```
+
+`side_income_candidates` is read fresh (the §3.4 sources a lever may cite: latest research briefings + his recorded skills). Net-worth targets render partial (business-only) until accounts connect — the label is the UI's, the number is business value + hand-recorded personal snapshots.
+
+**`POST /api/v1/game-plan/regame`** — body `{ trigger?: "manual" }`. Runs the pipeline against the active target. Governance skips return `200 { game }`; no target → `422 no_target`; a narration-fence failure → `422 game_failed` with the reason (the previous plan stands).
+
+**`POST /api/v1/game-plan/what-if`** — body `{ overrides }` (strict schema: engine keys only; side levers must carry their §3.4 citation). Stores a `what_if` version; never touches real data, never replaces the current plan. A rule-breaking what-if returns `200` WITH its violations named in the stored plan's `scenarios.validity`. Same `422` shapes as regame.
+
+**`POST /api/v1/game-plan/promote`** — body `{ plan_id }`. "Make that the plan": the ONLY promotion path. The what-if's frozen game becomes `current` as-is (nothing recomputed); the old current is superseded. Non-what-if or unknown ids → `400` with the reason.
+
 ## Health check
 
 **`GET /api/v1/health`** — no auth required. Per the diagnostics requirement in `CLAUDE.md`, kept separate from business endpoints.

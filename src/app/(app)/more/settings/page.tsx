@@ -30,6 +30,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   bot_chat: "Bot chat (Telegram + web assistant)",
   deep_research: "Deep research engine (watches fuel, rules & news; briefs you when pressure hits)",
   document_extraction: "Document text extraction (reads uploaded paperwork so the assistant can answer questions about it)",
+  game_plan: "Game Plan (your target + strategy planner — games your real numbers into a path to the target; projections, never promises)",
 };
 
 type SettingsState =
