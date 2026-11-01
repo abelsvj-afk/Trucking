@@ -853,6 +853,158 @@ wiring. So v1 builds the read seam honestly:
   as-of labels, the ladder, and the fund log with an add-entry
   form (fund, kind, dollars, date, lane, note).
 
+## 10. Document scan + AI-readable documents (migration 00022)
+
+Owner's requirement, in his words (2026-10-31): he snaps a picture of
+a trucking document and the app turns it into a crisp scan —
+CamScanner-style, black-and-white, high contrast — "so it can be seen
+by the AI"; the agent always has these pictures and can answer
+literally any question about them. This section is that feature.
+Branch `document-scan`, off main @ deb222d.
+
+### 10.1 Scan enhancement (server-side, at upload)
+
+Runs inside `POST /api/v1/documents` after the original is stored,
+for image uploads only (JPEG/PNG/WebP). The original photo is
+**always kept, untouched**, at the existing `storage_path`; the scan
+is an additional rendition, never a replacement, and a scan failure
+never fails the upload — the document lands with no scan and the
+reason stays server-side only, same discipline as the Storage-error
+handling already in that route.
+
+- **Decode/orient/resize** via `sharp` (`src/services/documents/
+  scan-image.ts`). Dependency justification, per the workflow's
+  Dependency Rule: `sharp` 0.35 is *already in the shipped tree* as
+  Next.js's own image-optimization dependency (it is in
+  `package-lock.json` and the production image today); this change
+  only promotes it to a declared direct dependency at the same
+  version. It ships prebuilt binaries — no native compilation in the
+  Fly build, no new supply-chain surface of consequence. EXIF
+  auto-rotate first (phone photos), grayscale, longest edge capped
+  at 2500px (bounds CPU/memory; far above OCR legibility needs).
+- **Pixel stage** in pure TypeScript over the raw grayscale buffer
+  (`src/services/documents/pixels.ts`, unit-testable without sharp):
+  1. Percentile contrast stretch (1st–99th percentile → 0–255) —
+     the "make it readable" normalization for dim cab photos.
+  2. **Perspective correction, when detectable.** On a downscaled
+     (≤256px wide) Otsu-binarized copy: if the border is mostly
+     bright the polarity is flipped (document assumed light-on-dark
+     surroundings); the largest connected component must cover
+     35–97% of the frame, and its convex hull is reduced to a quad
+     by the four extreme (±x±y) hull points. The warp is applied
+     only if every sanity check passes — quad area ≥ 75% of the
+     component area, interior angles within 55°–125°, and the quad
+     is not the whole frame (within 3% of all four edges = nothing
+     to correct). Warp = homography to the quad's own max width/
+     height rectangle, bilinear sampling. **Any check fails → no
+     warp**, and the threshold stage still runs. Detection failure
+     is a normal outcome, never an error: a photo taken square-on
+     needs no correction.
+  3. **Adaptive threshold** (local mean via an integral image,
+     window ≈ width/24 clamped to [15, 51] and made odd, threshold
+     = local mean × 0.90) → true black-and-white output. This is
+     the step that makes a shadowed, unevenly lit photo read like
+     a scanner produced it, where a single global threshold would
+     lose half the page.
+- **Encode** as PNG (lossless, compresses B&W text well) and upload
+  to `{company_id}/{uuid}-scan-{base}.png` in the same bucket —
+  the existing Storage RLS folder policy already covers it. Path
+  stored in `documents.scan_storage_path`. `DELETE` removes the
+  scan object alongside the original.
+- **Not applicable, stated plainly:** PDFs get no scan rendition
+  (already a finished document format), and HEIC/HEIF get none
+  either — the prebuilt libvips in `sharp`'s shipped binaries does
+  not decode HEIF (patent-encumbered codec), so there is nothing
+  honest to enhance. Both still store and list exactly as before.
+
+### 10.2 Text extraction (AI capability: `document_extraction`)
+
+A new kill-switched capability, registered in `KNOWN_CAPABILITIES`
+like the others: global switch first, then per-capability, both
+fail closed, **off by default**. Settings gains its toggle
+automatically from the capabilities map (label added).
+
+- **Vision path.** The provider layer (`services/ai/provider.ts`)
+  gains a second, separate interface — `AiVisionProvider` with
+  `completeWithImage({ system, user, imageBase64, mediaType })` —
+  rather than widening `AiProvider`, so no existing capability or
+  mock changes shape. `OpenAiProvider` implements it via chat
+  completions with an `image_url` data-URI part (the configured
+  model, `gpt-4o-mini` by default, is vision-capable; the same
+  "model name not live-verified from this sandbox" caveat as the
+  text path applies).
+- **Input image** is the *scan rendition when one exists* (crisper
+  text is the whole point of §10.1), else the original. PDFs are
+  not extracted in this pass — `extraction_status =
+  'not_applicable'` (the chat-completions image path takes images,
+  not PDFs; a Files-API pass is a separate design if ever wanted).
+  HEIC/HEIF: extraction is attempted on the original bytes; if the
+  provider rejects the format, that lands as `failed`, honestly.
+- **Output contract** (`src/services/ai/document-extraction.ts`,
+  Zod-validated like every other capability — model output is
+  untrusted): `{ doc_type, text, fields }`. `doc_type` is one of
+  `bol | rate_confirmation | scale_ticket | fuel_receipt |
+  settlement | other`. `text` is the document's **full text,
+  always stored raw** in `extracted_text` — it is the agent's
+  window into the document, so nothing is summarized away.
+  `fields` is deliberately schema-light: a flat record of
+  string/number/null the model pulled out (pickup/PRO numbers,
+  dates, amounts, party names — named in the prompt per doc type),
+  stored as `extracted_fields` jsonb. The prompt instructs: copy
+  values exactly as printed, omit anything not printed, never
+  compute or infer a value. A response that fails the contract is
+  an extraction failure, not a partial save.
+- **Timing & failure.** Extraction runs synchronously inside the
+  upload request, after the row exists, and its outcome is written
+  back onto the row before the 201 returns. The tradeoff is
+  deliberate: one round trip, no background-job infrastructure
+  invented for a single-user app, and the document the owner sees
+  is already final. It can never block or fail the upload — every
+  failure mode degrades to a status on the row:
+  `done | failed` (+ short `extraction_error`, detail server-side)
+  `| disabled` (capability off at upload time — no provider call
+  is made) `| not_applicable | pending` (pre-00022 rows / images
+  whose processing hasn't run). The truck's paperwork is never
+  held hostage to an AI outage.
+- **Statuses are data, not logs**: the list/search responses carry
+  `extraction_status`, `doc_type`, `extracted_fields`,
+  `extracted_text`, `extracted_at`, and a `scan_signed_url`
+  alongside the existing `signed_url`.
+
+### 10.3 Search + the agent contract
+
+- A generated stored tsvector column `documents.extracted_tsv`
+  over `extracted_text` + `file_name`, GIN-indexed (migration
+  00022). `GET /api/v1/documents?q={terms}` is the search mode of
+  the existing list endpoint: Postgres full-text search
+  (`websearch_to_tsquery` semantics via PostgREST `textSearch`),
+  newest first; `related_entity_type`/`related_entity_id` may
+  accompany `q` to scope a search, and remain required together
+  when `q` is absent (the pre-existing contract is unchanged).
+- **For the agent** (bot-intelligence branches code against
+  `docs/api-contracts.md`, which carries the exact field list):
+  everything the bot needs to answer "what does my BOL say" is in
+  the list/search row — `extracted_text` is the quotable source,
+  `extracted_fields` the quick numbers, `doc_type` the framing.
+  No new endpoint was invented for the bot; the documents read
+  path *is* the contract.
+- **Documents page** gains: a search box (searches extracted text
+  across *all* his documents, not just the picked record's); a
+  preview panel per document with an **Original | Scan** toggle
+  (Scan disabled when no rendition exists) and the extracted text
+  one tap away (`<details>`), plus `doc_type` and extraction
+  status shown in plain words. The upload form is untouched — the
+  phone-browser file input he already uses is the capture flow.
+
+### 10.4 What is deliberately not here
+
+No client-side capture/processing (server-side keeps one pipeline
+for every surface, Telegram-upload future included); no PDF OCR;
+no re-extraction/backfill endpoint for pre-00022 documents (their
+rows read `pending` — a backfill pass is a small follow-up if the
+owner wants his existing BOLs readable); no embeddings — the FTS
+column is the retrieval layer, consistent with §6's v1 stance.
+
 ## Out of scope for this pass
 
 Certified ELD anything; the bot joining or reading any group; a

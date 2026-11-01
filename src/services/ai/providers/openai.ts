@@ -18,12 +18,14 @@ import type {
   AiProvider,
   AiToolSpec,
   AiToolTurnResult,
+  AiVisionProvider,
+  AiVisionRequest,
   AgentCapableProvider,
 } from "../provider";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 
-export class OpenAiProvider implements AgentCapableProvider {
+export class OpenAiProvider implements AgentCapableProvider, AiVisionProvider {
   private client: OpenAI;
   private model: string;
 
@@ -105,5 +107,30 @@ export class OpenAiProvider implements AgentCapableProvider {
       }));
 
     return { text: message.content ?? null, toolCalls };
+  }
+  async completeWithImage({ system, user, imageBase64, mediaType }: AiVisionRequest): Promise<string> {
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: user },
+            {
+              type: "image_url",
+              image_url: { url: `data:${mediaType};base64,${imageBase64}`, detail: "high" },
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("OpenAI returned an empty response.");
+    }
+    return content;
   }
 }
