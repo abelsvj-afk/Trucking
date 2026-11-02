@@ -15,6 +15,7 @@ import { createApiHandler } from "@/services/api/handler";
 import { validateBody } from "@/services/api/validate";
 import { createClient } from "@/services/db/server";
 import { createBotStore } from "@/services/bot/store";
+import { checkConsolidationHealth } from "@/services/bot/consolidation";
 
 const editSchema = z.object({
   id: z.string().uuid(),
@@ -30,7 +31,22 @@ export const GET = createApiHandler(async (req, ctx) => {
   const store = createBotStore(supabase, ctx.auth.companyId, "web");
   const includeHistory = req.nextUrl.searchParams.get("history") === "1";
   const memories = await store.listMemories({ includeHistory });
-  return NextResponse.json({ data: memories });
+  // Fix round (pitfall hunt CD-1): the night shift's staleness rides
+  // along so the page can show a banner when consolidation has
+  // silently stopped (the app-asleep failure mode). Best-effort -
+  // the memory list is the page's real job, so any failure here
+  // just omits the status.
+  let consolidation = null;
+  try {
+    const [health, enabled] = await Promise.all([
+      checkConsolidationHealth(supabase, ctx.auth.companyId),
+      store.isMemoryConsolidationEnabled(),
+    ]);
+    consolidation = { enabled, ...health };
+  } catch {
+    consolidation = null;
+  }
+  return NextResponse.json({ data: memories, consolidation });
 });
 
 export const PATCH = createApiHandler(async (req, ctx) => {

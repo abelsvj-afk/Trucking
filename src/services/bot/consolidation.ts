@@ -56,6 +56,63 @@ export interface ConsolidationResult {
 const EMBED_BATCH = 50;
 const CANDIDATE_TURN_WINDOW = 60;
 
+/** Newest consolidation_runs.ran_at for the company, or null (never ran - or the table isn't readable yet: pre-00032 the due check treats unreadable as due, and runConsolidation's own run-row insert tolerates the missing table). */
+export async function latestConsolidationRunAt(
+  client: SupabaseClient,
+  companyId: string,
+): Promise<string | null> {
+  const { data } = await client
+    .from("consolidation_runs")
+    .select("ran_at")
+    .eq("company_id", companyId)
+    .order("ran_at", { ascending: false })
+    .limit(1);
+  const ranAt = (data ?? [])[0]?.ran_at as string | undefined;
+  return typeof ranAt === "string" ? ranAt : null;
+}
+
+/**
+ * CD-1 staleness surface: the night shift's runs are due every
+ * 20h, so a healthy system never goes 30h without one. Older than
+ * that (or never ran) = stale - the "What Abel remembers" page
+ * shows a banner, because a consolidation that silently stopped
+ * (app asleep for days - the F-020 pattern) must be VISIBLE
+ * somewhere the owner actually looks. Never throws: an unreadable
+ * runs table (migration 00032 not applied) reports known=false -
+ * staleness is unknowable then, not "fine".
+ */
+export const CONSOLIDATION_STALE_AFTER_MS = 30 * 60 * 60 * 1000;
+
+export interface ConsolidationHealth {
+  known: boolean;
+  lastRanAt: string | null;
+  hoursSinceLastRun: number | null;
+  stale: boolean;
+}
+
+export async function checkConsolidationHealth(
+  client: SupabaseClient,
+  companyId: string,
+  now: Date = new Date(),
+): Promise<ConsolidationHealth> {
+  const { data, error } = await client
+    .from("consolidation_runs")
+    .select("ran_at")
+    .eq("company_id", companyId)
+    .order("ran_at", { ascending: false })
+    .limit(1);
+  if (error) return { known: false, lastRanAt: null, hoursSinceLastRun: null, stale: false };
+  const lastRanAt = ((data ?? [])[0]?.ran_at as string | undefined) ?? null;
+  if (!lastRanAt) return { known: true, lastRanAt: null, hoursSinceLastRun: null, stale: true };
+  const ageMs = now.getTime() - new Date(lastRanAt).getTime();
+  return {
+    known: true,
+    lastRanAt,
+    hoursSinceLastRun: ageMs / (60 * 60 * 1000),
+    stale: ageMs > CONSOLIDATION_STALE_AFTER_MS,
+  };
+}
+
 async function embedUnembedded(
   client: SupabaseClient,
   companyId: string,

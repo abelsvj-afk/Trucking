@@ -5,12 +5,13 @@
 // Plus the "What Abel remembers" admin operations (list / edit /
 // delete) over the same store, and the lifecycle primitives.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBotStore } from "@/services/bot/store";
 import {
   applySupersession,
   memorySubjectKey,
+  personIdentityConfirmed,
   tokenSimilarity,
 } from "@/services/bot/memory-lifecycle";
 
@@ -179,6 +180,84 @@ describe("supersession (acceptance B1)", () => {
     });
     expect(closed.map((r) => r.id)).toEqual(["p1"]);
     expect(db.bot_memories?.find((r) => r.id === "p2")?.valid_to).toBeNull();
+  });
+});
+
+describe("CD-4: a namesake is not the same person", () => {
+  it("identity needs name AND role - a missing or different role confirms nothing", () => {
+    expect(
+      personIdentityConfirmed(
+        "PERSON — Steven | role: truck owner | New.",
+        "PERSON — Steven | role: Truck Owner | Old.",
+      ),
+    ).toBe(true);
+    expect(
+      personIdentityConfirmed(
+        "PERSON — Steven | role: broker | New.",
+        "PERSON — Steven | role: truck owner | Old.",
+      ),
+    ).toBe(false);
+    expect(personIdentityConfirmed("PERSON — Steven | New.", "PERSON — Steven | role: broker | Old.")).toBe(false);
+    expect(personIdentityConfirmed("PERSON — Steven | role: broker | New.", "PERSON — Steven | Old.")).toBe(false);
+  });
+
+  it("applySupersession leaves a different-role namesake current and reports it as ambiguous", async () => {
+    const db: Record<string, Row[]> = {
+      bot_memories: [
+        { id: "p1", company_id: COMPANY, kind: "person_profile", content: "PERSON — Steven | role: truck owner | Pays on Fridays.", created_at: stamp(), deleted_at: null, valid_to: null },
+      ],
+    };
+    const client = { from: (table: string) => new FakeQuery(db, table, stamp) } as unknown as SupabaseClient;
+    const onAmbiguousPersonMatch = vi.fn(
+      async (_oldRow: { id: string; kind: string; content: string; created_at: string }) => {},
+    );
+    const closed = await applySupersession(
+      client,
+      COMPANY,
+      { id: "p2", kind: "person_profile", content: "PERSON — Steven | role: broker | Quoted $2.10 a mile." },
+      { onAmbiguousPersonMatch },
+    );
+    expect(closed).toEqual([]);
+    expect(db.bot_memories?.find((r) => r.id === "p1")?.valid_to).toBeNull();
+    expect(onAmbiguousPersonMatch).toHaveBeenCalledTimes(1);
+    expect(onAmbiguousPersonMatch.mock.calls[0]?.[0]).toMatchObject({ id: "p1" });
+  });
+
+  it("store level: a namesake save keeps BOTH profiles current and stages a replace proposal; his yes converges to one", async () => {
+    const db: Record<string, Row[]> = { bot_memories: [], bot_pending_actions: [] };
+    const store = fakeStore(db);
+    const ownerId = await store.saveMemory(
+      "person_profile",
+      "PERSON — Steven | role: truck owner | Settles on Fridays.",
+    );
+    const brokerId = await store.saveMemory(
+      "person_profile",
+      "PERSON — Steven | role: broker | Quoted $2.10 a mile.",
+    );
+    expect(ownerId).toBeTruthy();
+    expect(brokerId).toBeTruthy();
+
+    // Neither profile was silently closed.
+    const current = await store.listMemories();
+    expect(current).toHaveLength(2);
+    // The question was staged on the proposal path, naming the old row.
+    expect(db.bot_pending_actions).toHaveLength(1);
+    const proposal = db.bot_pending_actions![0]!;
+    expect(proposal.tool_name).toBe("save_memory");
+    expect((proposal.arguments as Row).supersedes_id).toBe(ownerId);
+    expect(String(proposal.summary)).toContain("same name");
+
+    // His yes executes the proposal: save the new profile's content
+    // naming the old row - the explicit path closes the old row,
+    // and the confirmed-identity path closes the duplicate.
+    await store.saveMemory(
+      "person_profile",
+      "PERSON — Steven | role: broker | Quoted $2.10 a mile.",
+      { supersedesId: ownerId! },
+    );
+    const after = await store.listMemories();
+    expect(after).toHaveLength(1);
+    expect(after[0]?.content).toContain("broker");
   });
 });
 

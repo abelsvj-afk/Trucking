@@ -82,8 +82,19 @@ export interface BotBrainStore extends TelegramStore {
    * must not process it again). Backed by telegram_processed_updates
    * (migration 00033); before that migration lands it resolves true
    * (dedup inactive, historical behavior) rather than failing turns.
+   * A successful claim also opportunistically prunes claims older
+   * than 30 days (pitfall hunt CD-9 - the table otherwise only grows).
    */
   claimTelegramUpdate(updateId: number): Promise<boolean>;
+  /**
+   * Fix round (pitfall hunt CD-6): releases a claim whose turn did
+   * NOT complete (the reply send failed and the error escaped), so
+   * Telegram's redelivery of that update is processed instead of
+   * being swallowed as a duplicate. Best-effort by contract: the
+   * caller logs loudly when this rejects. Before migration 00033
+   * there is no claim table - releasing is a silent no-op.
+   */
+  releaseTelegramUpdate(updateId: number): Promise<void>;
   // --- Lane 2 (Abel Intelligence Upgrade, Phases A+B) ---
   /** Hybrid retrieval over ALL current facts (design §3.5) - the context-assembly path that replaces loadMemories+keyword-pick. */
   retrieveFacts(query: string): Promise<FactRetrieval>;
@@ -113,6 +124,12 @@ export interface BotBrainStore extends TelegramStore {
 }
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** CD-9: dedup claims older than this are pruned opportunistically on claim (a redelivery never arrives this late; the row is pure history by then). */
+const PROCESSED_UPDATE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/** Prune at most once an hour per process - claims are frequent, retention is not urgent. */
+const PROCESSED_UPDATE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+let lastProcessedUpdatePruneAt = 0;
 
 export function createBotStore(
   supabase: SupabaseClient,
@@ -258,6 +275,25 @@ export function createBotStore(
         }
         await applySupersession(supabase, company, { id: newId, kind, content }, {
           supersedesId: options?.supersedesId,
+          // CD-4: a same-name person profile whose role doesn't
+          // confirm the same person was deliberately NOT closed.
+          // Stage the question on the existing proposal path
+          // instead: approving it re-runs save_memory naming the
+          // old row, which closes it through the explicit path.
+          onAmbiguousPersonMatch: async (oldRow) => {
+            const { error: stageError } = await supabase.from("bot_pending_actions").insert({
+              company_id: company,
+              channel,
+              tool_name: "save_memory",
+              arguments: { kind, content, supersedes_id: oldRow.id },
+              summary:
+                `Replace an older profile? A new profile was just saved ("${content}"), and an older ` +
+                `profile with the same name exists ("${oldRow.content}") - but the roles don't confirm ` +
+                `they're the same person, so the older one was left current. Yes closes the older ` +
+                `profile in favor of the new one; no keeps both.`,
+            });
+            if (stageError) throw new Error(stageError.message);
+          },
         });
       }
       return newId;
@@ -447,7 +483,10 @@ export function createBotStore(
         company_id: company,
         update_id: updateId,
       });
-      if (!error) return true;
+      if (!error) {
+        await pruneProcessedUpdates();
+        return true;
+      }
       // Unique violation = this update was already claimed: a
       // Telegram redelivery, which must never be processed twice.
       if ((error as { code?: string }).code === "23505") return false;
@@ -455,6 +494,21 @@ export function createBotStore(
       // inactive and the turn proceeds as it historically did.
       if (/telegram_processed_updates/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
         return true;
+      }
+      throw new Error(error.message);
+    },
+
+    async releaseTelegramUpdate(updateId: number) {
+      const { error } = await supabase
+        .from("telegram_processed_updates")
+        .delete()
+        .eq("company_id", company)
+        .eq("update_id", updateId);
+      if (!error) return;
+      // Graceful absence: migration 00033 not applied yet - there
+      // was no claim to release.
+      if (/telegram_processed_updates/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+        return;
       }
       throw new Error(error.message);
     },
@@ -554,6 +608,35 @@ export function createBotStore(
       if (error) throw new Error(error.message);
     },
   };
+
+  /**
+   * CD-9: delete this company's dedup claims older than the
+   * retention window (keyed on processed_at, the claim timestamp
+   * migration 00033 stamps at insert). Throttled per process and
+   * failure-tolerant by design: pruning must never fail a claim -
+   * a failure logs and the next claim after the interval retries.
+   */
+  async function pruneProcessedUpdates(): Promise<void> {
+    const now = Date.now();
+    if (now - lastProcessedUpdatePruneAt < PROCESSED_UPDATE_PRUNE_INTERVAL_MS) return;
+    lastProcessedUpdatePruneAt = now;
+    try {
+      const cutoff = new Date(now - PROCESSED_UPDATE_RETENTION_MS).toISOString();
+      const { error } = await supabase
+        .from("telegram_processed_updates")
+        .delete()
+        .eq("company_id", company)
+        .lt("processed_at", cutoff);
+      if (
+        error &&
+        !(/telegram_processed_updates/.test(error.message) && /does not exist|could not find/i.test(error.message))
+      ) {
+        console.error("[bot-store] processed-update prune failed", error.message);
+      }
+    } catch (err) {
+      console.error("[bot-store] processed-update prune failed", err);
+    }
+  }
 
   /** One capability check, shared by every kill switch: global switch first, then the per-capability row; no row = off (fails closed). */
   async function capabilityEnabled(capability: string): Promise<boolean> {

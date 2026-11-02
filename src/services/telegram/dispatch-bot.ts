@@ -207,10 +207,50 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
 export const CONTEXT_DEGRADED_NOTE =
   "\n\n(Heads up: I couldn't pull up your records for that one, so I answered without your history, memories, and snapshot — I may be missing context.)";
 
+/**
+ * Fix round (pitfall hunt CD-6): the claim/release wrapper. Lane 1's
+ * dedup claimed the update_id BEFORE processing, which buys
+ * no-duplicates at a price nobody named: if the turn then fails -
+ * above all when the reply SEND fails - Telegram's redelivery hits
+ * the standing claim and the message is dropped forever, with the
+ * turn possibly never persisted. This wrapper releases the claim
+ * whenever processing escapes with an error (the turn did NOT
+ * complete), so the webhook's error return lets Telegram redeliver
+ * and the retry reprocesses. Turns that complete - including ones
+ * that complete by apologizing - keep their claim: reprocessing
+ * them would double-apply their writes. The release is best-effort;
+ * if it fails, that is logged loudly, because a dropped message is
+ * exactly what a human needs to hear about.
+ */
 export async function handleTelegramUpdate(
   update: TelegramUpdate,
   config: TelegramConfig,
   deps: TelegramDeps,
+): Promise<TelegramHandleResult> {
+  const claim: { updateId: number | null } = { updateId: null };
+  try {
+    return await processTelegramUpdate(update, config, deps, claim);
+  } catch (err) {
+    if (claim.updateId !== null && deps.store?.releaseTelegramUpdate) {
+      try {
+        await deps.store.releaseTelegramUpdate(claim.updateId);
+      } catch (releaseErr) {
+        console.error(
+          "[telegram] FAILED to release the update claim after a failed turn - " +
+            "Telegram's redelivery of this update will be ignored as a duplicate and the message may be lost",
+          releaseErr,
+        );
+      }
+    }
+    throw err;
+  }
+}
+
+async function processTelegramUpdate(
+  update: TelegramUpdate,
+  config: TelegramConfig,
+  deps: TelegramDeps,
+  claim: { updateId: number | null },
 ): Promise<TelegramHandleResult> {
   if (!config.botToken) return "disabled";
 
@@ -250,6 +290,10 @@ export async function handleTelegramUpdate(
     let claimed = true;
     try {
       claimed = await store.claimTelegramUpdate(update.update_id);
+      // CD-6: remember the claim so the wrapper can release it if
+      // this turn never completes. Recorded only when the claim
+      // actually landed (a claim call that threw recorded nothing).
+      if (claimed) claim.updateId = update.update_id;
     } catch (err) {
       console.error("[telegram] update claim failed", err);
     }

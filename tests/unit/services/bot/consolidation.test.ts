@@ -6,7 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runConsolidation } from "@/services/bot/consolidation";
+import { checkConsolidationHealth, runConsolidation } from "@/services/bot/consolidation";
 
 type Row = Record<string, unknown>;
 type Filter = { op: string; col: string; val: unknown };
@@ -185,5 +185,53 @@ describe("runConsolidation", () => {
     const summary = db.conversation_summaries![0]!;
     expect(summary.summary).toContain("detention at Macon");
     expect(summary.source_message_ids).toContain("t1");
+  });
+});
+
+// Fix round (pitfall hunt CD-1): the staleness surface behind the
+// "What Abel remembers" banner - a night shift that silently
+// stopped must be visible somewhere the owner actually looks.
+describe("checkConsolidationHealth (CD-1)", () => {
+  function healthClient(rows: { ran_at: string }[] | null, error: { message: string } | null = null) {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      order: () => chain,
+      limit: () => Promise.resolve({ data: rows, error }),
+    };
+    return { from: () => chain } as unknown as SupabaseClient;
+  }
+  const NOW = new Date("2026-11-02T08:00:00.000Z");
+  const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 60 * 60 * 1000).toISOString();
+
+  it("a run two hours ago is healthy", async () => {
+    const health = await checkConsolidationHealth(healthClient([{ ran_at: hoursAgo(2) }]), COMPANY, NOW);
+    expect(health.known).toBe(true);
+    expect(health.stale).toBe(false);
+    expect(health.hoursSinceLastRun).toBeCloseTo(2);
+    expect(health.lastRanAt).toBe(hoursAgo(2));
+  });
+
+  it("a run forty hours ago is stale (a full due cycle was missed)", async () => {
+    const health = await checkConsolidationHealth(healthClient([{ ran_at: hoursAgo(40) }]), COMPANY, NOW);
+    expect(health.stale).toBe(true);
+    expect(health.hoursSinceLastRun).toBeCloseTo(40);
+  });
+
+  it("never ran at all is stale - the app-asleep case", async () => {
+    const health = await checkConsolidationHealth(healthClient([]), COMPANY, NOW);
+    expect(health.known).toBe(true);
+    expect(health.stale).toBe(true);
+    expect(health.lastRanAt).toBeNull();
+  });
+
+  it("an unreadable runs table (pre-00032) reports unknown, never 'fine' and never stale", async () => {
+    const health = await checkConsolidationHealth(
+      healthClient(null, { message: 'relation "consolidation_runs" does not exist' }),
+      COMPANY,
+      NOW,
+    );
+    expect(health.known).toBe(false);
+    expect(health.stale).toBe(false);
   });
 });

@@ -12,7 +12,12 @@
 // used to believe. Delete is a soft delete.
 
 import { useCallback, useEffect, useState } from "react";
-import { apiClient, ApiClientError, type BotMemoryListItem } from "@/lib/api-client";
+import {
+  apiClient,
+  ApiClientError,
+  type BotConsolidationStatus,
+  type BotMemoryListItem,
+} from "@/lib/api-client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
@@ -20,7 +25,7 @@ import PageHeader from "@/components/PageHeader";
 type PageState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "loaded"; memories: BotMemoryListItem[] };
+  | { status: "loaded"; memories: BotMemoryListItem[]; consolidation: BotConsolidationStatus | null };
 
 const KIND_LABELS: Record<string, string> = {
   fact: "Fact",
@@ -44,7 +49,9 @@ export default function MemoriesPage() {
   const load = useCallback(() => {
     apiClient
       .listMemories(showHistory)
-      .then((result) => setState({ status: "loaded", memories: result.data }))
+      .then((result) =>
+        setState({ status: "loaded", memories: result.data, consolidation: result.consolidation }),
+      )
       .catch((err: unknown) => {
         const message =
           err instanceof ApiClientError ? err.message : "Couldn't reach the server. Try again.";
@@ -105,6 +112,26 @@ export default function MemoriesPage() {
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={load} />}
       {actionError && <p role="alert">{actionError}</p>}
+
+      {/* Fix round (pitfall hunt CD-1): the night shift runs on its
+          own schedule - if it has silently stopped (the app was
+          asleep for days), that must be visible somewhere the owner
+          actually looks. Shown only when consolidation is enabled,
+          its state is known, and the last run is stale. */}
+      {state.status === "loaded" &&
+        state.consolidation?.enabled &&
+        state.consolidation.known &&
+        state.consolidation.stale && (
+          <p role="alert">
+            Heads up: Abel&rsquo;s night shift{" "}
+            {state.consolidation.lastRanAt
+              ? `hasn&rsquo;t run since ${new Date(state.consolidation.lastRanAt).toLocaleString("en-US")} — `
+              : "has never run — "}
+            so his weekly summaries and memory proposals are behind. It&rsquo;s supposed to run on
+            its own every night; if this notice is still here tomorrow, the consolidation scheduler
+            isn&rsquo;t waking up.
+          </p>
+        )}
 
       {state.status === "loaded" && state.memories.length === 0 && (
         <p>Nothing stored yet. Tell Abel something worth keeping — in chat or with “remember:” — and it will show up here.</p>

@@ -20,6 +20,20 @@ export interface BotMemoryListItem {
   superseded_by: string | null;
 }
 
+/** The night shift's staleness status, riding the memories list response (fix round, pitfall hunt CD-1). Null when the server couldn't produce one. */
+export interface BotConsolidationStatus {
+  enabled: boolean;
+  known: boolean;
+  stale: boolean;
+  lastRanAt: string | null;
+  hoursSinceLastRun: number | null;
+}
+
+export interface BotMemoryListResult {
+  data: BotMemoryListItem[];
+  consolidation: BotConsolidationStatus | null;
+}
+
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
@@ -162,7 +176,7 @@ export const apiClient = {
   // Lane 2: "What Abel remembers" - view / edit (supersede) / delete
   // over the shared brain store (Intelligence Upgrade Phase B).
   listMemories: (includeHistory = false) =>
-    request<{ data: BotMemoryListItem[] }>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
+    request<BotMemoryListResult>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
   editMemory: (id: string, content: string) =>
     request<{ data: { id: string } }>("/api/v1/memories", {
       method: "PATCH",

@@ -5,11 +5,14 @@
 // - A new fact never edits or deletes an old row. It CLOSES it:
 //   valid_to is set and superseded_by points at the new row, so
 //   "what did he used to say?" stays answerable forever.
-// - Structured profiles carry their own identity: a PERSON line is
-//   the same subject as another PERSON line with the same name; a
-//   BUSINESS line likewise by subject. A new profile for a subject
-//   supersedes the subject's previous current line (people.ts'
-//   parsers - until now dead code - provide the keys).
+// - Structured profiles carry their own identity: a BUSINESS line
+//   is the same subject as another BUSINESS line with the same
+//   subject. A PERSON line needs more than a name (pitfall hunt
+//   CD-4): two different people can share a name, so a person
+//   profile auto-supersedes only when name AND role both match;
+//   a same-name profile that can't be confirmed is staged as an
+//   update proposal for the owner's yes/no instead of being
+//   silently closed (people.ts' parsers provide name + role).
 // - Plain facts have no reliable subject key, so they supersede
 //   only when a caller names the row (a proposal that was staged as
 //   an explicit update, or the owner's own edit) - plus the
@@ -31,6 +34,23 @@ export function memorySubjectKey(kind: string, content: string): string | null {
     return parsed ? `business:${parsed.subject.trim().toLowerCase()}` : null;
   }
   return null;
+}
+
+/**
+ * CD-4: are these two PERSON profile lines the same person? The
+ * parsers extract exactly two identity attributes - name and role -
+ * so identity is confirmed only when BOTH match (case-insensitive)
+ * and both roles are present. A name alone confirms nothing: a
+ * second Steven (a broker, a cousin) must never silently close the
+ * first Steven's profile.
+ */
+export function personIdentityConfirmed(newContent: string, existingContent: string): boolean {
+  const a = parsePersonProfile(newContent);
+  const b = parsePersonProfile(existingContent);
+  if (!a || !b) return false;
+  if (a.name.trim().toLowerCase() !== b.name.trim().toLowerCase()) return false;
+  if (!a.role || !b.role) return false;
+  return a.role.trim().toLowerCase() === b.role.trim().toLowerCase();
 }
 
 const SIM_STOP_WORDS = new Set([
@@ -70,6 +90,16 @@ export interface CurrentMemoryRow {
  * Closes every CURRENT row that the new row supersedes: same
  * subject key (profiles/business facts), plus any row the caller
  * named explicitly. Returns the closed rows (for reporting/tests).
+ *
+ * CD-4 exception: a PERSON candidate whose identity the new row
+ * cannot confirm (same name, but the role is missing on either
+ * side or differs) is NOT closed. When the caller provides
+ * onAmbiguousPersonMatch it is invoked once per such row so the
+ * question can be staged for the owner (the store stages an update
+ * proposal); without a callback the row is simply left current.
+ * An explicitly named row (supersedesId) always closes - the
+ * owner (or an approved proposal) named it, no guessing involved.
+ *
  * Graceful absence: before migration 00029 the lifecycle columns
  * don't exist - supersession silently no-ops and the insert that
  * already happened stands, exactly the pre-Lane-2 behavior.
@@ -78,7 +108,11 @@ export async function applySupersession(
   client: SupabaseClient,
   companyId: string,
   newRow: { id: string; kind: string; content: string },
-  options: { supersedesId?: string; now?: Date } = {},
+  options: {
+    supersedesId?: string;
+    now?: Date;
+    onAmbiguousPersonMatch?: (oldRow: CurrentMemoryRow) => Promise<void>;
+  } = {},
 ): Promise<CurrentMemoryRow[]> {
   const nowIso = (options.now ?? new Date()).toISOString();
   const key = memorySubjectKey(newRow.kind, newRow.content);
@@ -116,16 +150,47 @@ export async function applySupersession(
   }
   if (candidates.length === 0) return [];
 
-  const ids = candidates.map((row) => row.id);
-  const { error: updateError } = await client
-    .from("bot_memories")
-    .update({ valid_to: nowIso, superseded_by: newRow.id })
-    .in("id", ids)
-    .eq("company_id", companyId)
-    .is("valid_to", null);
-  if (updateError) {
-    if (isMissingColumnError(updateError)) return [];
-    throw new Error(updateError.message);
+  const toClose: CurrentMemoryRow[] = [];
+  const ambiguous: CurrentMemoryRow[] = [];
+  for (const row of candidates) {
+    if (row.id === options.supersedesId) {
+      toClose.push(row);
+    } else if (
+      newRow.kind === "person_profile" &&
+      !personIdentityConfirmed(newRow.content, row.content)
+    ) {
+      ambiguous.push(row);
+    } else {
+      toClose.push(row);
+    }
   }
-  return candidates;
+
+  let closed: CurrentMemoryRow[] = [];
+  if (toClose.length > 0) {
+    const ids = toClose.map((row) => row.id);
+    const { error: updateError } = await client
+      .from("bot_memories")
+      .update({ valid_to: nowIso, superseded_by: newRow.id })
+      .in("id", ids)
+      .eq("company_id", companyId)
+      .is("valid_to", null);
+    if (updateError) {
+      if (isMissingColumnError(updateError)) return [];
+      throw new Error(updateError.message);
+    }
+    closed = toClose;
+  }
+
+  // Staging the question is best-effort: the new profile is already
+  // saved, and a failed proposal must not fail the save - but it is
+  // never silent either.
+  for (const row of ambiguous) {
+    if (!options.onAmbiguousPersonMatch) break;
+    try {
+      await options.onAmbiguousPersonMatch(row);
+    } catch (err) {
+      console.error("[memory-lifecycle] failed to stage same-name profile proposal", err);
+    }
+  }
+  return closed;
 }

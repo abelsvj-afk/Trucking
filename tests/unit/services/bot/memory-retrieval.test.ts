@@ -175,6 +175,92 @@ describe("retrieveCurrentFacts - the 100-row cliff is dead", () => {
   });
 });
 
+describe("CD-3: fallback mode discloses itself honestly", () => {
+  it("beyond 1,000 facts: the report names compatibility mode, the scanned window, and the unreachable rest", async () => {
+    const rows: Row[] = [
+      {
+        id: "ancient",
+        company_id: COMPANY,
+        kind: "fact",
+        content: "The quixotic zebra blanket stays in the cab",
+        created_at: stamp(0),
+        deleted_at: null,
+        valid_to: null,
+      },
+    ];
+    for (let i = 1; i <= 1005; i += 1) {
+      rows.push({
+        id: `fact-${i}`,
+        company_id: COMPANY,
+        kind: "fact",
+        content: `Routine note number ${i} about driving and parking`,
+        created_at: stamp(i),
+        deleted_at: null,
+        valid_to: null,
+      });
+    }
+    const client = fakeClient({ bot_memories: rows });
+    const result = await retrieveCurrentFacts(client, COMPANY, "zebra blanket");
+    expect(result.mode).toBe("fallback");
+    expect(result.totalFacts).toBe(1006);
+    // The scan window is the newest 1,000 - the ancient fact is outside it.
+    expect(result.scannedFacts).toBe(1000);
+    expect(result.facts.map((f) => f.id)).not.toContain("ancient");
+    // The line tells the truth: mode disclosed, window named, and NO
+    // claim that the unscanned rest stay searchable (they don't -
+    // search_memory's fallback arm scans the same window).
+    expect(result.reportLine).toContain("compatibility mode");
+    expect(result.reportLine).toContain("1000");
+    expect(result.reportLine).toContain("1006");
+    expect(result.reportLine).toContain("not reachable");
+    expect(result.reportLine).not.toContain("the rest stay searchable");
+  });
+
+  it("fallback under the window still discloses the mode when the budget cuts", async () => {
+    const rows: Row[] = Array.from({ length: 250 }, (_, i) => ({
+      id: `fact-${i}`,
+      company_id: COMPANY,
+      kind: "fact",
+      content: `Routine note number ${i} about driving and parking`,
+      created_at: stamp(i),
+      deleted_at: null,
+      valid_to: null,
+    }));
+    const client = fakeClient({ bot_memories: rows });
+    const result = await retrieveCurrentFacts(client, COMPANY, "driving");
+    expect(result.mode).toBe("fallback");
+    expect(result.scannedFacts).toBe(250);
+    expect(result.reportLine).toContain("compatibility mode");
+    expect(result.reportLine).toContain("of 250 current facts");
+  });
+
+  it("hybrid mode keeps its original wording (and its search_memory promise is true there)", async () => {
+    const dbRows: Row[] = Array.from({ length: 20 }, (_, i) => ({
+      id: `db-${i}`,
+      company_id: COMPANY,
+      kind: "fact",
+      content: `Stored fact ${i}`,
+      created_at: stamp(i),
+      deleted_at: null,
+      valid_to: null,
+    }));
+    const rpcRows = Array.from({ length: 24 }, (_, i) => ({
+      id: `rpc-${i}`,
+      kind: "fact",
+      content: `Fact ${i}`,
+      created_at: stamp(i),
+    }));
+    const client = fakeClient({ bot_memories: dbRows }, (fn) =>
+      fn === "abel_search_memories" ? { data: rpcRows, error: null } : { data: [], error: null },
+    );
+    const result = await retrieveCurrentFacts(client, COMPANY, "anything");
+    expect(result.mode).toBe("hybrid");
+    expect(result.scannedFacts).toBe(20);
+    expect(result.reportLine).toContain("the rest stay searchable via search_memory");
+    expect(result.reportLine).not.toContain("compatibility mode");
+  });
+});
+
 describe("loadAllInstructions", () => {
   it("returns EVERY instruction, even ones older than 100 newer memories", async () => {
     const rows: Row[] = [

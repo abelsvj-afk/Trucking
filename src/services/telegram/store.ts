@@ -32,6 +32,8 @@ export interface TelegramStore {
   storeExchange(incoming: string, suggestion: DispatchSuggestion): Promise<void>;
   /** Lane 1 (audit B-2): update_id claim for webhook dedup - see BotBrainStore. Optional on this v1 surface; the brain store implements it. */
   claimTelegramUpdate?(updateId: number): Promise<boolean>;
+  /** Fix round (pitfall hunt CD-6): releases a claim whose turn never completed, so Telegram's redelivery can reprocess - see BotBrainStore. Optional on this v1 surface; the brain store implements it. */
+  releaseTelegramUpdate?(updateId: number): Promise<void>;
   /** Lane 2 (Phase A): hybrid retrieval over ALL current facts - see BotBrainStore. Optional here; dispatch-bot falls back to loadMemories + keyword pick when absent. */
   retrieveFacts?(query: string): Promise<FactRetrieval>;
   /** Lane 2 (Phase A): ALL standing instructions on their own query. Optional here, same fallback story as retrieveFacts. */

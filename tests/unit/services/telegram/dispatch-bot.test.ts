@@ -411,6 +411,83 @@ describe("handleTelegramUpdate", () => {
     expect(d.sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  // Fix round (pitfall hunt CD-6): the claim's price - if the turn
+  // fails AFTER claiming (above all when the reply send fails), the
+  // standing claim would swallow Telegram's redelivery and the
+  // message would be lost. The claim is released so the retry
+  // reprocesses; completed turns keep theirs.
+  function claimStore() {
+    const claims = new Set<number>();
+    return {
+      claims,
+      store: fakeStore({
+        claimTelegramUpdate: vi.fn(async (updateId: number) => {
+          if (claims.has(updateId)) return false;
+          claims.add(updateId);
+          return true;
+        }),
+        releaseTelegramUpdate: vi.fn(async (updateId: number) => {
+          claims.delete(updateId);
+        }),
+      }),
+    };
+  }
+
+  it("CD-6: releases the claim when the reply send fails, so the redelivery reprocesses", async () => {
+    const { claims, store } = claimStore();
+    const d = deps(store);
+    d.sendMessage.mockRejectedValue(new Error("telegram down"));
+    const update = {
+      update_id: 777001,
+      message: { chat: { id: 4242, type: "private" }, text: "When does my 14 run out?" },
+    };
+    await expect(handleTelegramUpdate(update, CONFIG, d)).rejects.toThrow("telegram down");
+    expect(store.releaseTelegramUpdate).toHaveBeenCalledWith(777001);
+    expect(claims.has(777001)).toBe(false);
+
+    // Telegram redelivers after the webhook's error - this time the
+    // send works and the turn runs again instead of being ignored.
+    d.sendMessage.mockResolvedValue(undefined);
+    const retry = await handleTelegramUpdate(update, CONFIG, d);
+    expect(retry).toBe("chatted");
+    expect(d.runChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("CD-6: a completed turn keeps its claim (no release, redelivery still ignored)", async () => {
+    const { store } = claimStore();
+    const d = deps(store);
+    const update = {
+      update_id: 777002,
+      message: { chat: { id: 4242, type: "private" }, text: "When does my 14 run out?" },
+    };
+    expect(await handleTelegramUpdate(update, CONFIG, d)).toBe("chatted");
+    expect(await handleTelegramUpdate(update, CONFIG, d)).toBe("duplicate_ignored");
+    expect(store.releaseTelegramUpdate).not.toHaveBeenCalled();
+  });
+
+  it("CD-6: a failed release logs loudly and the original failure still surfaces", async () => {
+    const { store } = claimStore();
+    (store.releaseTelegramUpdate as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db gone"));
+    const d = deps(store);
+    d.sendMessage.mockRejectedValue(new Error("telegram down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        handleTelegramUpdate(
+          { update_id: 777003, message: { chat: { id: 4242, type: "private" }, text: "When does my 14 run out?" } },
+          CONFIG,
+          d,
+        ),
+      ).rejects.toThrow("telegram down");
+      const loud = errorSpy.mock.calls.some((call) =>
+        call.some((arg) => typeof arg === "string" && arg.includes("FAILED to release the update claim")),
+      );
+      expect(loud).toBe(true);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   // Lane 1 (audit B-4): when his records fail to load, the reply
   // must SAY so - never a silently dumber answer.
   it("tells the owner when his context failed to load", async () => {

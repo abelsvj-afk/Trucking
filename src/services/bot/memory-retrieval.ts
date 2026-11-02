@@ -7,10 +7,14 @@
 // Primary path: the abel_search_* SQL functions from migration
 // 00029 - Postgres FTS + pgvector fused with reciprocal rank
 // fusion (RRF) inside the database, over every current fact.
-// Fallback path (00029 not applied yet, or no embedding key):
-// keyword scoring over up to 1,000 current rows + recency. The
-// fallback still kills the silent cliff - it is wider, and its
-// truncations are REPORTED (below), never silent.
+// Fallback path (00029 not applied yet, or the RPC failing):
+// keyword scoring over the NEWEST 1,000 current rows + recency.
+// That window is itself a cliff - facts older than the newest
+// 1,000 are unreachable in fallback mode, including through
+// search_memory (its fallback memory arm scans the same window).
+// Pitfall hunt CD-3: the fallback must therefore DISCLOSE itself -
+// the report line names the mode, the scanned window, and what
+// stayed unreachable. It never borrows the hybrid line's promise.
 //
 // Self-report rule (design §3.5): every retrieval that truncates
 // says so - "showing X of Y" - and the caller puts that line in the
@@ -23,7 +27,8 @@ import { toVectorLiteral, tryEmbed, type EmbeddingProvider } from "./embeddings"
 
 export const FACT_LIMIT = 12;
 export const FACT_TOKEN_BUDGET = 600;
-const FALLBACK_SCAN_LIMIT = 1000;
+/** Fallback-mode scan window: the newest this-many current facts are keyword-scanned; anything older is unreachable until 00029 lands (CD-3). */
+export const FALLBACK_SCAN_LIMIT = 1000;
 
 /** Rough token estimate (chars / 4) - budgets only, never billing. */
 export function estimateTokens(text: string): number {
@@ -56,6 +61,10 @@ export interface FactRetrieval {
   totalFacts: number;
   /** True when the budget or limit cut the list - the caller must surface the report line. */
   truncated: boolean;
+  /** Which engine produced this retrieval - the report line's honesty depends on it (CD-3). */
+  mode: "hybrid" | "fallback";
+  /** How many current facts the engine actually scanned (fallback: at most FALLBACK_SCAN_LIMIT; hybrid: the whole store). */
+  scannedFacts: number;
   reportLine: string;
 }
 
@@ -106,13 +115,19 @@ async function countCurrentFacts(client: SupabaseClient, companyId: string): Pro
   return plain.count ?? 0;
 }
 
-/** Keyword-scored scan used when the SQL hybrid functions aren't live yet. Scores content overlap, ties break toward importance-agnostic recency. */
+export interface FallbackScan {
+  rows: MemoryQueryRow[];
+  /** Rows actually scanned (the window size this call saw) - CD-3: the self-report must be able to name it. */
+  scanned: number;
+}
+
+/** Keyword-scored scan used when the SQL hybrid functions aren't live yet. Scores content overlap, ties break toward importance-agnostic recency. Only the newest FALLBACK_SCAN_LIMIT current rows are scanned - callers must disclose that window (CD-3). */
 export async function fallbackFactScan(
   client: SupabaseClient,
   companyId: string,
   query: string,
   limit: number,
-): Promise<MemoryQueryRow[]> {
+): Promise<FallbackScan> {
   const run = (withValidity: boolean) => {
     let q = client
       .from("bot_memories")
@@ -135,10 +150,11 @@ export async function fallbackFactScan(
     for (const token of words) if (queryTokens.has(token)) overlap += 1;
     return { row, index, overlap };
   });
-  return scored
+  const picked = scored
     .sort((a, b) => b.overlap - a.overlap || a.index - b.index)
     .slice(0, limit)
     .map((s) => s.row);
+  return { rows: picked, scanned: rows.length };
 }
 
 /**
@@ -157,6 +173,8 @@ export async function retrieveCurrentFacts(
   const totalFacts = await countCurrentFacts(client, companyId);
 
   let candidates: MemoryQueryRow[] | null = null;
+  let mode: FactRetrieval["mode"] = "hybrid";
+  let scannedFacts = totalFacts;
   const embedding = await tryEmbed(options.embedder ?? null, query);
   const rpc = await safeRpc(client, "abel_search_memories", {
     p_company_id: companyId,
@@ -173,7 +191,10 @@ export async function retrieveCurrentFacts(
       created_at: row.created_at,
     }));
   } else {
-    candidates = await fallbackFactScan(client, companyId, query, Math.max(limit * 2, limit));
+    mode = "fallback";
+    const scan = await fallbackFactScan(client, companyId, query, Math.max(limit * 2, limit));
+    candidates = scan.rows;
+    scannedFacts = scan.scanned;
   }
 
   const facts: RetrievedFact[] = [];
@@ -186,14 +207,31 @@ export async function retrieveCurrentFacts(
     tokens += cost;
   }
   const truncated = totalFacts > facts.length;
-  return {
-    facts,
-    totalFacts,
-    truncated,
-    reportLine: truncated
+  // CD-3: the line must tell the truth about the MODE. In fallback
+  // mode the cut can be the scan window (not the budget), and facts
+  // beyond the window are unreachable - search_memory's fallback
+  // memory arm scans the same window, so the hybrid line's "the
+  // rest stay searchable" promise would be false here.
+  let reportLine: string;
+  if (mode === "hybrid") {
+    reportLine = truncated
       ? `Memory: showing the ${facts.length} most relevant of ${totalFacts} current facts (budget-limited; the rest stay searchable via search_memory).`
-      : `Memory: all ${totalFacts} current facts fit this turn's budget - nothing held back.`,
-  };
+      : `Memory: all ${totalFacts} current facts fit this turn's budget - nothing held back.`;
+  } else if (!truncated) {
+    reportLine =
+      `Memory (compatibility mode - hybrid search from migration 00029 isn't live yet, so this turn keyword-matched): ` +
+      `all ${totalFacts} current facts fit this turn's budget - nothing held back.`;
+  } else if (totalFacts > scannedFacts) {
+    reportLine =
+      `Memory (compatibility mode - migration 00029 isn't applied yet): showing the ${facts.length} most relevant of the newest ` +
+      `${scannedFacts} facts scanned, out of ${totalFacts} current facts. The ${totalFacts - scannedFacts} older facts beyond that ` +
+      `scan window were not reachable this turn - search_memory scans the same window in this mode, so they stay unreachable until 00029 is applied.`;
+  } else {
+    reportLine =
+      `Memory (compatibility mode - migration 00029 isn't applied yet): showing the ${facts.length} most relevant of ${totalFacts} ` +
+      `current facts (budget-limited; keyword-matched over all ${scannedFacts} scanned facts - the rest stay searchable via search_memory, which scans the same window).`;
+  }
+  return { facts, totalFacts, truncated, mode, scannedFacts, reportLine };
 }
 
 /** Standing instructions are procedural memory: ALL of them, every turn, never retrieved-by-relevance (design §3.1). No 100-row window anywhere near them. */
@@ -257,8 +295,11 @@ export async function searchMemoryEverywhere(
       hits.push({ source: "memory", id: row.id, snippet: row.content, created_at: row.created_at });
     }
   } else {
-    const rows = await fallbackFactScan(client, companyId, query, perStore);
-    for (const row of rows) {
+    // CD-3: this fallback arm scans the same newest-1,000 window as
+    // context retrieval - the CONTEXT REPORT line discloses that;
+    // this tool never claims a wider reach than the scan it ran.
+    const scan = await fallbackFactScan(client, companyId, query, perStore);
+    for (const row of scan.rows) {
       hits.push({ source: "memory", id: row.id, snippet: row.content, created_at: row.created_at });
     }
   }
