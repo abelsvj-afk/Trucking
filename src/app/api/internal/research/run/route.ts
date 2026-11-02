@@ -36,6 +36,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const summary = await runResearchTick("endpoint");
+    // CD-1 piggyback: the hourly invoker that wakes the research tick
+    // also gives Abel's night shift its due-check, so consolidation
+    // no longer depends on the app happening to be awake. A failure
+    // here never fails the research tick's own answer.
+    try {
+      const { runConsolidationIfDue } = await import("@/services/bot/consolidation-scheduler");
+      await runConsolidationIfDue();
+    } catch (err) {
+      console.error("[research] consolidation piggyback failed", err);
+    }
     // CD-7: a tick whose health carries an explicit failure (e.g. the
     // job database is not configured, so the engine never ran) must
     // not dress itself as "ok" - the HTTP contract stays 200 (the
