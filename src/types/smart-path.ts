@@ -4,6 +4,7 @@
 // number - every figure traces to the lib computation or a provider.
 
 import type {
+  ClockState,
   LatLng,
   RouteCheckStatus,
   PlannedBreak,
@@ -11,6 +12,7 @@ import type {
   WorkoutOutcome,
 } from "@/lib/smart-path";
 import type { FoodMode, GroceryPlan, RankedFuelCandidate } from "@/lib/smart-path-stops";
+import type { RouteManeuver } from "@/services/integrations/routing";
 
 export interface RouteCheckResponse {
   load: {
@@ -36,7 +38,21 @@ export interface RouteCheckResponse {
     geometry: LatLng[];
     originPoint: LatLng;
     destinationPoint: LatLng;
+    /**
+     * Drive Mode D1 (G-6 enabler): turn prompts from the serving
+     * provider, normalized. Optional - a plan without them still
+     * Drives with next-stop guidance only.
+     */
+    maneuvers?: RouteManeuver[];
   };
+  /**
+   * Drive Mode D1: the planning clocks this check ran against
+   * (from his app logs, or fresh when none exist - clocksFromHos
+   * says which via fromLogs). Drive projects its drive-time-left
+   * chip and HOS cliff warnings from these, labeled projections.
+   * The ELD remains the legal record (F-014).
+   */
+  clocks?: ClockState;
   verdict: {
     status: RouteCheckStatus;
     assumedDriveMinutes: number;
@@ -75,6 +91,8 @@ export interface RouteCheckResponse {
     leaveByAt: string;
     pickupArrivalAt: string;
     waitMinutesAtPickup: number;
+    /** Drive Mode D1: turn prompts for the deadhead leg, when the provider returned them. */
+    maneuvers?: RouteManeuver[];
   } | null;
   fuel: {
     assumptions: {

@@ -14,6 +14,7 @@ import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
+import ActivePlanCard from "@/components/ActivePlanCard";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { DutyLog } from "@/types/entities";
@@ -92,6 +93,8 @@ export default function HomePage() {
           </>
         )}
       </section>
+
+      <ActivePlanCard />
 
       <section aria-label="Quick actions">
         <h2>Quick actions</h2>

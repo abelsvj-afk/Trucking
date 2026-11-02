@@ -333,3 +333,121 @@ describe("defaultRoutingProvider (env-built chain)", () => {
     expect(route.truckLegal).toBe(false);
   });
 });
+
+describe("Drive Mode maneuvers (G-6 enabler)", () => {
+  it("Valhalla: maneuvers normalize with cumulative fractions, verbal field preferred", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        trip: {
+          status: 0,
+          summary: { length: 42, time: 3600 },
+          legs: [
+            {
+              shape: "??",
+              maneuvers: [
+                {
+                  instruction: "Head north on I-75.",
+                  verbal_pre_transition_instruction: "Head north on I-75 for 40 miles.",
+                  length: 40,
+                },
+                { instruction: "Turn right onto Peachtree St.", length: 2 },
+              ],
+            },
+          ],
+        },
+      }),
+    }) as never;
+    const route = await new ValhallaRoutingProvider().getRoute(FROM, TO, VEHICLE);
+    expect(route.maneuvers).toEqual([
+      { instruction: "Head north on I-75 for 40 miles.", distanceMiles: 40, atFraction: 0 },
+      { instruction: "Turn right onto Peachtree St.", distanceMiles: 2, atFraction: 40 / 42 },
+    ]);
+  });
+
+  it("Valhalla: a leg without maneuvers omits the field - never fabricates one", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        trip: { status: 0, summary: { length: 10, time: 600 }, legs: [{ shape: "??" }] },
+      }),
+    }) as never;
+    const route = await new ValhallaRoutingProvider().getRoute(FROM, TO, VEHICLE);
+    expect(route.maneuvers).toBeUndefined();
+  });
+
+  it("ORS: requests instructions and normalizes steps from meters", async () => {
+    const withSteps = {
+      type: "FeatureCollection",
+      features: [
+        {
+          properties: {
+            summary: { distance: 160_934.4, duration: 7200 },
+            segments: [
+              {
+                steps: [
+                  { instruction: "Head north on I-75", distance: 128_747.52 },
+                  { instruction: "Turn right onto Peachtree St", distance: 32_186.88 },
+                ],
+              },
+            ],
+          },
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [-80.6081, 28.0836],
+              [-84.388, 33.749],
+            ],
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => withSteps });
+    global.fetch = fetchMock as never;
+
+    const route = await new OpenRouteServiceRoutingProvider("test-key").getRoute(FROM, TO, VEHICLE);
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as {
+      instructions?: boolean;
+    };
+    expect(body.instructions).toBe(true);
+    expect(route.maneuvers).toHaveLength(2);
+    expect(route.maneuvers![0]!.instruction).toBe("Head north on I-75");
+    expect(route.maneuvers![0]!.atFraction).toBe(0);
+    expect(route.maneuvers![1]!.atFraction).toBeCloseTo(0.8, 5);
+  });
+
+  it("OSRM: asks for steps=true and speaks maneuver types in plain words", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            distance: 160_934.4,
+            duration: 7200,
+            geometry: { coordinates: [[FROM.lng, FROM.lat], [TO.lng, TO.lat]] },
+            legs: [
+              {
+                steps: [
+                  { distance: 128_747.52, maneuver: { type: "depart", modifier: "straight" }, name: "I-75" },
+                  { distance: 32_186.88, maneuver: { type: "turn", modifier: "right" }, name: "Peachtree St" },
+                  { distance: 0, maneuver: { type: "arrive" }, name: "" },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    global.fetch = fetchMock as never;
+
+    const route = await new OsrmRoutingProvider().getRoute(FROM, TO, VEHICLE);
+    const url = fetchMock.mock.calls[0]![0] as string;
+    expect(url).toContain("steps=true");
+    expect(route.maneuvers).toEqual([
+      { instruction: "Head out on I-75", distanceMiles: 80, atFraction: 0 },
+      { instruction: "Turn right onto Peachtree St", distanceMiles: 20, atFraction: 0.8 },
+      { instruction: "Arrive at your destination", distanceMiles: 0, atFraction: 1 },
+    ]);
+  });
+});
