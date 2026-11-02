@@ -14,8 +14,20 @@ import { formatMinutes, isInFastWindow, type LatLng } from "./smart-path";
 export interface FuelCandidate extends LatLng {
   id: string;
   name: string;
-  /** Cents per gallon; null when the source has no price (OSM rarely does). */
+  /**
+   * Cents per gallon; null when the source has no price (OSM rarely
+   * does). REAL-ONLY invariant (P1-6): non-null means the price came
+   * from his fuel log - an estimate never lands in this field.
+   */
   pricePerGallonCents: number | null;
+  /**
+   * P1-6: a labeled estimate (the EIA weekly U.S. average) for
+   * candidates with no real price. Optional so existing candidate
+   * constructions compile unmodified; the service always sets it.
+   */
+  estimatedPricePerGallonCents?: number | null;
+  /** Where the estimate came from, e.g. "EIA U.S. average, week of Oct 26". */
+  estimateLabel?: string | null;
   source: "history" | "map";
   /** Round-trip miles off the route to reach this stop and come back. */
   detourMiles: number;
@@ -45,6 +57,8 @@ export interface RankedFuelCandidate extends FuelCandidate {
   effectiveCostCents: number | null;
   /** Effective cost vs buying the same gallons at the baseline price on-route. */
   savingsVsBaselineCents: number | null;
+  /** P1-6: true when the ranking consumed the estimate tier (no real price). */
+  usedEstimate: boolean;
 }
 
 export function rankFuelCandidates(
@@ -53,7 +67,10 @@ export function rankFuelCandidates(
   baselinePriceCents: number | null,
 ): RankedFuelCandidate[] {
   const ranked = candidates.map((candidate) => {
-    const detourPrice = candidate.pricePerGallonCents ?? baselinePriceCents;
+    const estimateCents = candidate.estimatedPricePerGallonCents ?? null;
+    // Effective price for ranking: real, then the labeled estimate,
+    // then his baseline for the detour-fuel math (P1-6).
+    const detourPrice = candidate.pricePerGallonCents ?? estimateCents ?? baselinePriceCents;
     const detourFuelCents =
       detourPrice !== null ? (candidate.detourMiles / assumptions.avgMpg) * detourPrice : 0;
     const detourTimeCents =
@@ -62,23 +79,41 @@ export function rankFuelCandidates(
     const stopCostCents = (assumptions.stopMinutes / 60) * assumptions.valueOfTimeCentsPerHour;
     const detourCostCents = Math.round(detourFuelCents + detourTimeCents + stopCostCents);
 
+    // Pump cost stays REAL-ONLY: an estimate never poses as what
+    // he'd actually pay at that pump. The effective cost, though,
+    // lets an estimate compete on cost so map stations with only an
+    // estimate aren't ranked on detour alone.
     const pumpCostCents =
       candidate.pricePerGallonCents !== null
         ? Math.round(candidate.pricePerGallonCents * assumptions.gallonsToBuy)
         : null;
+    const rankingPriceCents = candidate.pricePerGallonCents ?? estimateCents;
     const effectiveCostCents =
-      pumpCostCents !== null ? pumpCostCents + detourCostCents : null;
+      rankingPriceCents !== null
+        ? Math.round(rankingPriceCents * assumptions.gallonsToBuy) + detourCostCents
+        : null;
+    // Savings are claimed only off a real logged price - an estimate
+    // never generates a "saves $X" claim.
     const savingsVsBaselineCents =
-      effectiveCostCents !== null && baselinePriceCents !== null
+      candidate.pricePerGallonCents !== null && effectiveCostCents !== null && baselinePriceCents !== null
         ? Math.round(baselinePriceCents * assumptions.gallonsToBuy - effectiveCostCents)
         : null;
+    const usedEstimate = candidate.pricePerGallonCents === null && estimateCents !== null;
 
-    return { ...candidate, pumpCostCents, detourCostCents, effectiveCostCents, savingsVsBaselineCents };
+    return {
+      ...candidate,
+      pumpCostCents,
+      detourCostCents,
+      effectiveCostCents,
+      savingsVsBaselineCents,
+      usedEstimate,
+    };
   });
 
   // Priced candidates first, cheapest effective cost first; unpriced
   // after, shortest detour first. An unknown price never outranks a
-  // known one - that would be a guess dressed as a ranking.
+  // known one - that would be a guess dressed as a ranking. (An
+  // estimate counts as priced for this sort: it competes on cost.)
   return ranked.sort((a, b) => {
     if (a.effectiveCostCents !== null && b.effectiveCostCents !== null) {
       return a.effectiveCostCents - b.effectiveCostCents;
@@ -87,6 +122,24 @@ export function rankFuelCandidates(
     if (b.effectiveCostCents !== null) return 1;
     return a.detourMiles - b.detourMiles;
   });
+}
+
+/**
+ * The one fuel price line (P1-6), shared by the page list, the map
+ * popups, and the Abel formatter: a real logged price, a labeled
+ * estimate, or an honest unknown - never blurred together.
+ */
+export function formatFuelPriceLine(c: RankedFuelCandidate): string {
+  if (c.pricePerGallonCents !== null) {
+    return `$${(c.pricePerGallonCents / 100).toFixed(2)}/gal (from your fuel log)`;
+  }
+  const estimate = c.estimatedPricePerGallonCents ?? null;
+  if (estimate !== null) {
+    return c.estimateLabel
+      ? `≈$${(estimate / 100).toFixed(2)}/gal (est. — ${c.estimateLabel})`
+      : `≈$${(estimate / 100).toFixed(2)}/gal (est.)`;
+  }
+  return "price unknown";
 }
 
 // ----------------------------------------------------------------------- food

@@ -18,8 +18,9 @@ import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
-import { formatEastern, formatMinutes } from "@/lib/smart-path";
-import type { SmartPathMapStop } from "@/components/SmartPathMap";
+import { formatEastern, formatMinutes, routeCaption } from "@/lib/smart-path";
+import { formatFuelPriceLine } from "@/lib/smart-path-stops";
+import { buildMapStops } from "@/lib/smart-path-map-stops";
 import type { Load } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
 
@@ -58,6 +59,12 @@ function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function hourLabel(hour: number): string {
+  const suffix = hour < 12 ? "AM" : "PM";
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve} ${suffix}`;
+}
+
 export default function SmartPathPage() {
   return (
     <Suspense fallback={<ListLoading />}>
@@ -90,6 +97,22 @@ function SmartPathInner() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RouteCheckResponse | null>(null);
+  // Piece 1 (P1-7): the deadhead start - typed place, or a one-shot
+  // geolocation fix from the "Use where I am" button. Never watched,
+  // never persisted; it only rides along on the check itself.
+  const [startText, setStartText] = useState("");
+  const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [startGeoMessage, setStartGeoMessage] = useState<string | null>(null);
+  const [startAt, setStartAt] = useState("");
+  // Piece 1 (P1-9): life preferences for this run - sleep window and
+  // an optional workout break. Empty select = no set window.
+  const [sleepStartHour, setSleepStartHour] = useState("");
+  const [sleepEndHour, setSleepEndHour] = useState("");
+  const [workoutWant, setWorkoutWant] = useState(false);
+  const [workoutMinutes, setWorkoutMinutes] = useState(60);
+  const [workoutSetting, setWorkoutSetting] = useState<"gym_preferred" | "any_safe_stop">(
+    "gym_preferred",
+  );
 
   const loads = useMemo(
     () => (loadsState.status === "loaded" ? loadsState.result.data : []),
@@ -120,6 +143,28 @@ function SmartPathInner() {
   };
   const { pickupStart, pickupEnd, deliveryStart, deliveryEnd } = windows;
 
+  const startIsSet = startPoint !== null || startText.trim().length > 0;
+
+  // The only geolocation in the page: one-shot, on tap, foreground.
+  function handleUseMyLocation() {
+    if (!navigator.geolocation) {
+      setStartGeoMessage("Couldn't get your location — type the start place instead.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setStartPoint({ lat: position.coords.latitude, lng: position.coords.longitude });
+        setStartGeoMessage(
+          `Using your current location (±${Math.round(position.coords.accuracy)} m) — or type a place instead.`,
+        );
+      },
+      () => {
+        setStartGeoMessage("Couldn't get your location — type the start place instead.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!loadId) return;
@@ -147,6 +192,23 @@ function SmartPathInner() {
       if (gallons && Number.isFinite(gallonsNumber) && gallonsNumber > 0) {
         body.gallons_to_buy = gallonsNumber;
       }
+      if (startPoint) {
+        body.start_point = startPoint;
+      } else if (startText.trim()) {
+        body.start_location = startText.trim();
+      }
+      if (startIsSet && startAt) {
+        body.start_at = new Date(startAt).toISOString();
+      }
+      const life: Record<string, unknown> = {};
+      if (sleepStartHour !== "") life.sleep_start_hour = Number(sleepStartHour);
+      if (sleepEndHour !== "") life.sleep_end_hour = Number(sleepEndHour);
+      if (workoutWant) {
+        life.workout = { want: true, minutes: workoutMinutes, setting: workoutSetting };
+      }
+      if (Object.keys(life).length > 0) {
+        body.life = life;
+      }
       const response = await apiClient.create<RouteCheckResponse>("smart-path/route-check", body);
       setResult(response);
     } catch (err) {
@@ -156,23 +218,23 @@ function SmartPathInner() {
     }
   }
 
-  const mapStops: SmartPathMapStop[] = useMemo(() => {
-    if (!result) return [];
-    const stops: SmartPathMapStop[] = [
-      { point: result.route.originPoint, label: "A", color: "#16a34a" },
-      { point: result.route.destinationPoint, label: "B", color: "#dc2626" },
-    ];
-    for (const rest of result.plan?.rests ?? []) {
-      if (rest.point) stops.push({ point: rest.point, label: "S", color: "#2563eb" });
-    }
-    for (const candidate of result.fuel.candidates.slice(0, 3)) {
-      stops.push({ point: { lat: candidate.lat, lng: candidate.lng }, label: "F", color: "#d97706" });
-    }
-    for (const stop of result.food.stops.slice(0, 3)) {
-      stops.push({ point: { lat: stop.lat, lng: stop.lng }, label: "E", color: "#7c3aed" });
-    }
-    return stops;
-  }, [result]);
+  const mapStops = useMemo(
+    () => (result ? buildMapStops(result, { workoutSetting }) : []),
+    [result, workoutSetting],
+  );
+
+  const caption = result
+    ? `Map © OpenStreetMap contributors. ${routeCaption(result.route)}`
+    : "Map © OpenStreetMap contributors. When you check a run, this line says which engine drew the route and whether it was truck-checked.";
+
+  const workoutOutcome = result?.plan?.workout ?? null;
+  // The workout block below renders plan.workout's own line, so a
+  // lifeLine that already says it ("Workout: …") is not repeated.
+  const lifeLinesToRender = result
+    ? workoutOutcome
+      ? result.verdict.lifeLines.filter((line) => !line.startsWith("Workout:"))
+      : result.verdict.lifeLines
+    : [];
 
   const mapsHandoff =
     selectedLoad &&
@@ -186,7 +248,12 @@ function SmartPathInner() {
         Plan while you&apos;re parked; on the road, the bot speaks the plan.
       </p>
 
-      <SmartPathMap geometry={result?.route.geometry ?? []} stops={mapStops} />
+      <SmartPathMap
+        geometry={result?.route.geometry ?? []}
+        stops={mapStops}
+        deadheadGeometry={result?.deadhead?.geometry ?? []}
+        caption={caption}
+      />
 
       {loadsState.status === "loading" && <ListLoading />}
       {loadsState.status === "error" && <ListError message={loadsState.message} onRetry={retry} />}
@@ -206,6 +273,40 @@ function SmartPathInner() {
               </option>
             ))}
           </select>
+
+          <fieldset>
+            <legend>The whole run</legend>
+            <label htmlFor="start_location">Starting from (optional)</label>
+            <input
+              id="start_location"
+              type="text"
+              placeholder="e.g. Melbourne, FL — where you are before the pickup"
+              value={startText}
+              onChange={(event) => {
+                setStartText(event.target.value);
+                if (startPoint) {
+                  setStartPoint(null);
+                  setStartGeoMessage(null);
+                }
+              }}
+            />
+            <button type="button" onClick={handleUseMyLocation}>
+              Use where I am
+            </button>
+            {startGeoMessage && <p>{startGeoMessage}</p>}
+            {startIsSet && (
+              <>
+                <label htmlFor="start_at">Leaving the start at (optional)</label>
+                <input
+                  id="start_at"
+                  type="datetime-local"
+                  value={startAt}
+                  onChange={(event) => setStartAt(event.target.value)}
+                />
+                <p>Leave blank to get the just-in-time leave-by time.</p>
+              </>
+            )}
+          </fieldset>
 
           <label htmlFor="depart_at">Leaving the pickup (loaded) at</label>
           <input
@@ -244,6 +345,68 @@ function SmartPathInner() {
             </label>
           </fieldset>
 
+          <fieldset>
+            <legend>Your life on this run</legend>
+            <label htmlFor="sleep_start_hour">Sleep window starts</label>
+            <select
+              id="sleep_start_hour"
+              value={sleepStartHour}
+              onChange={(event) => setSleepStartHour(event.target.value)}
+            >
+              <option value="">No set window</option>
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {hourLabel(hour)}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="sleep_end_hour">Sleep window ends</label>
+            <select
+              id="sleep_end_hour"
+              value={sleepEndHour}
+              onChange={(event) => setSleepEndHour(event.target.value)}
+            >
+              <option value="">No set window</option>
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {hourLabel(hour)}
+                </option>
+              ))}
+            </select>
+            <label>
+              <input
+                type="checkbox"
+                checked={workoutWant}
+                onChange={(event) => setWorkoutWant(event.target.checked)}
+              />{" "}
+              Try to fit a workout break
+            </label>
+            {workoutWant && (
+              <>
+                <label htmlFor="workout_minutes">Workout minutes</label>
+                <input
+                  id="workout_minutes"
+                  type="number"
+                  min="30"
+                  max="180"
+                  value={workoutMinutes}
+                  onChange={(event) => setWorkoutMinutes(Number(event.target.value))}
+                />
+                <label htmlFor="workout_setting">Workout spot</label>
+                <select
+                  id="workout_setting"
+                  value={workoutSetting}
+                  onChange={(event) =>
+                    setWorkoutSetting(event.target.value as "gym_preferred" | "any_safe_stop")
+                  }
+                >
+                  <option value="gym_preferred">A gym if one&apos;s near</option>
+                  <option value="any_safe_stop">Any safe stop (bodyweight)</option>
+                </select>
+              </>
+            )}
+          </fieldset>
+
           <label htmlFor="gallons">Gallons I plan to buy (optional)</label>
           <input id="gallons" type="number" min="1" max="300" value={gallons} onChange={(e) => setGallons(e.target.value)} />
 
@@ -279,12 +442,26 @@ function SmartPathInner() {
             {formatMinutes(result.verdict.assumedDriveMinutes)} ({result.verdict.driveTimeBasis})
             {result.plan?.arrivalAt && <> · arrival {formatEastern(new Date(result.plan.arrivalAt))}</>}
           </p>
-          <p>
-            Route by {result.route.provider} —{" "}
-            {result.route.truckLegal
-              ? "truck-checked against the height/weight limits and truck-prohibited roads recorded in the map data (coverage is incomplete; the truck's own nav/ELD is the final word)."
-              : "a standard car route, NOT checked against truck restrictions — see “Before you roll” below."}
-          </p>
+          <p>{routeCaption(result.route)}</p>
+
+          {result.deadhead && (
+            <>
+              <h3>Deadhead — getting to the pickup</h3>
+              <p>
+                {result.deadhead.distanceMiles} mi · about{" "}
+                {formatMinutes(result.deadhead.providerDurationMinutes)} driving by the routing
+                estimate · leave {result.deadhead.startLabel} by{" "}
+                {formatEastern(new Date(result.deadhead.leaveByAt))} · you&apos;d reach the pickup{" "}
+                {formatEastern(new Date(result.deadhead.pickupArrivalAt))}
+              </p>
+              {result.deadhead.waitMinutesAtPickup > 0 && (
+                <p>
+                  That leaves {formatMinutes(result.deadhead.waitMinutesAtPickup)} waiting at the
+                  pickup — it counts on your 14.
+                </p>
+              )}
+            </>
+          )}
 
           <h3>Legal</h3>
           {result.verdict.legalLines.map((line) => (
@@ -297,8 +474,35 @@ function SmartPathInner() {
           ))}
           {result.plan && result.plan.breaks.length > 0 && (
             <p>
-              30-minute break: {result.plan.breaks.map((b) => formatEastern(new Date(b.startAt))).join(", ")}.
+              {result.plan.breaks
+                .map(
+                  (b) =>
+                    `${b.kind === "workout" ? "Workout break" : "Break"} (${formatMinutes(b.durationMinutes)}): ${formatEastern(new Date(b.startAt))}`,
+                )
+                .join(" · ")}
+              .
             </p>
+          )}
+
+          {(lifeLinesToRender.length > 0 || workoutOutcome) && (
+            <>
+              <h3>Your life on this run</h3>
+              {lifeLinesToRender.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+              {workoutOutcome &&
+                (workoutOutcome.placed ? (
+                  <p>
+                    Workout: {workoutOutcome.durationMinutes} min at {workoutOutcome.placeName} —{" "}
+                    {workoutOutcome.note}
+                  </p>
+                ) : (
+                  <>
+                    <p>Workout — not placed</p>
+                    <p>{workoutOutcome.note}</p>
+                  </>
+                ))}
+            </>
           )}
 
           {result.verdict.paidLines.length > 0 && (
@@ -318,20 +522,22 @@ function SmartPathInner() {
             {result.fuel.assumptions.stopMinutes}-minute stop).
             {result.fuel.assumptions.baselinePriceCents !== null &&
               ` Your average price across your fuel log: ${dollars(result.fuel.assumptions.baselinePriceCents)}/gal.`}
+            {result.fuel.candidates.some((candidate) => candidate.usedEstimate) &&
+              " Prices marked est. are the EIA weekly U.S. average, not that station's price — your fuel log is the only real price here."}
           </p>
           {result.fuel.unavailableReason && <p>{result.fuel.unavailableReason}</p>}
           {result.fuel.candidates.length === 0 && !result.fuel.unavailableReason && (
             <p>No fuel stops found near this route yet — your fuel log and the map data both feed this list.</p>
           )}
           <ul>
-            {result.fuel.candidates.map((candidate) => (
+            {result.fuel.candidates.map((candidate, i) => (
               <li key={candidate.id}>
-                <strong>{candidate.name}</strong>{" "}
+                <strong>
+                  {i < 3 ? `F${i + 1} · ` : ""}
+                  {candidate.name}
+                </strong>{" "}
                 {candidate.source === "history" ? "(from your fuel log)" : "(map)"} —{" "}
-                {candidate.pricePerGallonCents !== null
-                  ? `${dollars(candidate.pricePerGallonCents)}/gal`
-                  : "price unknown"}{" "}
-                · {candidate.detourMiles.toFixed(1)} mi detour ·{" "}
+                {formatFuelPriceLine(candidate)} · {candidate.detourMiles.toFixed(1)} mi detour ·{" "}
                 {candidate.effectiveCostCents !== null
                   ? `effective cost ${dollars(candidate.effectiveCostCents)}`
                   : `detour cost ${dollars(candidate.detourCostCents)}`}
@@ -348,10 +554,14 @@ function SmartPathInner() {
             <p key={line}>{line}</p>
           ))}
           <ul>
-            {result.food.stops.map((stop) => (
+            {result.food.stops.map((stop, i) => (
               <li key={stop.id}>
-                <strong>{stop.name}</strong> — {stop.detourMiles.toFixed(1)} mi off the route ·
-                you&apos;d reach it about {formatEastern(new Date(stop.arrivalAt))}
+                <strong>
+                  {i < 3 ? `E${i + 1} · ` : ""}
+                  {stop.name}
+                </strong>{" "}
+                — {stop.detourMiles.toFixed(1)} mi off the route · you&apos;d reach it about{" "}
+                {formatEastern(new Date(stop.arrivalAt))}
               </li>
             ))}
           </ul>

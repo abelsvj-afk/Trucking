@@ -42,14 +42,18 @@ const LATE_RESULT: RouteCheckResponse = {
     driveTimeBasis: "truck profile speed (55 mph governed)",
     legalLines: ["Legal: the drive fits inside the 11-hour driving limit."],
     restedLines: ["Rested: one sleep stop is planned the night before delivery."],
+    // Piece 1 fields the response type now requires — neutral values
+    // (no life lines, no start leave-by) so existing cases are unchanged.
+    lifeLines: [],
     paidLines: ["This load pays $2,000.00 over 500 miles - $4.00 a mile, before fuel and the drive back out."],
     tradeoffLines: ["Leaving at 7:00 AM gets you there 1h 30m after the window closes."],
     makeItDepartureAt: "2026-11-01T10:30:00.000Z",
+    leaveStartByAt: null,
   },
   plan: {
     arrivalAt: "2026-11-01T23:30:00.000Z",
     totalElapsedMinutes: 690,
-    breaks: [{ startAt: "2026-11-01T16:00:00.000Z", afterDrivingMinutes: 240 }],
+    breaks: [{ startAt: "2026-11-01T16:00:00.000Z", afterDrivingMinutes: 240, durationMinutes: 30, kind: "break" }],
     rests: [
       {
         startAt: "2026-11-01T18:00:00.000Z",
@@ -60,7 +64,9 @@ const LATE_RESULT: RouteCheckResponse = {
         point: { lat: 31, lng: -82 },
       },
     ],
+    workout: null,
   },
+  deadhead: null,
   fuel: {
     assumptions: {
       gallonsToBuy: 100,
@@ -76,6 +82,9 @@ const LATE_RESULT: RouteCheckResponse = {
         lat: 32,
         lng: -83,
         pricePerGallonCents: 389,
+        estimatedPricePerGallonCents: null,
+        estimateLabel: null,
+        usedEstimate: false,
         source: "history",
         detourMiles: 0,
         pumpCostCents: 38900,
@@ -286,5 +295,211 @@ describe("check_route tool", () => {
     const found = tools.find((t) => t.name === "check_route");
     expect(found).toBeDefined();
     expect(found!.access).toBe("read");
+  });
+});
+
+// --- Piece 1 parity (P1-6/P1-7/P1-9) — added cases only -------------
+
+type ToolDeps = NonNullable<Parameters<typeof buildRouteCheckTool>[1]>;
+
+const DEADHEAD_RESULT = {
+  ...LATE_RESULT,
+  deadhead: {
+    startLabel: "Melbourne, FL",
+    startPoint: { lat: 28.08, lng: -80.6 },
+    distanceMiles: 25.5,
+    providerDurationMinutes: 40,
+    provider: "Valhalla (truck costing)",
+    truckLegal: true,
+    geometry: [
+      { lat: 28.08, lng: -80.6 },
+      { lat: 28.2, lng: -80.7 },
+    ],
+    leaveByAt: "2026-11-01T09:00:00.000Z",
+    pickupArrivalAt: "2026-11-01T09:45:00.000Z",
+    waitMinutesAtPickup: 45,
+  },
+  verdict: {
+    ...LATE_RESULT.verdict,
+    lifeLines: [
+      "Sleep lands inside your 10 PM–6 AM window.",
+      "A 60-minute workout fits at your break.",
+    ],
+    leaveStartByAt: "2026-11-01T08:30:00.000Z",
+  },
+} as unknown as RouteCheckResponse;
+
+const WORKOUT_PLACED_RESULT = {
+  ...LATE_RESULT,
+  plan: {
+    ...LATE_RESULT.plan!,
+    workout: {
+      placed: true,
+      startAt: "2026-11-01T16:00:00.000Z",
+      durationMinutes: 60,
+      placeName: "Anytime Fitness, I-75",
+      placeKind: "gym",
+      point: { lat: 32, lng: -83 },
+      note: "Your break extends to fit it; arrival still inside the window.",
+    },
+  },
+} as unknown as RouteCheckResponse;
+
+const WORKOUT_UNPLACED_RESULT = {
+  ...LATE_RESULT,
+  plan: {
+    ...LATE_RESULT.plan!,
+    workout: {
+      placed: false,
+      startAt: null,
+      durationMinutes: 60,
+      placeName: null,
+      placeKind: null,
+      point: null,
+      note: "No room for a 60-minute workout on this run: it would put you at the receiver 25 minutes after the window closes. It fits if you leave 25+ minutes earlier.",
+    },
+  },
+} as unknown as RouteCheckResponse;
+
+const ESTIMATE_FUEL_RESULT = {
+  ...LATE_RESULT,
+  fuel: {
+    ...LATE_RESULT.fuel,
+    candidates: [
+      {
+        ...LATE_RESULT.fuel.candidates[0],
+        id: "map:Love's, I-75",
+        name: "Love's, I-75",
+        pricePerGallonCents: null,
+        estimatedPricePerGallonCents: 392,
+        estimateLabel: "EIA U.S. average, week of Oct 26",
+        usedEstimate: true,
+        source: "map",
+        effectiveCostCents: 40500,
+        savingsVsBaselineCents: null,
+      },
+    ],
+  },
+} as unknown as RouteCheckResponse;
+
+describe("routeCheckToolArgs — Piece 1 parity fields", () => {
+  it("accepts the start fields and the life object, with workout defaults filled", () => {
+    const parsed = routeCheckToolArgs.parse({
+      load_id: LOAD_ID,
+      start_location: "Melbourne, FL",
+      start_point: { lat: 28.08, lng: -80.6 },
+      start_at: "2026-11-01T09:00:00Z",
+      life: {
+        sleep_start_hour: 22,
+        sleep_end_hour: 6,
+        workout: { want: true },
+      },
+    });
+    expect(parsed.start_location).toBe("Melbourne, FL");
+    expect(parsed.start_point).toEqual({ lat: 28.08, lng: -80.6 });
+    expect(parsed.start_at).toBe("2026-11-01T09:00:00Z");
+    expect(parsed.life?.workout).toEqual({
+      want: true,
+      minutes: 60,
+      setting: "gym_preferred",
+    });
+  });
+
+  it("rejects out-of-bounds workout minutes in the life object", () => {
+    expect(() =>
+      routeCheckToolArgs.parse({ load_id: LOAD_ID, life: { workout: { want: true, minutes: 10 } } }),
+    ).toThrow();
+    expect(() =>
+      routeCheckToolArgs.parse({ load_id: LOAD_ID, life: { workout: { want: true, minutes: 200 } } }),
+    ).toThrow();
+  });
+
+  it("rejects an out-of-range start_point and sleep hour", () => {
+    expect(() =>
+      routeCheckToolArgs.parse({ load_id: LOAD_ID, start_point: { lat: 91, lng: 0 } }),
+    ).toThrow();
+    expect(() =>
+      routeCheckToolArgs.parse({ load_id: LOAD_ID, life: { sleep_start_hour: 24 } }),
+    ).toThrow();
+  });
+});
+
+describe("check_route tool — Piece 1 parity pass-through", () => {
+  it("passes the start fields and life object through to the engine request", async () => {
+    let captured: unknown = null;
+    const runCheck = (async (_client: unknown, request: unknown) => {
+      captured = request;
+      return DEADHEAD_RESULT;
+    }) as unknown as NonNullable<ToolDeps["runCheck"]>;
+    const tool = buildRouteCheckTool(fakeStore(fakeEngineClient([])), {
+      runCheck,
+      now: () => NOW,
+    });
+    const text = await tool.run({
+      load_id: LOAD_ID,
+      start_location: "Melbourne, FL",
+      start_point: { lat: 28.08, lng: -80.6 },
+      start_at: "2026-11-01T09:00:00Z",
+      life: {
+        sleep_start_hour: 22,
+        sleep_end_hour: 6,
+        workout: { want: true, minutes: 60, setting: "gym_preferred" },
+      },
+    });
+    expect(captured).toMatchObject({
+      load_id: LOAD_ID,
+      start_location: "Melbourne, FL",
+      start_point: { lat: 28.08, lng: -80.6 },
+      start_at: "2026-11-01T09:00:00Z",
+      life: {
+        sleep_start_hour: 22,
+        sleep_end_hour: 6,
+        workout: { want: true, minutes: 60, setting: "gym_preferred" },
+      },
+    });
+    expect(text).toContain("Deadhead:");
+  });
+});
+
+describe("formatRouteCheck — Piece 1 parity", () => {
+  it("prints the deadhead line, the pickup wait, and the start leave-by when the block is present", () => {
+    const text = formatRouteCheck(DEADHEAD_RESULT);
+    expect(text).toContain("Deadhead: 25.5 mi from Melbourne, FL");
+    expect(text).toContain("45m waiting at the pickup");
+    expect(text).toContain("it counts on your 14");
+    expect(text).toContain("Leave Melbourne, FL by");
+  });
+
+  it("prints no deadhead or life lines when the response carries none", () => {
+    const text = formatRouteCheck(LATE_RESULT);
+    expect(text).not.toContain("Deadhead:");
+    expect(text).not.toContain("Your life on this run:");
+  });
+
+  it("prints the life lines under their heading, after the rested lines", () => {
+    const text = formatRouteCheck(DEADHEAD_RESULT);
+    expect(text).toContain("Your life on this run:");
+    expect(text).toContain("Sleep lands inside your 10 PM–6 AM window.");
+    expect(text.indexOf("Your life on this run:")).toBeGreaterThan(text.indexOf("Rested:"));
+    expect(text.indexOf("Your life on this run:")).toBeLessThan(text.indexOf("Paid:"));
+  });
+
+  it("prints a placed workout with its place and note", () => {
+    const text = formatRouteCheck(WORKOUT_PLACED_RESULT);
+    expect(text).toContain("Workout: 60 min at Anytime Fitness, I-75");
+    expect(text).toContain("arrival still inside the window");
+  });
+
+  it("prints an unplaced workout with its reason — never silently dropped", () => {
+    const text = formatRouteCheck(WORKOUT_UNPLACED_RESULT);
+    expect(text).toContain("Workout: not placed");
+    expect(text).toContain("25 minutes after the window closes");
+  });
+
+  it("speaks an estimate-ranked fuel candidate as an estimate, not a station price", () => {
+    const text = formatRouteCheck(ESTIMATE_FUEL_RESULT);
+    const fuelLine = text.split("\n").find((line) => line.includes("Love's, I-75"));
+    expect(fuelLine).toBeDefined();
+    expect(fuelLine).toContain("est.");
   });
 });

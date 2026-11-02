@@ -18,7 +18,7 @@
 import { z } from "zod";
 import type { LatLng } from "@/lib/smart-path";
 
-export type PlaceKind = "fuel" | "grocery" | "fast_food";
+export type PlaceKind = "fuel" | "grocery" | "fast_food" | "gym" | "rest_area";
 
 export interface Place extends LatLng {
   id: string;
@@ -52,6 +52,10 @@ const KIND_FILTERS: Record<PlaceKind, string> = {
   fuel: '["amenity"="fuel"]',
   grocery: '["shop"="supermarket"]',
   fast_food: '["amenity"="fast_food"]',
+  // Piece 1 (P1-9): workout anchors - a real gym, or a rest area
+  // where bodyweight training at a safe stop works.
+  gym: '["leisure"="fitness_centre"]',
+  rest_area: '["highway"="rest_area"]',
 };
 
 export class OverpassPlacesProvider implements PlacesProvider {
@@ -108,13 +112,27 @@ export class OverpassPlacesProvider implements PlacesProvider {
             ? "fast_food"
             : tags.shop === "supermarket"
               ? "grocery"
-              : null;
+              : tags.leisure === "fitness_centre"
+                ? "gym"
+                : tags.highway === "rest_area"
+                  ? "rest_area"
+                  : null;
       if (!kind) continue;
       const id = `${element.type}/${element.id}`;
       if (seen.has(id)) continue;
       seen.add(id);
       const name =
-        tags.name ?? tags.brand ?? (kind === "fuel" ? "Fuel station" : kind === "grocery" ? "Grocery store" : "Fast food");
+        tags.name ??
+        tags.brand ??
+        (kind === "fuel"
+          ? "Fuel station"
+          : kind === "grocery"
+            ? "Grocery store"
+            : kind === "gym"
+              ? "Gym"
+              : kind === "rest_area"
+                ? "Rest area"
+                : "Fast food");
       places.push({ id, name, kind, lat, lng });
     }
     return places;
