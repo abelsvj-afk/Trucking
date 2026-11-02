@@ -20,7 +20,9 @@ import type { AgentTool } from "@/services/ai/agent-loop";
 import type { BotBrainStore } from "./store";
 import { searchMemoryEverywhere } from "./memory-retrieval";
 import { getEmbeddingProvider } from "./embeddings";
-import type { DutyLog } from "@/types/entities";
+import type { DetentionStamp, Document, DutyLog, Expense, Load } from "@/types/entities";
+import { computeDetention } from "@/lib/detention";
+import { computePaperwork } from "@/lib/paperwork";
 import { validateWith } from "./tool-helpers";
 import { buildExtendedReadTools } from "./tools-read";
 import { buildGameTools } from "./tools-game";
@@ -443,6 +445,119 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         );
       },
     },
+    // GAP-04: the facility clock. "I'm at the receiver, checked in"
+    // is a stamp, not a form — this tool writes it and reports the
+    // running detention math from lib/detention.ts.
+    {
+      name: "stamp_detention",
+      description:
+        "Stamp a load's detention (facility) clock: arrival, door, loading_done, or departure at the pickup or delivery stop. Use when he says he's arrived / checked in / at the door / loaded or unloaded / leaving a facility. Defaults to now and the delivery stop. Returns the detention owed so far from the load's terms.",
+      parameters: {
+        type: "object",
+        properties: {
+          load_id: { type: "string", description: "Load id (uuid) — from list_loads." },
+          stamp_type: { type: "string", enum: ["arrival", "door", "loading_done", "departure"] },
+          stop_kind: { type: "string", enum: ["pickup", "delivery"], description: "Which stop. Defaults to delivery." },
+          occurred_at: { type: "string", description: "ISO timestamp if he's correcting a time; defaults to now." },
+        },
+        required: ["load_id", "stamp_type"],
+      },
+      access: "write",
+      validateArgs: validateWith(stampDetentionArgs),
+      summarize(args) {
+        const parsed = stampDetentionArgs.parse(args);
+        return `Detention stamp: ${parsed.stamp_type} (${parsed.stop_kind ?? "delivery"}) on load ${parsed.load_id}`;
+      },
+      async run(args) {
+        const parsed = stampDetentionArgs.parse(args);
+        const { data: loadData, error: loadError } = await client
+          .from("loads")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("id", parsed.load_id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (loadError) throw new Error(loadError.message);
+        if (!loadData) throw new Error("That load isn't in his records.");
+        const { error } = await client.from("detention_stamps").insert({
+          company_id: companyId,
+          load_id: parsed.load_id,
+          stamp_type: parsed.stamp_type,
+          stop_kind: parsed.stop_kind ?? "delivery",
+          occurred_at: parsed.occurred_at ?? new Date().toISOString(),
+        });
+        if (error) throw new Error(error.message);
+        const { data: stamps } = await client
+          .from("detention_stamps")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("load_id", parsed.load_id)
+          .is("deleted_at", null)
+          .order("occurred_at", { ascending: true });
+        const summary = computeDetention(loadData as Load, (stamps ?? []) as DetentionStamp[]);
+        const load = loadData as Load;
+        let line = `Stamped ${parsed.stamp_type} at the ${parsed.stop_kind ?? "delivery"} for ${load.origin} → ${load.destination}.`;
+        if (summary.totalOwedCents != null && summary.totalOwedCents > 0) {
+          line += ` Detention owed so far: ${dollars(summary.totalOwedCents)} (${summary.totalBillableHours} billable hr past ${summary.freeMinutes} free min).`;
+        } else if (summary.anyClockOpen) {
+          line += " The detention clock is running.";
+        }
+        return line;
+      },
+    },
+    // GAP-05: paperwork state for a load — the closeout checklist.
+    {
+      name: "get_load_paperwork",
+      description:
+        "Check a load's paperwork completeness: rate confirmation, BOL/proof of delivery, scale ticket (when the load carries weight), lumper receipt (when a lumper expense is booked). Use when he asks what's missing on a load or before calling a load done.",
+      parameters: {
+        type: "object",
+        properties: {
+          load_id: { type: "string", description: "Load id (uuid) — from list_loads." },
+        },
+        required: ["load_id"],
+      },
+      access: "read",
+      validateArgs: validateWith(loadIdArgs),
+      async run(args) {
+        const parsed = loadIdArgs.parse(args);
+        const { data: loadData, error: loadError } = await client
+          .from("loads")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("id", parsed.load_id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (loadError) throw new Error(loadError.message);
+        if (!loadData) return "That load isn't in his records.";
+        const load = loadData as Load;
+        const [docsResult, expensesResult] = await Promise.all([
+          client
+            .from("documents")
+            .select("id, doc_type")
+            .eq("company_id", companyId)
+            .eq("related_entity_type", "load")
+            .eq("related_entity_id", load.id),
+          client
+            .from("expenses")
+            .select("category, description")
+            .eq("company_id", companyId)
+            .eq("load_id", load.id)
+            .is("deleted_at", null),
+        ]);
+        if (docsResult.error) throw new Error(docsResult.error.message);
+        if (expensesResult.error) throw new Error(expensesResult.error.message);
+        const state = computePaperwork(
+          load,
+          (docsResult.data ?? []) as Pick<Document, "id" | "doc_type">[],
+          (expensesResult.data ?? []) as Pick<Expense, "category" | "description">[],
+        );
+        const lines = state.items.map(
+          (item) => `- ${item.present ? "✓" : "✗"} ${item.label}${item.present ? "" : ` — ${item.why}`}`,
+        );
+        return `Paperwork for ${load.origin} → ${load.destination}:\n${lines.join("\n")}\n${state.summaryLine}`;
+      },
+    },
     {
       name: "evaluate_pay_offer",
       description:
@@ -666,6 +781,18 @@ const logDutyArgs = z.object({
   started_at: z.string().min(1).optional(),
   odometer: z.number().int().nonnegative().optional(),
   load_id: z.string().uuid().optional(),
+});
+
+// GAP-04/05 (Fresh-Eyes Register 2026-11-02).
+const stampDetentionArgs = z.object({
+  load_id: z.string().uuid(),
+  stamp_type: z.enum(["arrival", "door", "loading_done", "departure"]),
+  stop_kind: z.enum(["pickup", "delivery"]).optional(),
+  occurred_at: z.string().min(1).optional(),
+});
+
+const loadIdArgs = z.object({
+  load_id: z.string().uuid(),
 });
 
 const saveMemoryArgs = z.object({

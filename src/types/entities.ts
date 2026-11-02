@@ -105,6 +105,27 @@ export interface Load extends BaseRow {
   miles: number | null;
   status: LoadStatus;
   notes: string | null;
+  // GAP-02/04/05 (migration 00044): appointment windows, detention
+  // terms, scale-ticket weight. Null until captured.
+  pickup_window_start: string | null;
+  pickup_window_end: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+  detention_free_minutes: number | null;
+  detention_rate_cents_per_hour: number | null;
+  weight_lbs: number | null;
+}
+
+export type DetentionStampType = "arrival" | "door" | "loading_done" | "departure";
+export type DetentionStopKind = "pickup" | "delivery";
+
+/** GAP-04: one stamp on a load's facility clock (migration 00044). */
+export interface DetentionStamp extends BaseRow {
+  load_id: string;
+  stamp_type: DetentionStampType;
+  stop_kind: DetentionStopKind;
+  occurred_at: string;
+  notes: string | null;
 }
 
 export type ExpenseCategory = "insurance" | "permits" | "repairs" | "other";

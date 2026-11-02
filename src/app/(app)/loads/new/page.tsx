@@ -39,6 +39,14 @@ export default function NewLoadPage() {
   const [destination, setDestination] = useState("");
   const [pickupDate, setPickupDate] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  // GAP-02/04: appointment windows + detention terms, straight off
+  // the rate con when he has them — optional like everything else.
+  const [pickupWindowStart, setPickupWindowStart] = useState("");
+  const [pickupWindowEnd, setPickupWindowEnd] = useState("");
+  const [deliveryWindowStart, setDeliveryWindowStart] = useState("");
+  const [deliveryWindowEnd, setDeliveryWindowEnd] = useState("");
+  const [detentionFreeMinutes, setDetentionFreeMinutes] = useState("");
+  const [detentionRateDollars, setDetentionRateDollars] = useState("");
   const [rateDollars, setRateDollars] = useState("");
   const [status, setStatus] = useState<LoadStatus>("draft");
   const [truckId, setTruckId] = useState("");
@@ -64,6 +72,20 @@ export default function NewLoadPage() {
         destination,
         pickup_date: pickupDate || undefined,
         delivery_date: deliveryDate || undefined,
+        pickup_window_start: pickupWindowStart ? new Date(pickupWindowStart).toISOString() : undefined,
+        pickup_window_end: pickupWindowEnd ? new Date(pickupWindowEnd).toISOString() : undefined,
+        delivery_window_start: deliveryWindowStart
+          ? new Date(deliveryWindowStart).toISOString()
+          : undefined,
+        delivery_window_end: deliveryWindowEnd
+          ? new Date(deliveryWindowEnd).toISOString()
+          : undefined,
+        detention_free_minutes: detentionFreeMinutes
+          ? Number.parseInt(detentionFreeMinutes, 10)
+          : undefined,
+        detention_rate_cents_per_hour: detentionRateDollars
+          ? Math.round(parseFloat(detentionRateDollars) * 100)
+          : undefined,
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : undefined,
         status,
         truck_id: truckId || null,
@@ -108,6 +130,58 @@ export default function NewLoadPage() {
           type="date"
           value={deliveryDate}
           onChange={(event) => setDeliveryDate(event.target.value)}
+        />
+
+        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con)</label>
+        <input
+          id="pickup_window_start"
+          type="datetime-local"
+          value={pickupWindowStart}
+          onChange={(event) => setPickupWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="pickup_window_end">Pickup window ends</label>
+        <input
+          id="pickup_window_end"
+          type="datetime-local"
+          value={pickupWindowEnd}
+          onChange={(event) => setPickupWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_start">Delivery window starts</label>
+        <input
+          id="delivery_window_start"
+          type="datetime-local"
+          value={deliveryWindowStart}
+          onChange={(event) => setDeliveryWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_end">Delivery window ends</label>
+        <input
+          id="delivery_window_end"
+          type="datetime-local"
+          value={deliveryWindowEnd}
+          onChange={(event) => setDeliveryWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills</label>
+        <input
+          id="detention_free_minutes"
+          type="number"
+          min="0"
+          step="15"
+          value={detentionFreeMinutes}
+          onChange={(event) => setDetentionFreeMinutes(event.target.value)}
+        />
+
+        <label htmlFor="detention_rate">Detention rate ($/hour after free time)</label>
+        <input
+          id="detention_rate"
+          type="number"
+          step="0.01"
+          min="0"
+          value={detentionRateDollars}
+          onChange={(event) => setDetentionRateDollars(event.target.value)}
         />
 
         <label htmlFor="rate">Rate ($)</label>

@@ -82,6 +82,11 @@ const PLACES_RADIUS_METERS = 5000;
 const DEFAULT_GALLONS_TO_BUY = 100;
 const DEFAULT_AVG_MPG = 6.5;
 
+/** GAP-02: a load's stored appointment window as a TimeWindow (both ends or neither). */
+function loadWindow(start: string | null, end: string | null) {
+  return start && end ? { start, end } : null;
+}
+
 function samplePoints(geometry: LatLng[], count: number): LatLng[] {
   const points: LatLng[] = [];
   for (let i = 0; i < count; i++) {
@@ -376,8 +381,12 @@ export async function runRouteCheck(
     providerDurationMinutes: route.durationMinutes,
     clocks,
     governedSpeedMph: truck?.governed_speed_mph ?? null,
-    pickupWindow: request.pickup_window ?? null,
-    deliveryWindow: request.delivery_window ?? null,
+    // GAP-02: windows captured on the load (from the rate con at
+    // intake) pre-fill the check — a window typed into the request
+    // still wins, but he never re-types what the load already knows.
+    pickupWindow: request.pickup_window ?? loadWindow(load.pickup_window_start, load.pickup_window_end),
+    deliveryWindow:
+      request.delivery_window ?? loadWindow(load.delivery_window_start, load.delivery_window_end),
     rateCents: load.rate_cents,
     loadMiles: load.miles,
     ...(deadheadRoute && startPoint
