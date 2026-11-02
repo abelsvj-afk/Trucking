@@ -3,7 +3,13 @@
 // route-check returns; the page renders it without re-deriving any
 // number - every figure traces to the lib computation or a provider.
 
-import type { LatLng, RouteCheckStatus, PlannedBreak, PlannedRest } from "@/lib/smart-path";
+import type {
+  LatLng,
+  RouteCheckStatus,
+  PlannedBreak,
+  PlannedRest,
+  WorkoutOutcome,
+} from "@/lib/smart-path";
 import type { FoodMode, GroceryPlan, RankedFuelCandidate } from "@/lib/smart-path-stops";
 
 export interface RouteCheckResponse {
@@ -37,15 +43,38 @@ export interface RouteCheckResponse {
     driveTimeBasis: string;
     legalLines: string[];
     restedLines: string[];
+    lifeLines: string[];
     paidLines: string[];
     tradeoffLines: string[];
     makeItDepartureAt: string | null;
+    /** Piece 1 (P1-7): when a delivery window exists, the start
+     * departure that delivers exactly at its close; null otherwise
+     * or when no start was given. */
+    leaveStartByAt: string | null;
   };
   plan: {
     arrivalAt: string | null;
     totalElapsedMinutes: number;
     breaks: PlannedBreak[];
     rests: (PlannedRest & { point: LatLng | null })[];
+    /** Piece 1 (P1-9): the requested workout's outcome; null only
+     * when no workout was requested. */
+    workout: WorkoutOutcome | null;
+  } | null;
+  /** Piece 1 (P1-7): the deadhead leg to the pickup; null when the
+   * request carried no start. Timings come from the lib's preLeg
+   * simulation - never re-derived here. */
+  deadhead: {
+    startLabel: string;
+    startPoint: LatLng;
+    distanceMiles: number;
+    providerDurationMinutes: number;
+    provider: string;
+    truckLegal: boolean;
+    geometry: LatLng[];
+    leaveByAt: string;
+    pickupArrivalAt: string;
+    waitMinutesAtPickup: number;
   } | null;
   fuel: {
     assumptions: {

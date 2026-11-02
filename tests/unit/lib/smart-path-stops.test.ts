@@ -13,6 +13,7 @@ import {
   type FuelAssumptions,
   type FuelCandidate,
 } from "@/lib/smart-path-stops";
+import { formatFuelPriceLine } from "@/lib/smart-path-stops";
 
 const ASSUMPTIONS: FuelAssumptions = {
   gallonsToBuy: 100,
@@ -153,5 +154,106 @@ describe("planFoodStops", () => {
       ["fridge", "microwave"],
     );
     expect(plan.stops.map((s) => s.id)).toEqual(["g"]);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Piece 1 additions (P1-6): the EIA estimate tier. The trust order is
+// logged > estimate > unknown, and an estimate never claims savings.
+// ---------------------------------------------------------------------
+
+describe("rankFuelCandidates - estimate tier (P1-6)", () => {
+  it("(a) an estimate-only candidate ranks by its estimate-based effective cost; (b) savings stay null for it and real for a logged price", () => {
+    const estimateOnly = fuel({
+      id: "est",
+      name: "Map Stop",
+      pricePerGallonCents: null,
+      estimatedPricePerGallonCents: 350,
+      estimateLabel: "EIA U.S. average, week of Oct 26",
+      source: "map",
+      detourMiles: 0,
+    });
+    const logged = fuel({ id: "logged", pricePerGallonCents: 400, detourMiles: 0 });
+    const ranked = rankFuelCandidates([logged, estimateOnly], ASSUMPTIONS, 460);
+    expect(ranked[0]?.id).toBe("est");
+    // Estimate competes on cost: 350 * 100 gal + 500 stop cost.
+    expect(ranked[0]?.effectiveCostCents).toBe(35500);
+    expect(ranked[0]?.usedEstimate).toBe(true);
+    // Pump cost stays real-only - the estimate never poses as a pump price.
+    expect(ranked[0]?.pumpCostCents).toBeNull();
+    expect(ranked[0]?.savingsVsBaselineCents).toBeNull();
+    expect(ranked[1]?.id).toBe("logged");
+    expect(ranked[1]?.effectiveCostCents).toBe(40500);
+    expect(ranked[1]?.savingsVsBaselineCents).toBe(46000 - 40500);
+    expect(ranked[1]?.usedEstimate).toBe(false);
+  });
+
+  it("(c) a real price present means the estimate is ignored entirely", () => {
+    const both = fuel({
+      id: "both",
+      pricePerGallonCents: 400,
+      estimatedPricePerGallonCents: 300,
+      estimateLabel: "EIA U.S. average, week of Oct 26",
+      detourMiles: 0,
+    });
+    const ranked = rankFuelCandidates([both], ASSUMPTIONS, 460);
+    expect(ranked[0]?.usedEstimate).toBe(false);
+    expect(ranked[0]?.effectiveCostCents).toBe(40500);
+    expect(ranked[0]?.pumpCostCents).toBe(40000);
+  });
+
+  it("detour fuel for an estimate candidate is priced at the estimate, not the baseline", () => {
+    const est = fuel({
+      id: "est-detour",
+      pricePerGallonCents: null,
+      estimatedPricePerGallonCents: 350,
+      estimateLabel: "EIA U.S. average, week of Oct 26",
+      source: "map",
+      detourMiles: 10,
+    });
+    const ranked = rankFuelCandidates([est], ASSUMPTIONS, 460);
+    // (10 / 6.5) * 350 fuel + (10 / 35) * 2500 time + 500 stop, rounded once.
+    expect(ranked[0]?.detourCostCents).toBe(1753);
+  });
+
+  it("no estimate anywhere reproduces the old ranking exactly (unknown stays last, unpriced)", () => {
+    const unknown = fuel({ id: "unknown", pricePerGallonCents: null, source: "map", detourMiles: 0 });
+    const ranked = rankFuelCandidates([unknown], ASSUMPTIONS, 460);
+    expect(ranked[0]?.usedEstimate).toBe(false);
+    expect(ranked[0]?.effectiveCostCents).toBeNull();
+  });
+});
+
+describe("formatFuelPriceLine (P1-6)", () => {
+  it("real price: from your fuel log", () => {
+    const ranked = rankFuelCandidates([fuel({ pricePerGallonCents: 379 })], ASSUMPTIONS, null);
+    expect(formatFuelPriceLine(ranked[0]!)).toBe("$3.79/gal (from your fuel log)");
+  });
+
+  it("estimate: ≈ and the estimate label", () => {
+    const ranked = rankFuelCandidates(
+      [
+        fuel({
+          pricePerGallonCents: null,
+          estimatedPricePerGallonCents: 392,
+          estimateLabel: "EIA U.S. average, week of Oct 26",
+          source: "map",
+        }),
+      ],
+      ASSUMPTIONS,
+      null,
+    );
+    expect(formatFuelPriceLine(ranked[0]!)).toBe(
+      "≈$3.92/gal (est. — EIA U.S. average, week of Oct 26)",
+    );
+  });
+
+  it("neither: price unknown", () => {
+    const ranked = rankFuelCandidates(
+      [fuel({ pricePerGallonCents: null, source: "map" })],
+      ASSUMPTIONS,
+      null,
+    );
+    expect(formatFuelPriceLine(ranked[0]!)).toBe("price unknown");
   });
 });

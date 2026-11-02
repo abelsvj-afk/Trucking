@@ -16,6 +16,7 @@ import {
   clocksFromHos,
   distanceToRouteMiles,
   elapsedAtDrivenMinutes,
+  plannedDriveMinutes,
   pointAlongRoute,
   routeFractionOfPoint,
   type LatLng,
@@ -44,6 +45,7 @@ import {
   type Place,
   type PlacesProvider,
 } from "@/services/integrations/places";
+import { getDieselPriceEstimate } from "@/services/smart-path/fuel-price-estimate";
 import type { RouteCheckRequest } from "@/data/schemas/smart-path";
 import type { DutyLog, FuelPurchase, Load, Truck } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -52,13 +54,27 @@ export interface RouteCheckProviders {
   geocoding: GeocodingProvider;
   routing: RoutingProvider;
   places: PlacesProvider;
+  /** Piece 1 (P1-6): the EIA diesel estimate for map fuel candidates. */
+  fuelPriceEstimate: () => Promise<{ cents: number; label: string } | null>;
 }
 
 export const defaultProviders: RouteCheckProviders = {
   geocoding: new NominatimGeocodingProvider(),
   routing: defaultRoutingProvider(),
   places: new OverpassPlacesProvider(),
+  fuelPriceEstimate: () => getDieselPriceEstimate(),
 };
+
+type RouteResult = Awaited<ReturnType<RoutingProvider["getRoute"]>>;
+
+/** Piece 1 (P1-9): a workout anchor candidate for the verdict lib -
+ * a place near the route where a break could become a workout. */
+interface WorkoutAnchor {
+  name: string;
+  kind: "gym" | "rest_area" | "parking" | "fuel_stop";
+  drivenMinutes: number;
+  point: LatLng;
+}
 
 const EIGHT_DAYS_MS = 8 * 24 * 60 * 60_000;
 const CORRIDOR_MILES = 25; // history locations further than this from the route aren't candidates
@@ -150,6 +166,43 @@ export async function runRouteCheck(
     ? { heightIn: truck.height_in, lengthIn: truck.length_in, weightLbs: truck.weight_lbs }
     : null;
 
+  // --- the deadhead leg (Piece 1, P1-7): start -> pickup, routed ---
+  // --- with the same provider chain and vehicle as the loaded leg --
+  let startPoint: LatLng | null = null;
+  let deadheadRoute: RouteResult | null = null;
+  if (request.start_point || request.start_location) {
+    if (request.start_point) {
+      startPoint = request.start_point;
+    } else {
+      try {
+        startPoint = await providers.geocoding.geocode(request.start_location!);
+      } catch (err) {
+        if (err instanceof GeocodingUnavailableError) {
+          throw new ApiError(502, "GEOCODING_UNAVAILABLE", err.message);
+        }
+        throw err;
+      }
+      if (!startPoint) {
+        throw new ApiError(
+          400,
+          "GEOCODE_MISS",
+          `Couldn't find "${request.start_location}" on the map. Give the start as a fuller address or city/state and try again.`,
+        );
+      }
+    }
+    try {
+      deadheadRoute = await providers.routing.getRoute(startPoint, originPoint, vehicle);
+    } catch (err) {
+      if (err instanceof RoutingUnavailableError) {
+        throw new ApiError(502, "ROUTING_UNAVAILABLE", `${err.message} No distance was estimated instead - a made-up number would be worse than none.`);
+      }
+      throw err;
+    }
+    // Degradations on this leg are stated, never silent - prefixed so
+    // they can't be mistaken for notes about the loaded leg.
+    warnings.push(...deadheadRoute.providerNotes.map((note) => `Deadhead: ${note}`));
+  }
+
   let route;
   try {
     route = await providers.routing.getRoute(originPoint, destinationPoint, vehicle);
@@ -188,31 +241,14 @@ export async function runRouteCheck(
   const clocks = clocksFromHos(hos);
 
   const departAt = new Date(request.depart_at);
-  const verdict = checkRoute({
-    now,
-    departAt,
-    distanceMiles: route.distanceMiles,
-    providerDurationMinutes: route.durationMinutes,
-    clocks,
-    governedSpeedMph: truck?.governed_speed_mph ?? null,
-    pickupWindow: request.pickup_window ?? null,
-    deliveryWindow: request.delivery_window ?? null,
-    rateCents: load.rate_cents,
-    loadMiles: load.miles,
-  });
-  warnings.push(...verdict.warnings);
 
-  const plan = verdict.plan;
-  const restsWithPoints = (plan?.rests ?? []).map((rest) => ({
-    ...rest,
-    point: pointAlongRoute(route.geometry, rest.fractionOfRoute),
-  }));
-
-  // --- places along the route (fuel + food share one lookup) ------------
+  // --- places along the route (fuel, food and workout anchors share ---
+  // --- one lookup; 9 samples so stops between the old 5 points on ---
+  // --- a long corridor are no longer invisible - Piece 1, P1-8) -----
   let places: Place[] = [];
   let placesUnavailable: string | null = null;
   try {
-    places = await providers.places.findNear(samplePoints(route.geometry, 5), PLACES_RADIUS_METERS);
+    places = await providers.places.findNear(samplePoints(route.geometry, 9), PLACES_RADIUS_METERS);
   } catch (err) {
     placesUnavailable =
       err instanceof PlacesUnavailableError
@@ -254,9 +290,23 @@ export async function runRouteCheck(
       lat: point.lat,
       lng: point.lng,
       pricePerGallonCents: Math.round(agg.totalCents / agg.count),
+      // His logged price is a real price - it supersedes any estimate.
+      estimatedPricePerGallonCents: null,
+      estimateLabel: null,
       source: "history",
       detourMiles: Math.round(offRoute * 2 * 10) / 10,
     });
+  }
+  // Piece 1 (P1-6): one EIA estimate per check, attached to the map
+  // candidates that have no real price. Belt-and-braces try/catch -
+  // the estimate module already never throws, and a legacy provider
+  // stub without this seam must degrade to null too, never break
+  // the check.
+  let estimate: { cents: number; label: string } | null = null;
+  try {
+    estimate = await providers.fuelPriceEstimate();
+  } catch {
+    estimate = null;
   }
   for (const place of places) {
     if (place.kind !== "fuel") continue;
@@ -266,6 +316,8 @@ export async function runRouteCheck(
       lat: place.lat,
       lng: place.lng,
       pricePerGallonCents: null,
+      estimatedPricePerGallonCents: estimate?.cents ?? null,
+      estimateLabel: estimate?.label ?? null,
       source: "map",
       detourMiles: Math.round(distanceToRouteMiles(place, route.geometry) * 2 * 10) / 10,
     });
@@ -285,11 +337,101 @@ export async function runRouteCheck(
     baselinePriceCents,
   ).slice(0, 6);
 
+  // --- workout anchors (Piece 1, P1-9): only when a workout was -----
+  // --- requested. Anchor timing uses the lib's own planned-minutes --
+  // --- rule so the service and the verdict agree exactly. -----------
+  let workoutAnchors: WorkoutAnchor[] | undefined;
+  if (request.life?.workout?.want) {
+    const plannedMinutes = plannedDriveMinutes(
+      route.distanceMiles,
+      route.durationMinutes,
+      truck?.governed_speed_mph ?? null,
+    );
+    workoutAnchors = [];
+    for (const place of places) {
+      if (place.kind !== "gym" && place.kind !== "rest_area") continue;
+      workoutAnchors.push({
+        name: place.name,
+        kind: place.kind,
+        drivenMinutes: routeFractionOfPoint(place, route.geometry) * plannedMinutes,
+        point: { lat: place.lat, lng: place.lng },
+      });
+    }
+    const topFuel = rankedFuel[0];
+    if (topFuel) {
+      workoutAnchors.push({
+        name: topFuel.name,
+        kind: "fuel_stop",
+        drivenMinutes: routeFractionOfPoint(topFuel, route.geometry) * plannedMinutes,
+        point: { lat: topFuel.lat, lng: topFuel.lng },
+      });
+    }
+  }
+
+  // --- the verdict ------------------------------------------------------
+  const verdict = checkRoute({
+    now,
+    departAt,
+    distanceMiles: route.distanceMiles,
+    providerDurationMinutes: route.durationMinutes,
+    clocks,
+    governedSpeedMph: truck?.governed_speed_mph ?? null,
+    pickupWindow: request.pickup_window ?? null,
+    deliveryWindow: request.delivery_window ?? null,
+    rateCents: load.rate_cents,
+    loadMiles: load.miles,
+    ...(deadheadRoute && startPoint
+      ? {
+          preLeg: {
+            distanceMiles: deadheadRoute.distanceMiles,
+            providerDurationMinutes: deadheadRoute.durationMinutes,
+            startAt: request.start_at ? new Date(request.start_at) : null,
+            startLabel: request.start_location ?? "Your current location",
+          },
+        }
+      : {}),
+    ...(request.life
+      ? {
+          life: {
+            ...(request.life.sleep_start_hour !== undefined
+              ? { sleepStartHour: request.life.sleep_start_hour }
+              : {}),
+            ...(request.life.sleep_end_hour !== undefined
+              ? { sleepEndHour: request.life.sleep_end_hour }
+              : {}),
+            ...(request.life.workout ? { workout: request.life.workout } : {}),
+          },
+        }
+      : {}),
+    ...(workoutAnchors ? { workoutAnchors } : {}),
+  });
+  warnings.push(...verdict.warnings);
+
+  const plan = verdict.plan;
+  // Rest points: without a deadhead this is exactly the old mapping -
+  // fraction of the loaded route. With one, rests are fractions of
+  // the COMBINED route, and a rest early enough lands on the
+  // deadhead geometry instead (Piece 1, P1-7).
+  const combinedDistance = route.distanceMiles + (deadheadRoute?.distanceMiles ?? 0);
+  const restsWithPoints = (plan?.rests ?? []).map((rest) => {
+    const drivenMiles = rest.fractionOfRoute * combinedDistance;
+    const point =
+      deadheadRoute && drivenMiles < deadheadRoute.distanceMiles
+        ? pointAlongRoute(deadheadRoute.geometry, drivenMiles / deadheadRoute.distanceMiles)
+        : pointAlongRoute(
+            route.geometry,
+            (drivenMiles - (deadheadRoute?.distanceMiles ?? 0)) / route.distanceMiles,
+          );
+    return { ...rest, point };
+  });
+
   // --- food ---------------------------------------------------------------
   const foodCandidates: FoodCandidate[] = [];
   if (plan?.feasible) {
     for (const place of places) {
-      if (place.kind === "fuel") continue;
+      // Food kinds only - the new gym/rest_area kinds (P1-9) are
+      // workout anchors, never food candidates.
+      if (place.kind !== "grocery" && place.kind !== "fast_food") continue;
       const fraction = routeFractionOfPoint(place, route.geometry);
       const drivenMinutes = fraction * verdict.assumedDriveMinutes;
       const arrivalMs = departAt.getTime() + elapsedAtDrivenMinutes(plan, drivenMinutes) * 60_000;
@@ -323,9 +465,11 @@ export async function runRouteCheck(
       driveTimeBasis: verdict.driveTimeBasis,
       legalLines: verdict.legalLines,
       restedLines: verdict.restedLines,
+      lifeLines: verdict.lifeLines,
       paidLines: verdict.paidLines,
       tradeoffLines: verdict.tradeoffLines,
       makeItDepartureAt: verdict.makeItDepartureAt,
+      leaveStartByAt: verdict.leaveStartByAt,
     },
     plan: plan
       ? {
@@ -333,8 +477,24 @@ export async function runRouteCheck(
           totalElapsedMinutes: Math.round(plan.totalElapsedMinutes),
           breaks: plan.breaks,
           rests: restsWithPoints,
+          workout: plan.workout,
         }
       : null,
+    deadhead:
+      deadheadRoute && startPoint && verdict.preLeg
+        ? {
+            startLabel: request.start_location ?? "Your current location",
+            startPoint,
+            distanceMiles: Math.round(deadheadRoute.distanceMiles * 10) / 10,
+            providerDurationMinutes: Math.round(deadheadRoute.durationMinutes),
+            provider: deadheadRoute.providerName,
+            truckLegal: deadheadRoute.truckLegal,
+            geometry: deadheadRoute.geometry,
+            leaveByAt: verdict.preLeg.startAt,
+            pickupArrivalAt: verdict.preLeg.pickupArrivalAt,
+            waitMinutesAtPickup: verdict.preLeg.waitMinutesAtPickup,
+          }
+        : null,
     fuel: {
       assumptions: {
         gallonsToBuy,

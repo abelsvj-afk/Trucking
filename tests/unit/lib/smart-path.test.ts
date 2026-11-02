@@ -16,6 +16,7 @@ import {
   type ClockState,
   type RouteCheckInput,
 } from "@/lib/smart-path";
+import { plannedDriveMinutes, routeCaption } from "@/lib/smart-path";
 
 const FRESH: ClockState = {
   driveLeftMin: 660,
@@ -255,5 +256,266 @@ describe("geometry helpers", () => {
     );
     expect(mid?.lat).toBeCloseTo(31, 0);
     expect(mid?.lng).toBeCloseTo(-82, 0);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Piece 1 additions (P1-1 caption, P1-7 deadhead, P1-9 lifestyle).
+// Everything above is pre-existing and unmodified; the cases below
+// only add. The hard constraint they pin: with no preLeg, no life and
+// no workout, the new fields default (lifeLines [], leaveStartByAt
+// null, preLeg null, plan.workout null, breaks 30 minutes / "break").
+// ---------------------------------------------------------------------
+
+describe("routeCaption (P1-1)", () => {
+  it("truck-checked branch: provider verbatim, OSM limits named, ELD is the final word", () => {
+    const caption = routeCaption({ provider: "Valhalla (truck costing)", truckLegal: true });
+    expect(caption).toBe(
+      "Route by Valhalla (truck costing) — truck-checked against the height/weight limits and truck-prohibited roads recorded in OpenStreetMap data. That data is incomplete: a road with no recorded limit reads as passable. The truck's own nav/ELD is the final word.",
+    );
+    expect(caption).toContain("final word");
+  });
+
+  it("car-route branch: provider verbatim and NOT checked, in capitals", () => {
+    const caption = routeCaption({ provider: "OSRM", truckLegal: false });
+    expect(caption).toBe(
+      "Route by OSRM — a standard CAR route, NOT checked against truck restrictions. Don't roll on this line alone; check it against the truck's own nav/ELD.",
+    );
+    expect(caption).toContain("NOT checked");
+  });
+});
+
+describe("plannedDriveMinutes (P1-7 plan-speed rule)", () => {
+  it("takes the slower of provider duration and speed math, both legs", () => {
+    expect(plannedDriveMinutes(110, 100, null)).toBe(120); // 110 mi at 55 mph
+    expect(plannedDriveMinutes(55, 90, null)).toBe(90); // provider is slower
+    expect(plannedDriveMinutes(100, 90, 50)).toBe(120); // governed 50 mph
+  });
+});
+
+describe("new-field defaults with no preLeg / life / workout", () => {
+  it("default result fields are empty/null and breaks carry 30 minutes / kind break", () => {
+    const result = checkRoute(input({ distanceMiles: 600, providerDurationMinutes: 660 }));
+    expect(result.lifeLines).toEqual([]);
+    expect(result.leaveStartByAt).toBeNull();
+    expect(result.preLeg).toBeNull();
+    expect(result.plan?.workout).toBeNull();
+    expect(result.plan?.breaks[0]).toEqual({
+      startAt: "2026-11-02T18:00:00.000Z",
+      afterDrivingMinutes: 480,
+      durationMinutes: 30,
+      kind: "break",
+    });
+  });
+});
+
+describe("checkRoute - deadhead preLeg (P1-7)", () => {
+  const PRE_LEG = { distanceMiles: 55, providerDurationMinutes: 60 };
+
+  it("wait case: pickup arrival 50 minutes before departAt waits at the pickup; delivery arrival is unchanged", () => {
+    const solo = checkRoute(input({}));
+    const result = checkRoute(
+      input({ preLeg: { ...PRE_LEG, startAt: new Date("2026-11-02T08:10:00Z") } }),
+    );
+    expect(result.preLeg).toEqual({
+      plannedMinutes: 60,
+      startAt: "2026-11-02T08:10:00.000Z",
+      pickupArrivalAt: "2026-11-02T09:10:00.000Z",
+      waitMinutesAtPickup: 50,
+    });
+    expect(result.plan?.arrivalAt).toBe(solo.plan?.arrivalAt);
+    expect(result.status).toBe(solo.status);
+    expect(result.warnings.some((w) => w.includes("Clocks are projected"))).toBe(false);
+  });
+
+  it("slip case: pickup arrival after departAt shifts the delivery arrival and the tradeoffs say so", () => {
+    const result = checkRoute(
+      input({ preLeg: { ...PRE_LEG, startAt: new Date("2026-11-02T09:40:00Z") } }),
+    );
+    expect(result.preLeg?.pickupArrivalAt).toBe("2026-11-02T10:40:00.000Z");
+    expect(result.preLeg?.waitMinutesAtPickup).toBe(0);
+    expect(result.plan?.arrivalAt).toBe("2026-11-02T16:10:00.000Z");
+    expect(
+      result.tradeoffLines.some(
+        (line) => line.includes("You'd reach the pickup 40m after your planned") && line.includes("everything below starts from"),
+      ),
+    ).toBe(true);
+    // The start is in the future relative to `now`, so the projection caveat fires.
+    expect(result.warnings).toContain("Clocks are projected from your logs as of now.");
+  });
+
+  it("break-in-deadhead: a low break clock forces the 30-minute break inside the pre-leg", () => {
+    const result = checkRoute(
+      input({
+        clocks: { ...FRESH, breakLeftMin: 30 },
+        preLeg: { ...PRE_LEG, startAt: null },
+      }),
+    );
+    expect(result.preLeg?.startAt).toBe("2026-11-02T09:00:00.000Z"); // just-in-time
+    expect(result.plan?.breaks).toHaveLength(1);
+    expect(result.plan?.breaks[0]?.afterDrivingMinutes).toBe(30);
+    expect(result.plan?.breaks[0]?.afterDrivingMinutes).toBeLessThan(result.preLeg!.plannedMinutes);
+    expect(result.plan?.breaks[0]?.startAt).toBe("2026-11-02T09:30:00.000Z");
+    expect(result.preLeg?.pickupArrivalAt).toBe("2026-11-02T10:30:00.000Z");
+    expect(result.plan?.arrivalAt).toBe("2026-11-02T16:00:00.000Z");
+  });
+
+  it("deadhead-only illegality: legal from the pickup, not legal from the start - and the tradeoff calls it out", () => {
+    const clocks = { ...FRESH, weekLeftMin: 360 };
+    const solo = checkRoute(input({ clocks }));
+    expect(solo.status).toBe("on_time");
+    const result = checkRoute(
+      input({ clocks, preLeg: { ...PRE_LEG, startAt: null, startLabel: "Melbourne, FL" } }),
+    );
+    expect(result.status).toBe("not_legal");
+    expect(result.tradeoffLines).toContain(
+      "From the pickup this run was legal. From Melbourne, FL, the deadhead burns 1h of your 14 first.",
+    );
+  });
+
+  it("leaveStartByAt anchors to the delivery close with a preLeg, and is null without a window or a preLeg", () => {
+    const window = { start: "2026-11-02T15:00:00Z", end: "2026-11-02T22:00:00Z" };
+    const withWindow = checkRoute(
+      input({
+        deliveryWindow: window,
+        preLeg: { ...PRE_LEG, startAt: new Date("2026-11-02T08:10:00Z") },
+      }),
+    );
+    // Total elapsed 440 minutes (390 driving + 50 waiting at the pickup).
+    expect(withWindow.leaveStartByAt).toBe("2026-11-02T14:40:00.000Z");
+    // makeItDepartureAt keeps its leave-the-pickup meaning: the wait
+    // case reproduces the no-preLeg figure from the existing tests.
+    expect(withWindow.makeItDepartureAt).toBe("2026-11-02T16:30:00.000Z");
+
+    const noWindow = checkRoute(
+      input({ preLeg: { ...PRE_LEG, startAt: new Date("2026-11-02T08:10:00Z") } }),
+    );
+    expect(noWindow.leaveStartByAt).toBeNull();
+
+    const noPreLeg = checkRoute(input({ deliveryWindow: window }));
+    expect(noPreLeg.leaveStartByAt).toBeNull();
+    expect(noPreLeg.makeItDepartureAt).toBe("2026-11-02T16:30:00.000Z");
+  });
+});
+
+describe("checkRoute - lifestyle (P1-9)", () => {
+  const GYM = {
+    name: "Anytime Fitness, I-75",
+    kind: "gym" as const,
+    drivenMinutes: 500,
+    point: { lat: 32, lng: -83 },
+  };
+
+  it("example 1: the workout fits by extending the break at a nearby gym", () => {
+    const result = checkRoute(
+      input({
+        distanceMiles: 600,
+        providerDurationMinutes: 660,
+        deliveryWindow: { start: "2026-11-02T19:00:00Z", end: "2026-11-02T23:00:00Z" },
+        life: { workout: { want: true, minutes: 60, setting: "gym_preferred" } },
+        workoutAnchors: [GYM],
+      }),
+    );
+    expect(result.plan?.workout?.placed).toBe(true);
+    expect(result.plan?.workout?.placeKind).toBe("gym");
+    expect(result.plan?.workout?.placeName).toBe("Anytime Fitness, I-75");
+    expect(result.plan?.workout?.startAt).toBe("2026-11-02T18:00:00.000Z");
+    expect(result.plan?.workout?.point).toEqual({ lat: 32, lng: -83 });
+    expect(result.plan?.breaks[0]?.durationMinutes).toBe(60);
+    expect(result.plan?.breaks[0]?.kind).toBe("workout");
+    expect(result.plan?.arrivalAt).toBe("2026-11-02T22:00:00.000Z");
+    expect(result.status).toBe("on_time");
+    expect(result.lifeLines).toContain(
+      "Workout: 60 minutes at Anytime Fitness, I-75 — it doubles as your 30-minute break.",
+    );
+  });
+
+  it("example 2: a tight window leaves no room - placed false, the note names the overrun and the earlier departure", () => {
+    const result = checkRoute(
+      input({
+        distanceMiles: 600,
+        providerDurationMinutes: 660,
+        deliveryWindow: { start: "2026-11-02T20:00:00Z", end: "2026-11-02T21:50:00Z" },
+        life: { workout: { want: true, minutes: 60, setting: "gym_preferred" } },
+        workoutAnchors: [GYM],
+      }),
+    );
+    expect(result.plan?.workout?.placed).toBe(false);
+    expect(result.plan?.workout?.note).toContain("10m after the window closes");
+    expect(result.plan?.workout?.note).toContain("leave 10m+ minutes earlier");
+    // The run itself is untouched by the failed placement.
+    expect(result.plan?.arrivalAt).toBe("2026-11-02T21:30:00.000Z");
+    expect(result.status).toBe("on_time");
+    expect(result.plan?.breaks[0]?.durationMinutes).toBe(30);
+    expect(result.plan?.breaks[0]?.kind).toBe("break");
+  });
+
+  it("example 4: a workout at 9 PM inside the fast is still placed - the fast never suppresses training", () => {
+    const result = checkRoute(
+      input({
+        departAt: new Date("2026-11-02T18:00:00Z"), // 1:00 PM EST; break lands 9:00 PM EST
+        distanceMiles: 600,
+        providerDurationMinutes: 660,
+        life: { workout: { want: true, minutes: 60, setting: "gym_preferred" } },
+        workoutAnchors: [{ ...GYM, drivenMinutes: 480 }],
+      }),
+    );
+    expect(result.plan?.workout?.placed).toBe(true);
+    expect(result.plan?.workout?.startAt).toBe("2026-11-03T02:00:00.000Z");
+    expect(easternHour(new Date(result.plan!.workout!.startAt!))).toBe(21);
+    expect(isInFastWindow(new Date(result.plan!.workout!.startAt!))).toBe(true);
+  });
+
+  it("example 5: the same rest flips its verdict between sleep 22→6 and sleep 0→8, and the fix is priced", () => {
+    const fixture = {
+      departAt: new Date("2026-11-02T17:00:00Z"), // rest starts 11:30 PM EST
+      distanceMiles: 900,
+      providerDurationMinutes: 1020,
+    };
+    const nightOwl = checkRoute(input({ ...fixture, life: { sleepStartHour: 22, sleepEndHour: 6 } }));
+    expect(nightOwl.plan?.rests[0]?.startHourEastern).toBe(23);
+    expect(nightOwl.restedLines[0]).toContain("inside your 10 PM–6 AM window");
+    expect(nightOwl.lifeLines).toEqual([]);
+
+    const earlyBird = checkRoute(input({ ...fixture, life: { sleepStartHour: 0, sleepEndHour: 8 } }));
+    expect(earlyBird.restedLines[0]).toContain("outside your 12 AM–8 AM window");
+    expect(
+      earlyBird.lifeLines.some(
+        (line) =>
+          line.includes("outside your 12 AM–8 AM window") &&
+          line.includes("Leaving 30m later") &&
+          line.includes("inside — if the pickup window allows."),
+      ),
+    ).toBe(true);
+  });
+
+  it("a sleep already past the window's end says a later departure cannot fix it", () => {
+    const result = checkRoute(
+      input({
+        departAt: new Date("2026-11-02T15:00:00Z"), // first rest starts 11:00 AM EST
+        distanceMiles: 700,
+        providerDurationMinutes: 780,
+        clocks: { ...FRESH, driveLeftMin: 60 },
+        life: { sleepStartHour: 22, sleepEndHour: 6 },
+      }),
+    );
+    expect(result.plan?.rests.length).toBeGreaterThan(0);
+    expect(result.restedLines.every((line) => line.includes("outside your 10 PM–6 AM window"))).toBe(true);
+    expect(result.lifeLines.some((line) => line.includes("past the window's end"))).toBe(true);
+  });
+
+  it("a requested workout on an illegal run reports placed false with the illegality named", () => {
+    const result = checkRoute(
+      input({
+        distanceMiles: 600,
+        providerDurationMinutes: 660,
+        clocks: { ...FRESH, weekLeftMin: 300 },
+        life: { workout: { want: true, minutes: 60, setting: "any_safe_stop" } },
+        workoutAnchors: [GYM],
+      }),
+    );
+    expect(result.status).toBe("not_legal");
+    expect(result.plan?.workout?.placed).toBe(false);
+    expect(result.plan?.workout?.note).toBe("No workout to place — this run isn't legal as planned.");
   });
 });
