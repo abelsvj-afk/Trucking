@@ -525,6 +525,22 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
           for (const row of (byContent.data ?? []) as Row[]) merged.set(String(row.id), row);
         }
 
+        // Lane 1 (audit B-6): captions stored on the row are
+        // searchable too - same graceful absence as extracted text
+        // before migration 00033 lands.
+        const byCaption = await client
+          .from("documents")
+          .select(DOCUMENT_BASE_COLUMNS)
+          .eq("company_id", companyId)
+          .ilike("caption", `%${query}%`)
+          .order("created_at", { ascending: false })
+          .limit(10);
+        if (!byCaption.error) {
+          for (const row of (byCaption.data ?? []) as Row[]) merged.set(String(row.id), row);
+        } else if (!isMissingColumnError(byCaption.error)) {
+          throw new Error(byCaption.error.message);
+        }
+
         const rows = [...merged.values()];
         if (rows.length === 0) {
           return `No documents match "${query}".${contentNote ? ` ${contentNote}` : ""}`;

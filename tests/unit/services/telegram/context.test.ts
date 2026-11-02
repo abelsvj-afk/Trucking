@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyTelegramText,
   formatCompanySnapshot,
+  looksSpanish,
   memoryKindFor,
   pickRelevantMemories,
   stripCapturePrefix,
@@ -24,10 +25,37 @@ describe("classifyTelegramText", () => {
     expect(classifyTelegramText("Always give me the Spanish too", false)).toBe("instruction");
   });
 
-  it("routes Spanish-looking text to dispatch and plain English questions to chat", () => {
-    expect(classifyTelegramText("Necesito que llegues mañana a la carga", false)).toBe("dispatch");
+  it("routes Spanish-looking text to dispatch on the web paste surface, English questions to chat", () => {
+    expect(classifyTelegramText("Necesito que llegues mañana a la carga", false, "web")).toBe("dispatch");
     expect(classifyTelegramText("When does my 14 run out?", false)).toBe("chat");
     expect(classifyTelegramText("How much did I spend on fuel this week?", false)).toBe("chat");
+  });
+
+  // Lane 1 (audit L-2): on Telegram, the OWNER typing Spanish is
+  // conversation, not a forward - only forwarded/other-party content
+  // routes to dispatch handling. The web Assistant keeps the paste
+  // behavior (it is an explicit paste-a-message surface).
+  it("treats the owner's own Spanish on Telegram as conversation, not dispatch", () => {
+    expect(classifyTelegramText("Necesito que llegues mañana a la carga", false, "telegram")).toBe("chat");
+    expect(classifyTelegramText("¿Cuánto gané esta semana?", false, "telegram")).toBe("chat");
+    expect(classifyTelegramText("Necesito que llegues mañana a la carga", true, "telegram")).toBe("dispatch");
+  });
+
+  it("keeps paste-to-dispatch routing on the web surface", () => {
+    expect(classifyTelegramText("Necesito que llegues mañana a la carga", false, "web")).toBe("dispatch");
+  });
+});
+
+describe("looksSpanish (audit L-4/L-5)", () => {
+  it("detects short Spanish that used to fall through", () => {
+    expect(looksSpanish("Listo")).toBe(true);
+    expect(looksSpanish("Ya voy")).toBe(true);
+    expect(looksSpanish("Gracias")).toBe(true);
+  });
+
+  it("matches whole words, not substrings inside English words", () => {
+    expect(looksSpanish("The harbor master said the cargo is ready for the warehouse")).toBe(false);
+    expect(looksSpanish("Be there at 6")).toBe(false);
   });
 });
 

@@ -151,6 +151,11 @@ function languageScores(text: string): { es: number; en: number } {
  */
 export function detectMessageLanguage(text: string): MessageLanguage {
   const { es, en } = languageScores(text);
+  // Lane 1 (audit L-4): a message whose only scored words are
+  // Spanish IS Spanish, however short ("Listo", "Gracias") - the
+  // es>=2 floor used to let those fall through as English. A single
+  // Spanish word inside real English still can't flip it (en > 0).
+  if (es >= 1 && en === 0) return "es";
   if (es < 2) return "en";
   const total = es + en;
   if (total === 0) return "en";

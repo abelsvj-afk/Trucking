@@ -26,6 +26,8 @@ export interface TelegramStore {
   saveMemory(kind: BotMemoryRow["kind"], content: string): Promise<void>;
   loadSnapshot(): Promise<CompanySnapshot | null>;
   storeExchange(incoming: string, suggestion: DispatchSuggestion): Promise<void>;
+  /** Lane 1 (audit B-2): update_id claim for webhook dedup - see BotBrainStore. Optional on this v1 surface; the brain store implements it. */
+  claimTelegramUpdate?(updateId: number): Promise<boolean>;
 }
 
 function serviceRoleClient(): SupabaseClient | null {

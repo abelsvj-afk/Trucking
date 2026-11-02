@@ -69,7 +69,8 @@ export const POST = createApiHandler(async (req, ctx) => {
     staged: string[];
     rejected: { summary: string; reason: string }[];
     blocked_by_pending: boolean;
-  } = { staged: [], rejected: [], blocked_by_pending: false };
+    queued_behind_pending: boolean;
+  } = { staged: [], rejected: [], blocked_by_pending: false, queued_behind_pending: false };
   if (suggestion.recordable_items.length > 0) {
     const supabase = await createClient();
     const store = createBotStore(supabase, ctx.auth.companyId, "web");
@@ -78,6 +79,7 @@ export const POST = createApiHandler(async (req, ctx) => {
       staged: outcome.proposals.map((p) => p.summary),
       rejected: outcome.rejected,
       blocked_by_pending: outcome.blockedByPending,
+      queued_behind_pending: outcome.queuedBehindPending,
     };
   }
   return NextResponse.json({ ...suggestion, recordables });

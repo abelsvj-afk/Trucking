@@ -132,6 +132,15 @@ describe("handleTelegramPhoto", () => {
     expect(reply).toContain('Your note on it: "BOL for the Georgia load"');
   });
 
+  // Lane 1 (audit B-6): the caption must be stored ON the document
+  // row (searchable), not only echoed in the reply / chat timeline.
+  it("stores the caption on the document row via the shared pipeline", async () => {
+    const d = deps();
+    await handleTelegramPhoto(d, PHOTOS, "scale ticket for the Georgia load");
+    const storeArgs = d.storeFile.mock.calls[0]!;
+    expect(storeArgs[1]).toMatchObject({ caption: "scale ticket for the Georgia load" });
+  });
+
   it("refuses an oversize photo from its declared size — no download, no store", async () => {
     const d = deps();
     const big: TelegramPhotoSize[] = [{ file_id: "huge", file_size: 26 * 1024 * 1024 }];
