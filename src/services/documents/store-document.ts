@@ -129,7 +129,10 @@ export async function storeDocumentFile(
       await recordCleanupIncident(client, {
         companyId: input.companyId,
         storagePath,
-        kind: "row_insert_failed",
+        // Kind name per design A.7/A.8.6b: this is the upload-rollback
+        // case - the upload happened, its row insert failed, and the
+        // rollback removal could not confirm the object is gone.
+        kind: "upload_rollback",
         detail: `Row insert failed (${insertError?.message ?? "no row returned"}) and the compensating storage removal did not confirm the object is gone.`,
       });
       throw new StoreDocumentError(

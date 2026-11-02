@@ -384,6 +384,6 @@ describe("storeDocumentFile compensation (F-038 record)", () => {
     expect((err as Error).message).toContain("could not be cleaned up");
     expect(incidentInserts).toHaveLength(1);
     expect(String(incidentInserts[0]!.storage_path)).toContain("company-1/");
-    expect(incidentInserts[0]!.kind).toBe("row_insert_failed");
+    expect(incidentInserts[0]!.kind).toBe("upload_rollback");
   });
 });

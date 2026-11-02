@@ -262,6 +262,9 @@ export interface CleanupIncident {
   id: string;
   company_id: string | null;
   storage_path: string;
+  // 'upload_rollback' is the kind the upload pipeline records today
+  // (design A.8.6b); 'row_insert_failed' is reserved in the schema for
+  // a future door that discovers the orphan from the row side.
   kind: "upload_rollback" | "row_insert_failed";
   status: "open" | "resolved" | "object_absent";
   detail: string | null;
