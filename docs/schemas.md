@@ -392,7 +392,7 @@ Manual account snapshots — the v1 implementation behind the account-visibility
 | storage_path | text | no | path in Supabase Storage |
 | uploaded_at | timestamptz | no | |
 | created_at | timestamptz | no | (documents are not edited in place — no `updated_at`) |
-| deleted_at | timestamptz | yes | Reliability Unit A (migration `00029`): RETENTION delete — set when the document is removed; the file is retained and the document stays restorable. See `docs/record-lifecycle.md` |
+| deleted_at | timestamptz | yes | Reliability Unit A (migration `00041`): RETENTION delete — set when the document is removed; the file is retained and the document stays restorable. See `docs/record-lifecycle.md` |
 | retention_status | text | yes | `retained` while a deleted document's file is kept; `purge_pending`/`purged`/`purge_failed` belong to a future purge process under an owner-approved retention policy (not implemented) |
 | retention_error | text | yes | failure note from a future purge attempt |
 | purged_at | timestamptz | yes | set only by a future purge process — never by deletion |

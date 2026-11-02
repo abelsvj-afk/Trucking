@@ -4,7 +4,7 @@
 // validation (F-028), safeguarded restore, and the load status
 // transitions (F-016) - all against an in-memory fake of the Supabase
 // query builder that implements just the semantics the factory uses,
-// including the named submission unique index from migration 00029.
+// including the named submission unique index from migration 00041.
 
 import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
@@ -67,7 +67,7 @@ function makeFakeDb(seed: Record<string, Row[]>) {
     const execSingle = () => {
       const rows = tables.get(table) ?? [];
       if (mode === "insert") {
-        // The named partial unique index of migration 00029.
+        // The named partial unique index of migration 00041.
         if (payload.submission_id != null) {
           const clash = rows.some(
             (r) => r.company_id === payload.company_id && r.submission_id === payload.submission_id,

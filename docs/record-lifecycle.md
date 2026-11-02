@@ -3,7 +3,7 @@
 Reliability & Completion Program, Unit A (design:
 `docs/reliability-wave1-design-package.md`, Unit A + Unit F; rulings
 D-01/D-05). This is the contract every standard resource now follows.
-Migration: `supabase/migrations/00029_record_lifecycle.sql`.
+Migration: `supabase/migrations/00041_record_lifecycle.sql`.
 
 ## Delete is a state, and it is truthful
 
@@ -141,7 +141,7 @@ Documents do NOT follow the generic lifecycle above (D-05):
 - Purge (`retention_status` → `purge_pending`/`purged`/`purge_failed`,
   `purged_at`) is a specified state machine only — no purge is
   implemented; it awaits an owner-approved retention policy.
-- **Cleanup incidents** (`cleanup_incidents`, migration 00029): when
+- **Cleanup incidents** (`cleanup_incidents`, migration 00041): when
   an upload's row insert fails, the compensating `storage.remove()`
   result is now CHECKED. If the object is not confirmed gone, an
   incident is recorded and the error says cleanup may have failed.

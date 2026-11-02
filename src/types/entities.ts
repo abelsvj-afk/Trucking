@@ -213,7 +213,7 @@ export type DocumentExtractionStatus =
   | "not_applicable";
 
 // Documents historically didn't soft-delete (docs/schemas.md) - no
-// updated_at. Reliability Unit A (migration 00029, design A.7) adds a
+// updated_at. Reliability Unit A (migration 00041, design A.7) adds a
 // RETENTION delete instead: deletion tombstones the row and retains the
 // stored file, so this still doesn't extend BaseRow but gains
 // deleted_at + the retention fields below.
@@ -234,7 +234,7 @@ export interface Document {
   extraction_status: DocumentExtractionStatus;
   extraction_error: string | null;
   extracted_at: string | null;
-  // Retention delete (migration 00029): set when the document is
+  // Retention delete (migration 00041): set when the document is
   // deleted; the file stays in storage while retention_status is
   // 'retained'. purged_at is only ever set by a future purge process
   // under an owner-approved retention policy - never by deletion.
@@ -255,7 +255,7 @@ export type DocumentRetentionStatus =
   | "purge_failed";
 
 // A recorded cleanup obligation for a storage object with no owning row
-// (migration 00029): an upload whose rollback removal failed, or an
+// (migration 00041): an upload whose rollback removal failed, or an
 // object whose compensating row insert failed. Surfaced on the
 // Documents page until retried to resolution.
 export interface CleanupIncident {
@@ -519,4 +519,14 @@ export interface ResearchPageData {
     max_runs_per_day: number;
     max_runs_per_month: number;
   };
+  /**
+   * Runner proof-of-life (2026-11-02 design, D-1.3): the last tick
+   * heartbeat and whether it is stale (>26h old, or never recorded).
+   * Absent/null on databases where migration 00040 hasn't run yet.
+   */
+  runner: {
+    last_tick_at: string | null;
+    last_source: string | null;
+    stale: boolean;
+  } | null;
 }

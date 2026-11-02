@@ -10,6 +10,30 @@ import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/type
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
 
+/** One row of the "What Abel remembers" list (Lane 2, Phase B). */
+export interface BotMemoryListItem {
+  id: string;
+  kind: string;
+  content: string;
+  created_at: string;
+  valid_to: string | null;
+  superseded_by: string | null;
+}
+
+/** The night shift's staleness status, riding the memories list response (fix round, pitfall hunt CD-1). Null when the server couldn't produce one. */
+export interface BotConsolidationStatus {
+  enabled: boolean;
+  known: boolean;
+  stale: boolean;
+  lastRanAt: string | null;
+  hoursSinceLastRun: number | null;
+}
+
+export interface BotMemoryListResult {
+  data: BotMemoryListItem[];
+  consolidation: BotConsolidationStatus | null;
+}
+
 export interface ApiErrorBody {
   error: { code: string; message: string; fields?: { path: string; message: string }[] };
 }
@@ -184,6 +208,20 @@ export const apiClient = {
     }),
   // The AI kill switches (docs/governance.md) - a normal owner-session
   // read/write, unlike everything else about an AI capability.
+  // Lane 2: "What Abel remembers" - view / edit (supersede) / delete
+  // over the shared brain store (Intelligence Upgrade Phase B).
+  listMemories: (includeHistory = false) =>
+    request<BotMemoryListResult>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
+  editMemory: (id: string, content: string) =>
+    request<{ data: { id: string } }>("/api/v1/memories", {
+      method: "PATCH",
+      body: JSON.stringify({ id, content }),
+    }),
+  deleteMemory: (id: string) =>
+    request<{ data: { id: string; deleted: boolean } }>("/api/v1/memories", {
+      method: "DELETE",
+      body: JSON.stringify({ id }),
+    }),
   getAiSettings: () => request<AiSettings>("/api/v1/ai-settings"),
   updateAiSettings: (body: Partial<AiSettings>) =>
     request<AiSettings>("/api/v1/ai-settings", { method: "PATCH", body: JSON.stringify(body) }),

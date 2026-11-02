@@ -16,7 +16,7 @@
 
 import { createHash } from "node:crypto";
 
-/** The named partial unique index migration 00029 creates per table. */
+/** The named partial unique index migration 00041 creates per table. */
 export function submissionIndexName(table: string): string {
   return `${table}_submission_idempotency`;
 }
