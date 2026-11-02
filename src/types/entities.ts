@@ -231,6 +231,21 @@ export interface Document {
   extraction_status: DocumentExtractionStatus;
   extraction_error: string | null;
   extracted_at: string | null;
+  // Photo intelligence (Image Intelligence design §3, migration
+  // 00041): the photo's settled purpose, who settled it, and the
+  // read's confidence. All null on legacy documents and on photos
+  // whose purpose question is still open.
+  photo_purpose:
+    | "paperwork"
+    | "paper_log"
+    | "truck_exterior"
+    | "trailer"
+    | "odometer_dash"
+    | "pretrip"
+    | "other"
+    | null;
+  photo_purpose_source: "vision" | "caption" | "owner" | null;
+  photo_purpose_confidence: number | null;
 }
 
 export interface DocumentWithSignedUrl extends Document {

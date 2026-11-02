@@ -25,6 +25,9 @@ const BASE_DOC: DocumentWithSignedUrl = {
   extraction_status: "done",
   extraction_error: null,
   extracted_at: "2026-08-21T00:01:00Z",
+  photo_purpose: null,
+  photo_purpose_source: null,
+  photo_purpose_confidence: null,
   signed_url: "https://example.test/original",
   scan_signed_url: "https://example.test/scan",
 };

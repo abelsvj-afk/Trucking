@@ -53,6 +53,26 @@ export interface TelegramPhotoSize {
   file_size?: number;
 }
 
+/** One button choice on a photo-purpose ask (design §3.3). `choice` is a purpose slug or "store". */
+export interface TelegramPhotoAskOption {
+  label: string;
+  choice: string;
+}
+
+/**
+ * A photo reply that may carry a one-tap purpose ask: the text plus,
+ * when a question is staged, the pending row's id and its button
+ * choices (in display order; the numbered-text fallback numbers
+ * them in this same order). Plain-string replies stay plain strings
+ * everywhere else in the intake.
+ */
+export interface TelegramPhotoReply {
+  text: string;
+  ask?: { pendingId: string; options: TelegramPhotoAskOption[] };
+}
+
+export type TelegramPhotoResult = string | TelegramPhotoReply;
+
 export interface TelegramPhotoIntakeDeps {
   client: SupabaseClient;
   companyId: string;
@@ -90,12 +110,12 @@ export function pickLargestPhoto(photos: TelegramPhotoSize[]): TelegramPhotoSize
   }, photos[0]!);
 }
 
-function photoFileName(now: Date): string {
+export function photoFileName(now: Date): string {
   const stamp = now.toISOString().slice(0, 19).replace(/[-:T]/g, "");
   return `telegram-photo-${stamp}.jpg`;
 }
 
-function extractionLines(status: DocumentExtractionStatus): string[] {
+export function extractionLines(status: DocumentExtractionStatus): string[] {
   switch (status.state) {
     case "off":
       return [
@@ -122,25 +142,24 @@ function extractionLines(status: DocumentExtractionStatus): string[] {
   }
 }
 
+export type TelegramPhotoDownload =
+  | { ok: true; bytes: ArrayBuffer }
+  | { ok: false; reply: string };
+
 /**
- * Handles one photo message end to end and returns the exact reply
- * text for the owner. Never throws for an expected failure (too
- * big, download failed, store failed) — those come back as honest
- * replies that say nothing was stored.
+ * Downloads one Telegram photo rendition with the pipeline's
+ * triple oversize check (declared size, getFile size, actual
+ * bytes). Shared by the legacy intake and the photo-intelligence
+ * front door (§3) - one download path, one set of honest failures.
  */
-export async function handleTelegramPhoto(
-  deps: TelegramPhotoIntakeDeps,
-  photos: TelegramPhotoSize[],
-  caption?: string,
-): Promise<string> {
+export async function downloadTelegramPhoto(
+  deps: { botToken: string; fetchFn?: typeof fetch },
+  photo: TelegramPhotoSize,
+): Promise<TelegramPhotoDownload> {
   const fetchFn = deps.fetchFn ?? fetch;
-  const storeFile = deps.storeFile ?? storeDocumentFile;
-  const now = deps.now ?? (() => new Date());
-
-  const photo = pickLargestPhoto(photos);
-  if (photo.file_size && photo.file_size > MAX_DOCUMENT_BYTES) return TOO_BIG_REPLY;
-
-  // --- download (nothing stored yet) --------------------------------
+  if (photo.file_size && photo.file_size > MAX_DOCUMENT_BYTES) {
+    return { ok: false, reply: TOO_BIG_REPLY };
+  }
   let bytes: ArrayBuffer;
   try {
     const fileRes = await fetchFn(
@@ -151,24 +170,36 @@ export async function handleTelegramPhoto(
       result?: { file_path?: string; file_size?: number };
     };
     const filePath = fileJson.ok ? fileJson.result?.file_path : undefined;
-    if (!filePath) return DOWNLOAD_FAILED_REPLY;
+    if (!filePath) return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
     if (fileJson.result?.file_size && fileJson.result.file_size > MAX_DOCUMENT_BYTES) {
-      return TOO_BIG_REPLY;
+      return { ok: false, reply: TOO_BIG_REPLY };
     }
     const downloadRes = await fetchFn(
       `https://api.telegram.org/file/bot${deps.botToken}/${filePath}`,
     );
-    if (!downloadRes.ok) return DOWNLOAD_FAILED_REPLY;
+    if (!downloadRes.ok) return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
     bytes = await downloadRes.arrayBuffer();
   } catch {
-    return DOWNLOAD_FAILED_REPLY;
+    return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
   }
-  if (bytes.byteLength === 0) return DOWNLOAD_FAILED_REPLY;
-  if (bytes.byteLength > MAX_DOCUMENT_BYTES) return TOO_BIG_REPLY;
+  if (bytes.byteLength === 0) return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
+  if (bytes.byteLength > MAX_DOCUMENT_BYTES) return { ok: false, reply: TOO_BIG_REPLY };
+  return { ok: true, bytes };
+}
 
-  // --- store through the shared documents pipeline -------------------
+export type TelegramPhotoStore =
+  | { ok: true; documentId: string; fileName: string }
+  | { ok: false; reply: string };
+
+/** Stores downloaded photo bytes through the shared documents pipeline (filed under the company, caption on the row). */
+export async function storeTelegramPhoto(
+  deps: TelegramPhotoIntakeDeps,
+  bytes: ArrayBuffer,
+  caption?: string,
+): Promise<TelegramPhotoStore> {
+  const storeFile = deps.storeFile ?? storeDocumentFile;
+  const now = deps.now ?? (() => new Date());
   const fileName = photoFileName(now());
-  let documentId: string;
   try {
     const row = await storeFile(deps.client, {
       companyId: deps.companyId,
@@ -182,14 +213,37 @@ export async function handleTelegramPhoto(
       // row itself (searchable), not only echoed in this reply.
       caption,
     });
-    documentId = row.id;
+    return { ok: true, documentId: row.id, fileName };
   } catch (err) {
     if (err instanceof StoreDocumentError && err.kind === "validation") {
-      return `I couldn't store that photo: ${err.message} Nothing was saved.`;
+      return { ok: false, reply: `I couldn't store that photo: ${err.message} Nothing was saved.` };
     }
     console.error("[telegram] photo store failed", err);
-    return STORE_FAILED_REPLY;
+    return { ok: false, reply: STORE_FAILED_REPLY };
   }
+}
+
+/**
+ * Handles one photo message end to end and returns the exact reply
+ * text for the owner. Never throws for an expected failure (too
+ * big, download failed, store failed) — those come back as honest
+ * replies that say nothing was stored.
+ */
+export async function handleTelegramPhoto(
+  deps: TelegramPhotoIntakeDeps,
+  photos: TelegramPhotoSize[],
+  caption?: string,
+): Promise<string> {
+  const photo = pickLargestPhoto(photos);
+  const download = await downloadTelegramPhoto(deps, photo);
+  if (!download.ok) return download.reply;
+
+  // --- store through the shared documents pipeline -------------------
+  const stored = await storeTelegramPhoto(deps, download.bytes, caption);
+  if (!stored.ok) return stored.reply;
+  const documentId = stored.documentId;
+  const fileName = stored.fileName;
+  const bytes = download.bytes;
 
   // --- processing: the same pipeline a web upload runs (§13) --------
   // Only when extraction is enabled — the gate is process-document's

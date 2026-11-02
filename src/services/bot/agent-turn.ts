@@ -34,6 +34,11 @@ import { formatCompanySnapshot } from "@/services/telegram/context";
 import type { BotBrainStore, PendingAction } from "./store";
 import { buildBotTools, executeWriteTool } from "./tools";
 import {
+  PHOTO_PURPOSE_TOOL,
+  tryResolvePhotoPurposeAsk,
+  type PhotoPurposeAskArgs,
+} from "@/services/telegram/photo-purpose";
+import {
   formatBatchItemLine,
   formatBatchProposal,
   parseBatchCommand,
@@ -247,7 +252,18 @@ export async function runAgentTurn(
   // by number / drop the rest), resolved the same way.
   const pending = await store.loadPendingAction();
   let pendingBatch: PendingAction[] = [];
-  if (pending?.batch_id) {
+  // Image Intelligence (§3.3): the oldest pending row may be a
+  // photo-purpose QUESTION, not a write proposal. It resolves in
+  // code when his reply names the answer (a number, a purpose
+  // word, a plain naming); an expired question resolves with the
+  // honest expiry reply. Anything else leaves it open - noted in
+  // the context blocks below - and the turn proceeds normally.
+  let pendingPhotoAsk: PendingAction | null = null;
+  if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
+    const resolved = await tryResolvePhotoPurposeAsk(store, pending, input.userText);
+    if (resolved) return resolved;
+    pendingPhotoAsk = pending;
+  } else if (pending?.batch_id) {
     pendingBatch = await store.loadPendingBatch();
     if (pendingBatch.length > 0) {
       const oldest = pendingBatch[0]!;
@@ -288,7 +304,12 @@ export async function runAgentTurn(
   if (input.instructions.length > 0) {
     contextBlocks.push(`STANDING INSTRUCTIONS FROM THE OWNER:\n${input.instructions.map((i) => `- ${i}`).join("\n")}`);
   }
-  if (pendingBatch.length > 0) {
+  if (pendingPhotoAsk) {
+    const askArgs = pendingPhotoAsk.arguments as unknown as PhotoPurposeAskArgs;
+    contextBlocks.push(
+      `A PHOTO IS WAITING FOR ITS PURPOSE (the question expires after 2 hours): ${pendingPhotoAsk.summary}. Candidate purposes: ${(askArgs.candidates ?? []).map((c) => c.purpose).join(", ") || "none recorded"}, or just file it as a plain document. The purpose settles only when he taps a button, replies with the option number, or names it plainly ("that's the trailer") - code handles those before you see them, so if you are reading this, this message did none of those. Answer him normally; do not claim the photo was filed under a purpose, and do not stage a write for the photo.`,
+    );
+  } else if (pendingBatch.length > 0) {
     contextBlocks.push(
       `A DUMP BATCH IS WAITING FOR HIS APPROVAL (item numbers are stable; batches expire after 2 hours):\n${pendingBatch.map(batchItemLine).join("\n")}\n` +
         "Approvals and drops are handled in code before you ever see them, so this message is NOT an approval. If he is correcting an item, use revise_pending_item (confirmation \"execute\") and confirm the corrected line back. Do not execute any batch item yourself and do not re-stage the dump.",
