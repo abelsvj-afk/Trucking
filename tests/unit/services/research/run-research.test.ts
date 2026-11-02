@@ -36,6 +36,8 @@ interface FakeDbOptions {
   history?: { last_baseline: string | null; runs_today: number; runs_month: number };
   queuedForCompany?: Array<{ id: string; company_id: string; topic: string }>;
   queuedGlobal?: Array<{ id: string; company_id: string; topic: string }>;
+  /** Rows for the stored-signal re-evaluation query (2026-11-02 upgrade). Defaults to none. */
+  storedSignals?: Array<Record<string, unknown>>;
 }
 
 function fakeDb(options: FakeDbOptions = {}) {
@@ -57,6 +59,11 @@ function fakeDb(options: FakeDbOptions = {}) {
     }
     if (text.includes("trigger_kind = 'manual' and status = 'queued'")) {
       return { rows: options.queuedGlobal ?? [] };
+    }
+    if (text.includes("not exists")) {
+      // Stored-signal re-evaluation (loadUnconsumedSignals) - must be
+      // matched before the generic gather query below.
+      return { rows: options.storedSignals ?? [] };
     }
     if (text.includes("from research_signals")) {
       return {

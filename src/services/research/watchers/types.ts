@@ -46,12 +46,14 @@ export interface Watcher {
 }
 
 /** Tracked topic clusters - shared by the news-burst watcher and the federal-register keyword read. */
-export const TRACKED_TOPICS = ["fuel", "rates", "regulation", "carriers", "technology"] as const;
+export const TRACKED_TOPICS = ["fuel", "rates", "regulation", "carriers", "technology", "weather", "market"] as const;
 export type TrackedTopic = (typeof TRACKED_TOPICS)[number];
 
 const TOPIC_KEYWORDS: Record<TrackedTopic, string[]> = {
   fuel: ["diesel", "fuel", "oil price", "gas price", "opec"],
   rates: ["spot rate", "freight rate", "load board", "freight volume", "truckload demand", "capacity crunch"],
+  weather: ["hurricane", "winter storm", "blizzard", "flood warning", "road closure", "ice storm"],
+  market: ["stock market", "dow jones", "s&p 500", "tariff", "recession", "crude oil"],
   regulation: [
     "hours of service",
     "hos rule",

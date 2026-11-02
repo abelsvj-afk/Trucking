@@ -28,8 +28,13 @@ const CONFIDENCE_LABELS: Record<ResearchBriefing["confidence"], string> = {
 
 const WATCHER_LABELS: Record<string, string> = {
   eia_diesel: "Diesel prices (EIA)",
+  eia_diesel_regional: "Regional diesel - East/Gulf Coast (EIA)",
   federal_register: "Federal rules (FMCSA)",
   industry_news: "Industry news feeds",
+  stooq_market: "Markets (Stooq/FRED)",
+  gdelt_geo: "Overseas & geopolitics (GDELT)",
+  nws_weather: "Weather alerts (NWS)",
+  openstates: "State laws & weights (OpenStates)",
 };
 
 const RUN_STATUS_LABELS: Record<string, string> = {
@@ -139,6 +144,21 @@ export default function ResearchPage() {
       {state.status === "loaded" && (
         <>
           <h2>Engine</h2>
+          {state.page.runner?.stale && (
+            <p role="alert">
+              ⚠️ The research runner hasn&apos;t ticked
+              {state.page.runner.last_tick_at
+                ? ` since ${new Date(state.page.runner.last_tick_at).toLocaleString()}`
+                : " yet"}
+              {" "}— briefings may be behind. The watchdog also flags this on Telegram.
+            </p>
+          )}
+          {state.page.runner && !state.page.runner.stale && state.page.runner.last_tick_at && (
+            <p>
+              Runner last ticked {new Date(state.page.runner.last_tick_at).toLocaleString()}
+              {state.page.runner.last_source && ` (via ${state.page.runner.last_source})`}.
+            </p>
+          )}
           <p>
             Runs used: {state.page.usage.runs_today}/{state.page.usage.max_runs_per_day} today,{" "}
             {state.page.usage.runs_this_month}/{state.page.usage.max_runs_per_month} this month
