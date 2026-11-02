@@ -31,6 +31,11 @@ import type { AiProvider } from "@/services/ai/provider";
 import { isAgentCapableProvider } from "@/services/ai/provider";
 import { JOB_KNOWLEDGE_BRIEF } from "@/services/ai/job-knowledge";
 import { formatCompanySnapshot } from "@/services/telegram/context";
+import {
+  listPendingResearchRequests,
+  requestPhotoItems,
+  requestReason,
+} from "@/services/research/requests";
 import type { BotBrainStore, PendingAction } from "./store";
 import { buildBotTools, executeWriteTool } from "./tools";
 import {
@@ -51,7 +56,9 @@ TOOLS: Read tools query his real records - use them whenever a question needs sp
 
 WRITES: If he directly tells you to record something ("log fuel $120 at Pilot"), call the write tool with confirmation "execute" and then confirm back what was actually recorded. If YOU think something should be recorded but he didn't ask, call it with confirmation "propose" - it will not be recorded unless he replies yes, and your message must say so plainly.
 
-FULL COVERAGE: You have read and write tools for every tab of his app - loads, expenses, fuel purchases, brokers, customers, drivers, trucks (including the profile and the appliance inventory), trailers, pre-trip inspections, equipment checklist items, maintenance events and schedules, duty logs, documents, memories, dispatch history, and industry briefings. get_document reads a document's actual extracted text when the document has been scanned. If he asks about any part of the business, look it up with the tools - never tell him you can't see a part of the app, and never answer from a guess when a tool can check.
+FULL COVERAGE: You have read and write tools for every tab of his app - loads, expenses, fuel purchases, brokers, customers, drivers, trucks (including the profile and the appliance inventory), trailers, pre-trip inspections, equipment checklist items, maintenance events and schedules, duty logs, documents, memories, dispatch history, and BOTH briefing engines (the industry-intelligence engine's daily briefings AND the Deep Research engine's briefings below). get_document reads a document's actual extracted text when the document has been scanned. If he asks about any part of the business, look it up with the tools - never tell him you can't see a part of the app, and never answer from a guess when a tool can check.
+
+RESEARCH: Two different engines brief him, and they are not interchangeable - always name which one an answer came from. The INDUSTRY-INTELLIGENCE engine writes a daily summary (list_industry_briefings). The DEEP RESEARCH engine watches fuel, markets, law, and weather and writes full reports with findings and a counter-move (list_research_briefings, get_research_briefing for the full text). When he asks what the research found, check both and label each part. When he asks you to look into a new topic, queue it with queue_research - it runs on the engine's next tick under its caps, not instantly, and you must say so. Pre-trip photo asks from the Deep Research engine may be waiting (list_research_requests): when one is outstanding and the moment fits - he's doing a pre-trip or about to roll on that load - ask him for those photos in the conversation, with the ask's reason. Don't raise it in every message, and if he says skip it, dismiss it with dismiss_research_request. When his photos arrive they are filed by photo intake, which clears the ask - never claim you received photos you haven't seen filed.
 
 DELETES: delete_record always stages a proposal, even when he orders the delete directly. Tell him it is staged and needs his yes on the proposal - never say a delete is done until a proposal resolves.
 
@@ -231,6 +238,54 @@ async function resolveBatch(
   return { reply };
 }
 
+/**
+ * R-6 (Research Intelligence design D-5): the ask side of the
+ * pre-trip photo contract. Pending research_requests are surfaced
+ * as a context block so Abel raises them in conversation when the
+ * moment fits. Read failures (including the table not existing
+ * before migration 00040 lands) never break a turn - the block is
+ * simply absent, exactly like the pre-migration fallbacks elsewhere.
+ */
+async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string | null> {
+  try {
+    const pending = await listPendingResearchRequests(store.client, store.companyId, 3);
+    if (pending.length === 0) return null;
+    const lines: string[] = [];
+    for (const request of pending) {
+      let loadLabel = "";
+      if (request.load_id) {
+        loadLabel = ` for load ${request.load_id}`;
+        try {
+          const { data } = await store.client
+            .from("loads")
+            .select("origin, destination")
+            .eq("company_id", store.companyId)
+            .eq("id", request.load_id)
+            .maybeSingle();
+          if (data) {
+            const load = data as { origin: string; destination: string };
+            loadLabel = ` for his ${load.origin} → ${load.destination} load`;
+          }
+        } catch {
+          // The id alone still grounds the ask; a label lookup must
+          // never take the block down with it.
+        }
+      }
+      const reason = requestReason(request);
+      lines.push(
+        `- [${request.id}] photograph: ${requestPhotoItems(request).join(", ")}${loadLabel}${reason ? ` - why: ${reason}` : ""}`,
+      );
+    }
+    return (
+      "OUTSTANDING PRE-TRIP PHOTO ASKS (from the Deep Research engine - it governs when you ask; R-6):\n" +
+      lines.join("\n") +
+      "\nIf the moment fits (he's doing his pre-trip or about to roll), ask him for these photos once, with the reason. Don't raise them in every message. If he says skip it, call dismiss_research_request. His photos are filed by photo intake, which marks the ask fulfilled - you never mark it fulfilled yourself."
+    );
+  } catch {
+    return null;
+  }
+}
+
 export interface AgentTurnHooks {
   onToolLog?: (entry: AgentToolLogEntry) => void;
 }
@@ -298,6 +353,8 @@ export async function runAgentTurn(
       `A PROPOSED ACTION IS WAITING FOR HIS YES/NO (over 2 hours old proposals expire): ${pending.summary}. If he says yes or no, it is handled - anything else, answer normally and it stays waiting.`,
     );
   }
+  const researchAskBlock = await loadPendingResearchAskBlock(store);
+  if (researchAskBlock) contextBlocks.push(researchAskBlock);
   if (input.summaryText) contextBlocks.push(input.summaryText);
   if (input.snapshotText) contextBlocks.push(input.snapshotText);
   if (input.memories.length > 0) {

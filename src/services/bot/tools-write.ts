@@ -45,6 +45,12 @@ import {
 import { createPretripInspectionSchema } from "@/data/schemas/pretrip-inspections";
 import { createTrailerSchema, updateTrailerSchema } from "@/data/schemas/trailers";
 import { createTruckSchema, updateTruckSchema } from "@/data/schemas/trucks";
+import { researchNowSchema } from "@/data/schemas/research";
+import {
+  PRETRIP_PHOTO_DEFAULT_ITEMS,
+  dismissResearchRequest,
+  requestPretripPhotos,
+} from "@/services/research/requests";
 
 type Row = Record<string, unknown>;
 
@@ -950,6 +956,117 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   const deleteBot = z.object({
     entity: z.enum(Object.keys(DELETE_TARGETS) as [DeleteEntity, ...DeleteEntity[]]),
     record_id: uuid,
+  });
+
+  // R-6 (Research Intelligence design D-7/D-5): the conversational
+  // side of the Deep Research engine. queue_research writes EXACTLY
+  // the manual row the app's research-now route writes (migration
+  // 00019 fences owner-session inserts to that shape); the engine's
+  // tick executes it under the same caps and kill switch as every
+  // other run - this tool never calls the AI provider itself.
+  const queueResearchBot = z.object({
+    topic: z.string().trim().min(3).max(200),
+  });
+  tools.push({
+    name: "queue_research",
+    description:
+      "Queue a Deep Research run on a topic he names (e.g. diesel prices in the Southeast, a new state weight law). The research engine picks it up on its next tick under its normal caps - it does NOT run instantly. The finished briefing lands in list_research_briefings and the app's Research page. Use when he asks you to look into something the watchers don't already cover.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "The research topic, in his words (3-200 characters)." },
+      },
+      required: ["topic"],
+    },
+    access: "write",
+    validateArgs: validateWith(queueResearchBot),
+    summarize: (args) => `Queue Deep Research on "${String(args.topic ?? "")}"`,
+    async run(args) {
+      const parsed = queueResearchBot.parse(args);
+      // Same topic bounds the app route enforces (researchNowSchema).
+      researchNowSchema.parse({ topic: parsed.topic });
+      const { client, companyId } = store;
+      const id = await insertRow(client, "research_runs", companyId, {
+        trigger_kind: "manual",
+        topic: parsed.topic,
+        trigger_detail: { reason: "Owner requested this research in conversation with Abel." },
+        status: "queued",
+      });
+      return (
+        `Queued a Deep Research run on "${parsed.topic}" (run id ${id}). ` +
+        "The engine runs it on its next tick under its normal caps - when the briefing is ready it shows in list_research_briefings and the app's Research page, and the engine's delivery rules decide whether it also buzzes his phone."
+      );
+    },
+  });
+
+  const requestPhotosBot = z.object({
+    load_id: uuid.optional(),
+    checklist_kind: z.string().trim().min(1).max(60).optional(),
+    items: z.array(z.string().trim().min(1).max(60)).min(1).max(10).optional(),
+    reason: z.string().trim().min(1).max(300).optional(),
+  });
+  tools.push({
+    name: "request_pretrip_photos",
+    description:
+      "Record a pre-trip photo ask (a pending research_requests row): ask him to photograph specific things - by default tires, lights, load securement, and the BOL. Use when he wants to be asked for photos before a load rolls, or when a pre-trip is coming up and the photos should be captured. The ask stays pending until photo intake files matching photos (that pipeline marks it fulfilled) or he says skip it (dismiss_research_request).",
+    parameters: {
+      type: "object",
+      properties: {
+        load_id: { type: "string", description: "Optional load id (from list_loads) the photos are for." },
+        checklist_kind: { type: "string", description: "Checklist context label, e.g. \"pre-trip\". Default \"pre-trip\"." },
+        items: {
+          type: "array",
+          items: { type: "string" },
+          description: "What to photograph. Default: tires, lights, load securement, BOL.",
+        },
+        reason: { type: "string", description: "Why the photos are wanted - you repeat this when you ask him." },
+      },
+    },
+    access: "write",
+    validateArgs: validateWith(requestPhotosBot),
+    summarize: (args) => {
+      const items = Array.isArray(args.items) && args.items.length > 0 ? args.items : PRETRIP_PHOTO_DEFAULT_ITEMS;
+      return `Ask him for pre-trip photos (${items.join(", ")})${args.load_id ? ` for load ${String(args.load_id)}` : ""}`;
+    },
+    async run(args) {
+      const parsed = requestPhotosBot.parse(args);
+      const { client, companyId } = store;
+      const id = await requestPretripPhotos(client, companyId, {
+        loadId: parsed.load_id ?? null,
+        checklistKind: parsed.checklist_kind,
+        items: parsed.items,
+        reason: parsed.reason,
+      });
+      const items = parsed.items ?? [...PRETRIP_PHOTO_DEFAULT_ITEMS];
+      return (
+        `Recorded the pre-trip photo ask (request id ${id}): photograph ${items.join(", ")}` +
+        `${parsed.load_id ? ` for load ${parsed.load_id}` : ""}. ` +
+        "It stays pending until his photos are filed; ask him for them when the pre-trip moment comes."
+      );
+    },
+  });
+
+  const dismissRequestBot = z.object({ request_id: uuid });
+  tools.push({
+    name: "dismiss_research_request",
+    description:
+      "Dismiss a pending pre-trip photo ask (from list_research_requests) when he says skip it or it's no longer needed. Only dismisses asks still waiting - a fulfilled ask is history and stays.",
+    parameters: {
+      type: "object",
+      properties: { request_id: { type: "string", description: "The research request id from list_research_requests." } },
+      required: ["request_id"],
+    },
+    access: "write",
+    validateArgs: validateWith(dismissRequestBot),
+    summarize: (args) => `Dismiss pre-trip photo ask ${String(args.request_id ?? "")}`,
+    async run(args) {
+      const parsed = dismissRequestBot.parse(args);
+      const { client, companyId } = store;
+      const dismissed = await dismissResearchRequest(client, companyId, parsed.request_id);
+      return dismissed
+        ? `Dismissed photo ask ${parsed.request_id} - it won't be raised again.`
+        : `Photo ask ${parsed.request_id} wasn't pending (already fulfilled, dismissed, or not his) - nothing changed.`;
+    },
   });
 
   tools.push({
