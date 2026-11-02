@@ -94,6 +94,22 @@ describe("deliveryDecision", () => {
     expect(decision.reason).toMatch(/quiet hours/);
   });
 
+  it("names the default quiet window in the hold reason", () => {
+    const decision = deliveryDecision({ now: NIGHT_ET, deliveryClass: "routine", latestDutyStatus: "off_duty", config });
+    expect(decision.reason).toContain("quiet hours (21:00-06:00 ET)");
+  });
+
+  it("formats the quiet-hours reason from the CONFIGURED hours (CD-8)", () => {
+    const custom = getResearchConfig({
+      RESEARCH_DELIVERY_QUIET_START_HOUR_ET: "22",
+      RESEARCH_DELIVERY_QUIET_END_HOUR_ET: "7",
+    } as unknown as NodeJS.ProcessEnv);
+    const decision = deliveryDecision({ now: NIGHT_ET, deliveryClass: "routine", latestDutyStatus: "off_duty", config: custom });
+    expect(decision.sendNow).toBe(false);
+    expect(decision.reason).toContain("quiet hours (22:00-07:00 ET)");
+    expect(decision.reason).not.toContain("21:00-06:00");
+  });
+
   it("routine holds while driving, capped at the max hold", () => {
     const decision = deliveryDecision({ now: DAY_ET, deliveryClass: "routine", latestDutyStatus: "driving", config });
     expect(decision.sendNow).toBe(false);

@@ -109,6 +109,28 @@ The Deep Research Engine's runner used to be invokable ONLY by its in-process ho
 
 **F-020 closure evidence (what "fixed" means here):** 7 consecutive days of the heartbeat advancing at least hourly, at least one untriggered baseline briefing inside the floor window, and a secret inventory confirming `INDUSTRY_BRIEFING_DB_URL` and `RESEARCH_RUN_CRON_SECRET` are set on the app. Until that week exists, the invoker is "shipped," not "proven."
 
+**If the job database itself is missing (CD-7):** when `INDUSTRY_BRIEFING_DB_URL` is unset, the tick cannot even construct its pool — there is no database for the heartbeat or the watchdog's alert table. That failure no longer hides: the endpoint still answers 200 (the invoker reached the app), but the body reads `status: "degraded"` with `tick.health.failure` naming the missing configuration, and the tick sends the owner a direct Telegram alert ("The research runner cannot start: INDUSTRY_BRIEFING_DB_URL is not configured…"), throttled in-process to one per 24h. If you see that alert, step 1's secret inventory is where to look — set `INDUSTRY_BRIEFING_DB_URL` on the app and the next tick recovers on its own.
+
+**Post-merge wiring — Abel's night shift rides this invoker (CD-1, do when Lane 2 merges):** Lane 2's memory consolidation (`src/services/bot/consolidation-scheduler.ts`) has the same in-process-only disease this invoker cured for research: its hourly check runs only while a machine is awake. The cure is to give its due-check a ride on this endpoint's hourly wake. It is deliberately NOT wired in either branch today — the consolidation module does not exist on the research branch (an import would break its build), and on Lane 2 the due-check is still the scheduler's private `tick()`. Two small edits at merge time:
+
+1. Lane 2 side — in `src/services/bot/consolidation-scheduler.ts`, export the due-check: rename the private `tick()` to `runConsolidationIfDue` and export it (`startConsolidationScheduler` keeps calling it). The function already carries its 20h due-ness read from `consolidation_runs` and its own error logging; Lane 2's CD-2 advisory lock lives inside it too.
+2. Endpoint side — in `src/app/api/internal/research/run/route.ts`, immediately after the `runResearchTick("endpoint")` call and before the response is built:
+
+```ts
+    // CD-1 piggyback: the hourly invoker that wakes the research tick
+    // also gives Abel's night shift its due-check, so consolidation
+    // no longer depends on the app happening to be awake. A failure
+    // here never fails the research tick's own answer.
+    try {
+      const { runConsolidationIfDue } = await import("@/services/bot/consolidation-scheduler");
+      await runConsolidationIfDue();
+    } catch (err) {
+      console.error("[research] consolidation piggyback failed", err);
+    }
+```
+
+Verify after wiring: on a morning after ≥20h without a consolidation run, one endpoint tick produces a `consolidation_runs` row (source traffic in `research_runner_heartbeat.last_source` reads `endpoint`) without the app having been opened.
+
 ## Recovery behavior
 
 No write path assumes success. User-facing failures follow the standard error contract in `docs/api-contracts.md`; the background job's failures are logged and left for the next scheduled attempt, per `docs/automation.md`. Nothing here adds new recovery machinery — this phase just confirms the same failure discipline already specified per-service holds system-wide.

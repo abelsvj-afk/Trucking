@@ -44,6 +44,11 @@ export function nextEtHour(from: Date, hour: number): Date {
   return candidate;
 }
 
+/** "21:00" for 21 - the hold-reason copy is built from these so it can never drift from the configured window (CD-8). */
+export function formatEtHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
 export function isQuietHours(now: Date, config: ResearchConfig): boolean {
   const hour = etHour(now);
   const { deliveryQuietStartHourEt: start, deliveryQuietEndHourEt: end } = config;
@@ -98,7 +103,7 @@ export function deliveryDecision(input: {
   if (isQuietHours(now, config)) {
     holds.push({
       until: nextEtHour(now, config.deliveryQuietEndHourEt),
-      reason: `quiet hours (21:00-06:00 ET)`,
+      reason: `quiet hours (${formatEtHour(config.deliveryQuietStartHourEt)}-${formatEtHour(config.deliveryQuietEndHourEt)} ET)`,
     });
   }
   if (latestDutyStatus === "driving" || latestDutyStatus === "on_duty") {

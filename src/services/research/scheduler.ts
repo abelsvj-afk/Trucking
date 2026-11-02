@@ -20,7 +20,7 @@ import { createTelegramNotifier, type TelegramNotifier } from "@/services/telegr
 import type { Queryable } from "@/services/ai/run-industry-briefing";
 import { getResearchConfig } from "./config";
 import { refreshCorridors } from "./corridor";
-import { evaluateResearchHealth, type HealthSummary } from "./health";
+import { evaluateResearchHealth, reportResearchConfigFailure, type HealthSummary } from "./health";
 import { getEligibleCompanyIds, runResearchJob } from "./run-research";
 import { pollAllWatchers } from "./watchers";
 
@@ -67,8 +67,35 @@ async function writeHeartbeat(db: Queryable, source: string, detail: Record<stri
 export async function runResearchTick(source: "scheduler" | "endpoint"): Promise<ResearchTickSummary> {
   const summary: ResearchTickSummary = { source, locked: false, freshSignals: 0, health: null };
   let client: PoolClient | null = null;
+
+  // CD-7: pool construction gets its own guard. It throws
+  // synchronously when INDUSTRY_BRIEFING_DB_URL is unset - which used
+  // to land in the tick's console-only catch, so no heartbeat was
+  // written, the watchdog never ran, and the internal endpoint still
+  // answered 200 with health: null. A watchdog that dies with the
+  // engine watches nothing: this failure now reports itself (direct
+  // Telegram alert, throttled) and rides back in summary.health as an
+  // explicit failure state.
+  let pool: ReturnType<typeof getIndustryBriefingPool>;
   try {
-    const pool = getIndustryBriefingPool();
+    pool = getIndustryBriefingPool();
+  } catch (err) {
+    console.error("[research] tick could not start - job database pool failed to construct", err);
+    const message = err instanceof Error ? err.message : String(err);
+    const detail = message.includes("INDUSTRY_BRIEFING_DB_URL")
+      ? "The research runner cannot start: INDUSTRY_BRIEFING_DB_URL is not configured, so the engine cannot tick, poll watchers, or produce briefings. Set it on the app (Fly secret - see docs/runtime.md, 'Research engine invoker'). This alert repeats at most once a day."
+      : `The research runner cannot start: the job database pool failed to construct (${message}). The engine cannot tick, poll watchers, or produce briefings until this is fixed. This alert repeats at most once a day.`;
+    let notifier: TelegramNotifier | null = null;
+    try {
+      notifier = createTelegramNotifier();
+    } catch {
+      notifier = null; // even a broken notifier must not mask the failure state
+    }
+    summary.health = await reportResearchConfigFailure(notifier, detail);
+    return summary;
+  }
+
+  try {
     const config = getResearchConfig();
     const notifier: TelegramNotifier = createTelegramNotifier();
 
@@ -104,9 +131,9 @@ export async function runResearchTick(source: "scheduler" | "endpoint"): Promise
       await client.query(`select pg_advisory_unlock($1)`, [RESEARCH_TICK_LOCK_KEY]).catch(() => undefined);
     }
   } catch (err) {
-    // Pool/provider construction throws synchronously when env isn't
-    // configured - routine in environments where the engine is off,
-    // not a crash for the whole server (same call Stage 4 made).
+    // Connect/provider failures land here (pool CONSTRUCTION failure
+    // is handled above, CD-7) - logged, never a crash for the whole
+    // server (same call Stage 4 made).
     console.error("[research] tick failed", err);
   } finally {
     client?.release();

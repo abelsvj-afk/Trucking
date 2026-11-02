@@ -404,23 +404,40 @@ interface HeldBriefingRow extends Record<string, unknown> {
   headline: string;
   counter_move: string;
   takeaway: string;
+  delivery_class: string;
+}
+
+/** The stored delivery_class, read defensively - anything unrecognized is routine (the column's own default). */
+function toDeliveryClass(value: string): DeliveryClass {
+  return value === "urgent" || value === "trip" ? value : "routine";
 }
 
 /**
  * Flush briefings whose delivery hold has expired (D-6 digest): one
  * message for the batch, each briefing marked notified only when
  * Telegram accepted the send. Runs at the top of a company's tick.
+ *
+ * CD-5: expiry of the hold is not by itself permission to buzz. A
+ * driving hold's 4h cap can expire INSIDE the quiet window (created
+ * 18:00 while driving -> held to 22:00, squarely in 21:00-06:00), so
+ * every candidate re-runs the delivery decision at flush time:
+ * urgent sends immediately as always; a non-urgent briefing caught
+ * by quiet hours is re-held to the end of the window instead of
+ * sent, with the recomputed reason logged (hold reasons are not
+ * persisted - the schema stores class + held_until only, the same
+ * treatment creation gives them).
  */
 export async function flushHeldDeliveries(
   db: Queryable,
   notifier: TelegramNotifier | null,
   companyId: string,
   now: Date = new Date(),
+  config: ResearchConfig = getResearchConfig(),
 ): Promise<number> {
   if (!notifier) return 0;
   try {
     const { rows } = await db.query<HeldBriefingRow>(
-      `select id, topic, title, headline, counter_move, takeaway
+      `select id, topic, title, headline, counter_move, takeaway, delivery_class
        from research_briefings
        where company_id = $1 and telegram_notified_at is null
          and delivery_held_until is not null and delivery_held_until <= $2
@@ -429,9 +446,28 @@ export async function flushHeldDeliveries(
       [companyId, now.toISOString()],
     );
     if (rows.length === 0) return 0;
+
+    const sendable: HeldBriefingRow[] = [];
+    for (const row of rows) {
+      const deliveryClass = toDeliveryClass(row.delivery_class);
+      const verdict = deliveryDecision({ now, deliveryClass, latestDutyStatus: null, config });
+      if (verdict.sendNow) {
+        sendable.push(row);
+        continue;
+      }
+      await db.query(
+        `update research_briefings set delivery_held_until = $2 where id = $1`,
+        [row.id, verdict.heldUntil?.toISOString() ?? null],
+      );
+      console.info(
+        `[research] delivery flush re-held briefing ${row.id} (${deliveryClass}) until ${verdict.heldUntil?.toISOString()}: ${verdict.reason ?? "held"}`,
+      );
+    }
+    if (sendable.length === 0) return 0;
+
     const sent = await notifier.notifyOwner(
       formatDigestMessage(
-        rows.map((row) => ({
+        sendable.map((row) => ({
           topic: row.topic,
           title: row.title,
           headline: row.headline,
@@ -441,10 +477,10 @@ export async function flushHeldDeliveries(
       ),
     );
     if (!sent) return 0;
-    for (const row of rows) {
+    for (const row of sendable) {
       await db.query(`update research_briefings set telegram_notified_at = now() where id = $1`, [row.id]);
     }
-    return rows.length;
+    return sendable.length;
   } catch (err) {
     // Pre-migration databases lack the delivery columns - degrade to
     // "nothing held" rather than failing the tick.
@@ -528,7 +564,7 @@ export async function runResearchForCompany(
 
   // Held Telegram deliveries flush first - they cost no AI spend and
   // the owner is waiting on them (D-6).
-  await flushHeldDeliveries(db, notifier, companyId, now);
+  await flushHeldDeliveries(db, notifier, companyId, now, config);
 
   // Corridor + stored-signal re-evaluation (D-5/D-2). Both degrade to
   // empty on any failure (e.g. pre-migration database) - the tick must

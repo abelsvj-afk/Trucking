@@ -96,6 +96,50 @@ export async function detectHealthIssues(
 export interface HealthSummary {
   alertsSent: string[];
   recovered: string[];
+  /**
+   * Set when health could not be evaluated the normal way because the
+   * engine died before the watchdog could run (CD-7 - e.g. the job
+   * database is not configured). An explicit failure state, so a
+   * broken engine never presents as a silent `health: null` again.
+   */
+  failure?: string;
+}
+
+export const RUNNER_CONFIG_MISSING_ISSUE = "runner_config_missing";
+
+const CONFIG_ALERT_THROTTLE_MS = 24 * HOUR_MS;
+let lastConfigAlertAtMs: number | null = null;
+
+/**
+ * The watchdog's last resort (CD-7): the failure where there IS no
+ * database - the pool itself could not be constructed, so neither
+ * the heartbeat nor the alert table exists to work with. The alert
+ * goes straight to Telegram, throttled in-process to one per 24h
+ * (a process restart can re-arm it, once - bounded noise, and the
+ * alternative is silence). The returned summary always carries the
+ * failure, alerted or not, so every caller surface sees it. Never
+ * throws, like evaluateResearchHealth.
+ */
+export async function reportResearchConfigFailure(
+  notifier: TelegramNotifier | null,
+  detail: string,
+  now: Date = new Date(),
+): Promise<HealthSummary> {
+  const summary: HealthSummary = { alertsSent: [], recovered: [], failure: detail };
+  try {
+    const throttled =
+      lastConfigAlertAtMs !== null && now.getTime() - lastConfigAlertAtMs < CONFIG_ALERT_THROTTLE_MS;
+    if (notifier && !throttled) {
+      const sent = await notifier.notifyOwner(`Research engine health: ${detail}`);
+      if (sent) {
+        lastConfigAlertAtMs = now.getTime();
+        summary.alertsSent.push(RUNNER_CONFIG_MISSING_ISSUE);
+      }
+    }
+  } catch (err) {
+    console.error("[research] config-failure report failed", err);
+  }
+  return summary;
 }
 
 /** Detect issues, alert (throttled), and report recoveries. Never throws. */

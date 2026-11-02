@@ -36,7 +36,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const summary = await runResearchTick("endpoint");
-    return NextResponse.json({ status: "ok", tick: summary });
+    // CD-7: a tick whose health carries an explicit failure (e.g. the
+    // job database is not configured, so the engine never ran) must
+    // not dress itself as "ok" - the HTTP contract stays 200 (the
+    // invoker reached the app and the tick machinery answered), but
+    // the body says "degraded" and health.failure says why.
+    const status = summary.health?.failure ? "degraded" : "ok";
+    return NextResponse.json({ status, tick: summary });
   } catch (err) {
     console.error("[research] internal run route failed", err);
     return NextResponse.json(

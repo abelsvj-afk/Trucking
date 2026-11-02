@@ -55,6 +55,24 @@ describe("POST /api/internal/research/run", () => {
     expect(runResearchTick).toHaveBeenCalledWith("endpoint");
   });
 
+  it("surfaces a degraded status when the tick reports an explicit health failure (CD-7)", async () => {
+    vi.mocked(runResearchTick).mockResolvedValue({
+      source: "endpoint",
+      locked: false,
+      freshSignals: 0,
+      health: {
+        alertsSent: ["runner_config_missing"],
+        recovered: [],
+        failure: "The research runner cannot start: INDUSTRY_BRIEFING_DB_URL is not configured.",
+      },
+    });
+    const res = await POST(request({ "x-research-secret": "correct-secret" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("degraded");
+    expect(body.tick.health.failure).toContain("INDUSTRY_BRIEFING_DB_URL");
+  });
+
   it("500s without leaking detail if the tick itself throws", async () => {
     vi.mocked(runResearchTick).mockRejectedValue(new Error("db exploded"));
     const res = await POST(request({ "x-research-secret": "correct-secret" }));
