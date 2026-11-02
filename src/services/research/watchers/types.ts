@@ -66,7 +66,20 @@ const TOPIC_KEYWORDS: Record<TrackedTopic, string[]> = {
     "broker transparency",
   ],
   carriers: ["bankruptcy", "layoff", "layoffs", "shutdown", "closes", "acquisition", "merger"],
-  technology: ["electric truck", "electric semi", "autonomous truck", "self-driving truck", "ev truck", "charging"],
+  technology: [
+    "electric truck",
+    "electric semi",
+    "autonomous truck",
+    "self-driving truck",
+    "driverless",
+    "ev truck",
+    "charging",
+    "artificial intelligence",
+    "ai dispatch",
+    "warehouse automation",
+    "warehouse robotics",
+    "robotics",
+  ],
 };
 
 /** Returns every tracked topic whose keywords appear in the text. */
