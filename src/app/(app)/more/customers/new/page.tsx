@@ -5,6 +5,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { Customer } from "@/types/entities";
@@ -17,6 +18,9 @@ export default function NewCustomerPage() {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the customer.
+  const submissionId = useSubmissionId();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,6 +29,7 @@ export default function NewCustomerPage() {
 
     try {
       await apiClient.create<Customer>("customers", {
+        submission_id: submissionId,
         name,
         contact_email: email || undefined,
         contact_phone: phone || undefined,

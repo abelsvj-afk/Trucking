@@ -12,6 +12,7 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import DriverProfileFields, {
   EMPTY_DRIVER_PROFILE,
   driverProfileToPayload,
@@ -21,6 +22,7 @@ import type { Driver, Truck } from "@/types/entities";
 
 export default function NewDriverPage() {
   usePageTitle("Add driver");
+  const submissionId = useSubmissionId();
   const router = useRouter();
   const [values, setValues] = useState<DriverProfileValues>(EMPTY_DRIVER_PROFILE);
   const trucks = usePickerList<Truck>("trucks");
@@ -33,7 +35,10 @@ export default function NewDriverPage() {
     setSubmitting(true);
 
     try {
-      const driver = await apiClient.create<Driver>("drivers", driverProfileToPayload(values));
+      const driver = await apiClient.create<Driver>("drivers", {
+        ...driverProfileToPayload(values),
+        submission_id: submissionId,
+      });
       router.push(`/fleet/drivers/${driver.id}`);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");

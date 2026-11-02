@@ -15,6 +15,7 @@ import TrailerFields, {
   type TrailerValues,
 } from "@/components/TrailerFields";
 import { usePageTitle } from "@/lib/use-page-title";
+import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import type { Trailer } from "@/types/entities";
 
 export default function TrailerDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -99,6 +100,17 @@ export default function TrailerDetailPage({ params }: { params: Promise<{ id: st
       </section>
 
       <TrailerEditForm key={trailer.id} trailer={trailer} onSaved={setTrailer} />
+
+      <section aria-label="Delete this record">
+        <h2>Delete this record</h2>
+        <DeleteRecordButton
+          resource="trailers"
+          id={trailer.id}
+          recordName={`Trailer ${trailer.unit_number}`}
+          listHref="/fleet/trailers"
+          listLabel="trailers"
+        />
+      </section>
     </div>
   );
 }

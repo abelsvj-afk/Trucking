@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import PageHeader from "@/components/PageHeader";
 import type { PretripInspection, Truck, Trailer, Driver } from "@/types/entities";
 
@@ -32,6 +33,7 @@ const CHECKLIST_ITEMS = [
 export default function NewPretripInspectionPage() {
   usePageTitle("Log inspection");
   const router = useRouter();
+  const submissionId = useSubmissionId();
   const [vehicleType, setVehicleType] = useState<"truck" | "trailer">("truck");
   const [vehicleId, setVehicleId] = useState("");
   const [driverId, setDriverId] = useState("");
@@ -59,6 +61,7 @@ export default function NewPretripInspectionPage() {
         inspected_at: new Date(inspectedAt).toISOString(),
         passed,
         defects_found: defectsFound || null,
+        submission_id: submissionId,
       });
       router.push("/fleet/pretrip-inspections");
     } catch (err) {

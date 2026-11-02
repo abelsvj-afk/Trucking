@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import PageHeader from "@/components/PageHeader";
 import type { EquipmentChecklistItem, Truck, Trailer } from "@/types/entities";
 
 export default function NewEquipmentChecklistItemPage() {
   usePageTitle("Add checklist item");
   const router = useRouter();
+  const submissionId = useSubmissionId();
   const [vehicleType, setVehicleType] = useState<"truck" | "trailer">("truck");
   const [vehicleId, setVehicleId] = useState("");
   const [itemName, setItemName] = useState("");
@@ -37,6 +39,7 @@ export default function NewEquipmentChecklistItemPage() {
         quantity_on_hand: quantity ? parseInt(quantity, 10) : null,
         last_checked_date: lastCheckedDate || null,
         notes: notes || null,
+        submission_id: submissionId,
       });
       router.push("/fleet/equipment-checklist");
     } catch (err) {

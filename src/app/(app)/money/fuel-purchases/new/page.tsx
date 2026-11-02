@@ -8,6 +8,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { FuelPurchase, Truck } from "@/types/entities";
@@ -23,6 +24,9 @@ export default function NewFuelPurchasePage() {
   const [purchasedAt, setPurchasedAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the purchase.
+  const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
 
@@ -33,6 +37,7 @@ export default function NewFuelPurchasePage() {
 
     try {
       await apiClient.create<FuelPurchase>("fuel-purchases", {
+        submission_id: submissionId,
         truck_id: truckId,
         location: location || undefined,
         gallons: parseFloat(gallons || "0"),

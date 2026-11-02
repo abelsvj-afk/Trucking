@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useApiList } from "@/lib/use-api-list";
+import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
@@ -22,17 +23,20 @@ const STATUS_FILTERS: { label: string; value: LoadStatus | "" }[] = [
   { label: "Draft", value: "draft" },
   { label: "Confirmed", value: "confirmed" },
   { label: "Completed", value: "completed" },
+  { label: "Cancelled", value: "cancelled" },
 ];
 
 const STATUS_BADGES: Record<LoadStatus, string> = {
   draft: "unknown",
   confirmed: "ok",
   completed: "paused",
+  cancelled: "paused",
 };
 
 export default function LoadsListPage() {
   usePageTitle("Loads");
   const [statusFilter, setStatusFilter] = useState<LoadStatus | "">("");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Load>(
     "loads",
     statusFilter ? { status: statusFilter } : undefined,
@@ -50,6 +54,16 @@ export default function LoadsListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="loads" />
+
+      {showDeleted ? (
+        <DeletedListSection<Load>
+          resource="loads"
+          labelFor={(load) => `${load.origin} → ${load.destination}`}
+          sublabelFor={(load) => load.status}
+        />
+      ) : (
+        <>
       <div role="group" aria-label="Filter by status">
         {STATUS_FILTERS.map((filter) => (
           <button
@@ -103,6 +117,9 @@ export default function LoadsListPage() {
             );
           })}
         </ul>
+      )}
+
+        </>
       )}
 
       <AskAssistant

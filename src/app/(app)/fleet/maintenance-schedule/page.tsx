@@ -16,6 +16,11 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import { computeDueStatus, type DueStatus } from "@/lib/maintenance-schedule";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { MaintenanceSchedule, Truck, Trailer } from "@/types/entities";
 
 const STATUS_LABELS: Record<DueStatus, string> = {
@@ -28,6 +33,7 @@ const STATUS_LABELS: Record<DueStatus, string> = {
 
 export default function MaintenanceSchedulePage() {
   usePageTitle("Maintenance schedule");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const [vehicleFilter, setVehicleFilter] = useState("");
   const { state, retry } = useApiList<MaintenanceSchedule>(
     "maintenance-schedules",
@@ -71,6 +77,16 @@ export default function MaintenanceSchedulePage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="maintenance schedule" />
+
+      {showDeleted ? (
+        <DeletedListSection<MaintenanceSchedule>
+          resource="maintenance-schedules"
+          labelFor={(schedule) => schedule.description}
+          sublabelFor={(schedule) => schedule.status}
+        />
+      ) : (
+        <>
       <label htmlFor="truck_filter">Truck</label>
       <select
         id="truck_filter"
@@ -100,18 +116,22 @@ export default function MaintenanceSchedulePage() {
             const status = dueBadge(schedule);
             return (
               <li key={schedule.id}>
-                <span className="row-title">
-                  <strong data-status={status}>{STATUS_LABELS[status]}</strong>
-                  {schedule.description}
-                </span>
-                <span className="row-sub">
-                  {vehicleLabel(schedule)}
-                  {intervalLine(schedule) ? ` · ${intervalLine(schedule)}` : ""}
-                </span>
+                <Link href={`/fleet/maintenance-schedule/${schedule.id}`}>
+                  <span className="row-title">
+                    <strong data-status={status}>{STATUS_LABELS[status]}</strong>
+                    {schedule.description}
+                  </span>
+                  <span className="row-sub">
+                    {vehicleLabel(schedule)}
+                    {intervalLine(schedule) ? ` · ${intervalLine(schedule)}` : ""}
+                  </span>
+                </Link>
               </li>
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

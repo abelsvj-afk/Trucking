@@ -9,6 +9,12 @@ import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
+import { formatDollars } from "@/lib/truck-fund";
 import type { Expense } from "@/types/entities";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
@@ -20,6 +26,7 @@ const CATEGORY_LABELS: Record<Expense["category"], string> = {
 
 export default function ExpensesListPage() {
   usePageTitle("Expenses");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Expense>("expenses");
 
   return (
@@ -34,6 +41,20 @@ export default function ExpensesListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="expenses" />
+
+      {showDeleted ? (
+        <DeletedListSection
+          resource="expenses"
+          labelFor={(expense: Expense) =>
+            `${CATEGORY_LABELS[expense.category]} — ${formatDollars(expense.amount_cents)} — ${new Date(
+              `${expense.expense_date}T12:00:00`,
+            ).toLocaleDateString()}`
+          }
+          sublabelFor={(expense: Expense) => expense.description ?? null}
+        />
+      ) : (
+        <>
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
@@ -47,16 +68,20 @@ export default function ExpensesListPage() {
         <ul>
           {state.result.data.map((expense) => (
             <li key={expense.id}>
-              <span className="row-title">
-                ${(expense.amount_cents / 100).toFixed(2)} — {CATEGORY_LABELS[expense.category]}
-              </span>
-              <span className="row-sub">
-                {new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}
-                {expense.description ? ` · ${expense.description}` : ""}
-              </span>
+              <Link href={`/money/expenses/${expense.id}`}>
+                <span className="row-title">
+                  ${(expense.amount_cents / 100).toFixed(2)} — {CATEGORY_LABELS[expense.category]}
+                </span>
+                <span className="row-sub">
+                  {new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}
+                  {expense.description ? ` · ${expense.description}` : ""}
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

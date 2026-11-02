@@ -1,7 +1,9 @@
 // Documents don't use the generic createCrudRoutes factory (multipart
-// upload, no PATCH, hard delete + Storage cleanup - docs/api-contracts.md),
-// so they get their own route tests, following the same mocked-Supabase
-// approach as tests/unit/services/api/crud-routes.test.ts.
+// upload, no PATCH, retention delete - docs/api-contracts.md), so they
+// get their own route tests, following the same mocked-Supabase
+// approach as tests/unit/services/api/crud-routes.test.ts. The full
+// retention lifecycle (tombstone state, Deleted view, restore,
+// incidents) is covered statefully in documents-lifecycle.test.ts.
 
 import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
@@ -25,6 +27,8 @@ function mockSupabase(options: {
   } = {
     select: () => queryBuilder,
     eq: () => queryBuilder,
+    is: () => queryBuilder,
+    not: () => queryBuilder,
     order: () => queryBuilder,
     insert: () => queryBuilder,
     update: () => queryBuilder,
@@ -256,10 +260,14 @@ describe("GET /api/v1/documents?q= (search mode, design §8)", () => {
   });
 });
 
+// Unit A (F-007 / D-05): DELETE is a RETENTION delete - it tombstones
+// the row and never removes files. The pre-Unit-A tests here asserted
+// the old hard-delete contract (row deleted + Storage files removed);
+// that contract is exactly what the accepted design replaced.
 describe("DELETE /api/v1/documents/{id}", () => {
-  it("404s when the document doesn't exist or belongs to another company", async () => {
+  it("404s when the document doesn't exist, is already deleted, or belongs to another company", async () => {
     vi.mocked(createClient).mockResolvedValue(
-      mockSupabase({ queryResult: { data: null } }) as never,
+      mockSupabase({ queryResult: { data: [] } }) as never,
     );
     const res = await DELETE(new NextRequest("http://localhost/api/v1/documents/missing"), {
       params: Promise.resolve({ id: "missing" }),
@@ -267,30 +275,18 @@ describe("DELETE /api/v1/documents/{id}", () => {
     expect(res.status).toBe(404);
   });
 
-  it("204s and removes the underlying file on success", async () => {
-    vi.mocked(createClient).mockResolvedValue(
-      mockSupabase({ queryResult: { data: { storage_path: "company-1/uuid-bol.pdf" } } }) as never,
-    );
-    const res = await DELETE(new NextRequest("http://localhost/api/v1/documents/doc-1"), {
-      params: Promise.resolve({ id: "doc-1" }),
-    });
-    expect(res.status).toBe(204);
-  });
-
-  it("removes the scan rendition along with the original", async () => {
+  it("204s, tombstones the row with retention_status 'retained', and never touches Storage", async () => {
     const removeSpy = vi.fn().mockResolvedValue({ error: null });
+    let updatePayload: Record<string, unknown> | null = null;
     const builder: Record<string, unknown> & { then: (resolve: (v: unknown) => void) => void } = {
       select: () => builder,
       eq: () => builder,
-      delete: () => builder,
-      maybeSingle: () => builder,
-      then: (resolve: (v: unknown) => void) =>
-        resolve({
-          data: {
-            storage_path: "company-1/uuid-bol.jpg",
-            scan_storage_path: "company-1/uuid-scan-bol.png",
-          },
-        }),
+      is: () => builder,
+      update: (payload: Record<string, unknown>) => {
+        updatePayload = payload;
+        return builder;
+      },
+      then: (resolve: (v: unknown) => void) => resolve({ data: [{ id: "doc-1" }] }),
     };
     vi.mocked(createClient).mockResolvedValue({
       from: () => builder,
@@ -302,9 +298,8 @@ describe("DELETE /api/v1/documents/{id}", () => {
     });
 
     expect(res.status).toBe(204);
-    expect(removeSpy).toHaveBeenCalledWith([
-      "company-1/uuid-bol.jpg",
-      "company-1/uuid-scan-bol.png",
-    ]);
+    expect(updatePayload).toMatchObject({ retention_status: "retained" });
+    expect(typeof updatePayload!.deleted_at).toBe("string");
+    expect(removeSpy).not.toHaveBeenCalled();
   });
 });

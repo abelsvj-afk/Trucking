@@ -10,11 +10,17 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { EntityPhoto } from "@/components/EntityPhoto";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import { driverRoleLabel } from "@/lib/fleet-display";
 import type { Driver, Truck } from "@/types/entities";
 
 export default function DriversListPage() {
   usePageTitle("Drivers");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Driver>("drivers");
   const trucks = useApiList<Truck>("trucks");
   const truckUnits = new Map(
@@ -33,6 +39,18 @@ export default function DriversListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="drivers" />
+
+      {showDeleted ? (
+        <DeletedListSection
+          resource="drivers"
+          labelFor={(driver: Driver) => driver.name}
+          sublabelFor={(driver: Driver) =>
+            [driver.status, driverRoleLabel(driver.role), driver.phone].filter(Boolean).join(" · ") || null
+          }
+        />
+      ) : (
+        <>
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
@@ -78,6 +96,8 @@ export default function DriversListPage() {
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

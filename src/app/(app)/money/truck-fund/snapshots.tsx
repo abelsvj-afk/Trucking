@@ -9,6 +9,8 @@
 import { useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { formatDollars } from "@/lib/truck-fund";
+import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import type { AccountSnapshot } from "@/types/entities";
 import type { AccountView } from "@/types/truck-fund";
 
@@ -28,6 +30,9 @@ export default function SnapshotsSection({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One idempotency token per form opening (Unit A / F-006).
+  const submissionId = useSubmissionId();
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,6 +40,7 @@ export default function SnapshotsSection({
     setSaving(true);
     try {
       await apiClient.create<AccountSnapshot>("account-snapshots", {
+        submission_id: submissionId,
         institution,
         account_name: accountName,
         last4,
@@ -166,6 +172,17 @@ export default function SnapshotsSection({
           {saving ? "Saving…" : "Record snapshot"}
         </button>
       </form>
+
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="accounts" />
+      {showDeleted && (
+        <DeletedListSection<AccountSnapshot>
+          resource="account-snapshots"
+          labelFor={(account) =>
+            `${account.institution} — ${account.account_name} (••${account.last4}) — ${formatDollars(account.balance_cents)}`
+          }
+          sublabelFor={(account) => `as of ${account.as_of_date}`}
+        />
+      )}
     </section>
   );
 }

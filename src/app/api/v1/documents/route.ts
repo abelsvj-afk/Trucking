@@ -109,6 +109,11 @@ export const GET = createApiHandler(async (req) => {
   const relatedEntityType = url.searchParams.get("related_entity_type");
   const relatedEntityId = url.searchParams.get("related_entity_id");
   const query = url.searchParams.get("q")?.trim();
+  // Deleted view (Unit A / A.7): ?deleted=only serves ONLY tombstoned
+  // documents (with their retention status, and never signed URLs - a
+  // deleted document is not readable through the list). The default
+  // list and text search exclude tombstones entirely.
+  const deletedOnly = url.searchParams.get("deleted") === "only";
 
   // Search mode (docs/api-contracts.md): q alone is enough - it
   // searches every document's extracted text. Without q, the entity
@@ -119,6 +124,9 @@ export const GET = createApiHandler(async (req) => {
   }
 
   let builder = supabase.from("documents").select("*");
+  builder = deletedOnly
+    ? builder.not("deleted_at", "is", null)
+    : builder.is("deleted_at", null);
   if (relatedEntityType) builder = builder.eq("related_entity_type", relatedEntityType);
   if (relatedEntityId) builder = builder.eq("related_entity_id", relatedEntityId);
   if (query) {
@@ -131,6 +139,7 @@ export const GET = createApiHandler(async (req) => {
   const rows = (data ?? []) as DocumentWithSignedUrl[];
   const withUrls = await Promise.all(
     rows.map(async (doc) => {
+      if (deletedOnly) return { ...doc, signed_url: null, scan_signed_url: null };
       const { data: signed, error: signError } = await supabase.storage
         .from("documents")
         .createSignedUrl(doc.storage_path, SIGNED_URL_TTL_SECONDS);

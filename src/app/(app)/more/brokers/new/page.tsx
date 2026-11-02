@@ -5,6 +5,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { Broker } from "@/types/entities";
@@ -16,6 +17,9 @@ export default function NewBrokerPage() {
   const [mcNumber, setMcNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the broker.
+  const submissionId = useSubmissionId();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,6 +28,7 @@ export default function NewBrokerPage() {
 
     try {
       await apiClient.create<Broker>("brokers", {
+        submission_id: submissionId,
         name,
         mc_number: mcNumber || undefined,
       });

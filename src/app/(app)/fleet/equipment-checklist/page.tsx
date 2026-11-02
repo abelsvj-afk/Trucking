@@ -12,11 +12,21 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { EquipmentChecklistItem, Truck, Trailer } from "@/types/entities";
 
 export default function EquipmentChecklistPage() {
   usePageTitle("Equipment checklist");
-  const [truckId, setTruckId] = useState("");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
+  const [truckId, setTruckId] = useState(() =>
+    typeof window !== "undefined"
+      ? (new URLSearchParams(window.location.search).get("truck_id") ?? "")
+      : "",
+  );
   const { state, retry } = useApiList<EquipmentChecklistItem>(
     "equipment-checklist-items",
     truckId ? { truck_id: truckId } : undefined,
@@ -41,6 +51,29 @@ export default function EquipmentChecklistPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="equipment checklist" />
+
+      {showDeleted ? (
+        <DeletedListSection<EquipmentChecklistItem>
+          resource="equipment-checklist-items"
+          labelFor={(item) => item.item_name}
+          sublabelFor={(item) =>
+            item.last_checked_date
+              ? `checked ${new Date(`${item.last_checked_date}T12:00:00`).toLocaleDateString()}`
+              : null
+          }
+        />
+      ) : (
+        <>
+      {truckId && (
+        <p>
+          Showing one truck&apos;s equipment —{" "}
+          <Link href="/fleet/equipment-checklist" onClick={() => setTruckId("")}>
+            view all
+          </Link>
+        </p>
+      )}
+
       <label htmlFor="truck_filter">Truck</label>
       <select id="truck_filter" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
         <option value="">All trucks</option>
@@ -64,17 +97,21 @@ export default function EquipmentChecklistPage() {
         <ul>
           {state.result.data.map((item) => (
             <li key={item.id}>
-              <span className="row-title">{item.item_name}</span>
-              <span className="row-sub">
-                {vehicleLabel(item)}
-                {item.quantity_on_hand != null && ` · qty ${item.quantity_on_hand}`}
-                {item.last_checked_date &&
-                  ` · checked ${new Date(`${item.last_checked_date}T12:00:00`).toLocaleDateString()}`}
-                {item.notes ? ` · ${item.notes}` : ""}
-              </span>
+              <Link href={`/fleet/equipment-checklist/${item.id}`}>
+                <span className="row-title">{item.item_name}</span>
+                <span className="row-sub">
+                  {vehicleLabel(item)}
+                  {item.quantity_on_hand != null && ` · qty ${item.quantity_on_hand}`}
+                  {item.last_checked_date &&
+                    ` · checked ${new Date(`${item.last_checked_date}T12:00:00`).toLocaleDateString()}`}
+                  {item.notes ? ` · ${item.notes}` : ""}
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

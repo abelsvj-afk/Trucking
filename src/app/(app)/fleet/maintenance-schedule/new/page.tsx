@@ -11,12 +11,14 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import PageHeader from "@/components/PageHeader";
 import type { MaintenanceSchedule, Truck, Trailer } from "@/types/entities";
 
 export default function NewMaintenanceSchedulePage() {
   usePageTitle("Add schedule item");
   const router = useRouter();
+  const submissionId = useSubmissionId();
   const [vehicleType, setVehicleType] = useState<"truck" | "trailer">("truck");
   const [vehicleId, setVehicleId] = useState("");
   const [description, setDescription] = useState("");
@@ -45,6 +47,7 @@ export default function NewMaintenanceSchedulePage() {
         interval_days: intervalDays ? parseInt(intervalDays, 10) : null,
         last_done_date: lastDoneDate || null,
         last_done_mileage: lastDoneMileage ? parseInt(lastDoneMileage, 10) : null,
+        submission_id: submissionId,
       });
       router.push("/fleet/maintenance-schedule");
     } catch (err) {

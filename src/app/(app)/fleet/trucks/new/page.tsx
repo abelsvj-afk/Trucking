@@ -12,6 +12,7 @@ import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import TruckProfileFields, {
   EMPTY_TRUCK_PROFILE,
   truckProfileToPayload,
@@ -26,6 +27,7 @@ import type { Truck } from "@/types/entities";
 
 export default function NewTruckPage() {
   usePageTitle("Add truck");
+  const submissionId = useSubmissionId();
   const router = useRouter();
   const [identity, setIdentity] = useState<TruckIdentityValues>(EMPTY_TRUCK_IDENTITY);
   const [profile, setProfile] = useState<TruckProfileValues>(EMPTY_TRUCK_PROFILE);
@@ -41,6 +43,7 @@ export default function NewTruckPage() {
       const truck = await apiClient.create<Truck>("trucks", {
         ...truckIdentityToPayload(identity),
         ...truckProfileToPayload(profile),
+        submission_id: submissionId,
       });
       router.push(`/fleet/trucks/${truck.id}`);
     } catch (err) {
