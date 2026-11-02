@@ -17,17 +17,25 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createBotStore, type BotBrainStore } from "@/services/bot/store";
 import type { DispatchSuggestion } from "@/services/ai/dispatch";
 import type { BotChatTurn } from "@/services/ai/bot-chat";
+import type { FactRetrieval, RetrievedFact } from "@/services/bot/memory-retrieval";
 import type { BotMemoryRow, CompanySnapshot } from "./context";
 
 export interface TelegramStore {
   loadHistory(chatId: number, limit?: number): Promise<BotChatTurn[]>;
   saveMessage(chatId: number, role: "user" | "assistant", text: string): Promise<void>;
   loadMemories(): Promise<BotMemoryRow[]>;
-  saveMemory(kind: BotMemoryRow["kind"], content: string): Promise<void>;
+  // Return widened to unknown (Lane 2): the brain store's save
+  // resolves the new row's id for lifecycle bookkeeping; v1 callers
+  // just await it and ignore the value, as they always have.
+  saveMemory(kind: BotMemoryRow["kind"], content: string): Promise<unknown>;
   loadSnapshot(): Promise<CompanySnapshot | null>;
   storeExchange(incoming: string, suggestion: DispatchSuggestion): Promise<void>;
   /** Lane 1 (audit B-2): update_id claim for webhook dedup - see BotBrainStore. Optional on this v1 surface; the brain store implements it. */
   claimTelegramUpdate?(updateId: number): Promise<boolean>;
+  /** Lane 2 (Phase A): hybrid retrieval over ALL current facts - see BotBrainStore. Optional here; dispatch-bot falls back to loadMemories + keyword pick when absent. */
+  retrieveFacts?(query: string): Promise<FactRetrieval>;
+  /** Lane 2 (Phase A): ALL standing instructions on their own query. Optional here, same fallback story as retrieveFacts. */
+  loadInstructionMemories?(): Promise<RetrievedFact[]>;
 }
 
 function serviceRoleClient(): SupabaseClient | null {

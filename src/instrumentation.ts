@@ -18,5 +18,10 @@ export async function register() {
     // daily data-trigger re-games, all due-ness from DB state.
     const { startGameScheduler } = await import("@/services/game/scheduler");
     startGameScheduler();
+    // Abel memory consolidation (Intelligence Upgrade Phase B) -
+    // same in-process pattern: nightly embed/summarize/stage pass,
+    // due-ness from consolidation_runs, kill-switched in Settings.
+    const { startConsolidationScheduler } = await import("@/services/bot/consolidation-scheduler");
+    startConsolidationScheduler();
   }
 }

@@ -136,22 +136,53 @@ export type TelegramHandleResult =
 interface LoadedContext {
   history: BotChatInput["history"];
   memories: BotMemoryRow[];
+  /** Lane 2: standing instructions, loaded in full on their own query (never relevance-filtered, never windowed). */
+  instructions: BotMemoryRow[];
+  /** Lane 2: the facts block for this turn - hybrid retrieval over ALL current facts when the store supports it. */
+  relevantMemories: BotMemoryRow[];
+  /** Lane 2: the retrieval self-report line (null on the legacy path). */
+  memoryReport: string | null;
   snapshotText: string | null;
   /** Lane 1 (audit B-4): true when the context load failed and the turn is answering without his records - the reply must SAY so. */
   degraded: boolean;
 }
 
-async function loadContext(store: TelegramStore, chatId: number): Promise<LoadedContext> {
+async function loadContext(store: TelegramStore, chatId: number, text: string): Promise<LoadedContext> {
   try {
-    const [history, memories, snapshot] = await Promise.all([
+    const [history, snapshot] = await Promise.all([
       store.loadHistory(chatId),
-      store.loadMemories(),
       store.loadSnapshot(),
     ]);
+    const snapshotText = snapshot ? formatCompanySnapshot(snapshot) : null;
+    // Lane 2 (Phase A): when the store carries the Lane 2 retrieval
+    // surface (the shared brain store does), instructions and facts
+    // come from hybrid retrieval over the whole store - the
+    // newest-100 load + keyword pick no longer touches context
+    // assembly. Older store shapes (test doubles, the v1 store)
+    // keep the legacy path below.
+    if (store.retrieveFacts && store.loadInstructionMemories) {
+      const [instructions, retrieval] = await Promise.all([
+        store.loadInstructionMemories(),
+        store.retrieveFacts(text),
+      ]);
+      return {
+        history,
+        memories: retrieval.facts as BotMemoryRow[],
+        instructions: instructions as BotMemoryRow[],
+        relevantMemories: retrieval.facts as BotMemoryRow[],
+        memoryReport: retrieval.reportLine,
+        snapshotText,
+        degraded: false,
+      };
+    }
+    const memories = await store.loadMemories();
     return {
       history,
       memories,
-      snapshotText: snapshot ? formatCompanySnapshot(snapshot) : null,
+      instructions: instructionMemories(memories),
+      relevantMemories: pickRelevantMemories(memories, text),
+      memoryReport: null,
+      snapshotText,
       degraded: false,
     };
   } catch (err) {
@@ -160,7 +191,15 @@ async function loadContext(store: TelegramStore, chatId: number): Promise<Loaded
     // a silently dumber answer is the failure this flag exists to
     // prevent. Callers append CONTEXT_DEGRADED_NOTE to the reply.
     console.error("[telegram] failed to load bot context", err);
-    return { history: [], memories: [], snapshotText: null, degraded: true };
+    return {
+      history: [],
+      memories: [],
+      instructions: [],
+      relevantMemories: [],
+      memoryReport: null,
+      snapshotText: null,
+      degraded: true,
+    };
   }
 }
 
@@ -264,10 +303,18 @@ export async function handleTelegramUpdate(
   );
   const intent = classifyTelegramText(text, isForwarded, "telegram");
   const ctx: LoadedContext = store
-    ? await loadContext(store, chat.id)
-    : { history: [], memories: [], snapshotText: null, degraded: false };
-  const instructions = instructionMemories(ctx.memories);
-  const relevantMemories = pickRelevantMemories(ctx.memories, text);
+    ? await loadContext(store, chat.id, text)
+    : {
+        history: [],
+        memories: [],
+        instructions: [],
+        relevantMemories: [],
+        memoryReport: null,
+        snapshotText: null,
+        degraded: false,
+      };
+  const instructions = ctx.instructions;
+  const relevantMemories = ctx.relevantMemories;
   // Lane 1 (audit B-4): a degraded turn's reply carries the note -
   // applied at send time in every branch below.
   const withDegradedNote = (reply: string): string =>
@@ -319,9 +366,12 @@ export async function handleTelegramUpdate(
           return "dispatch_disabled";
         }
       }
+      const dispatchContext = buildDispatchContext(ctx.snapshotText, instructions, relevantMemories);
       const suggestion = await deps.getSuggestion(
         text,
-        buildDispatchContext(ctx.snapshotText, instructions, relevantMemories),
+        ctx.memoryReport
+          ? `${dispatchContext ?? ""}\n\nCONTEXT REPORT: ${ctx.memoryReport}`.trim()
+          : dispatchContext,
       );
       let reply = formatDispatchSuggestion(suggestion);
       // §11: recordables the helper spotted ride the same
@@ -359,6 +409,7 @@ export async function handleTelegramUpdate(
       snapshotText: ctx.snapshotText,
       instructions,
       memories: relevantMemories,
+      memoryReport: ctx.memoryReport ?? undefined,
     };
     if (deps.runAgent && store) {
       const agentOutput = await deps.runAgent(chatInput);
