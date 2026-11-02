@@ -30,11 +30,7 @@ import {
 import type { AiProvider } from "@/services/ai/provider";
 import { isAgentCapableProvider } from "@/services/ai/provider";
 import { JOB_KNOWLEDGE_BRIEF } from "@/services/ai/job-knowledge";
-import {
-  formatCompanySnapshot,
-  instructionMemories,
-  pickRelevantMemories,
-} from "@/services/telegram/context";
+import { formatCompanySnapshot } from "@/services/telegram/context";
 import type { BotBrainStore, PendingAction } from "./store";
 import { buildBotTools, executeWriteTool } from "./tools";
 import {
@@ -65,7 +61,7 @@ CORRECTIONS: When a numbered dump batch is pending (the context block lists it) 
 
 HOS: The duty-log tool data is the paper-log helper, never the ELD and never legal advice - keep the §6 framing when HOS comes up: helper numbers are a cross-check against the ELD, and the ELD governs.
 
-MEMORY: If he dictates a durable fact in conversation (not a standing instruction - those come through his "instruction:" messages), save it with the save_memory tool. If the turn's JSON-free chat ends and you proposed nothing, just answer.
+MEMORY: If he dictates a durable fact in conversation (not a standing instruction - those come through his "instruction:" messages), save it with the save_memory tool. If the turn's JSON-free chat ends and you proposed nothing, just answer. The REMEMBERED FACTS block is a budget-limited slice of a much bigger store (the CONTEXT REPORT says how big) - when he refers to something that isn't in the block, use search_memory to look it up across all memories, past messages, and documents before saying you don't have it. Never claim a fact is gone just because it isn't in this turn's block.
 
 JOB COACHING: He is new to over-the-road work and learning the job from inside it. When he asks how to handle something - a document, a dock problem, a message he has to answer - coach him from the JOB KNOWLEDGE below: the exact steps, what to check before he signs anything, what to photograph, and the words to say. Ground it in his actual situation (his load and clocks from the context and tools), never generic filler.
 
@@ -95,21 +91,37 @@ export function classifyConfirmation(text: string): ConfirmationKind {
   return "other";
 }
 
-/** The code-assembled context for a conversational turn (v1's builder, reused by both surfaces). */
+/**
+ * The code-assembled context for a conversational turn (reused by
+ * both surfaces). Lane 2 (Intelligence Upgrade Phase A, design
+ * §3.5): assembly is budget-based hybrid retrieval now - standing
+ * instructions load in FULL from their own query (never filtered
+ * out of a newest-100 window again), facts come from hybrid
+ * retrieval over ALL current facts with a mandatory self-report
+ * line, history is 12 verbatim turns plus the rolling weekly
+ * summary for anything older. The v1 load-100-and-keyword-pick
+ * path is gone from context assembly.
+ */
 export async function loadBotContext(
   store: BotBrainStore,
   userText: string,
 ): Promise<Omit<BotChatInput, "userText">> {
-  const [history, snapshot, memories] = await Promise.all([
-    store.loadConversationHistory(20),
+  const [history, snapshot, instructions, retrieval, summary] = await Promise.all([
+    store.loadConversationHistory(12),
     store.loadSnapshot(),
-    store.loadMemories(),
+    store.loadInstructionMemories(),
+    store.retrieveFacts(userText),
+    store.loadLatestSummary(),
   ]);
   return {
     history,
     snapshotText: snapshot ? formatCompanySnapshot(snapshot) : null,
-    instructions: instructionMemories(memories),
-    memories: pickRelevantMemories(memories, userText),
+    instructions: instructions as BotChatInput["instructions"],
+    memories: retrieval.facts as BotChatInput["memories"],
+    memoryReport: retrieval.reportLine,
+    summaryText: summary
+      ? `EARLIER CONVERSATION SUMMARY (week of ${summary.weekStart} - built from his actual past turns, which remain stored in full):\n${summary.summary}`
+      : null,
   };
 }
 
@@ -286,11 +298,18 @@ export async function runAgentTurn(
       `A PROPOSED ACTION IS WAITING FOR HIS YES/NO (over 2 hours old proposals expire): ${pending.summary}. If he says yes or no, it is handled - anything else, answer normally and it stays waiting.`,
     );
   }
+  if (input.summaryText) contextBlocks.push(input.summaryText);
   if (input.snapshotText) contextBlocks.push(input.snapshotText);
   if (input.memories.length > 0) {
     contextBlocks.push(
       `REMEMBERED FACTS ABOUT HIM AND HIS BUSINESS:\n${input.memories.map((m) => `- ${m.content}`).join("\n")}`,
     );
+  }
+  if (input.memoryReport) {
+    // Self-reporting truncation (design §3.5): the model SEES the
+    // budget line, so "how much do you remember?" gets an honest
+    // answer and a held-back fact is a search away, not a silence.
+    contextBlocks.push(`CONTEXT REPORT: ${input.memoryReport}`);
   }
 
   const result = await runAgentLoop({

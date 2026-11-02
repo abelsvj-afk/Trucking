@@ -136,22 +136,53 @@ export type TelegramHandleResult =
 interface LoadedContext {
   history: BotChatInput["history"];
   memories: BotMemoryRow[];
+  /** Lane 2: standing instructions, loaded in full on their own query (never relevance-filtered, never windowed). */
+  instructions: BotMemoryRow[];
+  /** Lane 2: the facts block for this turn - hybrid retrieval over ALL current facts when the store supports it. */
+  relevantMemories: BotMemoryRow[];
+  /** Lane 2: the retrieval self-report line (null on the legacy path). */
+  memoryReport: string | null;
   snapshotText: string | null;
   /** Lane 1 (audit B-4): true when the context load failed and the turn is answering without his records - the reply must SAY so. */
   degraded: boolean;
 }
 
-async function loadContext(store: TelegramStore, chatId: number): Promise<LoadedContext> {
+async function loadContext(store: TelegramStore, chatId: number, text: string): Promise<LoadedContext> {
   try {
-    const [history, memories, snapshot] = await Promise.all([
+    const [history, snapshot] = await Promise.all([
       store.loadHistory(chatId),
-      store.loadMemories(),
       store.loadSnapshot(),
     ]);
+    const snapshotText = snapshot ? formatCompanySnapshot(snapshot) : null;
+    // Lane 2 (Phase A): when the store carries the Lane 2 retrieval
+    // surface (the shared brain store does), instructions and facts
+    // come from hybrid retrieval over the whole store - the
+    // newest-100 load + keyword pick no longer touches context
+    // assembly. Older store shapes (test doubles, the v1 store)
+    // keep the legacy path below.
+    if (store.retrieveFacts && store.loadInstructionMemories) {
+      const [instructions, retrieval] = await Promise.all([
+        store.loadInstructionMemories(),
+        store.retrieveFacts(text),
+      ]);
+      return {
+        history,
+        memories: retrieval.facts as BotMemoryRow[],
+        instructions: instructions as BotMemoryRow[],
+        relevantMemories: retrieval.facts as BotMemoryRow[],
+        memoryReport: retrieval.reportLine,
+        snapshotText,
+        degraded: false,
+      };
+    }
+    const memories = await store.loadMemories();
     return {
       history,
       memories,
-      snapshotText: snapshot ? formatCompanySnapshot(snapshot) : null,
+      instructions: instructionMemories(memories),
+      relevantMemories: pickRelevantMemories(memories, text),
+      memoryReport: null,
+      snapshotText,
       degraded: false,
     };
   } catch (err) {
@@ -160,7 +191,15 @@ async function loadContext(store: TelegramStore, chatId: number): Promise<Loaded
     // a silently dumber answer is the failure this flag exists to
     // prevent. Callers append CONTEXT_DEGRADED_NOTE to the reply.
     console.error("[telegram] failed to load bot context", err);
-    return { history: [], memories: [], snapshotText: null, degraded: true };
+    return {
+      history: [],
+      memories: [],
+      instructions: [],
+      relevantMemories: [],
+      memoryReport: null,
+      snapshotText: null,
+      degraded: true,
+    };
   }
 }
 
@@ -168,10 +207,50 @@ async function loadContext(store: TelegramStore, chatId: number): Promise<Loaded
 export const CONTEXT_DEGRADED_NOTE =
   "\n\n(Heads up: I couldn't pull up your records for that one, so I answered without your history, memories, and snapshot — I may be missing context.)";
 
+/**
+ * Fix round (pitfall hunt CD-6): the claim/release wrapper. Lane 1's
+ * dedup claimed the update_id BEFORE processing, which buys
+ * no-duplicates at a price nobody named: if the turn then fails -
+ * above all when the reply SEND fails - Telegram's redelivery hits
+ * the standing claim and the message is dropped forever, with the
+ * turn possibly never persisted. This wrapper releases the claim
+ * whenever processing escapes with an error (the turn did NOT
+ * complete), so the webhook's error return lets Telegram redeliver
+ * and the retry reprocesses. Turns that complete - including ones
+ * that complete by apologizing - keep their claim: reprocessing
+ * them would double-apply their writes. The release is best-effort;
+ * if it fails, that is logged loudly, because a dropped message is
+ * exactly what a human needs to hear about.
+ */
 export async function handleTelegramUpdate(
   update: TelegramUpdate,
   config: TelegramConfig,
   deps: TelegramDeps,
+): Promise<TelegramHandleResult> {
+  const claim: { updateId: number | null } = { updateId: null };
+  try {
+    return await processTelegramUpdate(update, config, deps, claim);
+  } catch (err) {
+    if (claim.updateId !== null && deps.store?.releaseTelegramUpdate) {
+      try {
+        await deps.store.releaseTelegramUpdate(claim.updateId);
+      } catch (releaseErr) {
+        console.error(
+          "[telegram] FAILED to release the update claim after a failed turn - " +
+            "Telegram's redelivery of this update will be ignored as a duplicate and the message may be lost",
+          releaseErr,
+        );
+      }
+    }
+    throw err;
+  }
+}
+
+async function processTelegramUpdate(
+  update: TelegramUpdate,
+  config: TelegramConfig,
+  deps: TelegramDeps,
+  claim: { updateId: number | null },
 ): Promise<TelegramHandleResult> {
   if (!config.botToken) return "disabled";
 
@@ -211,6 +290,10 @@ export async function handleTelegramUpdate(
     let claimed = true;
     try {
       claimed = await store.claimTelegramUpdate(update.update_id);
+      // CD-6: remember the claim so the wrapper can release it if
+      // this turn never completes. Recorded only when the claim
+      // actually landed (a claim call that threw recorded nothing).
+      if (claimed) claim.updateId = update.update_id;
     } catch (err) {
       console.error("[telegram] update claim failed", err);
     }
@@ -264,10 +347,18 @@ export async function handleTelegramUpdate(
   );
   const intent = classifyTelegramText(text, isForwarded, "telegram");
   const ctx: LoadedContext = store
-    ? await loadContext(store, chat.id)
-    : { history: [], memories: [], snapshotText: null, degraded: false };
-  const instructions = instructionMemories(ctx.memories);
-  const relevantMemories = pickRelevantMemories(ctx.memories, text);
+    ? await loadContext(store, chat.id, text)
+    : {
+        history: [],
+        memories: [],
+        instructions: [],
+        relevantMemories: [],
+        memoryReport: null,
+        snapshotText: null,
+        degraded: false,
+      };
+  const instructions = ctx.instructions;
+  const relevantMemories = ctx.relevantMemories;
   // Lane 1 (audit B-4): a degraded turn's reply carries the note -
   // applied at send time in every branch below.
   const withDegradedNote = (reply: string): string =>
@@ -319,9 +410,12 @@ export async function handleTelegramUpdate(
           return "dispatch_disabled";
         }
       }
+      const dispatchContext = buildDispatchContext(ctx.snapshotText, instructions, relevantMemories);
       const suggestion = await deps.getSuggestion(
         text,
-        buildDispatchContext(ctx.snapshotText, instructions, relevantMemories),
+        ctx.memoryReport
+          ? `${dispatchContext ?? ""}\n\nCONTEXT REPORT: ${ctx.memoryReport}`.trim()
+          : dispatchContext,
       );
       let reply = formatDispatchSuggestion(suggestion);
       // §11: recordables the helper spotted ride the same
@@ -359,6 +453,7 @@ export async function handleTelegramUpdate(
       snapshotText: ctx.snapshotText,
       instructions,
       memories: relevantMemories,
+      memoryReport: ctx.memoryReport ?? undefined,
     };
     if (deps.runAgent && store) {
       const agentOutput = await deps.runAgent(chatInput);

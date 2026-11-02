@@ -17,6 +17,15 @@ import { summarizeHos } from "@/lib/hos";
 import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
 import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { isMissingColumnError } from "./tool-helpers";
+import { MEMORY_CONSOLIDATION_CAPABILITY } from "./consolidation";
+import { getEmbeddingProvider, toVectorLiteral, tryEmbed } from "./embeddings";
+import { applySupersession } from "./memory-lifecycle";
+import {
+  loadAllInstructions,
+  retrieveCurrentFacts,
+  type FactRetrieval,
+  type RetrievedFact,
+} from "./memory-retrieval";
 import type { DispatchSuggestion } from "@/services/ai/dispatch";
 import type { BotChatTurn } from "@/services/ai/bot-chat";
 import type { TelegramStore } from "@/services/telegram/store";
@@ -73,11 +82,54 @@ export interface BotBrainStore extends TelegramStore {
    * must not process it again). Backed by telegram_processed_updates
    * (migration 00033); before that migration lands it resolves true
    * (dedup inactive, historical behavior) rather than failing turns.
+   * A successful claim also opportunistically prunes claims older
+   * than 30 days (pitfall hunt CD-9 - the table otherwise only grows).
    */
   claimTelegramUpdate(updateId: number): Promise<boolean>;
+  /**
+   * Fix round (pitfall hunt CD-6): releases a claim whose turn did
+   * NOT complete (the reply send failed and the error escaped), so
+   * Telegram's redelivery of that update is processed instead of
+   * being swallowed as a duplicate. Best-effort by contract: the
+   * caller logs loudly when this rejects. Before migration 00033
+   * there is no claim table - releasing is a silent no-op.
+   */
+  releaseTelegramUpdate(updateId: number): Promise<void>;
+  // --- Lane 2 (Abel Intelligence Upgrade, Phases A+B) ---
+  /** Hybrid retrieval over ALL current facts (design §3.5) - the context-assembly path that replaces loadMemories+keyword-pick. */
+  retrieveFacts(query: string): Promise<FactRetrieval>;
+  /** ALL standing instructions (procedural memory is never relevance-filtered and never windowed). */
+  loadInstructionMemories(): Promise<RetrievedFact[]>;
+  /** The newest rolling conversation summary, when the night shift has produced one (migration 00032; null before it / when none). */
+  loadLatestSummary(): Promise<{ weekStart: string; summary: string } | null>;
+  /** The memory_consolidation kill switch (the night shift), same convention as every capability. */
+  isMemoryConsolidationEnabled(): Promise<boolean>;
+  /** "What Abel remembers" surface: current memories, plus superseded history when asked. */
+  listMemories(options?: { includeHistory?: boolean; limit?: number }): Promise<(RetrievedFact & { valid_to: string | null; superseded_by: string | null })[]>;
+  /** Owner edit = supersede-with-correction (design §3.4: rows are never edited in place). Resolves the NEW row's id. */
+  editMemory(id: string, content: string): Promise<string>;
+  /** Owner delete = the store's existing soft delete. */
+  deleteMemory(id: string): Promise<void>;
+  /**
+   * Wider save (Lane 2): resolves the new row's id (null when the
+   * insert couldn't return it) and accepts lifecycle options. The
+   * base TelegramStore signature stays (kind, content) - this
+   * overload is what the agent tools and admin surface call.
+   */
+  saveMemory(
+    kind: BotMemoryRow["kind"],
+    content: string,
+    options?: { supersedesId?: string; provenance?: string },
+  ): Promise<string | null>;
 }
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** CD-9: dedup claims older than this are pruned opportunistically on claim (a redelivery never arrives this late; the row is pure history by then). */
+const PROCESSED_UPDATE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/** Prune at most once an hour per process - claims are frequent, retention is not urgent. */
+const PROCESSED_UPDATE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+let lastProcessedUpdatePruneAt = 0;
 
 export function createBotStore(
   supabase: SupabaseClient,
@@ -180,14 +232,71 @@ export function createBotStore(
       return (data ?? []) as BotMemoryRow[];
     },
 
-    async saveMemory(kind, content) {
-      const { error } = await supabase.from("bot_memories").insert({
-        company_id: company,
-        kind,
-        content,
-        source: channel,
-      });
+    async saveMemory(kind, content, options?: { supersedesId?: string; provenance?: string }) {
+      const { data, error } = await supabase
+        .from("bot_memories")
+        .insert({
+          company_id: company,
+          kind,
+          content,
+          source: channel,
+        })
+        .select("id")
+        .single();
       if (error) throw new Error(error.message);
+      const newId = (data as { id?: string } | null)?.id ?? null;
+      if (newId) {
+        // Lane 2: embed at write time (best-effort - the night shift
+        // backfills anything missed) and close whatever this fact
+        // supersedes (same-subject profiles/business facts, plus an
+        // explicitly named row). Both steps are individually
+        // graceful before migration 00029 lands.
+        const provider = getEmbeddingProvider();
+        const vector = await tryEmbed(provider, content);
+        if (vector && provider) {
+          const { error: embedError } = await supabase
+            .from("bot_memories")
+            .update({ embedding: toVectorLiteral(vector), embedding_model: provider.model })
+            .eq("id", newId)
+            .eq("company_id", company);
+          if (embedError && !isMissingColumnError(embedError)) {
+            console.error("[bot-store] memory embedding write failed", embedError.message);
+          }
+        }
+        if (options?.provenance) {
+          const { error: provError } = await supabase
+            .from("bot_memories")
+            .update({ provenance: options.provenance })
+            .eq("id", newId)
+            .eq("company_id", company);
+          if (provError && !isMissingColumnError(provError)) {
+            console.error("[bot-store] memory provenance write failed", provError.message);
+          }
+        }
+        await applySupersession(supabase, company, { id: newId, kind, content }, {
+          supersedesId: options?.supersedesId,
+          // CD-4: a same-name person profile whose role doesn't
+          // confirm the same person was deliberately NOT closed.
+          // Stage the question on the existing proposal path
+          // instead: approving it re-runs save_memory naming the
+          // old row, which closes it through the explicit path.
+          onAmbiguousPersonMatch: async (oldRow) => {
+            const { error: stageError } = await supabase.from("bot_pending_actions").insert({
+              company_id: company,
+              channel,
+              tool_name: "save_memory",
+              arguments: { kind, content, supersedes_id: oldRow.id },
+              summary:
+                `Replace an older profile? A new profile was just saved ("${content}"), and an older ` +
+                `profile with the same name exists ("${oldRow.content}") - but the roles don't confirm ` +
+                `they're the same person, so the older one was left current. Yes closes the older ` +
+                `profile in favor of the new one; no keeps both.`,
+            });
+            if (stageError) throw new Error(stageError.message);
+          },
+        });
+      }
+      return newId;
     },
 
     async loadSnapshot() {
@@ -374,7 +483,10 @@ export function createBotStore(
         company_id: company,
         update_id: updateId,
       });
-      if (!error) return true;
+      if (!error) {
+        await pruneProcessedUpdates();
+        return true;
+      }
       // Unique violation = this update was already claimed: a
       // Telegram redelivery, which must never be processed twice.
       if ((error as { code?: string }).code === "23505") return false;
@@ -385,7 +497,146 @@ export function createBotStore(
       }
       throw new Error(error.message);
     },
+
+    async releaseTelegramUpdate(updateId: number) {
+      const { error } = await supabase
+        .from("telegram_processed_updates")
+        .delete()
+        .eq("company_id", company)
+        .eq("update_id", updateId);
+      if (!error) return;
+      // Graceful absence: migration 00033 not applied yet - there
+      // was no claim to release.
+      if (/telegram_processed_updates/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+        return;
+      }
+      throw new Error(error.message);
+    },
+
+    // --- Lane 2 (Phases A+B) ---
+
+    async retrieveFacts(query: string) {
+      return retrieveCurrentFacts(supabase, company, query, {
+        embedder: getEmbeddingProvider(),
+      });
+    },
+
+    async loadInstructionMemories() {
+      return loadAllInstructions(supabase, company);
+    },
+
+    async loadLatestSummary() {
+      const { data, error } = await supabase
+        .from("conversation_summaries")
+        .select("week_start, summary")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .order("week_start", { ascending: false })
+        .limit(1);
+      if (error) {
+        // Graceful absence: migration 00032 not applied yet.
+        if (/conversation_summaries/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+          return null;
+        }
+        throw new Error(error.message);
+      }
+      const row = (data ?? [])[0] as { week_start: string; summary: string } | undefined;
+      return row ? { weekStart: row.week_start, summary: row.summary } : null;
+    },
+
+    async isMemoryConsolidationEnabled() {
+      return capabilityEnabled(MEMORY_CONSOLIDATION_CAPABILITY);
+    },
+
+    async listMemories(options?: { includeHistory?: boolean; limit?: number }) {
+      const run = (withLifecycle: boolean) => {
+        let q = supabase
+          .from("bot_memories")
+          .select(
+            withLifecycle
+              ? "id, kind, content, created_at, valid_to, superseded_by"
+              : "id, kind, content, created_at",
+          )
+          .eq("company_id", company)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(options?.limit ?? 500);
+        if (withLifecycle && !options?.includeHistory) q = q.is("valid_to", null);
+        return q;
+      };
+      let result = await run(true);
+      if (result.error && isMissingColumnError(result.error)) result = await run(false);
+      if (result.error) throw new Error(result.error.message);
+      return ((result.data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        kind: String(row.kind),
+        content: String(row.content),
+        created_at: String(row.created_at),
+        valid_to: typeof row.valid_to === "string" ? row.valid_to : null,
+        superseded_by: typeof row.superseded_by === "string" ? row.superseded_by : null,
+      })) as (RetrievedFact & { valid_to: string | null; superseded_by: string | null })[];
+    },
+
+    async editMemory(id: string, content: string) {
+      const { data: existing, error: loadError } = await supabase
+        .from("bot_memories")
+        .select("id, kind")
+        .eq("id", id)
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (loadError) throw new Error(loadError.message);
+      if (!existing) throw new Error("That memory doesn't exist (or was already deleted).");
+      const kind = (existing as { kind: BotMemoryRow["kind"] }).kind;
+      // The correction lands as a NEW row that supersedes the old
+      // one - history keeps the original wording and its dates.
+      const newId = await this.saveMemory(kind, content, {
+        supersedesId: id,
+        provenance: "owner_stated",
+      });
+      if (!newId) throw new Error("The corrected memory couldn't be saved.");
+      return newId;
+    },
+
+    async deleteMemory(id: string) {
+      const { error } = await supabase
+        .from("bot_memories")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("company_id", company)
+        .is("deleted_at", null);
+      if (error) throw new Error(error.message);
+    },
   };
+
+  /**
+   * CD-9: delete this company's dedup claims older than the
+   * retention window (keyed on processed_at, the claim timestamp
+   * migration 00033 stamps at insert). Throttled per process and
+   * failure-tolerant by design: pruning must never fail a claim -
+   * a failure logs and the next claim after the interval retries.
+   */
+  async function pruneProcessedUpdates(): Promise<void> {
+    const now = Date.now();
+    if (now - lastProcessedUpdatePruneAt < PROCESSED_UPDATE_PRUNE_INTERVAL_MS) return;
+    lastProcessedUpdatePruneAt = now;
+    try {
+      const cutoff = new Date(now - PROCESSED_UPDATE_RETENTION_MS).toISOString();
+      const { error } = await supabase
+        .from("telegram_processed_updates")
+        .delete()
+        .eq("company_id", company)
+        .lt("processed_at", cutoff);
+      if (
+        error &&
+        !(/telegram_processed_updates/.test(error.message) && /does not exist|could not find/i.test(error.message))
+      ) {
+        console.error("[bot-store] processed-update prune failed", error.message);
+      }
+    } catch (err) {
+      console.error("[bot-store] processed-update prune failed", err);
+    }
+  }
 
   /** One capability check, shared by every kill switch: global switch first, then the per-capability row; no row = off (fails closed). */
   async function capabilityEnabled(capability: string): Promise<boolean> {

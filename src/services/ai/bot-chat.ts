@@ -35,6 +35,10 @@ export interface BotChatInput {
   snapshotText: string | null;
   instructions: BotMemoryRow[];
   memories: BotMemoryRow[];
+  /** Lane 2: the retrieval self-report line ("showing X of Y facts") - rendered into the prompt when present. */
+  memoryReport?: string;
+  /** Lane 2: rolling summary block for conversation older than the verbatim history window. */
+  summaryText?: string | null;
 }
 
 const SYSTEM_PROMPT = `You are the owner's personal trucking assistant, talking with him in a private Telegram chat. He is a driver building his own trucking company, often working with Spanish-speaking contacts.
@@ -80,10 +84,12 @@ function buildUserPrompt(input: BotChatInput): string {
         input.instructions.map((m) => `- ${m.content}`).join("\n"),
     );
   }
+  if (input.summaryText) parts.push(input.summaryText);
   if (input.snapshotText) parts.push(input.snapshotText);
   if (input.memories.length > 0) {
     parts.push("REMEMBERED FACTS:\n" + input.memories.map((m) => `- (${m.kind}) ${m.content}`).join("\n"));
   }
+  if (input.memoryReport) parts.push(`CONTEXT REPORT: ${input.memoryReport}`);
   if (input.history.length > 0) {
     parts.push(
       "RECENT CONVERSATION:\n" +

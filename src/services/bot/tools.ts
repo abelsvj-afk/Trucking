@@ -17,8 +17,9 @@
 import { z } from "zod";
 import { summarizeHos } from "@/lib/hos";
 import type { AgentTool } from "@/services/ai/agent-loop";
-import { pickRelevantMemories } from "@/services/telegram/context";
 import type { BotBrainStore } from "./store";
+import { searchMemoryEverywhere } from "./memory-retrieval";
+import { getEmbeddingProvider } from "./embeddings";
 import type { DutyLog } from "@/types/entities";
 import { validateWith } from "./tool-helpers";
 import { buildExtendedReadTools } from "./tools-read";
@@ -216,8 +217,14 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
     },
     {
-      name: "search_memories",
-      description: "Search his long-term bot memories (facts, notes, expense hints he dictated) by topic. Use when he refers to something he told you before that isn't in the remembered-facts block.",
+      // Lane 2 (Phase A): hybrid search over EVERYTHING - memories
+      // (including superseded history), past conversation turns, and
+      // documents - not just the newest 100 memories. Registered
+      // under both names: search_memory is the design's name;
+      // search_memories is the historical one the prompt and the
+      // owner's habits already know.
+      name: "search_memory",
+      description: "Search Abel's whole memory by meaning and keywords: long-term memories (current AND superseded), past conversation turns, and document text. Use whenever he refers to something said, sent, or saved before that isn't in this turn's context blocks - search rather than guess, and rather than saying you don't remember.",
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -225,10 +232,36 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
       access: "read",
       async run(args) {
-        const memories = await store.loadMemories();
-        const hits = pickRelevantMemories(memories, String(args.query ?? ""), 10);
-        if (hits.length === 0) return "No memories matched that.";
-        return hits.map((m) => `- (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.content}`).join("\n");
+        const query = String(args.query ?? "").trim();
+        if (!query) return "Give me a word, name, or topic to search memory for.";
+        const hits = await searchMemoryEverywhere(client, companyId, query, {
+          embedder: getEmbeddingProvider(),
+        });
+        if (hits.length === 0) return `Nothing in memory matches "${query}" - not in memories, past messages, or documents.`;
+        return hits
+          .map((h) => `- [${h.source}, ${h.created_at.slice(0, 10)}] ${h.snippet}`)
+          .join("\n");
+      },
+    },
+    {
+      name: "search_memories",
+      description: "Alias of search_memory (hybrid search over memories, past turns, and documents). Prefer search_memory.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+      access: "read",
+      async run(args) {
+        const query = String(args.query ?? "").trim();
+        if (!query) return "Give me a word, name, or topic to search memory for.";
+        const hits = await searchMemoryEverywhere(client, companyId, query, {
+          embedder: getEmbeddingProvider(),
+        });
+        if (hits.length === 0) return `Nothing in memory matches "${query}" - not in memories, past messages, or documents.`;
+        return hits
+          .map((h) => `- [${h.source}, ${h.created_at.slice(0, 10)}] ${h.snippet}`)
+          .join("\n");
       },
     },
     {
@@ -465,7 +498,9 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
       async run(args) {
         const parsed = saveMemoryArgs.parse(args);
-        await store.saveMemory(parsed.kind, parsed.content);
+        await store.saveMemory(parsed.kind, parsed.content, {
+          supersedesId: parsed.supersedes_id,
+        });
         return `Saved to memory: "${parsed.content}"`;
       },
     },
@@ -640,6 +675,12 @@ const saveMemoryArgs = z.object({
   // parsed back by profilesForPerson / parseBusinessFact).
   kind: z.enum(["fact", "note", "person_profile", "business_fact"]),
   content: z.string().min(1),
+  // Lane 2 (Phase B): an explicit update names the row it replaces;
+  // the store closes that row (valid_to + superseded_by) instead of
+  // leaving two contradictory "current" facts. Set by update
+  // proposals (e.g. the night shift's staged updates), not by the
+  // model freehand.
+  supersedes_id: z.string().uuid().optional(),
 });
 
 const addLoadNoteArgs = z.object({
