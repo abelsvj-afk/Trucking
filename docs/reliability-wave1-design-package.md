@@ -1,0 +1,706 @@
+# Trucking — Wave 1 DESIGN PACKAGE
+
+**Program:** Trucking Reliability & Completion Program
+**Status:** DESIGN ONLY — **PROPOSED, awaiting ChatGPT review and owner ruling.** No code, no commits, no branches, no implementation is authorized by this document.
+**Date:** 2026-10-31 · **Baseline:** main `296732d4` (source findings verified against `7e03ed3`; delta is docs-only)
+**Sources:** `Trucking-Audit-Fix-Checklist.md` (charter + Challenge Round 1 reconciliation) and `Trucking-Verification-Register-2026-10-31.md` (verified behavior + file:line evidence, incl. its 00022 erratum). This package designs; it does not re-audit.
+**Scope — ChatGPT's regrouped Wave 1 only:** F-001, F-002, F-003 (cleared), F-004, F-005, F-006, F-007, F-008, F-009, F-010, F-011, F-012, F-013, F-014 (cleared), F-015, F-016, F-023, F-026, F-028, F-033, F-036, F-037, F-053. **That is 23 finding IDs: 21 active findings plus cleared F-003 and F-014** (Revision 2 count correction — Rev 1's summary text said 22; the ID list itself was always these 23).
+
+> ## Revision 2 — Challenge-response (2026-10-31)
+>
+> **What this is:** a bounded revision answering ChatGPT's design review of Rev 1 (verdict: **ACCEPT WITH BOUNDED DESIGN CORRECTIONS — NOT YET APPROVED FOR IMPLEMENTATION**). Only the seven corrections below were made; everything not listed here is Rev 1 text, intact. Revised sections are marked **‹Rev 2›**. No scope expansion, no unrelated redesign. Still **design only** — no code, no migrations written, no implementation authorized.
+>
+> 1. **F-015 / Unit B — BLOCKING correction, Rev 1 retracted.** Rev 1 recommended switching the 60/7 and 70/8 calculation to viewer-local **calendar-day bucketing** and called that "how FMCSA counts." **That claim was wrong and is withdrawn.** Per FMCSA, the 60/7 and 70/8 limits run over **rolling periods of 7 or 8 consecutive 24-hour periods anchored to the motor carrier's specified start time**; the oldest period drops out as a new one begins. Unit B now designs: carrier-anchored consecutive-period calculation; the anchor start time and cycle choice as **carrier configuration** (company settings, explicitly labeled carrier-specified, not a driver preference); explicit **34-hour restart** handling with a conservative rule for ambiguous restart data; an HOS window query anchored to the carrier period boundary; and acceptance tests where the continuous rolling-192h method, the carrier-anchored method, and calendar-day bucketing **all three differ — with the carrier-anchored result as the expected answer and calendar-day explicitly NOT the expected answer.** The F-014 non-ELD disclaimer is preserved unchanged in strength.
+> 2. **Unit A — document deletion is now a retained tombstone state machine** (F-004/F-038/D-05), superseding Rev 1's same-request hard delete: the document row is retained with a cleanup status, excluded from normal lists, and **non-restorable once the file is gone**; permanent metadata purge happens only under a later, separately approved purge policy. All five failure/race cases are specified. The Undo toast is made truthful (renamed, see A.3/A.5). **F-038 stays explicitly OPEN:** a failed upload rollback may have **no document row** to record status on, so a durable **cleanup-incidents record** is designed for row-less orphans — Rev 1's implication that Unit A automatically solves F-038 is withdrawn.
+> 3. **F-006 — idempotency gains an equivalence rule:** a server-computed **payload fingerprint**. Same company + entity + token + same fingerprint → original result; same token + **different** fingerprint → **409 conflict**, never a silent return of the original; different token → legitimate duplicates stay allowed. Only a conflict on the **named** idempotency unique constraint triggers the dedup path; other unique violations surface as their own errors.
+> 4. **Units C/D — three distinct financial measures**, each with an explicit date basis: (i) **per-load contribution margin** (lifetime, assignment-based), (ii) **period operating result** (all costs incurred in the period, assigned or not), (iii) **aggregate contribution margin for loads delivered in the period** (may include earlier-period costs). A full **reconciliation equation** — including direct costs assigned to *undelivered* loads and cross-period costs — replaces Rev 1's insufficient property test as the acceptance property. The load rate is labeled everywhere **operational load revenue, recognized on delivery** — not cash collected, not settled revenue, not an accounting/tax result.
+> 5. **Unit C — decimal-safe fuel contract** (F-053/D-04): accepted gallon precision is **3 decimal places** (`numeric(10,3)`); the calculation is specified in integer/decimal arithmetic so the API (JS) and the database (Postgres numeric) agree **exactly**, with round-half-up at one named step and a test vector where naive float multiplication gives a different cent. Legacy-adjustment acceptance tests now prove all four properties (original total unchanged; computed base recorded; adjustment = exact difference; reason visible wherever the legacy total is shown).
+> 6. **Unit E — tightened:** the composite-FK migration inventory must be **generated from the final merged schema** at implementation time (the package's relationship list is now explicitly a provisional example), with a completeness check that accounts for every relationship as converted, trigger-enforced, or explicitly excepted with reason — and a stated dependency that **branch merge state must be settled before the inventory freezes**. The documents trigger's SECURITY DEFINER terms are pinned (constrained `search_path`, least privilege, uniform error that cannot reveal whether another company's target exists). Integration tests are split by role — application role, tenant-scoped DB role, privileged migration role — with RLS and FK guarantees tested as separate properties. The pre-flight pause on any cross-company row is restated.
+> 7. **Arithmetic reconciled.** Rev 1's task rows actually summed to **106 h** (A 35, B 18, C 22, D 10, E 17, F 4) despite a "≈95–105 h / ~29 tasks" headline and unit subtotals that did not all match their rows. Revision 2 carries a single **deduplicated task ledger (§11)**: shared work is counted once (the timezone/month helper is owned by C1, not also B1: −2 h; the `00028` migration drafting is owned by C6, not also D1: −1 h), and the corrections above add real work (+6 h across A2/A3/A10/B5/C5/E1). **Corrected totals: 31 tasks, 109 engineering hours** (Unit A 38, B 17, C 23, D 9, E 18, F 4), plus ~1 h owner-present time for Unit G. Unit subtotals in §11 are the ledger sums and match the task tables in each unit.
+>
+> **Migration-number caveat (plain statement):** the reservations `00027`–`00031` used throughout are **planning placeholders, contingent on branch merge order — not guarantees.** Final numbers are assigned when the merge state is settled, in dependency order.
+>
+> **Reviewer positions folded in (ChatGPT design review; owner ruling still pending):** supports adding a `cancelled` load status; supports historical restatement with notice wording that **operational figures were restated** (never implying cash receipts or tax records changed); accepts F-033 count-verified pagination for Wave 1 **if** ordering is deterministic, incomplete results are detected, and failure is visible; accepts per-list Deleted views for v1 (global hub stays later work); the D-05 document **tombstone** (correction 2) supersedes Rev 1's hard-delete design.
+
+## Hard constraints honored throughout
+
+- **Migration numbers:** live DB is through 00022; 00023 is taken by the truck-fund branch (written, not applied); 00024–00026 are reserved by the gaming-system design. Every migration proposed below is a **reservation in the 00027+ range**, named but **not a file to write** in this package.
+- **Timezone rule:** every user-facing date/time and every calendar boundary is in the viewer's local timezone (America/New_York for the owner). No UTC boundary reaches a screen or a report.
+- **No GitHub Actions** anywhere in any design. Deployment is the manual Fly process and is a **separate owner approval** — deployment appears in no implementation sequence below.
+- **Cleared findings are load-bearing:** F-003, F-014, F-019, F-022 must not regress. Each unit states how. (F-019/F-022 touch dispatch/bot-memory code that Wave 1 does not modify at all; the F-022 regression gate belongs to the omnipresence merge, not to Wave 1 — stated again in §9.)
+- **Live-verification gates are not design work** and are not closed by anything here. They are collected, untouched, in §8.
+- Money is integer cents everywhere (existing fact). Soft delete is `deleted_at` (existing fact). Generic CRUD lives in `src/services/db/crud.ts` + `src/services/api/crud-routes.ts` — Wave 1 designs extend that shared layer rather than forking per-entity behavior.
+
+## Proposed migration reservations (names only — not files)
+
+| Reserved # | Unit | Contents (summary) |
+|---|---|---|
+| `00027` (reserved) | A | `submission_id` + `submission_payload_hash` columns + named partial unique index on standard CRUD tables (F-006); `documents.deleted_at` + `documents.storage_cleanup_status` (`pending`/`processing`/`done`/`failed`) / `storage_cleanup_error` / `storage_deleted_at` — the retained document **tombstone** (D-05 documents side, ‹Rev 2›); new `cleanup_incidents` table for row-less Storage orphans (F-038 boundary, ‹Rev 2›) |
+| `00028` (reserved) | C + D | `fuel_purchases.load_id` (nullable FK, composite per Unit E pattern once E lands — see sequencing note); `fuel_purchases.adjustment_cents` + `adjustment_reason`; fuel invariant CHECK; `gallons` converted to `numeric(10,3)` if not already (decimal-safe contract, ‹Rev 2›) |
+| `00029` (reserved) | C | F-026 CHECK-constraint batch (non-negatives, load date order) added `NOT VALID`, violators reported, then `VALIDATE` |
+| `00030` (reserved) | B | Carrier HOS configuration on `companies`: `hos_cycle` (`'70/8'` default, `'60/7'` allowed) + `hos_period_anchor` (the carrier-specified 24-hour-period start time) + restart support flag (‹Rev 2›) |
+| `00031` (reserved) | E | Composite `(company_id, id)` tenant-integrity migration: unique constraints, FK rewrites, documents validation trigger. Largest and last in the wave |
+
+**‹Rev 2› All five numbers are planning placeholders, contingent on branch merge order — not guarantees.** If merges land in a different order than assumed, the numbers are reassigned in dependency order at implementation time; the contents and ordering logic of each reservation are what this package actually commits to.
+
+Sequencing note: `00028`'s `fuel_purchases.load_id` is written as a plain FK in its own migration; `00031` later upgrades **all** FKs (including it) to composite form in one pass, so no FK is rewritten twice.
+
+## The five owner decisions — summary (full treatment inside the units)
+
+| ID | Decision | Design recommendation (one line) | Unit |
+|---|---|---|---|
+| D-01 | Revenue recognition (F-008) | **Agree with ChatGPT**, refined: recognized only when a load is `completed` **and** has a `delivery_date`; completed-without-a-date is a surfaced exception, never pickup-substituted; pipeline shown separately; history recomputed once, with the change announced in the UI — never silently | C |
+| D-02 | Fuel attribution + margin (F-009/F-023) | **Agree with ChatGPT in full**: direct `load_id` link or explicit owner allocation only; unassigned fuel stays visible as unallocated period cost; the number is labeled **contribution margin**, never profit; no automatic/proportional allocation in Wave 1 | D |
+| D-03 | Same-company enforcement (F-036/F-024) | **Agree with ChatGPT**: database-enforced composite `(company_id, id)` FKs are the authority; the existing service-layer behavior is kept **only** as an error-quality layer (friendly 422s), never as the protection | E |
+| D-04 | Fuel math (F-053) | **Agree with ChatGPT**, with a precision rule and a history rule: total = `round_half_up(gallons × price_per_gallon_cents) + adjustment_cents`, computed **decimal-safely** (gallons at 3-dp precision, integer/decimal arithmetic identical in API and DB — ‹Rev 2›); adjustments require a reason; pre-existing rows are backfilled as labeled legacy adjustments, never rewritten | C |
+| D-05 | Deletion / restore / retention (F-001/F-002/F-004/F-005) | **Agree with ChatGPT as corrected in Rev 2**: reversible soft delete + safeguarded restore for operational records; documents get a separate two-phase delete ending in a **retained tombstone** (file removed, metadata kept, cleanup status visible, failures retryable — **no queue, and no same-request hard delete** ‹Rev 2›); **no automatic purge in Wave 1** — purge policy is its own later owner decision | A |
+
+**Disagreements with ChatGPT's preliminary positions: none outright.** Two refinements are flagged where they occur: the D-01 recognition trigger and history treatment (Unit C), and the no-queue choice for storage cleanup — which follows ChatGPT's own "smallest reliable solution first" challenge and explicitly declines the register's earlier retry-queue sketch (Unit A). **‹Rev 2›** Rev 1 also carried a third item — a "strengthening" recommending local calendar-day bucketing for F-015 in Unit B. **That item is retracted in full** (see the Revision 2 note, correction 1): the calendar-day claim was factually wrong about FMCSA's rule, and Unit B is revised to carrier-anchored consecutive 24-hour periods.
+
+---
+
+## Unit A — Record lifecycle: create honestly, correct, delete, restore
+
+**Findings:** F-001 (P1), F-002 (P2), F-004 (P2), F-005 (P2), F-006 (P2), F-016 (P1). **Governing decision: D-05.** Also delivers checklist work orders W1-1, W1-2, W1-10 and quick win QW-1.
+
+### A.1 Verified current behavior (register evidence)
+
+- 11 list pages (hos, loads, expenses, fuel, maintenance-events, pretrip, trucks, trailers, drivers, brokers, customers) expose **zero** edit/delete controls; only "Add/Log…" links plus loads' "Route check" (`src/app/(app)/loads/page.tsx:61`). No `[id]` UI route exists for any standard entity. The API already supports update/remove (`src/services/api/crud-routes.ts:59-71`) — the lifecycle dies at the UI, not the API.
+- `softDelete()` (`src/services/db/crud.ts:100-108`) sets `deleted_at` and **discards the update result**; the route returns HTTP 204 unconditionally (`crud-routes.ts:67-71`). A DELETE against a nonexistent or RLS-invisible ID is a silent no-op success (F-005).
+- No restore exists anywhere: grep for `restore|undelete|recycle|archive` in `src` = 0 hits (F-002).
+- No idempotency anywhere: grep `idempot` = one unrelated scheduler comment (`src/services/ai/scheduler.ts:29`); create is a plain insert (`crud-routes.ts:45-50` → `crud.ts:68-81`). Disable-on-submit in the form is the only duplicate guard (F-006).
+- Loads default to `draft` (migration 00003:21; `loads/new/page.tsx:42,67`) with no edit UI to ever finish them (F-016).
+- Documents are the exception and the hazard: they are **hard-deleted**, and the delete route's own comment admits a Storage failure leaves an orphan — `storage.remove()` result is never inspected (`src/app/api/v1/documents/[id]/route.ts:24-27`). The `documents` table has **no `deleted_at`** (confirmed indirectly by the omnipresence branch having to fix a v2 bug that filtered on it). Upload rollback has the same unchecked-cleanup defect (F-038 — Wave 3 scope, but its fix shares this unit's mechanism; see A.6).
+
+### A.2 D-05 — Deletion, restoration, retention (PROPOSED — awaiting owner ruling)
+
+- **The decision:** what happens when the owner deletes a record — is it recoverable, for how long, and what is different about documents/files?
+- **ChatGPT's preliminary position:** reversible soft deletion for ordinary operational records, with a deliberate restore path and safeguards against restoring records whose relationships or uniqueness constraints are no longer valid; document/storage deletion defined separately, including partial-failure behavior; retention/purge rules explicit, not an accidental consequence of soft deletion.
+- **Design recommendation: AGREE**, and make the retention half explicit as follows: in Wave 1, **nothing is ever automatically purged**. Soft-deleted records persist and stay restorable until a future, separate purge decision. **‹Rev 2›** Rev 1 made one exception — a same-request hard delete completing the documents two-phase delete. **ChatGPT's review objected and Rev 2 withdraws it:** a document's database row is **retained as a tombstone** after its file is removed (A.5), because the hard-delete step created an unrecoverable failure seam (storage gone, row delete failed, nothing left to record what happened). Permanent removal of tombstone metadata happens only under a later, separately approved purge policy — the same rule as every other record.
+- **Alternatives considered:**
+  1. *Auto-purge soft-deleted records after 30/90 days.* Rejected for Wave 1: it converts a reversible mistake into a timed irreversible one before restore has even shipped and been lived with; it can be adopted later as a policy change with no schema change (purge reads `deleted_at`).
+  2. *Hard delete with a confirmation dialog (no soft delete).* Rejected: contradicts the existing `deleted_at` architecture, destroys the audit trail the money findings depend on, and makes F-002's restore requirement impossible.
+  3. *Global "Deleted items" hub screen (More → Deleted).* Deferred, not rejected: Wave 1 puts restore where the record lives (per-list toggle, A.4); a hub is a consistency improvement that belongs with F-044 in Wave 3. Trade-off accepted: in Wave 1 the owner restores from the same list he deleted from.
+- **Consequences of each choice:** recommendation = mistakes are always recoverable in Wave 1 and storage cost is negligible at single-company scale; auto-purge = less clutter, real data-loss risk; hard delete = simplest code, worst trust properties.
+
+### A.3 Recommended behavior — the shared lifecycle pattern (F-001, F-016)
+
+One shared pattern in the generic CRUD layer, rolled out entity by entity — not eleven bespoke screens:
+
+1. **Detail route per entity:** `/[entity]/[id]` for every standard CRUD entity, rendered by a shared detail component: all fields (formatted per Unit B's formatter where dates/times are involved), related-record links where the schema already has them, and three actions — **Edit**, **Delete**, and (for loads) **status**.
+2. **Edit** reuses the entity's create form in edit mode, submitting a PATCH through the existing API; validation is the merged-record validation of Unit F, so the form can never put a record into a state the create form would reject.
+3. **Delete** is a confirmation dialog that names the record in plain language ("Delete duty log — Oct 31, 7:42 PM, On duty?") and states the consequence truthfully: *"You can restore this from Deleted in this list."* Confirming calls the existing DELETE; the list refreshes; a toast confirms. **‹Rev 2› The toast carries no "Undo" button unless it actually restores.** Rev 1's toast said Undo but only navigated to the Deleted view — a mislabeled action of exactly the kind this program exists to remove. The truthful design: the toast's action is labeled **"View deleted record"** and navigates to the Deleted view, where **Restore** lives behind its safeguard checks (A.4). (An action labeled Undo may be introduced only if it invokes the safeguarded restore directly and surfaces a refusal honestly when the checks fail; that is not the v1 design.)
+4. **F-016 loads specifics:** the load detail shows a **draft-completeness checklist** whenever status is `draft`: the fields still missing before the load can be marked `confirmed` (proposed rule: `rate_cents`, `pickup_date`, `delivery_date` present — the fields the money summary and Smart Path actually consume). The draft → confirmed transition is blocked with the missing items named, not a generic error. Editing status itself happens here and nowhere else.
+5. **Rollout order (each independently testable):** duty logs + expenses first (QW-1 — the owner's original pain), then loads (F-016), then fuel + maintenance events, then inspections + maintenance schedules + equipment, then trucks/trailers/drivers/brokers/customers.
+
+### A.4 Restore (F-002) — safeguarded, per D-05
+
+- Each entity list gains a **"Deleted" toggle** (default off). The deleted view lists soft-deleted rows (the generic list service already filters `deleted_at IS NULL`; the toggle requests the inverse) with a **Restore** action per row.
+- **Restore is a validated operation, not a flag flip.** Before clearing `deleted_at`, the server re-checks, and refuses with a specific reason if any fail:
+  1. The record still validates against its create schema (merged-record validation, Unit F).
+  2. Every FK parent it references still exists **and is not itself soft-deleted** (composite FKs from Unit E cannot see this — a soft-deleted parent row physically exists — so this check is application-level by design and is stated as such).
+  3. No uniqueness conflict would result. (Verified baseline: migrations 00002/00003 define **no** natural unique indexes on these tables, so conflicts are not expected today; the check exists so a future unique constraint cannot silently make restore corrupting.)
+- Restore of a parent never cascades to children and vice versa; each record is restored deliberately, and the UI says so.
+- **Failure behavior:** a refused restore returns 422 with the named reason ("Cannot restore: its truck was deleted — restore the truck first"). No partial state is possible: restore is a single-row update.
+
+### A.5 Truthful delete + documents two-phase delete (F-005, F-004)
+
+**F-005 (all entities):** `softDelete()` gains `.select("id")` on its update — the exact pattern `update()` already uses (`crud.ts:88-97`). Zero rows affected → the route returns **404**, not 204. Deleting an already-deleted or another company's record therefore reports honestly as not-found (RLS makes other-company rows invisible, so 404 is also the non-leaking answer). *Alternative considered:* 204 on repeat delete (idempotent-delete convention). Rejected under program rule 9 (no misleading success states) and because the restore flow needs to know whether anything actually changed.
+
+**F-004 (documents only, per D-05's separate document rule) ‹Rev 2 — state machine rewritten per ChatGPT correction 2›:** documents move from hard delete to a **two-phase delete ending in a retained tombstone**, the smallest reliable design — explicitly **no retry queue, no worker** (ChatGPT §2 challenge; the register's retry-queue sketch is declined). Rev 1's final step — hard-deleting the row in the same request once Storage removal succeeded — is **removed**: it left no recoverable state when the last database step failed after the file was already gone.
+
+1. New schema (migration `00027` reserved): `documents.deleted_at`; `documents.storage_cleanup_status` (`'pending' | 'processing' | 'done' | 'failed'`); `documents.storage_cleanup_error` (text, internal); `documents.storage_deleted_at` (timestamptz, null until the file is confirmed gone). The row is the state machine's durable record — every transition is a database write, so no step depends on a request staying alive.
+2. **Write-ahead sequencing** (the order is the design): (i) in one transaction, set `deleted_at` and cleanup status `pending` — from this moment the document is out of all normal lists, whatever happens next; (ii) attempt `storage.remove()` **and inspect the result**; (iii) record the outcome: success → status `done` + `storage_deleted_at` set, and the row is **retained as a tombstone**; failure → status `failed`, error recorded, row stays soft-deleted, and the API responds truthfully: *"Document removed from your lists. File cleanup failed and will need a retry."*
+3. **The tombstone:** a `done` row is excluded from normal lists and from the restorable Deleted view's Restore action — restore is refused with the named reason *"the file has been permanently removed"* (restoring metadata for a file that no longer exists would be a lie). It remains visible in a documents "Deleted" view as a tombstone line (name, deletion date, cleanup status) so the owner can see that it existed and that cleanup completed. The tombstone's metadata is removed only by a future, separately approved **purge policy** (a D-05 follow-on decision, not part of Wave 1); until then it persists, at negligible cost.
+4. **Recovery / retry paths — every specified failure case:**
+   - *Storage succeeds, DB status update fails:* the row remains `pending` (step (i) already committed; the file is gone but nothing falsely claims so). Resolution: cleanup is re-attempted by the **Retry cleanup** action (and by a lightweight resume-pending pass when the Documents page loads); the retry's `storage.remove()` finds the object **already absent, which is defined as success**, so the row converges to `done`. No state can claim `done` without a confirming attempt, and none can lose track of the pending state.
+   - *Storage succeeds, final DB step fails:* this is the same seam as the previous case under the Rev 2 sequencing — there **is** no separate final DB delete step anymore; the status update *is* the final step, and its failure is the `pending` case above. The Rev 1 failure mode (file gone + row gone + nothing recorded) is designed out, not handled.
+   - *Client times out after Storage succeeds:* the client knows nothing and must not guess. On reload, the document appears in the Deleted view with cleanup status shown (`pending`/`failed`, never silently `done`); Retry converges it as above. The document never reappears in active lists — step (i) committed before Storage was touched.
+   - *Retry encounters an already-absent object:* treated as **success** (`done`), full stop. Absence is the goal state; punishing it as an error would strand tombstones forever.
+   - *Two cleanup attempts race:* attempts claim the row by conditional update (`SET status='processing' WHERE id=? AND status IN ('pending','failed')` — exactly one attempt wins the claim; the loser receives the current state and does not call Storage). `storage.remove()` itself is idempotent, so even a claim-system failure degrades to duplicate removals of the same object, not corruption.
+5. The Documents page shows a visible banner whenever any document is in cleanup `pending` (stale), `processing`, or `failed`: count + a **Retry cleanup** button that runs the state machine for those rows. Until cleanup is `done`, the document is restorable like any other record (the file still exists, so restore is honest) — and restoring a document also clears its cleanup status back to none/active, cancelling any pending cleanup claim.
+
+**Edge cases:** double-delete of a document in `failed` state → returns the current cleanup state, not a second removal attempt storm; a document whose Storage object was already missing before deletion (a pre-existing orphan in reverse) resolves to `done` on first attempt; restore attempted on a `done` tombstone → 422 with the permanent-removal reason (A.8 test 6 covers this).
+
+### A.6 Idempotent creates (F-006) — per ChatGPT's challenge, mechanisms are not interchangeable
+
+- **Design:** a **client submission token**, chosen deliberately over the alternatives:
+  - Each create form generates one UUID when the form is opened (not per tap). It is sent as `submission_id` on POST.
+  - Migration `00027` (reserved) adds `submission_id uuid null` to the standard CRUD tables, with a **named partial unique index** on `(company_id, submission_id) WHERE submission_id IS NOT NULL` (the index gets an explicit, stable name per table — the conflict-handling code below keys on it).
+  - **‹Rev 2› Payload fingerprint + equivalence rule (ChatGPT correction 3).** The token alone does not define a replay: a retry that reuses a token with a *changed* payload is a client error, not a duplicate, and silently returning the original record would conceal it. So the server also computes a **payload fingerprint**: a SHA-256 hash of the **normalized** create payload — the payload *after* Zod validation/coercion, serialized canonically (keys sorted, numbers in their coerced form, `submission_id` itself excluded) — stored on the row as `submission_payload_hash` (same `00027` reservation). Because the fingerprint is computed from the validated payload, benign serialization differences (key order, whitespace, number formatting) cannot produce false conflicts. The dedup decision table is exact:
+    - *No existing row with this `(company_id, submission_id)`* → insert normally.
+    - *Conflict on the named idempotency index, existing row's fingerprint **equals** the incoming fingerprint* → return the **existing** record with HTTP 200 and `deduplicated: true` — a true replay returns the original outcome instead of a twin. The UI treats this as success (it is one).
+    - *Conflict on the named idempotency index, fingerprint **differs*** → **HTTP 409** with error code `submission_token_reused_with_different_payload`; **no row is created and the original record is never returned as if it were this request's result.** The UI surfaces it as "this form was already submitted with different values — review the existing record," linking to it.
+    - ***Different* token** (or no token) → always a fresh create attempt; legitimate duplicate transactions (same amount, same day, same truck) remain fully allowed, as A.6's rejected alternatives already established.
+    - *A unique violation on **any other** constraint* → **not** a replay: it surfaces as that constraint's own error (existing 422/409 semantics), never routed into the dedup path. The handler distinguishes by the constraint name reported in the database error; an unnamed/unrecognized constraint error is treated as a plain error, never as dedup.
+  - Scope: **all** standard CRUD entities via the shared layer (uniformity is cheaper than per-entity exceptions), with money records (expenses, fuel) and duty logs named as the must-pass acceptance set. Bot/API writes that don't send a token still work (columns nullable) but get no dedupe guarantee — stated in docs.
+- **Alternatives rejected, with reasons (ChatGPT §2):** *time-window deduplication* — can reject two legitimate fuel purchases minutes apart; the owner buys fuel the way truckers do, in bursts. *Natural-key uniqueness* (same amount+date+truck) — same false-positive problem, and would forbid legitimate identical records. *Disable-on-submit only* (status quo) — does nothing for network retries, double-navigation, or API replays.
+- **F-038 boundary ‹Rev 2 — corrected; F-038 remains OPEN›:** Rev 1 claimed the upload-rollback cleanup (Wave 3's F-038) could record failure "against the same `storage_cleanup_status` field" and implied Unit A settles it. **That claim is withdrawn.** In the upload-rollback case the database insert itself has failed, so **there may be no document row at all** — no row, nowhere to store a status. Rev 2 designs the missing durable record here, but does **not** close F-038:
+  - New `cleanup_incidents` table (migration `00027` reserved): `id`, `company_id` (nullable only for the case where the failure precedes company resolution; in practice the caller's company is known), `storage_path` (the orphaned object), `kind` (`'upload_rollback' | 'delete_cleanup'`), `status` (`'open' | 'resolved' | 'object_absent'`), `error`, `created_at`, `resolved_at`. This table is the system of record for **row-less orphans** — Storage objects with no owning document row.
+  - Upload path behavior: if the metadata insert fails and the compensating `storage.remove()` *also* fails (result inspected — the part of Rev 1 that was right), the code makes a **best-effort incident write**. If even that write fails, the failure is logged server-side and the API response to the uploader states that cleanup may have failed — the one outcome forbidden is a silent, confident success. `delete_cleanup` incidents give A.5's state machine an escape hatch for any failure its row somehow cannot record (defense in depth; expected to be rare).
+  - **Surfacing:** open incidents are listed in a small ops surface — the Documents page banner area gains an "orphaned files needing cleanup" count alongside A.5's cleanup banner, linking to a list with **Retry removal** per incident (absent object → `object_absent`, resolved honestly). Retry uses the same claim discipline as A.5.4.
+  - **What remains F-038's, not this unit's:** the upload-path implementation, the incident surface's exact UX, and the NV-5 live evidence (demonstrating or excluding real production orphans). Unit A supplies the record shape and the rules; F-038 closes only through its own implementation in Wave 3 plus NV-5 — **nothing in this unit closes F-038.**
+
+### A.7 Impact
+
+- **Data model:** `submission_id` + `submission_payload_hash` on standard tables; documents gain `deleted_at` + cleanup columns (the retained tombstone); new `cleanup_incidents` table for row-less orphans (migration `00027` reserved) ‹Rev 2›. No changes to existing columns or to `deleted_at` semantics.
+- **API:** DELETE returns 404 on zero-row (behavior change, documented); POST create accepts optional `submission_id` and may return 200-with-existing + `deduplicated`, or **409 `submission_token_reused_with_different_payload`** ‹Rev 2›; new restore endpoint per entity (or `POST /[entity]/[id]/restore` in the shared route factory); list endpoint gains `deleted=only` mode; document DELETE response gains cleanup state; open cleanup incidents are readable/retryable via the documents API surface ‹Rev 2›.
+- **UI:** new shared detail component + `[id]` routes; delete confirmations with a truthfully labeled **"View deleted record"** toast action ‹Rev 2›; per-list Deleted toggle + restore; documents cleanup banner + retry (including the row-less orphan count) ‹Rev 2›; load draft-completeness checklist.
+- **Tenant security / RLS:** **F-003 preserved by construction** — soft delete remains an UPDATE under the existing `FOR ALL` company-scoped policies; no policy changes in this unit; restore and detail reads run under the same RLS, so another company's record is indistinguishable from nonexistent (404).
+- **Migration:** `00027` reserved; additive and nullable throughout → safe on live data with no backfill.
+- **Cleared-item preservation:** F-003 (above). F-022 is untouched — no bot intake code changes here; the bot's proposal flow continues to land on these same APIs, and `submission_id` is optional so bot writes are unaffected.
+
+### A.8 Acceptance criteria + test cases (fail-before / pass-after shaped)
+
+1. Duty-log list: create a log → open it → edit a field → list shows the new value. *(Before: no path exists.)*
+2. Expense delete: delete → row leaves the active list → appears in Deleted view → Restore → row returns with identical values. *(Before: no delete control; no restore anywhere.)*
+3. API DELETE with a random UUID returns **404**. *(Before: 204.)* DELETE of another company's real ID also returns 404 and the row is untouched.
+4. Double-submit: POST the same create payload + same `submission_id` twice (simulated retry) → exactly one row exists; second response is 200 with `deduplicated: true` and the same ID. Two posts with **different** tokens and identical amounts/dates both succeed (legitimate duplicates preserved).
+4b. **‹Rev 2› Token reuse with a different payload:** POST an expense with token T and amount 5,000¢; POST again with token T and amount 6,000¢ → **409** `submission_token_reused_with_different_payload`; still exactly one row, still 5,000¢; the response does **not** present the original record as this request's result. The same payload submitted with keys in a different order and benign formatting differences → fingerprint matches → 200 deduplicated (normalization works).
+4c. **‹Rev 2› Wrong-constraint guard:** force a unique violation on a constraint *other than* the named idempotency index during a create → the error surfaces as that constraint's own error; the response is never a `deduplicated: true` return of some existing row.
+5. Restore guard: delete a truck, then delete… (truck deleted) → delete a duty log referencing it → attempt restore of the log while the truck is deleted → 422 naming the truck; restore the truck → log restore now succeeds.
+6. Document delete with Storage forced to fail (mock) → document leaves active lists, cleanup status `failed`, banner shows on Documents page, Retry after un-mocking → `done`, **tombstone row retained** with `storage_deleted_at` set, and a Restore attempt on it → 422 naming permanent removal. *(Before: unchecked result, orphan, silence.)*
+6b. **‹Rev 2› State-machine failure cases:** (a) Storage succeeds but the status update is forced to fail → row remains `pending`, never shows `done`; a later Retry finds the object absent → converges to `done`. (b) The client request is aborted after Storage succeeds → on reload the document shows its true `pending` state in the Deleted view and converges via Retry. (c) Two concurrent cleanup attempts → exactly one wins the claim and calls Storage; the loser returns current state. (d) Upload rollback with the metadata insert forced to fail *and* removal forced to fail → a `cleanup_incidents` row exists with kind `upload_rollback` and status `open`; the upload response does not claim clean success; Retry from the incident surface removes the object → status `resolved`. (F-038 remains open; this test proves the durable record exists, not that F-038 is closed.)
+6c. **‹Rev 2› Toast truthfulness:** after a delete, the toast's action is labeled "View deleted record" and navigates to the Deleted view; no control labeled Undo exists that does not perform a restore (UI copy/component test).
+7. Load draft flow: create draft load without rate → detail shows it missing in the checklist and blocks confirm; add rate/dates via Edit → confirm succeeds.
+8. Regression: existing create/list flows and the full existing suite behave as before for all non-lifecycle paths (P-04 baseline rules apply — see §8).
+
+### A.9 Rollback + documentation
+
+- **Rollback:** UI pattern is additive (routes/components) → revert by removing routes; API 404-on-delete is a one-function change; `00027` columns are nullable/additive and can be left in place harmlessly on rollback (drop only in a dedicated later migration if ever needed). The documents two-phase change is the one behavioral rollback risk: rolling back its code while rows sit in cleanup `failed` leaves those rows soft-deleted with files present — safe (nothing lost), and the banner simply disappears with the code. ‹Rev 2› Tombstones (status `done`) also roll back safely: the file is gone and the retained metadata row is inert under old code — it simply appears as a soft-deleted row again; no data is resurrected and none is lost. `cleanup_incidents` rows are likewise inert if the surfacing code is reverted (the orphans they describe still exist in Storage — the rollback note must name them so they are not forgotten).
+- **Documentation:** `docs/` lifecycle page (or PROJECT_STATE section) describing delete/restore/documents-cleanup semantics; API contract docs updated for 404 + `deduplicated` + restore endpoints; checklist entries for F-001/F-002/F-004/F-005/F-006/F-016 updated at implementation close-out (never by this design).
+
+### A.10 Tasks + effort (Unit A = 38 h per the §11 ledger ‹Rev 2›)
+
+| # | Task (< ~4 h each where possible) | Est. |
+|---|---|---|
+| A1 | `softDelete()` affected-row truth + route 404 (F-005) + unit tests | 2 h |
+| A2 | Migration `00027` drafting: `submission_id` + `submission_payload_hash` + documents tombstone columns + `cleanup_incidents` table (design-reviewed SQL, applied later under separate approval) ‹Rev 2› | 4 h |
+| A3 | Create-handler idempotency (token + payload fingerprint equivalence: dedup / 409-on-different-payload / named-constraint-only) + tests (F-006) ‹Rev 2› | 5 h |
+| A4 | Shared detail component + `[id]` route for duty logs + expenses, edit via create-form reuse (QW-1) | 4 h |
+| A5 | Delete confirmation + truthful toast ("View deleted record") + Deleted toggle + restore endpoint & UI for duty logs + expenses ‹Rev 2 label› | 4 h |
+| A6 | Safeguarded restore checks (schema + parent-state) generalized in shared layer + tests | 3 h |
+| A7 | Pattern rollout: loads incl. F-016 draft checklist + status transition | 4 h |
+| A8 | Pattern rollout: fuel, maintenance events/schedules, inspections, equipment | 4 h |
+| A9 | Pattern rollout: trucks, trailers, drivers, brokers, customers | 3 h |
+| A10 | Documents two-phase delete as a retained-tombstone state machine (write-ahead states, claim-based retry, all failure cases) + cleanup banner/retry + `cleanup_incidents` recording for row-less orphans (F-004; F-038 record shape only — F-038 stays open) ‹Rev 2› | 5 h |
+
+**Decision points for the owner in this unit:** D-05 itself (A.2) — including the explicit **no-auto-purge** stance, the **retained document tombstone** (‹Rev 2› — permanent metadata purge needs its own later policy decision), and the per-list-toggle-first choice over a global Deleted hub (reviewer position: per-list accepted for v1); the draft→confirmed required-fields rule (A.3.4); 404-vs-204 on repeat delete (recommended 404, A.5).
+
+---
+
+## Unit B — Time & HOS correctness
+
+**Findings:** F-007 (P1), F-011 (P1), F-012 (P2), F-013 (P1), F-015 (P2). **Preserves F-014 (cleared).** Also delivers W1-3, W1-4, W1-8 (HOS half) and quick wins QW-2, QW-3.
+
+### B.1 Verified current behavior (register evidence)
+
+- Financial month boundaries are computed in UTC: `currentMonthRange()` uses `getUTCFullYear()/getUTCMonth()/Date.UTC()` (`src/app/api/v1/financial-summary/route.ts:20-27`). At 8:00 PM ET on Oct 31 the app already reports November (F-007).
+- The duty-log form's initial `datetime-local` value is built from UTC: `new Date().toISOString().slice(0,16)` (`src/app/(app)/fleet/hos/new/page.tsx:20`, field at :95-99). The **save** path converts local→ISO correctly (:40) — the defect is the pre-filled value only (F-011).
+- The fuel list renders the raw stored timestamp `{purchase.purchased_at}` (`src/app/(app)/money/fuel-purchases/page.tsx:32`) — an ISO/UTC string on a driver's phone (F-012). Five screens use four different date conventions (F-043 evidence, register: hos `toLocaleString()`, pretrip `toLocaleDateString()`, expenses raw date, maintenance raw date) — the shared-formatter half of that finding is consumed here for Wave 1 surfaces; the full standardization sweep remains Wave 3's W3-1.
+- The HOS summary is computed from a generic list call capped at 200 rows ordered by `created_at desc` (`src/app/(app)/fleet/hos/page.tsx:27`, summary at :29-30; ordering in `src/services/db/crud.ts:48-50`), not by `started_at`, with no window semantics (F-013).
+- The 70-hour figure is a rolling 192-hour sum: `EIGHT_DAYS_MS = 8*24*60*MINUTE_MS` (`src/lib/hos.ts:36`, used :150). No 60/7 cycle exists anywhere in the file (F-015).
+- The non-ELD boundary is explicit at every surface today — `lib/hos.ts:4-10` header, `hos/page.tsx:36-39` ("ELD/official log wins"), `hos/new/page.tsx:58` (F-014, CLEARED, independently re-confirmed in Challenge Round 1).
+
+### B.2 Recommended behavior
+
+**B.2.1 Shared viewer-timezone plumbing (F-007 foundation).** Introduce one server-side helper, `monthRangeInTimeZone(tz, instant)`, and one client convention:
+
+- Every summary-style API call carries the viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions().timeZone` on the client) as an explicit parameter. The server validates it as a real IANA zone; on absence/invalid it falls back to `America/New_York` **and reports the zone actually used in the response**, so a fallback is visible, never silent.
+- Month bounds are computed as **local calendar bounds first** (first instant of the local month, first instant of the next local month), then converted to UTC instants for querying `timestamptz` columns (fuel `purchased_at`, duty-log timestamps).
+- Columns that are pure `date` type (load `delivery_date`/`pickup_date`, expense `expense_date`) are already local calendar dates by construction: they are compared as calendar dates in the viewer's month, never pushed through a UTC conversion. The design names this distinction explicitly because conflating the two column kinds is exactly how F-007-class bugs are born.
+- Home and Money consume the same helper via the financial-summary API (Unit C) — there is one month definition in the codebase, not one per screen.
+
+**B.2.2 `datetime-local` initialization (F-011, QW-2).** A shared client helper, `localDateTimeInputValue(date)`, builds the string from local components (`getFullYear/Month/Date/Hours/Minutes`, zero-padded). The HOS form uses it; implementation includes a grep audit for every other `datetime-local` in the app (the register evidences HOS; any other instance found inherits the helper — that is in-scope hygiene, not scope expansion).
+
+**B.2.3 Shared formatting (F-012).** One `lib` formatter pair — `formatDate` / `formatDateTime` — built on `Intl.DateTimeFormat` with the viewer's zone, applied in this wave to the fuel list (the raw-timestamp offender) and to every surface Units A–D touch. Remaining screens are Wave 3's W3-1 and are not half-done here.
+
+**B.2.4 HOS window query (F-013) ‹Rev 2 — window re-anchored to the carrier period boundary›.** The HOS summary stops consuming the generic list:
+
+- A dedicated query fetches duty logs for the **calculation window**, ordered by `started_at` ascending, with **no row-count cap in the path**. A defensive ceiling (proposed 5,000 rows) exists only as a fail-loud tripwire: exceeding it produces an explicit error state, never a silent partial summary (program rule 9).
+- **‹Rev 2› Window definition (replaces Rev 1's "start of local day, 8 calendar days back," which was wrong for the corrected cycle model in B.2.5):** the window opens at the start of the carrier-anchored 24-hour period that begins **(cycle periods + 2) periods before the current period** — i.e. for 70/8, the anchor-aligned period start 10 periods back; for 60/7, 9 periods back. The two extra periods exist so the engine can (a) evaluate a possible **34-hour restart** whose qualifying off-duty interval began before the counted periods, and (b) never truncate a period it is asked to sum. Anchor-aligned means aligned to the carrier's configured period start time (B.2.5), not to midnight and not to the viewer's calendar day.
+- The on-screen log list remains the generic paginated list (its display truncation is F-031, Wave 3) — but the **summary numbers never derive from the display list again**. The HOS screen labels its summary with the basis it used ("Drive/duty totals — current + previous 7 carrier periods (70/8), period start 00:00, America/New_York" — anchor and zone rendered from the response, per B.3).
+- *Alternative considered:* raising the generic limit to e.g. 2,000. Rejected: it keeps a silent cliff, keeps the wrong ordering, and keeps display concerns coupled to a compliance-adjacent calculation.
+
+**B.2.5 Cycle semantics (F-015) ‹Rev 2 — BLOCKING CORRECTION: Rev 1's calendar-day recommendation is RETRACTED›.** Rev 1 recommended bucketing duty time by viewer-local calendar day and asserted that "the FMCSA 70/8 limit is defined over calendar days." **That assertion was false.** ChatGPT's review caught it, and Rev 2 corrects the record and the design: FMCSA describes the 60-hour/7-day and 70-hour/8-day limits over **rolling (floating) periods of 7 or 8 consecutive 24-hour periods**, where the 24-hour periods begin at the **time specified by the motor carrier**, and the **oldest period's hours drop out as each new period begins** (FMCSA driver guide to the HOS regulations). Neither Rev 1's midnight-to-midnight calendar buckets nor the current code's unanchored continuous 192-hour window is that rule: the calendar bucket anchors periods to midnight by fiat, and the continuous window has no period boundaries at all, so hours fall out minute-by-minute instead of period-by-period. The corrected design:
+
+- **Carrier-anchored consecutive periods.** Time is divided into consecutive 24-hour periods starting at the carrier's specified start time (the **anchor**). The cycle total = sum of on-duty time in the **current period plus the previous 6 periods (60/7) or previous 7 periods (70/8)**. As each new period begins, the oldest period drops out whole. Duty segments are split at period boundaries (a segment crossing a boundary contributes each portion to its own period).
+- **Anchor + cycle are CARRIER configuration, not driver preference.** Migration `00030` (reserved) adds to `companies`: `hos_cycle` (`'70/8'` | `'60/7'`; **default `'70/8'`**), `hos_period_anchor` (a local time-of-day, e.g. `00:00`; **default `00:00`**), and `hos_restart_enabled` (boolean; **default `true`** — see restart below). Settings renders these under an explicit label — **"Carrier-specified (set to match your carrier's HOS rules)"** — not as personal preferences, because that is what they are: FMCSA ties the 70/8 option to whether the carrier operates CMVs every day of the week, so the cycle is a fact about the carrier's operation. Steven's carrier's anchor and cycle are unknown until the owner is on the road (register/vision context), so the defaults stand until he learns them, and the summary always displays the anchor/cycle actually used (B.3) so a wrong default is visible rather than hidden. The anchor time-of-day is interpreted in the viewer's timezone (for this owner-carrier context the company and viewer zones coincide; a multi-zone carrier would need a company timezone setting — named here as future work, not silently assumed).
+- **34-hour restart — explicitly designed.** FMCSA provides that a driver may restart the 7/8-day period after **34 or more consecutive hours off duty** (off-duty/sleeper statuses combined). The helper implements it: (a) when a qualifying restart is detected, duty **before the restart's end does not count** — the counted window effectively begins with the period containing the restart's completion, and periods are counted forward from there up to the cycle length; (b) detection runs over the B.2.4 window (which is why the window carries two extra periods of lookback); (c) **ambiguous data rule:** duty logs are status-start events, so a qualifying interval must be *observable* — the log must show an off-duty/sleeper status beginning at a known time and a next status beginning ≥ 34 h later. If the sequence has a gap, an overlap, or an interval whose start is not in the fetched window, the restart is **not applied** and the summary is labeled *"34-hour restart not applied — log incomplete near the restart"* (or "unverified"). Not applying a restart is the conservative direction: it shows *more* hours used, never fewer, so an ambiguous log can never make the helper claim more available time than the record proves. The helper never silently applies and never silently ignores a restart — applied restarts are also labeled ("Cycle restarted — 34 h off duty ended [date/time]").
+- **Kept verbatim in spirit (F-014):** the UI labels the figure with cycle + anchor + zone + the F-014 disclaimer, unchanged in strength: *"Paper-log helper — your ELD/official log wins."* Nothing in this correction turns the helper into a compliance determination; it makes the helper's *arithmetic* match the rule it names, under a disclaimer that still says the official log governs.
+- *Alternatives considered:* (a) **Calendar-day bucketing (Rev 1's recommendation)** — **rejected as incorrect**, not merely dispreferred: it answers a question FMCSA does not ask. It survives in this design only as a *test fixture* (B.4.5) demonstrating a wrong answer. (b) *Keep the continuous rolling-192h window and document it* (the register's minimum) — rejected: it has no carrier anchor and no period drop-out, so it diverges from the named rule at every period edge; documenting a divergence does not cure it. (c) *Anchored periods without restart support* — rejected: a carrier whose driver takes a 34-hour restart would see permanently overstated hours-used, training the owner to distrust and ignore the helper.
+- This change **will move displayed numbers** versus both the current rolling window and the retracted calendar model. That is intended, and the acceptance tests include worked examples where **all three methods differ** (B.4.5) so the correction is provable rather than asserted.
+
+### B.3 Impact
+
+- **Data model:** `companies.hos_cycle`, `companies.hos_period_anchor`, `companies.hos_restart_enabled` (migration `00030` reserved) ‹Rev 2›. No changes to `duty_logs`.
+- **API:** financial-summary accepts/reports `tz` (with Unit C); a dedicated HOS window read (query params on the duty-logs resource or a small summary endpoint — implementer's choice, contract: anchor-aligned window + ordering + no silent cap); HOS summary response carries `{ cycle, periodAnchor, restartApplied | restartUnverified | null, timeZone, windowStart, windowEnd }` so the UI labels are data, not literals ‹Rev 2›.
+- **UI:** HOS form default value; HOS summary window/cycle/anchor/restart labels; fuel list date rendering; Settings gains the **carrier-specified** HOS configuration (cycle, period anchor, restart support) ‹Rev 2›.
+- **Tenant security / RLS:** none — all reads remain RLS-scoped through existing services. **F-014 preservation:** disclaimer copy is not edited except to append the window label beside it; acceptance includes a check that the three evidenced disclaimer surfaces still carry the non-ELD wording.
+- **Migration:** `00030` reserved, single column with a default → zero-downtime, no backfill logic.
+
+### B.4 Acceptance criteria + test cases
+
+1. **Month boundary (unit):** with the clock at Oct 31, 8:30 PM America/New_York, `monthRangeInTimeZone` returns October bounds; at Nov 1, 12:30 AM ET it returns November. The same instants evaluated in UTC give the opposite answer for the first case — the test asserts the **local** answer. *(Before: UTC wins, F-007 reproduces.)*
+2. **Form default (unit/component):** at a mocked 8:00 PM ET, the HOS form's initial value reads that day at 20:00 local, not 00:00/next-day. *(Before: `toISOString` value, F-011 reproduces.)*
+3. **Fuel list rendering:** a purchase stored at `2026-10-31T00:30:00Z` renders as Oct 30 evening ET, formatted — never the raw ISO string; a source-level assertion that `fuel-purchases/page.tsx` no longer renders `purchased_at` directly.
+4. **HOS completeness (integration):** seed 250 duty logs inside the window (more than the old cap) with known totals → summary equals the hand-computed total, ordered by `started_at` regardless of insertion order. *(Before: silently capped at 200 by `created_at`.)*
+5. **‹Rev 2› Cycle worked examples — three methods, one expected answer (unit):** fixtures are constructed so the three candidate calculations **provably differ**, and the function must return the **carrier-anchored** answer in every case; the calendar-day result is asserted to be the **wrong** answer (it is computed in the test only to prove the fixture discriminates):
+   - *Fixture 1 (anchor shifts the total):* anchor `06:00`, cycle 70/8. Duty: 10 h on-duty in the period that began 8 periods ago at 06:00, ending at 16:00 that day; plus steady 8 h/period in each of the last 7 periods and the current. The oldest period has fully dropped out under the anchored model (its 10 h excluded), the continuous 192-h window still counts the portion of those 10 h within the last 192 hours at the fixture's "now," and calendar-day bucketing counts a different slice again (the 10 h fall on a calendar day that is still inside today-minus-7). Expected = anchored total; the test asserts all three computed values are pairwise different and the function returns the anchored one.
+   - *Fixture 2 (period edge vs minute edge):* a single 4 h duty segment straddling a period boundary (2 h each side) at the drop-out edge: the anchored model excludes exactly the older period's 2 h; the continuous window excludes a minute-proportional share; calendar bucketing assigns by date. Expected = anchored.
+   - *Fixture 3 (60/7 flip):* Fixture 1 re-run with `hos_cycle = '60/7'` → one fewer period counted, anchored answer changes accordingly; calendar/rolling answers computed for contrast only.
+   - *Restart (unit):* a ≥ 34 h continuous off-duty interval ending 2 periods ago, with heavy duty before it → pre-restart duty excluded, response carries `restartApplied` with the restart end time. *Ambiguous restart:* the same interval but with its beginning outside the fetched sequence (gap) → restart **not** applied, response carries `restartUnverified`, and the reported total is the conservative (higher) one. *Restart disabled:* with `hos_restart_enabled = false`, even a clean 34 h interval does not reset the window.
+   - *(Rev 1's test 5 — "returns the calendar-bucket answer" — is deleted; it encoded the retracted model as the expectation.)*
+6. **Disclaimer regression:** the three F-014 surfaces still contain the non-ELD wording after all edits (test or scripted grep in the gate, recorded as evidence).
+
+### B.5 Rollback + documentation
+
+- **Rollback:** helpers are additive; reverting the HOS query to the list call is a one-file change; the `00030` configuration columns are inert if code reverts. The cycle engine is a pure function — revert restores the prior rolling math exactly (the B.4.5 fixtures document all three answers, including the pre-Rev 2 one, so a rollback's numeric effect is known in advance) ‹Rev 2›.
+- **Documentation:** a short "Time in this app" doc: viewer-zone rule, month definition, HOS window + carrier-anchored cycle semantics with the worked examples, the anchor/cycle's carrier-specified nature, and restart handling incl. the ambiguous-data rule; Settings help text for the carrier HOS configuration ‹Rev 2›.
+
+### B.6 Tasks + effort (Unit B = 17 h per the §11 ledger ‹Rev 2›)
+
+| # | Task | Est. |
+|---|---|---|
+| B1 | `tz` plumbing: client carries/reports the viewer zone + fallback-with-reporting (F-007 client half). **The shared month helper itself is owned by C1 in the ledger — counted once, there** ‹Rev 2 dedup› | 2 h |
+| B2 | `localDateTimeInputValue` helper + HOS form + datetime-local audit (F-011, QW-2) | 2 h |
+| B3 | Shared `formatDate/formatDateTime` + fuel list + touched surfaces (F-012) | 3 h |
+| B4 | Dedicated HOS window query (anchor-aligned, per B.2.4) + summary rewiring + completeness test (F-013) ‹Rev 2› | 4 h |
+| B5 | Carrier-anchored cycle engine: period bucketing by configured anchor, cycle selection, 34-hour restart detection + ambiguous-data rule (migration `00030` draft + carrier-labeled Settings UI) + three-method worked-example tests (F-015) ‹Rev 2› | 6 h |
+
+**Decision points for the owner in this unit ‹Rev 2›:** ~~the F-015 correction itself (calendar-day bucketing vs. rolling window)~~ — **withdrawn; calendar-day is not an option on the table, it is a wrong answer the tests now guard against.** The remaining decisions are the **carrier facts**: the `hos_period_anchor` start time, the `hos_cycle` (60/7 vs 70/8 — determined by whether the carrier operates CMVs every day), and confirming restart support — all to be set from Steven's carrier's actual rules when known, defaults (00:00 / 70/8 / restart on) until then; plus the `America/New_York` fallback-with-reporting rule (B.2.1).
+
+---
+
+## Unit F — Merged-record validation for partial updates
+
+*(Placed here, directly after the lifecycle unit it hardens: Unit A's edit and restore paths both depend on it. Numbering follows the brief's suggestion — this is design unit F, covering F-028.)*
+
+**Finding:** F-028 (P1). Delivers W1-11.
+
+### F.1 Verified current behavior (register evidence)
+
+Update schemas validate only submitted fields: `src/data/schemas/maintenance-schedules.ts:50-63` and `src/data/schemas/pretrip-inspections.ts:24-30`. A PATCH of `{truck_id: null}` alone can pass the pretrip refinement (because `trailer_id === undefined` short-circuits the exactly-one-vehicle rule), producing a merged row with neither vehicle — which then fails as a **raw database CHECK error** from migration 00010:25/59 instead of a validation message. The register's recommended direction — load existing, merge, validate the full record — is adopted as-is; this unit is the shared-layer version of it, not a two-entity patch.
+
+### F.2 Recommended behavior
+
+In the shared update path (`crud-routes.ts` / `crud.ts`), every PATCH becomes:
+
+1. **Shape-check the patch itself** with the existing partial schema (unknown keys and wrong types still rejected immediately).
+2. **Load the existing row** (RLS-scoped select by ID; absent → 404, consistent with Unit A's truth rules).
+3. **Merge** patch over existing row and validate the **merged object against the entity's create schema** (the full rule set, including cross-field refinements like exactly-one-vehicle and delivery ≥ pickup).
+4. On failure → **422 with field-level errors**; the database is never touched. On success → update with **only the patched fields** (merge is for validation, not for rewriting untouched columns — this preserves concurrent-edit behavior and `updated_at` semantics).
+
+*Alternatives considered:* (a) per-entity hand-written merged validators — rejected: two entities are confirmed today, the defect class is architectural, and the shared layer is the fix the register points at; (b) pushing all cross-field rules into DB CHECK constraints — partially complementary (Unit C's F-026 does exactly this for money invariants), but DB errors cannot produce field-level 422s and several rules (exactly-one-of) already exist as DB CHECKs that today produce the raw errors this finding complains about; (c) requiring full-object PUTs from clients — rejected: breaks the existing API contract and every current caller, including branch bot tools that PATCH.
+
+### F.3 Impact
+
+- **Data model / migration:** none.
+- **API:** PATCH semantics tightened (some previously-accepted invalid patches now 422 — that is the fix); cost is one extra RLS-scoped SELECT per PATCH, acceptable at this scale and stated openly.
+- **UI:** edit forms (Unit A) surface field errors from the 422 body — the shared form component must render them (small, included in A4's scope note).
+- **Tenant security / RLS:** the merge-load runs under the caller's RLS, so a PATCH against another company's row 404s before validation — no cross-tenant information leaks through validation messages.
+- **Interaction with Unit E:** when composite FKs land (00031), a merged record that points cross-company fails at the DB as a backstop; Unit F's validation produces the friendly error first for API callers. Neither replaces the other.
+
+### F.4 Acceptance criteria + test cases
+
+1. PATCH `{truck_id: null}` to a pretrip inspection that has a truck and no trailer → **422** naming the vehicle rule. *(Before: passes schema, raw DB CHECK error surfaces.)*
+2. PATCH `{delivery_date}` earlier than the stored `pickup_date` on a load → 422 naming both fields. *(Before: only possible to catch if both fields were submitted together.)*
+3. PATCH a single unrelated field (e.g. notes) on a valid record → succeeds, untouched fields byte-identical afterward.
+4. PATCH against a nonexistent ID and against another company's ID → 404 in both cases, no validation details leaked.
+5. Regression: every currently-valid PATCH in the existing suite still passes (the merged validation must not reject states the create schema itself allows, including legitimately partial real-world records created before stricter rules — any such legacy state discovered is reported, not silently grandfathered).
+
+### F.5 Rollback + documentation
+
+- **Rollback:** single shared-path change; revert restores prior behavior exactly. No data was written differently under the new path (updates still write only patched fields), so rollback has no data tail.
+- **Documentation:** API contract note: PATCH validates the merged record; 422 shape documented.
+
+### F.6 Tasks + effort (Unit F ≈ 4 h)
+
+| # | Task | Est. |
+|---|---|---|
+| F1 | Shared merged-record validation in the update path + tests for the two confirmed entities | 3 h |
+| F2 | Sweep: run the merged validation against every entity's create schema; report any entity whose create schema cannot validate a stored row (legacy-state report) | 1 h |
+
+**Decision points for the owner in this unit:** none material — the direction is register-prescribed and challenge-endorsed. One micro-choice is surfaced for completeness: legacy rows that fail today's create schema (if F2 finds any) block edits to those rows until corrected via the edit form itself (the form submits the full corrected record, which passes) — recommended, stated rather than hidden.
+
+---
+
+## Unit C — Money truth: revenue convention, reconcilable totals, enforced invariants, honest fuel math
+
+**Findings:** F-008 (P1), F-010 (P1), F-026 (P2), F-033 (P1), F-053 (P1). **Governing decisions: D-01, D-04.** Consumes Unit B's timezone helper. Boundary with Wave 2: F-049's rich drill-down UX is Wave 2 — this unit delivers the **API contract and the minimal truthful UI** that make totals reconcilable; see C.3.
+
+### C.1 Verified current behavior (register evidence)
+
+- Revenue attribution: `effectiveDate = delivery_date ?? pickup_date` (financial-summary `route.ts:97`), the full `rate_cents` counted in that one month (:94-101); the UI labels the result only "Revenue" (`money/summary/page.tsx:53-54`). Loads carry statuses `draft / confirmed / completed` only (Zod `src/data/schemas/loads.ts:9`; status column is `text not null default 'draft'`, 00003:21) — **no `cancelled` status exists today**.
+- The summary's four component queries (`route.ts:64-88`) have **no `.range()` and no count check**; totals sum whatever PostgREST returns (:40-42, :101-113), and the response (:115-122) returns only cent totals — no source IDs, no counts (F-010, F-033).
+- Financial invariants live only in Zod: migration 00003:1-6 states in its own header that non-negative/date rules are "deliberately not duplicated here as DB check constraints" (`loads.ts:20-21`, `expenses.ts:7`, `fuel-purchases.ts:6-8` carry the rules) — any non-API writer can insert values the app itself would reject (F-026).
+- Fuel: `gallons`, `price_per_gallon_cents`, `total_cost_cents` are three independent fields with no `.refine` (`src/data/schemas/fuel-purchases.ts:3-10`, verified by direct read: gallons is a decimal `z.number().positive()`, price/total integer cents); the form enters the total independently (`fuel-purchases/new/page.tsx:37-39`); the summary sums the stored `total_cost_cents` (`route.ts:78,107-109`). 100 gal × $3.50 with a $500 total passes today (F-053).
+
+### C.2 D-01 — Revenue recognition (PROPOSED — awaiting owner ruling)
+
+- **The decision:** on what event, and in which month, does a load's rate become "Revenue" on the Home/Money summaries — and what happens to loads that haven't reached that event?
+- **ChatGPT's preliminary position:** recognize on the delivery date when delivery is recorded; if delivery is not recorded, keep the load **out** of recognized revenue rather than silently substituting pickup date; show operational pipeline value separately from recognized revenue.
+- **Design recommendation: AGREE, with three refinements that make the position implementable and honest:**
+  1. **Recognition trigger, defined exactly:** a load contributes to recognized revenue when `status = 'completed'` **and** `delivery_date IS NOT NULL`, recognized in the viewer-local month of `delivery_date`. Status alone is not trusted (a load can be marked completed carelessly); the date alone is not trusted (a date can be typed onto a draft). Both signals are required.
+  2. **The exception is surfaced, not dropped:** a `completed` load with no `delivery_date` appears in the summary response as a named exception count ("Completed loads missing a delivery date: N — excluded from revenue") with a link to those loads. Excluding it silently would recreate the original sin (a number that doesn't reconcile) in a new place.
+  3. **History treatment:** the new convention is applied to **all** history (recompute), because the old fallback was part of the defect — **but not silently**: the summary permanently labels the convention (see C.3), and the first version shipping this change carries a one-time notice on the Money summary. **‹Rev 2› Notice wording (reviewer position, folded in):** the notice must say that the app's **operational revenue figures were restated** under the delivery-date rule and why — *"Past months' operational revenue was restated to count loads when delivered. This changes how this app reports its own figures; it does not change any cash you received or any tax record."* It must never imply cash receipts or tax records changed (they did not — no cash or tax data exists in this system; see the labeling rule in C.3). ChatGPT's review supports the recompute-with-notice approach. *Alternative — dual bookkeeping (old convention frozen for past months):* rejected; two conventions in one chart is less truthful than one restated series with a label, at single-company scale where the owner is the only reader. This sub-choice is the owner's to flip.
+- **The ChatGPT §2 sub-questions, answered:**
+  - *Missing delivery date:* excluded from recognized revenue; if the load is `completed`, it is the surfaced exception above; if still `draft`/`confirmed`, it is pipeline (below).
+  - *Draft / incomplete loads:* never recognized. **Pipeline value** = sum of `rate_cents` over `draft` + `confirmed` loads (loads with no rate contribute 0 and are counted in a "loads without a rate" exception note), displayed separately, never added into revenue or net.
+  - *Cancelled loads:* **no cancelled status exists today.** The design proposes adding `cancelled` to the load status enum (Zod + UI; the DB column is `text`, so no enum migration is expected — implementer must confirm no DB CHECK constrains status, and if one does, it is amended inside the `00029` reserved batch). Cancelled loads are excluded from recognized revenue **and** from pipeline, and are visually distinct in the loads list. This is a genuine sub-decision for the owner (alternatives: keep deleting/withdrawing drafts instead — rejected: deletion-as-cancellation destroys the record of work that was booked and lost, exactly the history an owner-operator needs at tax and broker-dispute time).
+  - *API/UI sameness:* the convention string is returned by the API (`revenueConvention: "recognized_on_delivery"`) and rendered by the UI from that field — the label cannot drift from the logic because it travels with the data.
+- **Consequences:** delivery-date recognition = revenue matches completed work and cash expectation; months in which the owner delivers late-month loads stop borrowing next month's revenue (the pickup-fallback distortion disappears). Cost: "Revenue" will drop in any month where loads were picked up but not yet delivered — that is the truth the pipeline figure exists to soften, displayed right beside it.
+
+### C.3 Recommended behavior — reconcilable summary (F-033, F-010)
+
+**F-033 — completeness first.** Replace silent PostgREST truncation with **count-verified pagination in the service layer**:
+
+- Each component query runs with `count: "exact"` (the pattern `crud.ts` list already uses) and pages through **all** matching rows; after fetching, `fetched.length === count` is asserted. On mismatch the summary endpoint returns an error and the UI shows an explicit "Summary couldn't be verified — try again" state. A wrong-but-confident total is the one outcome the design forbids.
+- **‹Rev 2› Reviewer conditions for accepting pagination in Wave 1 (folded in as requirements, not options):** paging uses a **deterministic ordering** (stable sort key — `created_at, id` — so page boundaries cannot skip or double-count rows between fetches), incomplete results are **detected** (the count assertion above), and failure is **visible** (the unverified state above, never a partial total). If any of the three cannot be met for a component, that component does not ship on pagination — the RPC alternative is revisited for it. A database-side aggregate remains the named follow-up when scale justifies it.
+- *Alternative considered:* Postgres RPC/view doing `SUM()` in the database. It is the better end-state at scale, and ChatGPT blessed either; pagination+assert is recommended for Wave 1 because it adds **zero migration surface** in a wave already carrying five reserved migrations, reuses the existing list machinery, and its assertion failure mode is testable today. The RPC migration is recorded as the named follow-up when row counts make paging the bottleneck. This is a recorded trade-off, not an oversight.
+- The date filters for all four components come from the **same shared filter module** (Unit B's local-month bounds + D-01's recognition rule), so components can never quietly use different months (F-010's original defect shape).
+
+**F-010 — traceability (Wave 1 boundary; F-049 completes it in Wave 2).** The summary response gains, per component: `{ total_cents, row_count, record_ids }` (IDs are cheap at current scale; if a component ever exceeds a documented cap, the response returns the count and the detail endpoint below is the path). A new read endpoint — `GET /api/v1/financial-summary/detail?component=<revenue|expenses|fuel|maintenance>&from&to` — returns the contributing rows using the **identical** filter module. Reconciliation property, testable: *sum of detail rows = component total, always.* The Money summary UI makes each total a link to a simple rows list (reusing the entity list components). The richer F-049 drill-down experience (cross-links, per-load grouping) remains Wave 2's W3-8/W2 work and is **not** designed here.
+
+**‹Rev 2› The three financial measures (ChatGPT correction 4) — defined once, here, and used by both Units C and D.** Rev 1 let three different questions share one word ("net"/"margin") and one insufficient property test. They are now separate measures with separate names, and **each cost measure carries an explicit date basis**:
+
+| Measure | Definition | Date basis |
+|---|---|---|
+| **(i) Per-load contribution margin** (Unit D) | For one load: operational load revenue − direct costs **assigned to that load** (load-linked expenses + load-linked fuel), whenever those costs were incurred | Revenue: the load's `delivery_date` (recognition, D-01). Costs: **assignment**, not period — the load's whole life |
+| **(ii) Period operating result** (this unit) | For period P: recognized revenue − **all costs incurred in P**, whether assigned to a load or not (expenses by `expense_date`, fuel by `purchased_at`, maintenance by `service_date`, each in the viewer's local period) | Revenue: `delivery_date` in P. Costs: **incurred in P** |
+| **(iii) Aggregate contribution margin, loads delivered in P** (Unit D) | Sum of measure (i) over all loads **delivered in P** | Loads selected by `delivery_date` in P; their direct costs count **whenever incurred — including in earlier periods** |
+
+These measures **differ by design** and none may be substituted for another: a fuel purchase made in October and assigned to a load delivered in November is an **October** cost in measure (ii) and a **November** margin cost in measure (iii). The summary response names them distinctly (`recognizedRevenue`, `periodOperatingResult`, `aggregateContributionMargin`) and the UI never renders one under another's label.
+
+**Reconciliation equation (the acceptance property — replaces the Rev 1 property in D.5 test 4).** For period P, with `D` = direct (load-assigned) costs:
+- `AggMargin_P = Revenue_P − D_life(delivered in P)`, where `D_life` splits as `D_incurredBeforeP(delivered in P) + D_incurredInP(delivered in P)`.
+- `PeriodOperatingResult_P = Revenue_P − [ D_incurredInP(delivered in P) + D_incurredInP(undelivered in P) + Unassigned_P + OtherPeriod_P ]`, where *undelivered* = draft, confirmed, and cancelled loads (cancelled included: a cancelled load can still carry real assigned costs incurred in P, and they belong to P's operating result even though the load will never enter any aggregate margin), `Unassigned_P` = unassigned fuel + unassigned expenses incurred in P, and `OtherPeriod_P` = maintenance and any other period costs incurred in P.
+- **Bridge (must hold exactly, in integer cents, on arbitrary seeded data):**
+  `PeriodOperatingResult_P = AggMargin_P + D_incurredBeforeP(delivered in P) − D_incurredInP(undelivered in P) − Unassigned_P − OtherPeriod_P`.
+  The two bridge terms are precisely the cross-period effects: costs incurred in P for loads delivered in another period (or never) leave P's margin but stay in P's result; costs incurred before P for loads delivered in P enter P's margin but not P's result.
+
+**Labeling rule (binding on API and UI, both units):** the load rate figure is **operational load revenue, recognized on delivery**. It is **not** cash collected, **not** settled revenue, and **not** an accounting or tax result — this system contains **no invoice or settlement records**, so no figure in it may be worded as received, settled, or filed. Labels say so in plain language wherever the revenue figure appears ("Operational revenue — loads delivered; not payments received").
+
+### C.4 D-04 — Fuel math (PROPOSED — awaiting owner ruling)
+
+- **The decision:** what is the one true total of a fuel purchase when gallons, unit price, taxes/discounts, and the pump receipt disagree?
+- **ChatGPT's preliminary position:** one authoritative calculation, gallons × unit price, with documented precision/rounding; taxes, discounts, rebates, adjustments represented explicitly so the total reconciles to the receipt; no independently editable total unless a justified adjustment with a reason is recorded.
+- **Design recommendation: AGREE**, specified as:
+  - **Computed base:** `computed_cents = round_half_up(gallons × price_per_gallon_cents)`. Rounding rule stated once, here: multiply the decimal gallons by integer cents-per-gallon, round **half up** to the nearest cent, once, at the end. (Worked example: 100.000 × 350 = 35,000¢ = $350.00. Receipt-real example: 87.432 gal × 389¢ = 34,011.048 → **34,011¢**.)
+  - **‹Rev 2› Decimal-safe precision contract (ChatGPT correction 5) — API and DB must agree exactly, by construction, not by luck:** the register confirms `gallons` is currently a JS `number` on the API side, and naive floating-point multiplication followed by rounding can land a cent away from Postgres `numeric` arithmetic. The contract: **(a) Accepted precision:** gallons are accepted to **3 decimal places** (pumps meter to the thousandth) and stored as **`numeric(10,3)`**; the API rejects gallons with more precision rather than silently rounding the input. **(b) Calculation path:** gallons are carried as an integer count of **thousandths** (milligallons) through the computation: `computed_cents = round_half_up(gallons_milli × price_per_gallon_cents ÷ 1000)`, where `gallons_milli × price_per_gallon_cents` is **exact integer arithmetic** in both implementations (JS: integer math on safe integers; the values are far below 2^53) and the single division rounds **half up** at this named step and nowhere else. **(c) DB equivalence:** Postgres computes the same value as `round(gallons * price_per_gallon_cents)` over `numeric` — decimal multiplication of a 3-dp value by an integer is exact in `numeric`, and Postgres `round` on non-negative values is half-up (half away from zero; all quantities here are non-negative), so the two paths are provably the same function, not two approximations that usually agree. The DB invariant (below) uses the `numeric` form; the API uses the integer form; C.7 test 5b is the tripwire that fails if an implementation drifts into floats. **(d)** This contract is also why the `gallons` column conversion (below) is mandatory rather than conditional if the column is found to be floating-point at migration pre-flight: a float column cannot honor exact agreement, so it converts to `numeric(10,3)` inside `00028`, called out in the migration review.
+  - **Adjustments are data, not edits:** new columns (migration `00028` reserved): `adjustment_cents integer not null default 0`, `adjustment_reason text null`, with a DB CHECK: `adjustment_cents = 0 OR adjustment_reason` is non-empty. Taxes/IFTA-relevant surcharges, cash discounts, rebates — all land in the adjustment with a reason from the receipt. The form shows base computed live, an optional adjustment + reason, and the resulting total as a **read-only derived figure**. There is no total field to type into anymore.
+  - **Invariant enforced at the DB** in the same reservation: `total_cost_cents = round(gallons * price_per_gallon_cents) + adjustment_cents` (implementer confirms the `gallons` column type in the migration pre-flight — expected `numeric`; if it is float, the migration first converts it to `numeric(10,3)`, and that conversion is called out in the migration review, not buried).
+  - **Existing rows:** pre-F-053 rows may violate the invariant. The migration **backfills** `adjustment_cents = total_cost_cents − computed`, `adjustment_reason = 'Legacy variance (pre-F-053)'` for any violating row, so history is preserved exactly — totals the owner already saw do not change — while every row satisfies the invariant afterward. *Alternative — recompute and overwrite legacy totals:* rejected; silently restating recorded fuel spend corrupts the very reconciliation this unit exists to create. *Alternative — leave legacy rows exempt (CHECK NOT VALID forever):* rejected; a permanent two-tier truth is worse than a labeled legacy adjustment.
+  - The financial summary keeps summing `total_cost_cents` (now trustworthy, since it is derived or labeled-adjusted).
+- **Consequences:** every fuel total reconciles to its receipt by construction; the cost is one extra optional field on a form the owner fills at the pump, and legacy rows carrying a visible "legacy variance" label he may clean up if he ever cares to.
+
+### C.5 F-026 — invariants at the database boundary
+
+Migration `00029` (reserved) adds CHECK constraints mirroring the existing Zod rules — Zod stays for error quality, the DB becomes the floor every writer must clear:
+
+- `loads.rate_cents >= 0`, `loads.miles >= 0` (confirm exact column names/types in pre-flight), `loads.delivery_date >= loads.pickup_date` when both present (promoting cleared-item C-05's rule to the DB without changing its semantics);
+- `expenses.amount_cents >= 0` (exact column name per schema pre-flight); fuel non-negatives are subsumed by C.4's invariant migration;
+- **Safe application pattern:** each constraint is added `NOT VALID`, a violator scan runs and is **reported** (count + IDs to the checklist — bad legacy data is a finding, not something to silently delete), offending rows are corrected through the app's own edit UI (Unit A) or explicitly excepted by owner decision, then `VALIDATE CONSTRAINT` completes the migration. If the owner will not correct a violator, the constraint stays `NOT VALID` and the finding stays open — the design refuses to fake closure.
+
+### C.6 Impact
+
+- **Data model:** fuel gains `adjustment_cents`/`adjustment_reason` (00028); CHECK constraints (00029); load `cancelled` status is a value change in a `text` column (Zod enum + UI; DB touch only if a status CHECK is found).
+- **API:** summary response shape grows (per-component totals + counts + IDs + exceptions + convention + tz used); new detail endpoint; fuel create/update now **rejects** a client-supplied `total_cost_cents` that disagrees with the derived value (the field is accepted only as the derived echo, or dropped from the write schema — implementer's call, contract documented either way).
+- **UI:** Money summary relabeled ("Revenue — loads delivered this month", "Pipeline — booked, not yet delivered", exception notices); totals become links; fuel form loses the free total field and gains computed-total display + optional adjustment/reason.
+- **Tenant security / RLS:** no policy changes; all queries remain company-scoped; the detail endpoint enforces component filters server-side under RLS like every other read.
+- **Migration:** `00028` + `00029` reserved, sequenced in §7 — `00028` before any Unit D work (D depends on the fuel schema), `00029` after Unit A's edit UI exists (violator correction path must exist before constraints are validated).
+
+### C.7 Acceptance criteria + test cases
+
+1. **Recognition:** a load picked up Oct 30, delivered Nov 2 ($2,000) contributes $0 to October revenue, $2,000 to November; the October summary's pipeline includes it while it is undelivered. *(Before: pickup-fallback puts it in October or November by date presence, unlabeled.)*
+2. **Exception surfacing:** a `completed` load with no `delivery_date` is absent from revenue **and** present in the exceptions count with a working link.
+3. **Truncation tripwire (integration):** seed more rows than one PostgREST page for a component (or mock the count) → the endpoint returns all rows' true total; force a count/fetch mismatch → endpoint errors and the UI shows the unverified state, **not** a partial total. *(Before: silent undercount, F-033 reproduces.)*
+4. **Reconciliation property:** for a seeded month, sum of `detail?component=fuel` rows = summary fuel total; same for expenses and revenue. This property test is the F-010/F-049-boundary acceptance. **‹Rev 2›** And the **three-measures bridge**: on a seeded dataset that deliberately includes (a) fuel bought in October assigned to a load delivered in November, (b) an expense assigned in October to a load still undelivered in November, (c) unassigned fuel, and (d) maintenance — the **reconciliation equation of C.3** holds exactly in integer cents for both October and November, and the three measures return their three different, hand-computed values (not three copies of one number).
+5. **Fuel invariant:** POST 100 gal × 350¢ with total 50,000¢ and no adjustment → 422. POST with `adjustment_cents = 15000, adjustment_reason = "Receipt included taxes"` → accepted, total stored 50,000¢, detail shows base 35,000 + adjustment 15,000. POST with a nonzero adjustment and no reason → 422, and the same attempt via direct SQL fails the CHECK.
+5b. **‹Rev 2› Precision tripwire:** gallons `2.675` × price `100¢`: exact decimal product is 267.5 → **268¢** by round-half-up. (Naive JS float: `2.675 × 100 = 267.49999…` → `Math.round` gives **267¢** — the two disagree, which is the point.) The API's computed base **and** the DB invariant must both yield 268¢ for this row; a gallons input with 4+ decimal places → 422, not silent rounding.
+6. **Legacy backfill:** a pre-existing inconsistent row (100 × 350, total 500) after migration keeps total 500 with a labeled legacy adjustment of 150 — owner's historical fuel spend unchanged.
+6b. **‹Rev 2› Legacy-adjustment visibility (all four properties asserted, per ChatGPT correction 5):** for that same row after migration (seeded as 100.000 gal × 350¢ with an entered total of $500.00 = 50,000¢) — (a) the stored **original total is unchanged** (50,000¢); (b) the **computed base is recorded correctly** (35,000¢, recomputed under the precision contract); (c) the **adjustment equals the exact difference** (50,000¢ − 35,000¢ = 15,000¢, to the cent, no rounding residue); (d) the **legacy reason is visible wherever the legacy total is shown** — the fuel list row and the fuel detail view both render the adjustment with its "Legacy variance (pre-F-053)" reason, not just the API payload (component test on both surfaces).
+7. **Invariant floor (F-026):** direct-SQL insert of a negative expense amount fails; the same via API returns a field-level 422 (not a raw DB error).
+8. **Label truth:** summary response carries `revenueConvention` and `timeZone`; the rendered page's revenue label matches them (component test).
+
+### C.8 Rollback + documentation
+
+- **Rollback:** the summary service can revert to the prior attribution in one change (data untouched — D-01 changes computation, not stored facts); the fuel form change is UI/schema-level, and `adjustment_*` columns are additive — a rollback leaves them populated and ignored, with totals still equal to base+adjustment by construction; CHECK constraints can be dropped individually without data change. The one irreversible-by-design element is none: even the legacy backfill preserves original totals (it only *explains* them).
+- **Documentation:** Money/revenue convention doc (D-01 rule, pipeline definition, exception semantics); API contract updates; the one-time restatement notice text recorded in the release notes for the implementing change.
+
+### C.9 Tasks + effort (Unit C = 23 h per the §11 ledger ‹Rev 2›)
+
+| # | Task | Est. |
+|---|---|---|
+| C1 | Shared summary filter module + tz-aware month (with B1) + count-verified pagination + fail-loud error (F-033) | 4 h |
+| C2 | D-01 recognition + pipeline + exceptions in summary service + API fields (F-008) | 4 h |
+| C3 | Detail endpoint + summary totals→rows links (F-010 Wave 1 boundary) | 4 h |
+| C4 | Summary UI relabeling + exception notices + one-time restatement notice | 3 h |
+| C5 | Fuel model: schema/form derived total + adjustment fields (app layer) + decimal-safe precision contract incl. the float-divergence tripwire test (F-053) ‹Rev 2› | 4 h |
+| C6 | Migrations `00028`/`00029` drafting incl. legacy backfill + violator scan queries (F-053 DB half, F-026) | 4 h |
+
+**Decision points for the owner in this unit:** **D-01** in full (C.2) including the recompute-with-announcement sub-choice and the **`cancelled` status** sub-decision; **D-04** in full (C.4) including the legacy-backfill treatment; the RPC-vs-pagination trade-off (recommended: pagination now, C.3) — recorded so ChatGPT can challenge it.
+
+---
+
+## Unit D — Load economics: honest contribution margin
+
+**Findings:** F-009 (P1), F-023 (P1). **Governing decision: D-02.** Boundary with Wave 2: this unit delivers the **schema, the API computation, and period-level aggregates**. The per-load margin *display* lives in the load detail page — that is F-048, Wave 2, and is **not** designed here beyond naming the API it will consume.
+
+### D.1 Verified current behavior (register evidence)
+
+- No per-load P&L exists anywhere: the financial summary is period-only (`route.ts:115-122`); there is no allocation model, no per-load number of any kind (F-009).
+- `fuel_purchases` has `truck_id` and **no `load_id`** (`src/data/schemas/fuel-purchases.ts:4`; migration 00003 fuel table likewise), while `expenses` **does** have `load_id` (`src/data/schemas/expenses.ts:10`) — the asymmetry is the whole defect: one direct cost category can attach to a load, the biggest one cannot (F-023).
+- Maintenance is truck-only (00003:59-60) and there is no model for insurance, permits, financing, or depreciation — any "profit per load" shown today would be fabricated precision.
+
+### D.2 D-02 — Fuel attribution and contribution margin (PROPOSED — awaiting owner ruling)
+
+- **The decision:** when the app shows what a load "made," what is subtracted from its rate, what is left out, and what the number is called?
+- **ChatGPT's preliminary position:** distinguish load revenue, directly attributable costs, and contribution margin; assign fuel to a load only with a defensible link or an explicit user allocation; keep unassigned truck fuel visible as unallocated operating cost; never label contribution margin as net profit (overhead, insurance, permits, financing, depreciation may sit outside it).
+- **Design recommendation: AGREE in full, with no weakening.** Specified:
+  - **Definitions (the only ones the app may use; ‹Rev 2› aligned to the three-measures table in C.3):**
+    - *Operational load revenue* — `rate_cents` of a delivered load, per D-01's recognition rule. **‹Rev 2›** It is labeled operational load revenue everywhere, per C.3's labeling rule: not cash collected, not settled revenue, not an accounting/tax figure (no invoice or settlement records exist in this design).
+    - *Directly attributable costs (per load)* — expenses with `load_id = ` that load, **plus** fuel purchases with `load_id = ` that load (once D.3 lands). Nothing else. No estimates, no splits, no averages.
+    - *Load contribution margin* = operational load revenue − directly attributable costs, **over the load's whole life, whenever the costs were incurred** (measure (i) in C.3). The words **"contribution margin"** are mandatory wherever the number appears; "profit" is not used for any per-load figure, and the period figure is named **period operating result** (measure (ii)), never conflated with this margin.
+    - *Unallocated fuel* — fuel purchases with `load_id IS NULL`, totaled per period and displayed on the Money summary as its own line: **"Fuel not assigned to a load."** It is subtracted in the period operating result (it is real spend incurred in the period) and in **no** load's margin.
+  - **Assignment is an act, not an inference:** a fuel purchase gets a `load_id` only when (a) the owner picks the load on the fuel form, or (b) the owner later edits the purchase (Unit A pattern) and assigns it. The app never guesses from timestamps or truck. *Defensible-link half of ChatGPT's position:* sharing a truck and a date range is a **suggestion the UI may offer** ("Same truck, same day as Load #… — assign?") only as a one-tap owner confirmation in the edit form — the design allows the prompt, never the silent assignment. Whether even the prompt ships in Wave 1 is an owner micro-choice; the schema supports it either way.
+  - **Multi-load fuel is honestly unassigned:** one purchase has at most one `load_id` in Wave 1. A tank that fed three loads stays unassigned (visible, counted in the period operating result) rather than being split by a formula nobody can audit. *Alternative considered — a fuel-allocation split table (purchase × load × cents):* deferred, not rejected; it is the honest way to do splits, and bolting it on later requires no change to this design's base columns. *Alternative rejected — proportional auto-allocation by miles:* manufactures per-load numbers from an assumption; precisely the fabricated precision F-009 exists to prevent.
+  - **Fuel bought before/after a load:** irrelevant by design — assignment is by owner declaration, not by temporal logic; the date never validates or invalidates an assignment.
+  - **Truck-level costs (maintenance, insurance, permits):** never allocated to loads in Wave 1, by statement. They appear in the period operating result only. If the owner later wants full-absorption costing, that is a new decision with its own design; the UI copy in this unit must say margin "excludes truck overhead" so the boundary is visible, not implied.
+- **Consequences:** the margin number is always auditable to specific receipts (tap → the exact expenses and fuel rows); early on, while assignment discipline is forming, margins will read *high* (unassigned fuel excluded) — the unallocated line sitting beside the aggregate margin figure is the designed counterweight, and the summary shows both or neither.
+
+### D.3 Recommended behavior — the buildable shape
+
+1. **Schema:** `fuel_purchases.load_id uuid null` referencing loads (migration `00028` reserved, shared with Unit C's fuel work — one fuel migration, two findings). No backfill: existing purchases remain unassigned, truthfully.
+2. **API:** the fuel create/edit schemas gain optional `load_id` (validated like every FK, and from Unit E's landing onward, composite-FK protected). A per-load economics read — `GET /api/v1/loads/[id]/economics` — returns `{ revenue_cents, direct_expenses_cents, direct_fuel_cents, contribution_margin_cents, excluded: "truck overhead, unassigned fuel" }`, computed from the definitions above, for a **delivered** load; for non-delivered loads it returns the components with margin marked provisional (rate is pipeline until D-01 recognition). This endpoint is what F-048 (Wave 2) will render; Wave 1 ships the number and its tests, plus the period aggregates below — not the load-detail screen.
+3. **Period aggregates (Money summary, with Unit C) ‹Rev 2›:** the summary exposes measure (iii) — **aggregate contribution margin for loads delivered in the period** = recognized revenue (D-01) − **lifetime** directly attributable costs of those delivered loads (including costs incurred in earlier periods) — displayed next to **unallocated fuel** and the **period operating result** (measure (ii): revenue − *all* costs incurred in the period). Three numbers, three different meanings, three different date bases (C.3 table), none of them called the others' names, and the response carries all the bridge terms of the C.3 reconciliation equation so the UI (and F-049's Wave 2 drill-down) can show *why* (ii) and (iii) differ for the period instead of leaving the owner to wonder which one is "wrong." Neither is wrong; they answer different questions.
+
+### D.4 Impact
+
+- **Data model:** one nullable column (00028). **API:** one new read endpoint + fuel schema field. **UI:** fuel form gains an optional load picker (reusing the existing picker components — and note the picker error-state defect F-029 is Wave 3; Wave 1 does not make it worse or depend on fixing it); Money summary gains the margin + unallocated lines (with C4).
+- **Tenant security / RLS:** `load_id` is a same-company reference; until Unit E lands it carries the same structural caveat as every existing FK (F-036), and Unit E's migration upgrades it with all the others (noted in the 00031 inventory so it cannot be forgotten). The economics endpoint reads under RLS like all others.
+- **Migration:** part of `00028` reserved. Rollback is trivial (drop the column; assignments were owner-entered data — on rollback they are exported in the migration notes before any drop, never silently discarded).
+
+### D.5 Acceptance criteria + test cases
+
+1. Fuel purchase with no load → appears in period **unallocated fuel**, in no load's economics. *(Before: no distinction exists at all.)*
+2. Fuel purchase assigned to Load A + an expense assigned to Load A → Load A economics: margin = rate − expense − fuel, each component traceable to its row. A second load's economics is unaffected.
+3. Editing a fuel purchase to change its `load_id` from A to B moves the cost between the two loads' margins exactly; assigning via the "same truck, same day" prompt requires an explicit confirm — no code path assigns on date proximity alone (asserted by test: creating a purchase with no `load_id` beside a same-day load leaves it null).
+4. A purchase the owner declines to assign stays out of every margin while remaining inside the period operating result. **‹Rev 2› The reconciliation property is the full C.3 bridge equation** — `PeriodOperatingResult_P = AggMargin_P + D_incurredBeforeP(delivered in P) − D_incurredInP(undelivered in P) − Unassigned_P − OtherPeriod_P` — asserted exactly (integer cents) on seeded data that includes a cross-period fuel assignment and a cost on an undelivered load. *(Rev 1's property here — "period net = aggregate margin − unallocated fuel − other period costs" — is superseded: it silently assumed no costs were assigned to undelivered loads and no delivered load carried earlier-period costs, the two cases this correction exists to catch.)*
+5. Non-delivered load economics response marks margin provisional and excludes the load from aggregate margin.
+6. Copy test: no UI string in the touched surfaces labels a per-load figure "profit" (scripted grep recorded as evidence — crude, effective).
+
+### D.6 Rollback + documentation
+
+- **Rollback:** remove the summary lines + endpoint; the column can remain (harmless, owner data). **Documentation:** a "Load economics — what the numbers mean" doc defining revenue/direct costs/margin/unallocated in the words of D.2; fuel form help text ("Assign to a load only if this fuel was for that load").
+
+### D.7 Tasks + effort (Unit D = 9 h per the §11 ledger ‹Rev 2›)
+
+| # | Task | Est. |
+|---|---|---|
+| D1 | `load_id` schema/API field + picker on fuel form (the `00028` migration drafting itself is owned by C6 — counted once, there) ‹Rev 2 dedup› | 3 h |
+| D2 | Per-load economics endpoint + definitions tests (D.5.1–D.5.5) | 4 h |
+| D3 | Period aggregates (aggregate margin + unallocated line) in summary — lands with C2/C4 | 2 h |
+
+**Decision points for the owner in this unit:** **D-02** in full (D.2) — especially the **no-auto-allocation** stance and the **one-load-per-purchase** Wave 1 limit; the optional "assign?" prompt micro-choice (D.2).
+
+---
+
+## Unit E — Tenant integrity at the database boundary
+
+**Finding:** F-036 (P1, CONFIRMED structural; exploitability not established). **Governing decision: D-03.** Designs the Wave 1 boundary for **F-024** (documents are Wave 2's finding; the enforcement *mechanism* for polymorphic references is designed here, its full validation semantics — allowed types UX, association editing — are completed in Wave 2's F-024 work and this unit names exactly where the line falls).
+
+### E.1 Verified current behavior (register evidence)
+
+- Every FK is single-column: `drivers.assigned_truck_id references trucks(id)` (00002:38); loads/expenses/fuel FKs (00003:11-14, 34-36); duty_logs (00011:11-12). No composite `(company_id, id)` FK exists, and no `UNIQUE (company_id, id)` exists to build one on (spot-check of 00002/00003 in the clone for this package: no unique indexes defined there).
+- The generic create inserts body-supplied FK values unchecked (`crud.ts:73-77`). RLS hides other companies' rows on **read**, but an INSERT referencing another company's truck/load ID is not rejected by any FK — the child's `company_id` is the caller's, the parent's is someone else's. Exploitability has never been demonstrated (NV-3 attack test is still open; F-036 stays P1 unless that test escalates it — §8).
+- Relationships in scope **‹Rev 2 — PROVISIONAL EXAMPLE ONLY›:** the list that follows (from the register's inventory) is an **illustrative example, not the migration inventory**: loads → trucks, drivers, brokers, customers; expenses → trucks, drivers, loads; fuel → trucks (+ loads after Unit D); maintenance_events → trucks; maintenance_schedules → trucks/trailers; equipment items → trucks/trailers; pretrip_inspections → trucks/trailers/drivers; drivers → trucks; duty_logs → drivers, loads; bot/agent tables from branch migrations 00015/00016/00021 enter scope **when those branches merge**. The authoritative inventory does not exist yet and cannot be written from this package: it is **generated from the final merged schema at implementation time** (E.3 step 0). Any relationship present in the merged schema but absent from this example list is in scope; any listed relationship that no longer exists is out. Nobody may freeze the `00031` migration from this list.
+- Documents: `related_entity_type text` + `related_entity_id uuid not null` (00004:8-9) with **no FK possible** in that shape, and the API validates UUID syntax only (`documents/route.ts:59-63`).
+
+### E.2 D-03 — Same-company enforcement (PROPOSED — awaiting owner ruling)
+
+- **The decision:** where does the guarantee "a record can only reference my own company's records" live — application code, the database, or both — and which one is authoritative when they disagree?
+- **ChatGPT's preliminary position:** database-enforced tenant integrity, not service-layer checks alone; evaluate composite `(company_id, id)` FKs backed by unique constraints across every relationship and migration path; RLS remains a separate access-control layer — neither substitutes for the other.
+- **Design recommendation: AGREE in full.** The database is the authority; the application keeps a same-company pre-check **only** to turn violations into friendly 422s for API callers (defense in depth, explicitly non-authoritative — if the two ever disagree, the DB's answer stands and the discrepancy is a bug report, not a debate). RLS is untouched and remains the read/write visibility layer (F-003 preservation: policies stay exactly as verified).
+- **Alternatives considered:** (a) *Service-layer only* (register's cheap first step) — rejected as the final answer per ChatGPT's challenge: any future endpoint, bot tool, or direct DB writer bypasses it; it is retained as UX, not security. (b) *RLS-policy-based FK validation* (triggers reading `current_company_id()`) for regular FKs — rejected for typed relationships: composite FKs are declarative, optimizer-visible, and fail with standard FK errors; triggers are reserved for the polymorphic case where FKs cannot go. (c) *Do nothing until NV-3 proves exploitation* — rejected: the structural defect is confirmed, the fix is mechanical, and waiting converts a known weakness into a known-and-accepted one without the owner ever deciding that.
+
+### E.3 Recommended behavior
+
+0. **‹Rev 2› Inventory generation from the final merged schema (new step; gates everything below).** **Dependency, stated plainly: the branch merge state must be settled before this unit's inventory — and therefore the `00031` migration — can freeze.** Once the merged tree is final: (a) a generation script/query against `information_schema` + `pg_catalog` enumerates **every** foreign key in the schema, **every** table bearing a `company_id` column, and the polymorphic `documents` reference, producing the inventory as a reviewable artifact checked into the migration's PR; (b) a **completeness check** reconciles that artifact against the schema: every enumerated relationship must be accounted for in exactly one of three buckets — **converted** (composite FK in this migration), **trigger-enforced** (documents), or **explicitly excepted with a written reason** (e.g. references to `companies` itself, Supabase-auth-owned tables, append-only log tables with no tenant parent) — and every `company_id`-bearing table with no FKs must appear as "no relationships — confirmed," not be silently absent; (c) an unaccounted relationship, in either direction, **blocks the migration freeze** until a human dispositions it. The generation is re-run as part of the migration's own test suite (E.5), so the inventory cannot quietly rot between drafting and application.
+1. **Pre-flight data audit (before the migration is finalized):** a read-only SQL report, one query per FK **in the generated inventory** ‹Rev 2›, counting rows where child `company_id` ≠ parent `company_id`. **Expected result: zero.** Any hit is a data incident: it is reported to the owner by ID (no values beyond IDs), the migration does not proceed past it silently, and resolution (reassign/null by owner instruction) is a separate recorded act. The migration's existence must never be used to launder bad rows into compliance unnoticed. **‹Rev 2 restated, per correction 6(d): the audit PAUSES this unit on any cross-company relationship it finds. There is no automatic reassignment, no automatic nulling, and no "fix forward" — the next step after a hit is an owner ruling, full stop.**
+2. **Migration `00031` (reserved) — composite FK conversion, per table:** add `UNIQUE (company_id, id)` to every parent table (redundant with the PK, but Postgres requires a matching unique constraint for a composite FK — this is the standard pattern); for each FK, drop the single-column FK and add `(child_fk, company_id) → parent (id, company_id)` **preserving each FK's existing ON DELETE / ON UPDATE actions verbatim** (changing delete behavior is out of scope and would smuggle D-05 changes into a security migration). Constraints are added `NOT VALID` then `VALIDATE CONSTRAINT` after the audit in step 1 passes, minimizing lock time on the live DB.
+3. **Documents — trigger enforcement (the F-024 boundary):** a `BEFORE INSERT OR UPDATE OF related_entity_type, related_entity_id, company_id` trigger on `documents` that: (a) rejects a `related_entity_type` outside the allowlist — the allowlist is defined as the set of entity types the documents API accepts today (enumerated from the route's validation at implementation and listed in the migration for review; expanding it later is a deliberate migration, not a code-only change); (b) rejects when no row with that ID exists in the target table (resolved via the allowlist mapping type → table); (c) rejects when the target row's `company_id` ≠ the document's `company_id`; (d) rejects **new** associations to soft-deleted targets. **‹Rev 2› Execution-security terms (ChatGPT correction 6(b)) — specified now, not left to the implementer:** the validation function runs as `SECURITY DEFINER` only because it must see target rows across RLS boundaries to check ownership; in exchange it is constrained as follows — (i) `SET search_path = pg_catalog, public` (a fixed literal list, never caller-influenced, so no schema-shadowing of the tables or functions it uses); (ii) the function is owned by the **migration role with least privilege**: it is granted `SELECT` on exactly the allowlisted target tables and nothing else — no writes, no superuser, no `bypassrls` beyond what the definer context requires for those reads; (iii) it returns **no data** — it raises or it doesn't; (iv) **every rejection raises the identical error** (`invalid document reference`, same SQLSTATE) whether the target is nonexistent, another company's, or soft-deleted — the response must be indistinguishable, so the trigger can never be used as an oracle for whether another company's record exists; the API maps that one error to its own uniform 422, and the finer-grained reason (for the owner's legitimate debugging of *their own* records) is resolved by a separate RLS-scoped application-side lookup that can only ever see the caller's own rows. **Explicitly not in this unit (Wave 2 / F-024 proper):** what happens to existing documents when a target is deleted later (rule proposed here for Wave 2 to ratify: nothing cascades; the document stays, labeled with a deleted target; hard purge of a target is blocked while documents reference it — ties into D-05), and whether associations may be edited after upload (association edits, if allowed, pass through this same trigger, so the enforcement holds either way).
+4. **Application layer:** the shared create/update path pre-validates FK ownership and returns 422 with the field named — kept deliberately thin; Unit F's merged validation calls it for PATCHes. Bot/agent write tools (branch code) ride the same APIs and inherit both layers when they merge.
+
+### E.4 Impact
+
+- **Data model:** unique constraints + FK definitions change; **no column, type, or data changes.** Trigger + one validation function for documents.
+- **API:** no contract changes; error quality improves (422 pre-check) with DB FK violations as backstop (surfaced as 409/422, never raw SQL errors — consistent with Unit F).
+- **UI:** none directly.
+- **Tenant security / RLS:** this is the unit that closes the structural half of F-036. RLS policies are **not modified** (F-003 preserved verbatim). The documents trigger function is `SECURITY DEFINER` under the pinned terms of E.3.3 ‹Rev 2› (fixed `search_path`, least-privilege owner, no returned data, one uniform error for nonexistent / foreign / deleted targets — never whose, never which case).
+- **Migration:** `00031` reserved — the largest in the wave, deliberately **last** (§7), written against the final merged tree so branch tables (00015/16/21/22 features) are inventoried by the pre-flight query rather than assumed.
+
+### E.5 Acceptance criteria + test cases
+
+*These are integration tests against a test database with two seeded companies — they are the design's acceptance; running them against production remains the NV-3 live gate (§8) and is not claimed here.*
+
+**‹Rev 2› Role separation (ChatGPT correction 6(c)) — RLS and FK enforcement are separate guarantees and are tested as separate properties, under the role that actually exercises each:**
+- **Application role** (the API's RLS-scoped identity): tests 2 and 3 — behavior an API caller can observe.
+- **Tenant-scoped DB role** (RLS active, no bypass): test 1, and the *RLS-property* half of test 6 — proves what a database session bound by policies can and cannot do.
+- **Privileged migration role** (bypasses RLS, as migrations and admin tooling do): the *FK-property* proof in test 1b — this is the role under which RLS cannot save you, so it is the role that proves the FK layer stands on its own. A test that only exercises RLS-bound roles cannot distinguish "FK rejected it" from "RLS hid it," and is not accepted as FK evidence.
+
+1. **Direct SQL (tenant-scoped role):** as company A's session (RLS active), INSERT an expense with `company_id = A` and `truck_id = ` company B's truck → rejected. Same attempt for every relationship **in the generated inventory** — the test is generated from that inventory, not hand-listed, so a relationship added later joins the test automatically.
+1b. **‹Rev 2› Direct SQL (privileged role, RLS bypassed):** the identical cross-company inserts, executed as the migration role → **FK violation** on every converted relationship. *(Before: succeeds under both roles.)* And the complementary RLS property, tested separately under the tenant-scoped role: an insert that is FK-valid but carries **another company's `company_id`** → rejected by RLS even though the FK layer alone would have allowed it. Neither layer's test may borrow the other's result.
+2. **API path (application role):** POST the same via the API with B's truck ID → 422 naming `truck_id`; no row created.
+3. **Same-company sanity:** every relationship accepts a same-company reference exactly as before (full existing suite + inventory-driven positive cases).
+4. **Documents trigger:** insert a document pointing at (a) a nonexistent UUID → rejected; (b) company B's load → rejected; (c) a soft-deleted load of company A → rejected for new association; (d) a live load of company A → accepted. Polymorphic type outside the allowlist → rejected. **‹Rev 2› Non-oracle assertion:** the errors for (a), (b), and (c) are **byte-identical** (same message, same SQLSTATE) — the test compares them, it does not merely check that all three failed.
+5. **Pre-flight audit artifact:** the step-1 report exists, shows zero cross-company rows on the test fixture (and, at implementation time, on live — its live result is recorded in the checklist, whatever it shows). **‹Rev 2› Completeness artifact:** the E.3 step-0 generated inventory + bucket reconciliation (converted / trigger-enforced / excepted-with-reason) is regenerated by the test run and diffed against the migration's frozen copy — a drift fails the suite.
+6. **Regression:** F-003's cleared behavior is re-verified post-migration — ordinary tenant CRUD incl. soft delete works identically for both test companies, under the tenant-scoped role (RLS property) as in Rev 1.
+
+### E.6 Rollback + documentation
+
+- **Rollback:** a down-migration restores single-column FKs and drops the trigger/unique constraints; since no data or columns changed, rollback is exact and safe at any point. The window of reduced protection on rollback is stated in the migration notes.
+- **Documentation:** a tenant-integrity doc: the three layers (RLS visibility / composite FK referential tenant integrity / trigger for polymorphic refs), the FK inventory, and the rule that **any new FK added by any future feature must be composite from birth** — written into the repo's contributor docs so the defect class cannot regrow.
+
+### E.7 Tasks + effort (Unit E = 18 h per the §11 ledger ‹Rev 2›)
+
+| # | Task | Est. |
+|---|---|---|
+| E1 | Inventory **generation** from the final merged schema + completeness reconciliation (converted / trigger-enforced / excepted) + pre-flight cross-company audit queries + report format ‹Rev 2› | 4 h |
+| E2 | Migration `00031` drafting: unique constraints + composite FK rewrites (NOT VALID/VALIDATE) | 4 h |
+| E3 | Documents validation trigger + allowlist enumeration + tests | 4 h |
+| E4 | Inventory-driven two-company integration test suite, **role-separated** (application role / tenant-scoped DB role / privileged migration role; RLS and FK properties asserted independently, incl. the trigger non-oracle check) ‹Rev 2› | 4 h |
+| E5 | Service-layer pre-check alignment (422 quality) in shared create/update | 2 h |
+
+**Decision points for the owner in this unit:** **D-03** in full (E.2); acceptance that a pre-flight audit hit (if any) **pauses** this unit for an owner ruling rather than being auto-repaired (E.3.1); the proposed Wave 2 rule for documents whose target is later deleted (stated in E.3.3 for ratification then, flagged now so it isn't decided by accident).
+
+---
+
+## Unit G — F-037: a verification-gate plan, not a code design
+
+**Finding:** F-037 (P1 — CODE CONFIRMED; production configuration/reset unverified). This unit deliberately contains **no code design**, because the register's verdict is that the code exists and the open question is live configuration and one real end-to-end proof.
+
+### G.1 Verified current behavior (register evidence)
+
+Recovery pages and flow exist (`src/app/forgot-password/page.tsx:28` calls `resetPasswordForEmail`; reset-password page + auth confirm route present). `PROJECT_STATE.md:176-181,190` records two Supabase dashboard actions as owner-pending — the reset email template (token_hash link) and Auth Site URL = `https://trucking.fly.dev` — but PROJECT_STATE is itself stale (F-050, Wave 3), so it proves nothing in either direction. Partial live evidence already exists: on the current v15 deployment, `/forgot-password` returns 200 (checklist R1-P02), so the page is live; the **email cycle** is the unverified half. ChatGPT Challenge Round 1 (R1-NV4) holds this open.
+
+### G.2 The gate plan (in order; each step's evidence is named)
+
+1. **Dashboard inspection (owner present; ~15 min):** in the Supabase project, open Authentication → URL Configuration and Email Templates and **record** (screenshot or transcribe into the checklist): Site URL value; whether the Reset Password template contains the token_hash confirmation link the Task 2.6 recovery design requires. No changes in this step — observe first, so any defect found later is attributable.
+2. **Configuration correction (only if step 1 shows a gap):** set Site URL to `https://trucking.fly.dev` and/or repair the template. This is a **dashboard configuration act by the owner**, not a code change, not a migration, and not a deployment. It gets its own checklist line when done — config changes are program events, not invisible preliminaries.
+3. **One real end-to-end reset (the proof):** from the deployed app's `/forgot-password`, request a reset for the owner's own account; follow the received email; set the new password — **entered by the owner personally on the reset page, never through chat, never shared with any agent** (standing credential rule); sign in with it. Success = NV-4 closes and F-037 moves to ACCEPTED → CLOSED through the normal pipeline.
+4. **Failure branches (pre-agreed, so a failure is information, not chaos):**
+   - *No email arrives* → re-inspect template/SMTP configuration (step 1 evidence decides where); this remains a config issue, not a code finding.
+   - *Email arrives, link dead-ends or errors* → the failing step is captured (URL shape, error, release version) and becomes a **new, separate finding** with its own ID — it does not silently expand F-037, and no one patches it inside this gate.
+   - *Reset works but sign-in fails* → same treatment: new finding, evidence first.
+
+### G.3 What this gate is not
+
+Not a redesign of the auth flow; not a test-account exercise (a test account proves the mechanics for accounts that may be configured differently — the owner's real account is the claim under test); not closable by PROJECT_STATE edits, code reading, or the `/forgot-password` 200. **Effort:** ~1 hour of owner-present time; zero engineering tasks. It may run at any point — it depends on nothing else in Wave 1 — and the design package recommends doing it **early**, because a locked-out owner on the road is the highest-severity operational risk on this entire list.
+
+---
+
+## 7. Wave 1 implementation sequence (post-approval only)
+
+The sequence assumes D-01–D-05 have been ruled on and ChatGPT has reviewed this package. Deployment appears nowhere below — every merge/deploy is its own later owner approval. Migrations are applied to the live DB only under their own separate approvals, in number order, after the branch-merge state is settled (several designs assume the final merged tree as their baseline; Unit E explicitly so).
+
+| Phase | Work | Why here |
+|---|---|---|
+| **0** | Unit G gate plan (F-037) — owner-present, parallel to everything | Zero dependencies; removes the lockout risk first |
+| **1** (no migrations) | Unit F (merged validation) → A1 (truthful delete) → B2, B3 (HOS default + formatter) → B1/C1 (tz month + count-verified summary) → C2, C3 (recognition + detail API) | Pure-code truth fixes; each is independently testable against today's schema; F before A because A's edit/restore ride on it |
+| **2** (migration drafts reviewed, then applied under separate approvals) | `00027` (A: submission_id + documents columns) → `00028` (C/D fuel: load_id + adjustments) → `00029` (C: CHECK batch, after A4 exists so violators have a correction path) → `00030` (B: hos_cycle) | Number order = dependency order; 00029 deliberately after the edit UI exists |
+| **3** (UI on settled schema) | A4–A9 lifecycle rollout (duty logs + expenses → loads → the rest) → A10 documents two-phase delete → C4 summary relabeling → C5 fuel form → D1 form half + D3 summary lines → B4 HOS window + B5 cycle UI | Screens land on APIs/schemas that already tell the truth |
+| **4** (last, by design) | Unit E: pre-flight audit → `00031` → inventory-driven attack-shaped tests | Highest care, benefits from every earlier migration being final; its test suite doubles as NV-3's test-DB rehearsal (live NV-3 stays a gate, §8) |
+
+**Total estimated effort ‹Rev 2 — corrected›: 109 engineering hours across 31 tasks**, per the deduplicated ledger in **§11**, which is the authoritative count (Units A 38, B 17, C 23, D 9, E 18, F 4), plus ~1 hour owner-present time for Unit G. Rev 1's headline here ("≈ 95–105 h / ~29 tasks" and the unit ranges) did not match its own task rows, which summed to 106 h; §11 shows the reconciliation, including the shared work now counted once and the work the Rev 2 corrections genuinely add. Estimates remain design-stage; the charter's < 4 h task preference is met by all but the rollout/migration/state-machine tasks noted in the ledger, which are sized by their entity counts and should be split at implementation planning if the reviewer prefers.
+
+## 8. Live-verification gates — untouched by this package
+
+Nothing in Units A–G closes any of these. They remain open, with their own evidence requirements, exactly as carried in the checklist after Challenge Round 1:
+
+- **P-04 / NV-9 / F-052** — full suite (unit, integration, e2e, typecheck, lint, build) executed on the final merged tree with persisted logs, commands, exit codes, counts.
+- **NV-2 / R1-P03b** — live Supabase migration ledger + schema/`pg_policies` evidence.
+- **NV-3 / R1-NV3** — two-company attack test against live/test DB (Unit E's tests are its rehearsal, not its substitute; F-036 escalates to P0 only on this test's evidence).
+- **NV-4 / F-037 live side** — executed via Unit G's plan; closes only on the real reset succeeding.
+- **NV-5 / R1-NV5** — Storage truth: demonstrated (or excluded) existence of orphaned objects in production; code-side defect is confirmed, live orphans are not.
+- **NV-6 / R1-NV6** — bot live numeric-grounding + out-of-snapshot retrieval (F-021/F-039 post-merge proof; Telegram secrets are currently absent from Fly — the integration is not live-wired).
+- **NV-7 / F-020 / R1-NV7** — original industry-briefing scheduler: live role/config, a real run record, a produced briefing — or a formal "not configured" closure. (Fly secret inventory already shows its DB URL and cron secret absent.)
+- **NV-8 / R1-NV8** — routing: real truck profile against known restrictions on the live provider.
+- **NV-10 / R1-NV10** — J-1–J-5 exercised on the owner's Android phone; final sign-off per wave.
+
+## 9. Non-regression statement — cleared findings
+
+- **F-003 (RLS/delete authorization):** no RLS policy is modified anywhere in this package. Soft delete remains an UPDATE (Unit A), composite FKs are referential constraints, not policies (Unit E), and Unit E's acceptance includes re-verifying F-003's behavior for two companies after `00031`.
+- **F-014 (non-ELD boundary):** Unit B changes HOS math and labels but never the authority claim; the three evidenced disclaimer surfaces keep their wording, and B.4.6 makes their survival an acceptance check.
+- **F-019 (dispatch honesty):** no dispatch code is in Wave 1 scope; untouched.
+- **F-022 (bot hints ≠ expenses):** no bot/memory/pending-action code is in Wave 1 scope; Unit A's optional `submission_id` does not alter bot write semantics. F-022's actual regression gate belongs to the agent-omnipresence merge review, as recorded in Challenge Round 1, and is not discharged here.
+
+## 10. Consolidated owner decision list
+
+Nothing in this package becomes policy until the owner rules. In one place:
+
+1. **D-01** (Unit C.2) — Delivery-date recognition with the completed+dated trigger; undelivered = pipeline, never recognized; completed-without-date = surfaced exception. Sub-decisions: recompute-history-with-announcement (recommended) vs. frozen dual conventions; **add a `cancelled` load status** (recommended) vs. delete-as-cancellation. ‹Rev 2› Reviewer positions on both sub-decisions, folded in: ChatGPT **supports** adding `cancelled` (deleting a booked load should not be the only way to represent cancellation) and **supports** restatement, with the notice wording constraint now in C.2 (operational figures restated; never implying cash or tax records changed). Both remain the owner's ruling.
+2. **D-02** (Unit D.2) — Contribution-margin definitions; assignment only by defensible link or explicit owner act; unassigned fuel visible and in the period operating result only ‹Rev 2 terminology›; no auto-allocation in Wave 1; one load per fuel purchase in Wave 1. Micro-choice: ship the "same truck, same day — assign?" prompt in Wave 1 or not.
+3. **D-03** (Unit E.2) — Database-enforced composite FKs as the authority; service checks demoted to error quality; pre-flight audit hits pause the unit for an owner ruling.
+4. **D-04** (Unit C.4) — Derived fuel total with round-half-up; explicit reasoned adjustments; legacy rows backfilled as labeled legacy adjustments (totals unchanged).
+5. **D-05** (Unit A.2) — Reversible soft delete + safeguarded restore; documents two-phase delete ending in a **retained tombstone** ‹Rev 2 — supersedes Rev 1's hard-delete completion step, per ChatGPT's objection, which the design accepts› with visible cleanup failures and manual retry; **no automatic purge in Wave 1** (tombstone metadata purge is a separate later policy decision). Sub-choices: per-list Deleted toggle first (recommended; reviewer position: accepted for v1, global hub stays later work) vs. global hub now; draft→confirmed required fields (rate + both dates, recommended); 404 on repeat/no-op delete (recommended) vs. 204.
+6. **‹Rev 2› Carrier HOS configuration** (Unit B.2.5) — ~~calendar-day bucketing vs. documented rolling window~~ **withdrawn: the calculation model is no longer a decision** (carrier-anchored consecutive 24-hour periods is the corrected design; calendar-day is a tested-against wrong answer). What remains for the owner/carrier is factual confirmation, not a design vote: the **period anchor start time**, the **cycle** (60/7 vs 70/8, per whether the carrier operates CMVs every day), and **restart support** confirmation — set from Steven's carrier's actual rules when known; defaults (00:00 / 70/8 / restart on) until then.
+7. **F-033 mechanism** (Unit C.3) — count-verified pagination now with RPC as named follow-up (recommended) vs. RPC in Wave 1. ‹Rev 2› Reviewer position: pagination accepted for Wave 1 **conditional on** deterministic ordering, incomplete-result detection, and visible failure — all three are folded into C.3 as requirements.
+
+*End of package (Rev 1 text). Prepared for ChatGPT challenge and owner ruling; implementation requires both, plus separate approvals for each migration application, merge, and deployment.*
+
+---
+
+## 11. ‹Rev 2› Deduplicated task ledger — the authoritative count
+
+This ledger supersedes every effort figure elsewhere in the package. Unit task tables above have been updated to match it row for row; where a unit's prose still shows a Rev 1 range, this section governs.
+
+**How the reconciliation works (ChatGPT correction 7).** Rev 1's task rows summed to **106 h** (A 35 + B 18 + C 22 + D 10 + E 17 + F 4) across **31** task rows — not the "≈95–105 h / ~29 tasks" its headline claimed, and two unit subtotals (A, E) did not match their own rows. Revision 2 makes exactly these adjustments and no hidden others:
+- **Deduplication −3 h:** the shared timezone/month helper was counted in both B1 and C1 → owned solely by **C1** (B1 reduced 4 h → 2 h); the `00028` migration drafting was counted in both C6 and D1 → owned solely by **C6** (D1 reduced 4 h → 3 h).
+- **Correction-driven additions +6 h:** A2 +1 (fingerprint column + `cleanup_incidents` in `00027`), A3 +1 (fingerprint equivalence + named-constraint handling), A10 +1 (tombstone state machine + incident recording), B5 +1 (carrier-anchored engine + restart + three-method fixtures replaces the simpler bucketing task), C5 +1 (decimal-safe precision contract + tripwire test), E1 +1 (inventory generation + completeness reconciliation).
+- **Net: 106 − 3 + 6 = 109 h, 31 tasks.**
+
+| Unit | Task | Content (short) | Hours |
+|---|---|---|---|
+| A | A1 | Truthful delete (affected-row + 404) | 2 |
+| A | A2 | Migration `00027` draft (submission token + fingerprint, tombstone columns, `cleanup_incidents`) | 4 |
+| A | A3 | Idempotency: token + fingerprint equivalence (dedup / 409 / named-constraint-only) | 5 |
+| A | A4 | Shared detail component + `[id]` routes (duty logs, expenses) | 4 |
+| A | A5 | Delete confirmation + truthful toast + Deleted toggle + restore (first entities) | 4 |
+| A | A6 | Safeguarded restore checks in shared layer | 3 |
+| A | A7 | Rollout: loads + F-016 draft checklist | 4 |
+| A | A8 | Rollout: fuel, maintenance, inspections, equipment | 4 |
+| A | A9 | Rollout: trucks, trailers, drivers, brokers, customers | 3 |
+| A | A10 | Document tombstone state machine + cleanup banner/retry + incident recording | 5 |
+| | | **Unit A subtotal** | **38** |
+| B | B1 | `tz` plumbing (client carries/reports zone; helper owned by C1) | 2 |
+| B | B2 | `localDateTimeInputValue` + HOS form (F-011) | 2 |
+| B | B3 | Shared date/time formatting + fuel list (F-012) | 3 |
+| B | B4 | Anchor-aligned HOS window query (F-013) | 4 |
+| B | B5 | Carrier-anchored cycle engine + restart + `00030` draft + Settings UI + three-method tests (F-015) | 6 |
+| | | **Unit B subtotal** | **17** |
+| F | F1 | Merged-record validation in shared update path (F-028) | 3 |
+| F | F2 | Legacy-state sweep across entity schemas | 1 |
+| | | **Unit F subtotal** | **4** |
+| C | C1 | Shared filter/month module (owns the tz/month helper) + count-verified pagination (F-033) | 4 |
+| C | C2 | D-01 recognition + pipeline + exceptions in summary service (F-008) | 4 |
+| C | C3 | Detail endpoint + totals→rows links (F-010 boundary) | 4 |
+| C | C4 | Summary UI relabeling + exception + restatement notices | 3 |
+| C | C5 | Fuel model app layer + decimal-safe precision contract (F-053) | 4 |
+| C | C6 | Migrations `00028`/`00029` drafting (owns `00028`; incl. fuel backfill + CHECK violator scans) | 4 |
+| | | **Unit C subtotal** | **23** |
+| D | D1 | Fuel `load_id` field + form picker (migration drafting in C6) | 3 |
+| D | D2 | Per-load economics endpoint + definition tests (F-009) | 4 |
+| D | D3 | Period aggregates: aggregate delivered margin + operating result bridge terms | 2 |
+| | | **Unit D subtotal** | **9** |
+| E | E1 | Inventory generation from final merged schema + completeness check + pre-flight audit | 4 |
+| E | E2 | Migration `00031` drafting (unique constraints + composite FK rewrites) | 4 |
+| E | E3 | Documents validation trigger (hardened SECURITY DEFINER) + allowlist | 4 |
+| E | E4 | Role-separated two-company integration suite | 4 |
+| E | E5 | Service-layer pre-check alignment (422 quality) | 2 |
+| | | **Unit E subtotal** | **18** |
+| | | **TOTAL (31 tasks)** | **109** |
+
+Plus **Unit G** (F-037 gate plan): no engineering tasks; ~1 h owner-present time, unchanged from Rev 1.
+
+**Placeholder caveat, restated for this ledger:** every migration number referenced above (`00027`–`00031`) is a **planning placeholder contingent on branch merge order**, not a guarantee. Contents and dependency order are the commitment; numbers are assigned at implementation time against the settled merge state (Unit E additionally requires the merge state settled before its inventory freezes, per E.3 step 0).
