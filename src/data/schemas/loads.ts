@@ -30,6 +30,11 @@ const loadFieldsSchema = z.object({
   detention_rate_cents_per_hour: z.number().int().nonnegative().optional(),
   // GAP-05: scale-ticket weight lands on the load.
   weight_lbs: z.number().int().positive().optional(),
+  // GAP-03/15: facility links + structured lane states.
+  pickup_facility_id: z.string().uuid().nullable().optional(),
+  delivery_facility_id: z.string().uuid().nullable().optional(),
+  origin_state: z.string().length(2).optional(),
+  destination_state: z.string().length(2).optional(),
   rate_cents: z.number().int().nonnegative("rate_cents must not be negative.").optional(),
   miles: z.number().int().nonnegative("miles must not be negative.").optional(),
   status: loadStatusSchema.optional(),

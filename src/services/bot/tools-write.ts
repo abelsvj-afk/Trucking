@@ -25,6 +25,7 @@ import {
 } from "./tool-helpers";
 import { createBrokerSchema, updateBrokerSchema } from "@/data/schemas/brokers";
 import { createCustomerSchema, updateCustomerSchema } from "@/data/schemas/customers";
+import { createFacilitySchema, updateFacilitySchema } from "@/data/schemas/facilities";
 import { createDriverSchema, updateDriverSchema } from "@/data/schemas/drivers";
 import { relatedEntityTypeSchema } from "@/data/schemas/documents";
 import { updateExpenseSchema } from "@/data/schemas/expenses";
@@ -164,6 +165,20 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     miles: z.number().int().nonnegative().optional(),
     status: loadStatusSchema.optional(),
     notes: z.string().optional(),
+    // GAP-02/04/05/03/15 (migrations 00044/00045): what the rate con
+    // already carries — windows, detention terms, weight, lane
+    // states, facility links.
+    pickup_window_start: z.string().optional(),
+    pickup_window_end: z.string().optional(),
+    delivery_window_start: z.string().optional(),
+    delivery_window_end: z.string().optional(),
+    detention_free_minutes: z.number().int().nonnegative().optional(),
+    detention_rate_dollars: z.number().nonnegative().optional(),
+    weight_lbs: z.number().int().positive().optional(),
+    origin_state: z.string().length(2).optional(),
+    destination_state: z.string().length(2).optional(),
+    pickup_facility_id: uuid.nullable().optional(),
+    delivery_facility_id: uuid.nullable().optional(),
   };
   const createLoadBot = z
     .object({
@@ -182,9 +197,12 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       { message: "delivery_date must not be before pickup_date.", path: ["delivery_date"] },
     );
   const loadToRow = (args: Row): Row => {
-    const { rate_dollars, ...rest } = definedOnly(args);
+    const { rate_dollars, detention_rate_dollars, ...rest } = definedOnly(args);
     const row: Row = { ...rest };
     if (rate_dollars !== undefined) row.rate_cents = Math.round(Number(rate_dollars) * 100);
+    if (detention_rate_dollars !== undefined) {
+      row.detention_rate_cents_per_hour = Math.round(Number(detention_rate_dollars) * 100);
+    }
     return row;
   };
   const loadParams = {
@@ -194,6 +212,15 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     delivery_date: { type: "string", description: "YYYY-MM-DD" },
     rate_dollars: { type: "number", description: "The load's rate in dollars." },
     miles: { type: "number" },
+    pickup_window_start: { type: "string", description: "Appointment window start (ISO timestamp) from the rate con." },
+    pickup_window_end: { type: "string", description: "Appointment window end (ISO timestamp)." },
+    delivery_window_start: { type: "string", description: "Delivery window start (ISO timestamp)." },
+    delivery_window_end: { type: "string", description: "Delivery window end (ISO timestamp)." },
+    detention_free_minutes: { type: "number", description: "Free minutes before detention bills, per the rate con." },
+    detention_rate_dollars: { type: "number", description: "Detention rate per hour in dollars, per the rate con." },
+    weight_lbs: { type: "number", description: "Load weight in pounds (from the scale ticket / rate con)." },
+    origin_state: { type: "string", description: "Two-letter origin state." },
+    destination_state: { type: "string", description: "Two-letter destination state." },
     status: { type: "string", enum: ["draft", "confirmed", "completed"] },
     broker_id: { type: "string" },
     customer_id: { type: "string" },
@@ -294,6 +321,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     total_dollars: z.number().positive().optional(),
     gallons: z.number().positive().optional(),
     location: z.string().min(1).optional(),
+    // GAP-15: purchase state (IFTA).
+    state: z.string().length(2).optional(),
     purchased_at: z.string().min(1).optional(),
   });
   tools.push({
@@ -306,6 +335,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         total_dollars: { type: "number" },
         gallons: { type: "number" },
         location: { type: "string" },
+        state: { type: "string", description: "Two-letter purchase state (IFTA)." },
         purchased_at: { type: "string", description: "ISO timestamp" },
       },
       required: ["fuel_purchase_id"],
@@ -406,6 +436,56 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       patchSchema: updateCustomerSchema,
       summarize: (args) => `Update customer ${args.customer_id}: ${changedFields(args, "customer_id")}`,
       confirm: (args) => `Updated customer ${args.customer_id} (${changedFields(args, "customer_id")}).`,
+    }),
+  );
+
+  // --- Facilities (GAP-03: place memory) ---------------------------
+
+  const facilityParams = {
+    name: { type: "string" },
+    address: { type: "string" },
+    city: { type: "string" },
+    state: { type: "string", description: "Two-letter state." },
+    kind: { type: "string", enum: ["shipper", "receiver", "both"] },
+    checkin_notes: { type: "string", description: "How check-in works there (guard shack, BOL number, appointment desk)." },
+    dock_notes: { type: "string", description: "Dock/yard realities (door assignment, lumpers, wait pattern)." },
+    parking_notes: { type: "string", description: "Overnight parking reality at or near the facility." },
+    detention_notes: { type: "string", description: "How detention actually goes there (when it started, whether it paid)." },
+    hours_notes: { type: "string", description: "Receiving/shipping hours." },
+    contact_name: { type: "string" },
+    contact_phone: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_facility",
+      description:
+        "Remember a facility/place he picks up or delivers at (Facilities): name, city/state, and what he learns about it — check-in, docks, parking, detention, hours. Created from rate cons and his after-action words; enriched over visits.",
+      parameters: { type: "object", properties: facilityParams, required: ["name"] },
+      botSchema: createFacilitySchema,
+      table: "facilities",
+      label: "facility",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createFacilitySchema,
+      summarize: (args) => `Facility: ${args.name}${args.city ? ` (${args.city}${args.state ? `, ${args.state}` : ""})` : ""}`,
+      confirm: (args) => `Remembered the facility ${args.name}.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_facility",
+      description:
+        "Update a facility's remembered facts — after a visit, what he learned (check-in, parking, detention behavior) belongs here so the next visit starts smarter.",
+      parameters: {
+        type: "object",
+        properties: { facility_id: idParam("facility_id", "facility"), ...facilityParams },
+        required: ["facility_id"],
+      },
+      botSchema: updateFacilitySchema.extend({ facility_id: uuid }),
+      table: "facilities",
+      label: "facility",
+      idKey: "facility_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateFacilitySchema,
+      summarize: (args) => `Update facility ${args.facility_id}: ${changedFields(args, "facility_id")}`,
+      confirm: (args) => `Updated facility ${args.facility_id} (${changedFields(args, "facility_id")}).`,
     }),
   );
 

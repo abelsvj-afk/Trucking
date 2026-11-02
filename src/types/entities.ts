@@ -114,6 +114,31 @@ export interface Load extends BaseRow {
   detention_free_minutes: number | null;
   detention_rate_cents_per_hour: number | null;
   weight_lbs: number | null;
+  // GAP-03/15 (migration 00045): facility links + structured lane states.
+  pickup_facility_id: string | null;
+  delivery_facility_id: string | null;
+  origin_state: string | null;
+  destination_state: string | null;
+}
+
+export type FacilityKind = "shipper" | "receiver" | "both";
+
+/** GAP-03: a place he actually goes, remembered (migration 00045). */
+export interface Facility extends BaseRow {
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  kind: FacilityKind;
+  checkin_notes: string | null;
+  dock_notes: string | null;
+  parking_notes: string | null;
+  detention_notes: string | null;
+  hours_notes: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  visit_count: number;
+  last_visited_at: string | null;
 }
 
 export type DetentionStampType = "arrival" | "door" | "loading_done" | "departure";
@@ -143,6 +168,8 @@ export interface Expense extends BaseRow {
 export interface FuelPurchase extends BaseRow {
   truck_id: string;
   location: string | null;
+  /** GAP-15 (migration 00045): purchase state, for the IFTA worksheet. */
+  state: string | null;
   gallons: number;
   price_per_gallon_cents: number;
   total_cost_cents: number;

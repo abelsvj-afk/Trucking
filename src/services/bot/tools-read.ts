@@ -295,6 +295,40 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
       },
     },
     {
+      name: "list_facilities",
+      description:
+        "List the facilities/places he runs to, with what's remembered about each: check-in, docks, parking, detention behavior, hours, visit count. Use when he's booking or heading somewhere he's been before — the third visit should start smarter than the first.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      async run() {
+        const { data, error } = await client
+          .from("facilities")
+          .select("id, name, city, state, kind, checkin_notes, dock_notes, parking_notes, detention_notes, hours_notes, visit_count")
+          .eq("company_id", companyId)
+          .is("deleted_at", null)
+          .order("name", { ascending: true })
+          .limit(30);
+        if (error) throw new Error(error.message);
+        const rows = (data ?? []) as Row[];
+        if (rows.length === 0) return "No facilities remembered yet — they get created from rate cons and his after-visit reports.";
+        return rows
+          .map((r) => {
+            const facts = [
+              str(r.checkin_notes) && `check-in: ${r.checkin_notes}`,
+              str(r.dock_notes) && `docks: ${r.dock_notes}`,
+              str(r.parking_notes) && `parking: ${r.parking_notes}`,
+              str(r.detention_notes) && `detention: ${r.detention_notes}`,
+              str(r.hours_notes) && `hours: ${r.hours_notes}`,
+            ].filter(Boolean);
+            return (
+              `- [${r.id}] ${r.name}${str(r.city) ? ` (${r.city}${str(r.state) ? `, ${r.state}` : ""})` : ""} — ${r.visit_count} visit(s)` +
+              (facts.length > 0 ? `\n  ${facts.join("\n  ")}` : "")
+            );
+          })
+          .join("\n");
+      },
+    },
+    {
       name: "list_inspections",
       description: "List recent pre-trip inspections with their results: when, which vehicle, passed or failed, and any defects found.",
       parameters: {

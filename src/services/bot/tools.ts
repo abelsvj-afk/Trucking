@@ -346,6 +346,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           total_dollars: { type: "number", description: "Total paid at the pump, in dollars." },
           gallons: { type: "number" },
           location: { type: "string", description: "Station / city, if he said." },
+          state: { type: "string", description: "Two-letter state where the fuel was bought (IFTA), if known." },
           truck_id: { type: "string", description: "Truck id (uuid), if he named the truck." },
           purchased_at: { type: "string", description: "ISO timestamp of the purchase. Defaults to now." },
         },
@@ -384,6 +385,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
             company_id: companyId,
             truck_id: truck.id,
             location: parsed.location ?? null,
+            state: parsed.state?.toUpperCase() ?? null,
             gallons: parsed.gallons,
             price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
             total_cost_cents: totalCents,
@@ -770,6 +772,8 @@ const createFuelArgs = z.object({
   total_dollars: z.number().positive(),
   gallons: z.number().positive(),
   location: z.string().min(1).optional(),
+  // GAP-15: purchase state for the IFTA worksheet, when known.
+  state: z.string().length(2).optional(),
   truck_id: z.string().uuid().optional(),
   purchased_at: z.string().min(1).optional(),
 });

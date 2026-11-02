@@ -24,7 +24,7 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
-import type { Broker, Customer, Driver, Load, LoadStatus, Truck } from "@/types/entities";
+import type { Broker, Customer, Driver, Facility, Load, LoadStatus, Truck } from "@/types/entities";
 
 const STATUS_OPTIONS: { label: string; value: LoadStatus }[] = [
   { label: "Draft", value: "draft" },
@@ -53,6 +53,9 @@ export default function NewLoadPage() {
   const [driverId, setDriverId] = useState("");
   const [brokerId, setBrokerId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  // GAP-03: pick a remembered facility instead of re-typing the place.
+  const [pickupFacilityId, setPickupFacilityId] = useState("");
+  const [deliveryFacilityId, setDeliveryFacilityId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -60,6 +63,7 @@ export default function NewLoadPage() {
   const drivers = usePickerList<Driver>("drivers");
   const brokers = usePickerList<Broker>("brokers");
   const customers = usePickerList<Customer>("customers");
+  const facilities = usePickerList<Facility>("facilities");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -92,6 +96,8 @@ export default function NewLoadPage() {
         driver_id: driverId || null,
         broker_id: brokerId || null,
         customer_id: customerId || null,
+        pickup_facility_id: pickupFacilityId || null,
+        delivery_facility_id: deliveryFacilityId || null,
       });
       router.push("/loads");
     } catch (err) {
@@ -233,6 +239,36 @@ export default function NewLoadPage() {
           {brokers.map((broker) => (
             <option key={broker.id} value={broker.id}>
               {broker.name}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="pickup_facility_id">Pickup facility (remembered place)</label>
+        <select
+          id="pickup_facility_id"
+          value={pickupFacilityId}
+          onChange={(event) => setPickupFacilityId(event.target.value)}
+        >
+          <option value="">None</option>
+          {facilities.map((facility) => (
+            <option key={facility.id} value={facility.id}>
+              {facility.name}
+              {facility.city ? ` — ${facility.city}` : ""}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="delivery_facility_id">Delivery facility (remembered place)</label>
+        <select
+          id="delivery_facility_id"
+          value={deliveryFacilityId}
+          onChange={(event) => setDeliveryFacilityId(event.target.value)}
+        >
+          <option value="">None</option>
+          {facilities.map((facility) => (
+            <option key={facility.id} value={facility.id}>
+              {facility.name}
+              {facility.city ? ` — ${facility.city}` : ""}
             </option>
           ))}
         </select>
