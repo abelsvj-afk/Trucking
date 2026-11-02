@@ -53,6 +53,30 @@ export const GET = createApiHandler(async () => {
     if (result.error) throw new Error(result.error.message);
   }
 
+  // Runner proof-of-life (2026-11-02 design, D-1.3). Read-tolerant:
+  // on a database where migration 00040 hasn't run yet the table
+  // doesn't exist - the page gets runner: null instead of an error,
+  // so the read surface never breaks on the engine's upgrade state.
+  let runner: { last_tick_at: string | null; last_source: string | null; stale: boolean } | null = null;
+  try {
+    const { data: heartbeatRows, error: heartbeatError } = await supabase
+      .from("research_runner_heartbeat")
+      .select("last_tick_at, last_source")
+      .eq("id", 1)
+      .limit(1);
+    if (!heartbeatError) {
+      const row = (heartbeatRows ?? [])[0] as { last_tick_at: string; last_source: string } | undefined;
+      runner = {
+        last_tick_at: row?.last_tick_at ?? null,
+        last_source: row?.last_source ?? null,
+        stale:
+          !row || Date.now() - new Date(row.last_tick_at).getTime() > config.heartbeatStaleHours * 3600 * 1000,
+      };
+    }
+  } catch {
+    runner = null;
+  }
+
   return NextResponse.json({
     data: (briefingsResult.data ?? []) as ResearchBriefing[],
     unread_count: unreadResult.count ?? 0,
@@ -64,5 +88,6 @@ export const GET = createApiHandler(async () => {
       max_runs_per_day: config.maxRunsPerDay,
       max_runs_per_month: config.maxRunsPerMonth,
     },
+    runner,
   });
 });

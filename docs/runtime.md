@@ -92,6 +92,45 @@ Fly.io's built-in dashboard/`fly status` and Supabase's database dashboard are t
 
 This closes a real gap `docs/automation.md` left open: it required that "several consecutive failures" of the industry-intelligence job escalate to the owner, without saying how. Concretely: each run's outcome is part of the audit log already required by `docs/design/ai-architecture.md`; a consecutive-failure count read from that log is surfaced as an **in-app notice** the next time the owner opens the app — not a push notification or email, since that would be a new integration needing its own Dependency Rule justification that isn't warranted yet. Upgrading to a push notification later is an easy addition if in-app turns out to be too slow to matter — not a redesign.
 
+## Research engine invoker (2026-11-02, migration 00040)
+
+The Deep Research Engine's runner used to be invokable ONLY by its in-process hourly interval — and `fly.toml` sleeps machines (`auto_stop_machines = 'stop'`, `min_machines_running = 0`), so "hourly" silently meant "only while the app is awake" (audit §3 / F-020). The fix is a second, always-on invoker calling the same tick code:
+
+- **Endpoint:** `POST /api/internal/research/run`, authenticated by the `x-research-secret` header against the Fly secret `RESEARCH_RUN_CRON_SECRET` (constant-time compare; fails closed when unset). It runs `runResearchTick('endpoint')` — the identical function the in-process interval calls — under a Postgres advisory lock (`pg_try_advisory_lock(727001)`) so two awake invokers can never double-execute a tick.
+- **Invoker:** Supabase `pg_cron` + `pg_net`, hourly at minute 7. Migration 00040 enables the extensions where the platform offers them and creates the `research-hourly-tick` job **only if** the Supabase Vault already holds both secrets below — otherwise the job-creation block no-ops and the engine runs on the in-process interval alone until setup completes. Creating the job later = re-running just that final DO block after the Vault entries exist.
+- **Proof of life:** every tick upserts `research_runner_heartbeat` (last tick time + which invoker). The watchdog inside each tick alerts the owner on Telegram when the heartbeat is stale (>26h), a watcher is stuck in error (>24h), the EIA key is missing, or no successful briefing lands in 35 days — throttled to one alert per issue per 24h, with a recovery message when an issue clears. The Research page shows the same heartbeat with a staleness banner.
+
+**Owner setup (one time, in order):**
+
+1. Pick a long random value for the cron secret. In the Fly dashboard (or `fly secrets set`), set `RESEARCH_RUN_CRON_SECRET` on the `trucking` app to that value.
+2. In the Supabase dashboard → Project Settings → Vault, create two secrets: `research_run_url` = `https://<the app's public URL>/api/internal/research/run`, and `research_run_cron_secret` = the same value as step 1.
+3. Apply migration 00040 (or, if it was already applied before the Vault entries existed, re-run only its final DO block) so the `research-hourly-tick` cron job is created. Verify in the dashboard: Database → Cron Jobs shows `research-hourly-tick` active, and within an hour `research_runner_heartbeat.last_source` reads `endpoint`.
+4. Fallback if pg_cron/pg_net are unavailable on the plan: a Fly scheduled machine running `curl -X POST -H "x-research-secret: $RESEARCH_RUN_CRON_SECRET" <research_run_url>` hourly reaches the same endpoint. GitHub Actions is not used for this (standing owner rule).
+
+**F-020 closure evidence (what "fixed" means here):** 7 consecutive days of the heartbeat advancing at least hourly, at least one untriggered baseline briefing inside the floor window, and a secret inventory confirming `INDUSTRY_BRIEFING_DB_URL` and `RESEARCH_RUN_CRON_SECRET` are set on the app. Until that week exists, the invoker is "shipped," not "proven."
+
+**If the job database itself is missing (CD-7):** when `INDUSTRY_BRIEFING_DB_URL` is unset, the tick cannot even construct its pool — there is no database for the heartbeat or the watchdog's alert table. That failure no longer hides: the endpoint still answers 200 (the invoker reached the app), but the body reads `status: "degraded"` with `tick.health.failure` naming the missing configuration, and the tick sends the owner a direct Telegram alert ("The research runner cannot start: INDUSTRY_BRIEFING_DB_URL is not configured…"), throttled in-process to one per 24h. If you see that alert, step 1's secret inventory is where to look — set `INDUSTRY_BRIEFING_DB_URL` on the app and the next tick recovers on its own.
+
+**Post-merge wiring — Abel's night shift rides this invoker (CD-1, do when Lane 2 merges):** Lane 2's memory consolidation (`src/services/bot/consolidation-scheduler.ts`) has the same in-process-only disease this invoker cured for research: its hourly check runs only while a machine is awake. The cure is to give its due-check a ride on this endpoint's hourly wake. It is deliberately NOT wired in either branch today — the consolidation module does not exist on the research branch (an import would break its build), and on Lane 2 the due-check is still the scheduler's private `tick()`. Two small edits at merge time:
+
+1. Lane 2 side — in `src/services/bot/consolidation-scheduler.ts`, export the due-check: rename the private `tick()` to `runConsolidationIfDue` and export it (`startConsolidationScheduler` keeps calling it). The function already carries its 20h due-ness read from `consolidation_runs` and its own error logging; Lane 2's CD-2 advisory lock lives inside it too.
+2. Endpoint side — in `src/app/api/internal/research/run/route.ts`, immediately after the `runResearchTick("endpoint")` call and before the response is built:
+
+```ts
+    // CD-1 piggyback: the hourly invoker that wakes the research tick
+    // also gives Abel's night shift its due-check, so consolidation
+    // no longer depends on the app happening to be awake. A failure
+    // here never fails the research tick's own answer.
+    try {
+      const { runConsolidationIfDue } = await import("@/services/bot/consolidation-scheduler");
+      await runConsolidationIfDue();
+    } catch (err) {
+      console.error("[research] consolidation piggyback failed", err);
+    }
+```
+
+Verify after wiring: on a morning after ≥20h without a consolidation run, one endpoint tick produces a `consolidation_runs` row (source traffic in `research_runner_heartbeat.last_source` reads `endpoint`) without the app having been opened.
+
 ## Recovery behavior
 
 No write path assumes success. User-facing failures follow the standard error contract in `docs/api-contracts.md`; the background job's failures are logged and left for the next scheduled attempt, per `docs/automation.md`. Nothing here adds new recovery machinery — this phase just confirms the same failure discipline already specified per-service holds system-wide.

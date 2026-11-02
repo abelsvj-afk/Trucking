@@ -8,14 +8,28 @@
 
 import type { Queryable } from "@/services/ai/run-industry-briefing";
 import { eiaDieselWatcher } from "./eia-diesel";
+import { eiaRegionalWatcher } from "./eia-regional";
 import { federalRegisterWatcher } from "./federal-register";
+import { gdeltGeoWatcher } from "./gdelt-geo";
 import { industryNewsWatcher } from "./industry-news";
+import { marketSnapshotWatcher } from "./market-snapshot";
+import { nwsWeatherWatcher } from "./nws-weather";
+import { openStatesWatcher } from "./openstates";
 import type { PressureSignal, Watcher, WatcherResult } from "./types";
 
 export type { PressureSignal, ResearchSourceItem, WatcherResult } from "./types";
 export { TRACKED_TOPICS, matchTrackedTopics } from "./types";
 
-export const WATCHERS: Watcher[] = [eiaDieselWatcher, federalRegisterWatcher, industryNewsWatcher];
+export const WATCHERS: Watcher[] = [
+  eiaDieselWatcher,
+  eiaRegionalWatcher,
+  federalRegisterWatcher,
+  industryNewsWatcher,
+  marketSnapshotWatcher,
+  gdeltGeoWatcher,
+  nwsWeatherWatcher,
+  openStatesWatcher,
+];
 
 interface WatcherStateRow extends Record<string, unknown> {
   watcher_key: string;

@@ -45,8 +45,13 @@ export interface FuelMarketPoint {
  * engine's diesel watcher (docs/design/research-engine.md §2) needs the
  * last two to compute a week-over-week move; fetchFuelMarketSnapshot
  * below keeps its Stage-4 single-point shape on top of this.
+ *
+ * `duoarea` selects the EIA geography facet: 'NUS' (U.S. average,
+ * the default and the Stage-4 behavior) or a PADD code ('R10' = PADD 1
+ * East Coast, 'R30' = PADD 3 Gulf Coast) for the regional diesel
+ * watcher (2026-11-02 design, D-3).
  */
-export async function fetchFuelMarketHistory(limit: number): Promise<FuelMarketPoint[]> {
+export async function fetchFuelMarketHistory(limit: number, duoarea: string = "NUS"): Promise<FuelMarketPoint[]> {
   const apiKey = process.env.EIA_API_KEY;
   if (!apiKey) {
     throw new Error("EIA_API_KEY is not configured.");
@@ -57,6 +62,7 @@ export async function fetchFuelMarketHistory(limit: number): Promise<FuelMarketP
   for (const [key, value] of Object.entries(EIA_QUERY_PARAMS)) {
     url.searchParams.set(key, key === "length" ? String(limit) : value);
   }
+  url.searchParams.set("facets[duoarea][]", duoarea);
 
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {

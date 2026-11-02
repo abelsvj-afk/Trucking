@@ -480,4 +480,14 @@ export interface ResearchPageData {
     max_runs_per_day: number;
     max_runs_per_month: number;
   };
+  /**
+   * Runner proof-of-life (2026-11-02 design, D-1.3): the last tick
+   * heartbeat and whether it is stale (>26h old, or never recorded).
+   * Absent/null on databases where migration 00040 hasn't run yet.
+   */
+  runner: {
+    last_tick_at: string | null;
+    last_source: string | null;
+    stale: boolean;
+  } | null;
 }
