@@ -329,6 +329,9 @@ export interface ResearchSourceRef {
   url: string;
 }
 
+/** Delivery timing class (migration 00040): how the Telegram buzz was handled. */
+export type ResearchDeliveryClass = "urgent" | "trip" | "routine";
+
 export interface ResearchBriefing {
   id: string;
   company_id: string;
@@ -347,6 +350,38 @@ export interface ResearchBriefing {
   read_at: string | null;
   dismissed_at: string | null;
   created_at: string;
+  /**
+   * Delivery bookkeeping (migration 00040). Null on rows/databases
+   * from before the delivery-timing upgrade - the banner and tab
+   * treat null as "no hold information", never as a hold.
+   */
+  delivery_class: ResearchDeliveryClass | null;
+  delivery_held_until: string | null;
+}
+
+/** One source item inside a research signal (mirrors ResearchSourceItem in services/research/watchers/types.ts). */
+export interface ResearchSignalItem {
+  title: string;
+  url: string;
+  publishedAt: string | null;
+  summary: string | null;
+}
+
+/**
+ * A stored pressure signal (research_signals, migration 00019) as the
+ * Home banner / Research tab consume it: raw watcher pressure that no
+ * executed run has consumed yet - a "Watching" item, never a briefing.
+ */
+export interface ResearchSignal {
+  id: string;
+  watcher_key: string;
+  kind: string;
+  topic: string;
+  magnitude: number;
+  summary: string;
+  items: ResearchSignalItem[];
+  observed_at: string;
+  dedupe_key: string;
 }
 
 export type ResearchRunStatus =
@@ -490,4 +525,33 @@ export interface ResearchPageData {
     last_source: string | null;
     stale: boolean;
   } | null;
+  /**
+   * Banner-eligible "Watching" signals (Home News Banner design §5):
+   * unconsumed, observed within 72h, magnitude >= 0.5. Server-filtered
+   * so the banner stays dumb; empty when the signal read degrades.
+   */
+  signals: ResearchSignal[];
+  /**
+   * Server-side deep_research capability verdict (global kill switch
+   * + per-capability row; no row = off). The banner hides entirely
+   * when false - off is the owner's choice, not an error.
+   */
+  engine_enabled: boolean;
+}
+
+/**
+ * POST /api/v1/research-briefings/check-wires response (Home News
+ * Banner design §4): the light pull's honest states. `available:
+ * false` (HTTP 200) means the pull cannot run in this deployment yet
+ * (job DB URL unset) - never a 500 on Home.
+ */
+export interface CheckWiresResult {
+  state: "fresh" | "quiet" | "cooldown" | "busy" | "unavailable";
+  available: boolean;
+  new_signals: number;
+  /** When the wires were last actually polled (this pull, or the stored poll a cooldown reports). */
+  checked_at: string | null;
+  /** Cooldown only: minutes until another pull is allowed. */
+  next_check_in_minutes: number | null;
+  reason: string | null;
 }

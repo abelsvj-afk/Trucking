@@ -6,6 +6,7 @@
 // driving-aware hold read from his duty logs. The briefing itself is
 // always in the app instantly - only the Telegram buzz waits.
 
+import { TOPIC_EMOJI } from "@/lib/research-topics";
 import type { ResearchConfig } from "./config";
 import { signalDieselPct, signalTouchesStates } from "./triggers";
 import type { PressureSignal } from "./watchers/types";
@@ -123,13 +124,9 @@ export function deliveryDecision(input: {
   };
 }
 
-const TOPIC_EMOJI: Record<string, string> = {
-  fuel: "⛽",
-  regulation: "⚖️",
-  weather: "🌩️",
-  rates: "📈",
-  market: "📈",
-};
+// The topic emoji map lives in lib/research-topics.ts (Home News
+// Banner design §3) so Telegram, the banner, and the Research tab
+// share one copy - TOPIC_EMOJI is imported at the top of this file.
 
 export interface BriefingMessageShape {
   topic: string;

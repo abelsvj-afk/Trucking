@@ -8,11 +8,19 @@
 // findings. The engine panel makes the autonomy legible: watcher
 // health (failures shown, never silent), the recent run log (caps and
 // kill-switch skips included), and cap usage.
+//
+// Home News Banner deep links (2026-11-02 design §6): the Home
+// banner links here as ?briefing=<id> / ?signal=<id> - ids only,
+// never list positions, so an item stays addressable forever. The
+// page spotlights the item, marks a briefing read on open, and, if
+// the briefing fell out of the list (he dismissed it earlier),
+// fetches it by id and pins it with a plain note.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
+import { formatRelativeAge } from "@/lib/news-banner";
 import type { ResearchBriefing, ResearchPageData } from "@/types/entities";
 
 type PageState =
@@ -47,6 +55,97 @@ const RUN_STATUS_LABELS: Record<string, string> = {
   skipped_disabled: "Skipped - engine off",
 };
 
+type DeepLinkTarget = { kind: "briefing" | "signal"; id: string };
+
+function BriefingSnapshot({
+  briefing,
+  busy,
+  onRead,
+  onDismiss,
+  spotlight,
+  registerRef,
+}: {
+  briefing: ResearchBriefing;
+  busy: boolean;
+  onRead?: (id: string) => void;
+  onDismiss?: (id: string) => void;
+  spotlight: boolean;
+  registerRef: (id: string) => (el: HTMLElement | null) => void;
+}) {
+  return (
+    <li ref={registerRef(briefing.id)} className={spotlight ? "spotlight" : undefined}>
+      <p>
+        {!briefing.read_at && <strong>● New - </strong>}
+        <strong>{briefing.title}</strong>
+      </p>
+      <p>{briefing.headline}</p>
+      <p>
+        Topic: {briefing.topic} · {CONFIDENCE_LABELS[briefing.confidence]} ·{" "}
+        {new Date(briefing.created_at).toLocaleString()}
+        {briefing.telegram_notified_at && " · sent to Telegram"}
+      </p>
+      <ul>
+        {briefing.findings.map((finding, index) => (
+          <li key={index}>
+            {finding.claim} (
+            <a href={finding.source_url} target="_blank" rel="noreferrer">
+              {finding.source_title}
+            </a>
+            )
+          </li>
+        ))}
+      </ul>
+      <p>
+        <strong>What changed:</strong> {briefing.what_changed}
+      </p>
+      <p>
+        <strong>Counter-move:</strong> {briefing.counter_move}
+      </p>
+      <p>
+        <strong>Takeaway:</strong> {briefing.takeaway}
+      </p>
+      {briefing.unverified.length > 0 && (
+        <>
+          <p>
+            <strong>Not verified (treat with care):</strong>
+          </p>
+          <ul>
+            {briefing.unverified.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {briefing.sources.length > 0 && (
+        <div className="original-sources">
+          <p>
+            <strong>Original sources</strong>
+          </p>
+          <ul>
+            {briefing.sources.map((source, index) => (
+              <li key={index}>
+                <a href={source.url} target="_blank" rel="noreferrer">
+                  {source.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {onRead && !briefing.read_at && (
+        <button type="button" onClick={() => onRead(briefing.id)} disabled={busy}>
+          Mark read
+        </button>
+      )}
+      {onDismiss && (
+        <button type="button" onClick={() => onDismiss(briefing.id)} disabled={busy}>
+          {busy ? "Working…" : "Dismiss"}
+        </button>
+      )}
+    </li>
+  );
+}
+
 export default function ResearchPage() {
   usePageTitle("Research");
   const [state, setState] = useState<PageState>({ status: "loading" });
@@ -54,6 +153,25 @@ export default function ResearchPage() {
   const [topic, setTopic] = useState("");
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [queueing, setQueueing] = useState(false);
+
+  // Deep-link state (§6): the target parsed from the URL, the
+  // spotlighted item, a dismissed briefing pinned via the by-id
+  // fallback, and the plain line when the target isn't available.
+  const [target, setTarget] = useState<DeepLinkTarget | null>(null);
+  const [spotlightId, setSpotlightId] = useState<string | null>(null);
+  const [pinnedBriefing, setPinnedBriefing] = useState<ResearchBriefing | null>(null);
+  const [targetMissing, setTargetMissing] = useState<string | null>(null);
+  const targetHandledRef = useRef(false);
+  const itemRefs = useRef(new Map<string, HTMLElement>());
+
+  const registerRef = useCallback(
+    (id: string) =>
+      (el: HTMLElement | null) => {
+        if (el) itemRefs.current.set(id, el);
+        else itemRefs.current.delete(id);
+      },
+    [],
+  );
 
   const fetchPage = useCallback(() => {
     apiClient
@@ -69,6 +187,77 @@ export default function ResearchPage() {
   useEffect(() => {
     fetchPage();
   }, [fetchPage]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const briefingId = params.get("briefing");
+    const signalId = params.get("signal");
+    if (briefingId) setTarget({ kind: "briefing", id: briefingId });
+    else if (signalId) setTarget({ kind: "signal", id: signalId });
+  }, []);
+
+  const scrollToItem = useCallback((id: string) => {
+    itemRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  // Spotlight fades after ~4s or on the first tap/click anywhere.
+  useEffect(() => {
+    if (!spotlightId) return;
+    const timer = setTimeout(() => setSpotlightId(null), 4000);
+    const clear = () => setSpotlightId(null);
+    window.addEventListener("pointerdown", clear, { once: true });
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointerdown", clear);
+    };
+  }, [spotlightId]);
+
+  // Resolve the deep link once the page data is in (§6.2/§6.4/§6.5).
+  useEffect(() => {
+    if (state.status !== "loaded" || !target || targetHandledRef.current) return;
+    targetHandledRef.current = true;
+    const page = state.page;
+
+    if (target.kind === "signal") {
+      const found = page.signals.some((signal) => signal.id === target.id);
+      if (found) {
+        setSpotlightId(target.id);
+        scrollToItem(target.id);
+      } else {
+        setTargetMissing("That wire item isn't current anymore - what's live is below.");
+      }
+      return;
+    }
+
+    const briefing = page.data.find((item) => item.id === target.id);
+    if (briefing) {
+      setSpotlightId(briefing.id);
+      scrollToItem(briefing.id);
+      // Opening from the banner is reading it in full - leaving it
+      // "unread" would be a false state.
+      if (!briefing.read_at) {
+        void apiClient
+          .markResearchBriefingRead(briefing.id)
+          .then(() => fetchPage())
+          .catch(() => undefined);
+      }
+      return;
+    }
+
+    // Not in the list - the realistic case is an earlier dismissal.
+    void apiClient
+      .getResearchBriefing(target.id)
+      .then((found) => setPinnedBriefing(found))
+      .catch(() => setTargetMissing("That briefing isn't available anymore."));
+  }, [state, target, fetchPage, scrollToItem]);
+
+  // The pinned fallback renders after the effect above resolves;
+  // spotlight + scroll once it exists in the DOM.
+  useEffect(() => {
+    if (!pinnedBriefing) return;
+    setSpotlightId(pinnedBriefing.id);
+    scrollToItem(pinnedBriefing.id);
+  }, [pinnedBriefing, scrollToItem]);
 
   async function handleRead(id: string) {
     setBusyId(id);
@@ -192,75 +381,76 @@ export default function ResearchPage() {
             </>
           )}
 
+          {state.page.signals.length > 0 && (
+            <>
+              <h2>On the wires</h2>
+              <p>Raw pressure the watchers are seeing. Not briefings yet.</p>
+              <ul>
+                {state.page.signals.map((signal) => (
+                  <li
+                    key={signal.id}
+                    ref={registerRef(signal.id)}
+                    className={spotlightId === signal.id ? "spotlight" : undefined}
+                  >
+                    <p>
+                      <strong>{signal.summary}</strong>
+                    </p>
+                    <p>
+                      Topic: {signal.topic} ·{" "}
+                      {WATCHER_LABELS[signal.watcher_key] ?? signal.watcher_key} ·{" "}
+                      {formatRelativeAge(signal.observed_at)}
+                    </p>
+                    <p>Not a briefing yet — this is raw pressure the watchers are seeing.</p>
+                    {signal.items.length > 0 && (
+                      <ul>
+                        {signal.items.map((item, index) => (
+                          <li key={index}>
+                            <a href={item.url} target="_blank" rel="noreferrer">
+                              {item.title}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
           <h2>
             Briefings{state.page.unread_count > 0 && ` (${state.page.unread_count} unread)`}
           </h2>
-          {state.page.data.length === 0 && (
+          {targetMissing && <p>{targetMissing}</p>}
+          {pinnedBriefing && (
+            <>
+              <p>You dismissed this one earlier — here&apos;s the full briefing.</p>
+              <ul>
+                <BriefingSnapshot
+                  briefing={pinnedBriefing}
+                  busy={busyId === pinnedBriefing.id}
+                  onRead={handleRead}
+                  spotlight={spotlightId === pinnedBriefing.id}
+                  registerRef={registerRef}
+                />
+              </ul>
+            </>
+          )}
+          {state.page.data.length === 0 && !pinnedBriefing && (
             <ListEmpty message="No briefings yet. The engine writes its first one at the next pressure trigger or baseline run - or queue a topic above." />
           )}
           {state.page.data.length > 0 && (
             <ul>
               {state.page.data.map((briefing) => (
-                <li key={briefing.id}>
-                  <p>
-                    {!briefing.read_at && <strong>● New - </strong>}
-                    <strong>{briefing.title}</strong>
-                  </p>
-                  <p>{briefing.headline}</p>
-                  <p>
-                    Topic: {briefing.topic} · {CONFIDENCE_LABELS[briefing.confidence]} ·{" "}
-                    {new Date(briefing.created_at).toLocaleString()}
-                    {briefing.telegram_notified_at && " · sent to Telegram"}
-                  </p>
-                  <ul>
-                    {briefing.findings.map((finding, index) => (
-                      <li key={index}>
-                        {finding.claim} (
-                        <a href={finding.source_url} target="_blank" rel="noreferrer">
-                          {finding.source_title}
-                        </a>
-                        )
-                      </li>
-                    ))}
-                  </ul>
-                  <p>
-                    <strong>What changed:</strong> {briefing.what_changed}
-                  </p>
-                  <p>
-                    <strong>Counter-move:</strong> {briefing.counter_move}
-                  </p>
-                  <p>
-                    <strong>Takeaway:</strong> {briefing.takeaway}
-                  </p>
-                  {briefing.unverified.length > 0 && (
-                    <>
-                      <p>
-                        <strong>Not verified (treat with care):</strong>
-                      </p>
-                      <ul>
-                        {briefing.unverified.map((item, index) => (
-                          <li key={index}>{item}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  {!briefing.read_at && (
-                    <button
-                      type="button"
-                      onClick={() => handleRead(briefing.id)}
-                      disabled={busyId === briefing.id}
-                    >
-                      Mark read
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleDismiss(briefing.id)}
-                    disabled={busyId === briefing.id}
-                  >
-                    {busyId === briefing.id ? "Working…" : "Dismiss"}
-                  </button>
-                </li>
+                <BriefingSnapshot
+                  key={briefing.id}
+                  briefing={briefing}
+                  busy={busyId === briefing.id}
+                  onRead={handleRead}
+                  onDismiss={handleDismiss}
+                  spotlight={spotlightId === briefing.id}
+                  registerRef={registerRef}
+                />
               ))}
             </ul>
           )}

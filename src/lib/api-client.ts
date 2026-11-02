@@ -5,7 +5,12 @@
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
-import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
+import type {
+  CheckWiresResult,
+  ResearchBriefing,
+  ResearchPageData,
+  ResearchRun,
+} from "@/types/entities";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
@@ -216,4 +221,11 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ topic }),
     }),
+  // Home News Banner (2026-11-02 design §6.4): one briefing by id,
+  // including dismissed - the deep-link fallback for a banner tap.
+  getResearchBriefing: (id: string) => request<ResearchBriefing>(`/api/v1/research-briefings/${id}`),
+  // Home News Banner (2026-11-02 design §4): the watcher-only light
+  // pull - free sources, no AI call, no run-cap spend.
+  checkWires: () =>
+    request<CheckWiresResult>("/api/v1/research-briefings/check-wires", { method: "POST" }),
 };
