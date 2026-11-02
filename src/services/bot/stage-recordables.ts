@@ -8,10 +8,14 @@
 // Nothing here records anything - execution happens only when the
 // owner approves the batch, resolved in code by the agent turn.
 //
-// One batch at a time, deliberately: if any proposal is already
-// waiting for his yes/no, new items are NOT staged (the caller tells
-// him to settle the waiting one first), so two batches can never mix
-// their item numbers.
+// One batch ADDRESSED at a time, deliberately: approvals always
+// resolve the OLDEST pending proposal first (agent-turn), so a new
+// batch can never mix its item numbers with the waiting one's.
+// Lane 1 (audit B-7): it used to be that a waiting proposal BLOCKED
+// staging entirely - the new forward's items were dropped unless he
+// re-sent the message. Now the new batch QUEUES behind the waiting
+// one (own batch id, own item numbers from 1) and the reply says it
+// is queued, not yet awaiting his yes.
 
 import { buildBotTools } from "./tools";
 import {
@@ -25,8 +29,10 @@ import type { BotBrainStore } from "./store";
 export interface StageRecordablesResult {
   proposals: ProposedWrite[];
   rejected: RejectedDumpItem[];
-  /** True when a proposal was already waiting and nothing was staged. */
+  /** Kept for shape compatibility: staging no longer blocks (see queuedBehindPending). */
   blockedByPending: boolean;
+  /** True when a proposal was already waiting and this batch was queued behind it. */
+  queuedBehindPending: boolean;
 }
 
 export async function stageRecordables(
@@ -35,13 +41,11 @@ export async function stageRecordables(
   rawItems: unknown,
 ): Promise<StageRecordablesResult> {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
-    return { proposals: [], rejected: [], blockedByPending: false };
+    return { proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false };
   }
 
   const pending = await store.loadPendingAction();
-  if (pending) {
-    return { proposals: [], rejected: [], blockedByPending: true };
-  }
+  const queuedBehindPending = pending !== null;
 
   const writeRegistry = new Map(
     buildBotTools(store)
@@ -64,24 +68,25 @@ export async function stageRecordables(
     });
   }
 
-  return { proposals, rejected, blockedByPending: false };
+  return { proposals, rejected, blockedByPending: false, queuedBehindPending };
 }
 
 /**
  * The reply suffix for a staging outcome, shared by every dispatch
  * surface so the owner hears the same words everywhere: the batch
- * proposal (when items staged), the named rejections (never silent),
- * or the settle-the-waiting-one-first note.
+ * proposal (when items staged), the queued note (when a proposal
+ * was already waiting - the batch is filed behind it, NOT yet
+ * awaiting his yes, so no YES grammar is shown for it), or the
+ * named rejections (never silent).
  */
 export function formatRecordableOutcome(result: StageRecordablesResult): string {
-  if (result.blockedByPending) {
-    return (
-      "\n\nI also spotted things in that message worth recording, but another proposal is still waiting for your yes/no. " +
-      "Settle that one first, then send this message again and I'll stage them."
-    );
-  }
   let out = "";
-  if (result.proposals.length > 0) {
+  if (result.queuedBehindPending && result.proposals.length > 0) {
+    const lines = result.proposals.map((p, i) => `${i + 1}. ${p.summary}`).join("\n");
+    out +=
+      "\n\nI also pulled things from that message worth recording and queued them behind the proposal that's already waiting — " +
+      `settle that one first and I'll bring this batch up for your yes/no:\n${lines}`;
+  } else if (result.proposals.length > 0) {
     out += formatBatchProposal(
       result.proposals.map((p) => ({
         summary: p.summary,

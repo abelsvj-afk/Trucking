@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBotStore, type BotBrainStore } from "@/services/bot/store";
-import { stageRecordables } from "@/services/bot/stage-recordables";
+import { formatRecordableOutcome, stageRecordables } from "@/services/bot/stage-recordables";
 
 type Row = Record<string, unknown>;
 
@@ -100,7 +100,12 @@ describe("stageRecordables", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("blocks staging while another proposal is waiting, so batches never mix", async () => {
+  // Lane 1 (audit B-7): a waiting proposal used to BLOCK staging -
+  // the new forward's items were dropped unless he re-sent the
+  // message. Now the batch QUEUES behind the waiting one (its own
+  // batch id, its own item numbers); resolution still only ever
+  // addresses the oldest pending proposal first.
+  it("queues a new batch behind a waiting proposal instead of dropping it", async () => {
     const waiting: Row = {
       id: "pending-0",
       company_id: COMPANY,
@@ -118,15 +123,42 @@ describe("stageRecordables", () => {
     const { store, rows } = makeStore([waiting]);
     const result = await stageRecordables(store, MESSAGE, [LOAD_ITEM]);
 
-    expect(result.blockedByPending).toBe(true);
-    expect(result.proposals).toEqual([]);
-    expect(rows).toHaveLength(1); // only the pre-existing row
+    expect(result.blockedByPending).toBe(false);
+    expect(result.queuedBehindPending).toBe(true);
+    expect(result.proposals).toHaveLength(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.tool_name).toBe("create_load");
+    expect(rows[1]?.batch_id).toBeTruthy();
+    expect(rows[1]?.batch_id).not.toBe(rows[0]?.batch_id);
+    expect(rows[1]?.item_number).toBe(1);
+  });
+
+  it("says the batch is queued (not yet awaiting his yes) in the outcome text", async () => {
+    const waiting: Row = {
+      id: "pending-0",
+      company_id: COMPANY,
+      channel: "telegram",
+      tool_name: "create_expense",
+      arguments: { category: "other", amount_dollars: 40 },
+      summary: "Expense $40",
+      batch_id: null,
+      item_number: null,
+      source_quote: null,
+      confidence: null,
+      created_at: new Date().toISOString(),
+      deleted_at: null,
+    };
+    const { store } = makeStore([waiting]);
+    const result = await stageRecordables(store, MESSAGE, [LOAD_ITEM]);
+    const text = formatRecordableOutcome(result);
+    expect(text).toContain("queued");
+    expect(text).not.toContain("Reply YES");
   });
 
   it("is a no-op for an empty extraction", async () => {
     const { store, rows } = makeStore();
     const result = await stageRecordables(store, MESSAGE, []);
-    expect(result).toEqual({ proposals: [], rejected: [], blockedByPending: false });
+    expect(result).toEqual({ proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false });
     expect(rows).toHaveLength(0);
   });
 });

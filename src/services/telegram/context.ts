@@ -12,35 +12,59 @@ export type TelegramIntent = "dispatch" | "remember" | "instruction" | "chat";
 const SPANISH_MARKERS = [
   "hola", "gracias", "necesito", "llega", "llegar", "mañana", "carga",
   "camión", "camion", "recoger", "entrega", "quiero", "puedes", "estás",
-  "estas", "dónde", "donde", "cuándo", "cuando", "por favor", "buenos",
+  "estas", "dónde", "donde", "cuándo", "cuando", "favor", "buenos",
   "buenas", "señor", "senor", "tarde", "temprano", "listo", "hora",
+  "ya", "voy",
 ];
 
-function looksSpanish(text: string): boolean {
-  const lower = ` ${text.toLowerCase()} `;
-  if (lower.includes("¿") || lower.includes("¡")) return true;
+/**
+ * Whole-word Spanish detection (Lane 1, audit L-4/L-5). Tokens are
+ * matched exactly - never as substrings - so an English word that
+ * merely CONTAINS a marker ("cargo" contains no marker token; the
+ * old substring scan could misfire on such text) can't flip the
+ * verdict. Two marker words make a text Spanish; a single marker
+ * word also counts when the whole message is short (<= 3 tokens) -
+ * "Listo" and "Ya voy" are Spanish, however brief.
+ */
+export function looksSpanish(text: string): boolean {
+  if (/[¿¡]/.test(text)) return true;
+  const tokens = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
   let hits = 0;
-  for (const marker of SPANISH_MARKERS) {
-    if (lower.includes(` ${marker}`) || lower.includes(marker)) hits += 1;
-    if (hits >= 2) return true;
+  for (const token of tokens) {
+    if (SPANISH_MARKERS.includes(token)) hits += 1;
   }
-  return false;
+  if (hits >= 2) return true;
+  return hits === 1 && tokens.length <= 3;
 }
 
 /**
- * Routing for one allowlisted private-chat message. Deliberately
- * simple and predictable (v1): forwards are always dispatch; explicit
- * "remember:"/"instruction:" prefixes are capture; text that reads as
- * Spanish goes to the dispatch helper (in this owner's world, Spanish
- * text is almost always a message from his contacts); everything else
- * is conversation with the bot.
+ * Routing for one message. Deliberately simple and predictable:
+ * forwards are always dispatch (they are other-party content);
+ * explicit "remember:"/"instruction:" prefixes are capture;
+ * everything else is conversation with the bot.
+ *
+ * Lane 1 (audit L-2): the surface matters. On TELEGRAM the owner's
+ * own Spanish used to route to the dispatch helper - he got a
+ * workup of his own words instead of an answer. That is gone: on
+ * Telegram, only forwards route to dispatch. The WEB Assistant is
+ * an explicit paste-a-message surface (its Dispatch page sibling is
+ * the same workflow), so pasted Spanish text there keeps the
+ * historical dispatch routing - it passes surface "web".
  */
-export function classifyTelegramText(text: string, isForwarded: boolean): TelegramIntent {
+export function classifyTelegramText(
+  text: string,
+  isForwarded: boolean,
+  surface: "telegram" | "web" = "telegram",
+): TelegramIntent {
   const trimmed = text.trim();
   if (isForwarded) return "dispatch";
   if (/^remember\b/i.test(trimmed)) return "remember";
   if (/^(instruction|always)\b/i.test(trimmed)) return "instruction";
-  if (looksSpanish(trimmed)) return "dispatch";
+  if (surface === "web" && looksSpanish(trimmed)) return "dispatch";
   return "chat";
 }
 

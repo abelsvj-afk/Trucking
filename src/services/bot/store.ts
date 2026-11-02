@@ -15,6 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { summarizeHos } from "@/lib/hos";
 import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
+import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { isMissingColumnError } from "./tool-helpers";
 import type { DispatchSuggestion } from "@/services/ai/dispatch";
 import type { BotChatTurn } from "@/services/ai/bot-chat";
@@ -63,6 +64,17 @@ export interface BotBrainStore extends TelegramStore {
   clearPendingActions(ids: string[]): Promise<void>;
   /** The bot_chat kill switch (docs/governance.md): global switch first, then per-capability, no row = off. */
   isBotChatEnabled(): Promise<boolean>;
+  /** The dispatch_helper kill switch, same convention - Lane 1 (audit B-1): the Telegram dispatch path must honor it exactly like the web surfaces do. */
+  isDispatchHelperEnabled(): Promise<boolean>;
+  /**
+   * Lane 1 (audit B-2): claims a Telegram update_id for processing.
+   * Resolves true when this caller is the FIRST to claim it (proceed)
+   * and false when it was already claimed (a redelivery - the caller
+   * must not process it again). Backed by telegram_processed_updates
+   * (migration 00033); before that migration lands it resolves true
+   * (dedup inactive, historical behavior) rather than failing turns.
+   */
+  claimTelegramUpdate(updateId: number): Promise<boolean>;
 }
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -350,24 +362,50 @@ export function createBotStore(
     },
 
     async isBotChatEnabled() {
-      const [companyResult, capabilityResult] = await Promise.all([
-        supabase.from("companies").select("ai_globally_disabled").eq("id", company).single(),
-        supabase
-          .from("ai_capability_settings")
-          .select("enabled")
-          .eq("company_id", company)
-          .eq("capability", BOT_CHAT_CAPABILITY)
-          .maybeSingle(),
-      ]);
-      if (companyResult.error) throw new Error(companyResult.error.message);
-      if (capabilityResult.error) throw new Error(capabilityResult.error.message);
+      return capabilityEnabled(BOT_CHAT_CAPABILITY);
+    },
 
-      const globallyDisabled =
-        (companyResult.data as { ai_globally_disabled: boolean } | null)?.ai_globally_disabled ?? false;
-      // No row = off, fails closed - same convention as every other capability.
-      const capabilityEnabled =
-        (capabilityResult.data as { enabled: boolean } | null)?.enabled ?? false;
-      return !globallyDisabled && capabilityEnabled;
+    async isDispatchHelperEnabled() {
+      return capabilityEnabled(DISPATCH_HELPER_CAPABILITY);
+    },
+
+    async claimTelegramUpdate(updateId: number) {
+      const { error } = await supabase.from("telegram_processed_updates").insert({
+        company_id: company,
+        update_id: updateId,
+      });
+      if (!error) return true;
+      // Unique violation = this update was already claimed: a
+      // Telegram redelivery, which must never be processed twice.
+      if ((error as { code?: string }).code === "23505") return false;
+      // Graceful absence: migration 00033 not applied yet - dedup is
+      // inactive and the turn proceeds as it historically did.
+      if (/telegram_processed_updates/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+        return true;
+      }
+      throw new Error(error.message);
     },
   };
+
+  /** One capability check, shared by every kill switch: global switch first, then the per-capability row; no row = off (fails closed). */
+  async function capabilityEnabled(capability: string): Promise<boolean> {
+    const [companyResult, capabilityResult] = await Promise.all([
+      supabase.from("companies").select("ai_globally_disabled").eq("id", company).single(),
+      supabase
+        .from("ai_capability_settings")
+        .select("enabled")
+        .eq("company_id", company)
+        .eq("capability", capability)
+        .maybeSingle(),
+    ]);
+    if (companyResult.error) throw new Error(companyResult.error.message);
+    if (capabilityResult.error) throw new Error(capabilityResult.error.message);
+
+    const globallyDisabled =
+      (companyResult.data as { ai_globally_disabled: boolean } | null)?.ai_globally_disabled ?? false;
+    // No row = off, fails closed - same convention as every other capability.
+    const enabled =
+      (capabilityResult.data as { enabled: boolean } | null)?.enabled ?? false;
+    return !globallyDisabled && enabled;
+  }
 }

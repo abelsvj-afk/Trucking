@@ -58,6 +58,15 @@ describe("detectMessageLanguage (the code language gate)", () => {
       detectMessageLanguage("Thanks, gracias - I will pay you on Friday when the load delivers."),
     ).toBe("en");
   });
+
+  // Lane 1 (audit L-4): short genuine Spanish used to score below the
+  // es>=2 floor and fall through as English. A message whose only
+  // scored words are Spanish IS Spanish, however short.
+  it("calls short Spanish Spanish", () => {
+    expect(detectMessageLanguage("Listo")).toBe("es");
+    expect(detectMessageLanguage("Ya voy")).toBe("es");
+    expect(detectMessageLanguage("Gracias")).toBe("es");
+  });
 });
 
 describe("suggestDispatchReply", () => {

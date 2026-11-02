@@ -109,11 +109,11 @@ describe("handleTelegramUpdate", () => {
     expect(d.sendMessage.mock.calls[0]?.[1]).toContain("777");
   });
 
-  it("routes Spanish text to dispatch, replies, and stores the exchange", async () => {
+  it("routes a forwarded Spanish text to dispatch, replies, and stores the exchange", async () => {
     const store = fakeStore();
     const d = deps(store);
     const result = await handleTelegramUpdate(
-      { message: { chat: { id: 4242, type: "private" }, text: "Necesito que llegues a las 6 de la mañana" } },
+      { message: { chat: { id: 4242, type: "private" }, text: "Necesito que llegues a las 6 de la mañana", forward_date: 123 } },
       CONFIG,
       d,
     );
@@ -216,7 +216,11 @@ describe("handleTelegramUpdate", () => {
     expect(sent).toContain("Load: Savannah, GA → Atlanta, GA");
   });
 
-  it("says to settle the waiting proposal when staging is blocked by one", async () => {
+  // Lane 1 (audit B-7): superseded behavior - staging used to be
+  // BLOCKED by a waiting proposal and the items were dropped. Now
+  // the batch queues behind it and the reply says so (no YES
+  // grammar for a batch that isn't at the front of the queue).
+  it("says the new batch is queued when a proposal is already waiting", async () => {
     const withItems: DispatchSuggestion = {
       ...SUGGESTION,
       recordable_items: [
@@ -231,9 +235,18 @@ describe("handleTelegramUpdate", () => {
     const d = deps();
     d.getSuggestion.mockResolvedValue(withItems);
     const stageRecordables = vi.fn().mockResolvedValue({
-      proposals: [],
+      proposals: [
+        {
+          tool: "create_load",
+          args: { origin: "Savannah, GA", destination: "Atlanta, GA" },
+          summary: "Load: Savannah, GA → Atlanta, GA",
+          sourceQuote: "carga para Atlanta",
+          confidence: "high",
+        },
+      ],
       rejected: [],
-      blockedByPending: true,
+      blockedByPending: false,
+      queuedBehindPending: true,
     });
     await handleTelegramUpdate(
       { message: { chat: { id: 4242, type: "private" }, text: "Tengo una carga para Atlanta", forward_date: 123 } },
@@ -241,8 +254,8 @@ describe("handleTelegramUpdate", () => {
       { ...d, stageRecordables },
     );
     const sent = d.sendMessage.mock.calls[0]?.[1] as string;
-    expect(sent).toContain("another proposal is still waiting");
-    expect(sent).not.toContain("I have NOT recorded any of this yet");
+    expect(sent).toContain("queued");
+    expect(sent).not.toContain("Reply YES to record all");
   });
 
   it("captures a 'remember:' dictation without calling any AI", async () => {
@@ -332,11 +345,85 @@ describe("handleTelegramUpdate", () => {
     });
     const d = deps(store);
     const result = await handleTelegramUpdate(
-      { message: { chat: { id: 4242, type: "private" }, text: "Necesito que llegues mañana" } },
+      { message: { chat: { id: 4242, type: "private" }, text: "Necesito que llegues mañana", forward_date: 123 } },
       CONFIG,
       d,
     );
     expect(result).toBe("replied");
     expect(d.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // Lane 1 (audit L-2): the owner typing Spanish himself is
+  // conversation - he gets an answer, not a workup of his own words.
+  it("treats the owner's own Spanish as conversation, not a dispatch workup", async () => {
+    const store = fakeStore();
+    const d = deps(store);
+    const result = await handleTelegramUpdate(
+      { message: { chat: { id: 4242, type: "private" }, text: "Necesito saber cuánto gané esta semana" } },
+      CONFIG,
+      d,
+    );
+    expect(result).toBe("chatted");
+    expect(d.getSuggestion).not.toHaveBeenCalled();
+    expect(d.runChat).toHaveBeenCalledTimes(1);
+  });
+
+  // Lane 1 (audit B-1): the dispatch_helper toggle + global AI kill
+  // switch must gate the Telegram dispatch path, like the web does.
+  it("does not run dispatch help on Telegram when the capability is off", async () => {
+    const store = fakeStore();
+    const d = {
+      ...deps(store),
+      isDispatchHelperEnabled: vi.fn().mockResolvedValue(false),
+    };
+    const result = await handleTelegramUpdate(
+      { message: { chat: { id: 4242, type: "private" }, text: "Be there at 6", forward_date: 123 } },
+      CONFIG,
+      d,
+    );
+    expect(result).toBe("dispatch_disabled");
+    expect(d.getSuggestion).not.toHaveBeenCalled();
+    expect(d.sendMessage.mock.calls[0]?.[1]).toContain("turned off");
+  });
+
+  // Lane 1 (audit B-2): a Telegram retry of the same update must
+  // never run the turn twice (no double-logged writes, no
+  // double-stored photos).
+  it("ignores a redelivered update_id instead of processing it twice", async () => {
+    const claimed = new Set<number>();
+    const store = fakeStore({
+      claimTelegramUpdate: vi.fn(async (updateId: number) => {
+        if (claimed.has(updateId)) return false;
+        claimed.add(updateId);
+        return true;
+      }),
+    });
+    const d = deps(store);
+    const update = {
+      update_id: 9001,
+      message: { chat: { id: 4242, type: "private" }, text: "When does my 14 run out?" },
+    };
+    const first = await handleTelegramUpdate(update, CONFIG, d);
+    const second = await handleTelegramUpdate(update, CONFIG, d);
+    expect(first).toBe("chatted");
+    expect(second).toBe("duplicate_ignored");
+    expect(d.runChat).toHaveBeenCalledTimes(1);
+    expect(d.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // Lane 1 (audit B-4): when his records fail to load, the reply
+  // must SAY so - never a silently dumber answer.
+  it("tells the owner when his context failed to load", async () => {
+    const store = fakeStore({
+      loadHistory: vi.fn().mockRejectedValue(new Error("db down")),
+    });
+    const d = deps(store);
+    const result = await handleTelegramUpdate(
+      { message: { chat: { id: 4242, type: "private" }, text: "When does my 14 run out?" } },
+      CONFIG,
+      d,
+    );
+    expect(result).toBe("chatted");
+    expect(d.sendMessage.mock.calls[0]?.[1]).toContain("couldn't pull up your records");
   });
 });

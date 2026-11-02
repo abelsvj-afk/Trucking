@@ -120,6 +120,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     stageRecordables: brainStore
       ? (userText, items) => stageRecordables(brainStore, userText, items)
       : undefined,
+    // Lane 1 (audit B-1): the dispatch_helper kill switch (global +
+    // capability) is checked on this path too, from the same store
+    // the web surfaces read - off means no workup on Telegram either.
+    isDispatchHelperEnabled: brainStore
+      ? () => brainStore.isDispatchHelperEnabled()
+      : undefined,
     // §13: photo messages store through the shared documents
     // pipeline on the same service-role client + company scope.
     // Absent in reduced mode - the bot then says so honestly.

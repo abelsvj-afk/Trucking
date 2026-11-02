@@ -103,8 +103,11 @@ export const POST = createApiHandler(async (req, ctx) => {
   const store = createBotStore(supabase, ctx.auth.companyId, "web");
 
   // Same routing as the Telegram bot (services/telegram/context.ts):
-  // forwards can't happen here, so everything is typed text.
-  const intent = classifyTelegramText(text, false);
+  // forwards can't happen here, so everything is typed text. The
+  // "web" surface keeps paste-to-dispatch routing for Spanish text
+  // (an explicit paste-a-message surface); on Telegram the owner's
+  // own Spanish is conversation instead (Lane 1, audit L-2).
+  const intent = classifyTelegramText(text, false, "web");
   let output: BotChatOutput;
 
   if (intent === "remember" || intent === "instruction") {

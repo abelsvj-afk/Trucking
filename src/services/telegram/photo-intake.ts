@@ -178,6 +178,9 @@ export async function handleTelegramPhoto(
       body: new Blob([bytes], { type: "image/jpeg" }),
       contentType: "image/jpeg",
       size: bytes.byteLength,
+      // Lane 1 (audit B-6): his caption is stored on the document
+      // row itself (searchable), not only echoed in this reply.
+      caption,
     });
     documentId = row.id;
   } catch (err) {

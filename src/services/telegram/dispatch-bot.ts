@@ -56,6 +56,8 @@ export function getTelegramConfig(env: NodeJS.ProcessEnv = process.env): Telegra
 }
 
 export interface TelegramUpdate {
+  /** Telegram's delivery id - the dedup key (Lane 1, audit B-2): a redelivered update carries the same id. */
+  update_id?: number;
   message?: {
     chat?: { id?: number; type?: string };
     text?: string;
@@ -92,6 +94,15 @@ export interface TelegramDeps {
     items: unknown,
   ) => Promise<StageRecordablesResult>;
   /**
+   * Lane 1 (audit B-1): the dispatch_helper kill switch (global AI
+   * switch + capability row), checked before any dispatch workup on
+   * Telegram - the same check the web surfaces run. Wired from the
+   * brain store by the webhook; absent in reduced mode (no company
+   * configured, so there are no settings to honor and no store for
+   * anything the workup would feed).
+   */
+  isDispatchHelperEnabled?: () => Promise<boolean>;
+  /**
    * §13: stores a photo message through the documents pipeline and
    * returns the plain-words reply (what was stored, extraction
    * state). Wired only when the brain store exists; absent = the
@@ -112,6 +123,8 @@ export type TelegramHandleResult =
   | "ignored_not_private"
   | "ignored_not_allowlisted"
   | "bootstrap_replied"
+  | "duplicate_ignored"
+  | "dispatch_disabled"
   | "no_text_replied"
   | "photo_replied"
   | "replied"
@@ -124,6 +137,8 @@ interface LoadedContext {
   history: BotChatInput["history"];
   memories: BotMemoryRow[];
   snapshotText: string | null;
+  /** Lane 1 (audit B-4): true when the context load failed and the turn is answering without his records - the reply must SAY so. */
+  degraded: boolean;
 }
 
 async function loadContext(store: TelegramStore, chatId: number): Promise<LoadedContext> {
@@ -137,14 +152,21 @@ async function loadContext(store: TelegramStore, chatId: number): Promise<Loaded
       history,
       memories,
       snapshotText: snapshot ? formatCompanySnapshot(snapshot) : null,
+      degraded: false,
     };
   } catch (err) {
     // Context is an enhancement to the reply, never a reason to eat
-    // it - answer without it and log, per the fail-explicit rule.
+    // it - answer without it, log it, and (Lane 1, B-4) TELL him:
+    // a silently dumber answer is the failure this flag exists to
+    // prevent. Callers append CONTEXT_DEGRADED_NOTE to the reply.
     console.error("[telegram] failed to load bot context", err);
-    return { history: [], memories: [], snapshotText: null };
+    return { history: [], memories: [], snapshotText: null, degraded: true };
   }
 }
+
+/** Appended to any reply produced on a turn whose context failed to load (audit B-4). */
+export const CONTEXT_DEGRADED_NOTE =
+  "\n\n(Heads up: I couldn't pull up your records for that one, so I answered without your history, memories, and snapshot — I may be missing context.)";
 
 export async function handleTelegramUpdate(
   update: TelegramUpdate,
@@ -176,6 +198,25 @@ export async function handleTelegramUpdate(
     return "bootstrap_replied";
   }
 
+  const store = deps.store ?? null;
+
+  // Lane 1 (audit B-2): claim this update BEFORE any processing.
+  // Telegram redelivers an update when the reply send fails or the
+  // request times out, and writes execute inside a turn - without
+  // the claim, a redelivery could log the same fuel purchase twice
+  // or store the same photo twice. A failed claim check (store
+  // trouble) never eats the message: the turn proceeds and the
+  // context load below degrades honestly if the store is down.
+  if (store && typeof update.update_id === "number" && store.claimTelegramUpdate) {
+    let claimed = true;
+    try {
+      claimed = await store.claimTelegramUpdate(update.update_id);
+    } catch (err) {
+      console.error("[telegram] update claim failed", err);
+    }
+    if (!claimed) return "duplicate_ignored";
+  }
+
   // §13: a photo message is document intake, not conversation — it
   // runs before the text paths (a photo's caption is a note on the
   // document, never a message to answer). Same gating as everything
@@ -198,11 +239,10 @@ export async function handleTelegramUpdate(
         "I got your photo, but photo filing isn't configured on the server yet (it needs the bot's company setup), so I couldn't store it. For now, upload it from More → Documents in the app.";
     }
     await deps.sendMessage(chat.id, reply);
-    const storeForPhoto = deps.store ?? null;
-    if (storeForPhoto) {
+    if (store) {
       try {
-        await storeForPhoto.saveMessage(chatId, "user", caption ? `[photo] ${caption}` : "[photo]");
-        await storeForPhoto.saveMessage(chatId, "assistant", reply);
+        await store.saveMessage(chatId, "user", caption ? `[photo] ${caption}` : "[photo]");
+        await store.saveMessage(chatId, "assistant", reply);
       } catch (err) {
         console.error("[telegram] failed to persist photo turn", err);
       }
@@ -219,16 +259,19 @@ export async function handleTelegramUpdate(
     return "no_text_replied";
   }
 
-  const store = deps.store ?? null;
   const isForwarded = Boolean(
     update.message?.forward_origin ?? update.message?.forward_from ?? update.message?.forward_date,
   );
-  const intent = classifyTelegramText(text, isForwarded);
+  const intent = classifyTelegramText(text, isForwarded, "telegram");
   const ctx: LoadedContext = store
     ? await loadContext(store, chat.id)
-    : { history: [], memories: [], snapshotText: null };
+    : { history: [], memories: [], snapshotText: null, degraded: false };
   const instructions = instructionMemories(ctx.memories);
   const relevantMemories = pickRelevantMemories(ctx.memories, text);
+  // Lane 1 (audit B-4): a degraded turn's reply carries the note -
+  // applied at send time in every branch below.
+  const withDegradedNote = (reply: string): string =>
+    ctx.degraded ? reply + CONTEXT_DEGRADED_NOTE : reply;
 
   const persistTurn = async (assistantText: string) => {
     if (!store) return;
@@ -257,12 +300,25 @@ export async function handleTelegramUpdate(
         reply =
           "I can't store that yet - memory isn't configured on the server (TELEGRAM_COMPANY_ID / migrations). Nothing was saved.";
       }
-      await deps.sendMessage(chat.id, reply);
+      await deps.sendMessage(chat.id, withDegradedNote(reply));
       await persistTurn(reply);
       return intent === "instruction" ? "instruction_saved" : "remembered";
     }
 
     if (intent === "dispatch") {
+      // Lane 1 (audit B-1): the dispatch_helper kill switch and the
+      // global AI switch gate this path exactly as they gate the
+      // web surfaces - off means off, stated plainly, no workup.
+      if (deps.isDispatchHelperEnabled) {
+        const enabled = await deps.isDispatchHelperEnabled().catch(() => false);
+        if (!enabled) {
+          const reply =
+            "Dispatch help is turned off right now — the Dispatch helper switch (or the master AI switch) is off, so I didn't work that message over. You can turn it on in the app: More → Settings. Send the message again once it's on.";
+          await deps.sendMessage(chat.id, withDegradedNote(reply));
+          await persistTurn(reply);
+          return "dispatch_disabled";
+        }
+      }
       const suggestion = await deps.getSuggestion(
         text,
         buildDispatchContext(ctx.snapshotText, instructions, relevantMemories),
@@ -280,7 +336,7 @@ export async function handleTelegramUpdate(
           console.error("[telegram] failed to stage dispatch recordables", err);
         }
       }
-      await deps.sendMessage(chat.id, reply);
+      await deps.sendMessage(chat.id, withDegradedNote(reply));
       if (store) {
         try {
           await store.storeExchange(text, suggestion);
@@ -306,7 +362,7 @@ export async function handleTelegramUpdate(
     };
     if (deps.runAgent && store) {
       const agentOutput = await deps.runAgent(chatInput);
-      await deps.sendMessage(chat.id, agentOutput.reply);
+      await deps.sendMessage(chat.id, withDegradedNote(agentOutput.reply));
       await persistTurn(agentOutput.reply);
       return "chatted";
     }
@@ -324,7 +380,7 @@ export async function handleTelegramUpdate(
     } else if (output.memory && !store) {
       reply += "\n\n(I'd save that to memory, but memory isn't configured on the server yet.)";
     }
-    await deps.sendMessage(chat.id, reply);
+    await deps.sendMessage(chat.id, withDegradedNote(reply));
     await persistTurn(reply);
     return "chatted";
   } catch (err) {
