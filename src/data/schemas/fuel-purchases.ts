@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const createFuelPurchaseSchema = z.object({
+  // GAP-07: client-generated id for safe offline replay (see expenses).
+  id: z.string().uuid().optional(),
   truck_id: z.string().uuid(),
   location: z.string().optional(),
   // GAP-15: purchase state (IFTA) — two-letter, upper-cased by callers.

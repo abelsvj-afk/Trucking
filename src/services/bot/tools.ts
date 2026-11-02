@@ -560,6 +560,34 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         return `Paperwork for ${load.origin} → ${load.destination}:\n${lines.join("\n")}\n${state.summaryLine}`;
       },
     },
+    // GAP-08: the day-wrap — reconcile the day against its records.
+    {
+      name: "get_day_wrap",
+      description:
+        "Run the day-wrap for a date (default today): checks duty entries, fuel against odometer miles, delivered loads' paperwork, detention owed, and proposals waiting. Use when he asks to wrap up the day, check what's missing, or reconcile today.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "YYYY-MM-DD in America/New_York. Omit for today.",
+          },
+        },
+      },
+      access: "read",
+      validateArgs: validateWith(dayWrapArgs),
+      async run(args) {
+        const parsed = dayWrapArgs.parse(args);
+        const { getDayWrap } = await import("@/services/day-wrap");
+        const { easternDate } = await import("@/lib/day-wrap");
+        const date = parsed.date ?? easternDate(new Date());
+        const result = await getDayWrap(client, companyId, date);
+        const lines = result.items.map((item) =>
+          item.severity === "ok" ? `✓ ${item.text}` : `- ${item.text}`,
+        );
+        return `Day-wrap for ${result.date}:\n${lines.join("\n")}`;
+      },
+    },
     {
       name: "evaluate_pay_offer",
       description:
@@ -793,6 +821,13 @@ const stampDetentionArgs = z.object({
   stamp_type: z.enum(["arrival", "door", "loading_done", "departure"]),
   stop_kind: z.enum(["pickup", "delivery"]).optional(),
   occurred_at: z.string().min(1).optional(),
+});
+
+const dayWrapArgs = z.object({
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD.")
+    .optional(),
 });
 
 const loadIdArgs = z.object({
