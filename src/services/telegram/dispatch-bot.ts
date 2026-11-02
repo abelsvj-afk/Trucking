@@ -36,6 +36,7 @@ import {
   stripCapturePrefix,
   type BotMemoryRow,
 } from "./context";
+import { formatPayPinLine } from "@/services/bot/pay-pin";
 import type { TelegramStore } from "./store";
 import type { TelegramPhotoSize } from "./photo-intake";
 
@@ -142,6 +143,8 @@ interface LoadedContext {
   relevantMemories: BotMemoryRow[];
   /** Lane 2: the retrieval self-report line (null on the legacy path). */
   memoryReport: string | null;
+  /** Phase D: the pay pin block (pin or NOT-PINNED instruction), loaded whenever the store supports it. */
+  payPinText: string | null;
   snapshotText: string | null;
   /** Lane 1 (audit B-4): true when the context load failed and the turn is answering without his records - the reply must SAY so. */
   degraded: boolean;
@@ -160,6 +163,11 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
     // newest-100 load + keyword pick no longer touches context
     // assembly. Older store shapes (test doubles, the v1 store)
     // keep the legacy path below.
+    // Phase D: the pay pin rides every Telegram turn too (optional
+    // method - older store shapes simply skip the block).
+    const payPinText = store.loadPayPin
+      ? formatPayPinLine(await store.loadPayPin())
+      : null;
     if (store.retrieveFacts && store.loadInstructionMemories) {
       const [instructions, retrieval] = await Promise.all([
         store.loadInstructionMemories(),
@@ -171,6 +179,7 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
         instructions: instructions as BotMemoryRow[],
         relevantMemories: retrieval.facts as BotMemoryRow[],
         memoryReport: retrieval.reportLine,
+        payPinText,
         snapshotText,
         degraded: false,
       };
@@ -182,6 +191,7 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
       instructions: instructionMemories(memories),
       relevantMemories: pickRelevantMemories(memories, text),
       memoryReport: null,
+      payPinText,
       snapshotText,
       degraded: false,
     };
@@ -197,6 +207,7 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
       instructions: [],
       relevantMemories: [],
       memoryReport: null,
+      payPinText: null,
       snapshotText: null,
       degraded: true,
     };
@@ -354,6 +365,7 @@ async function processTelegramUpdate(
         instructions: [],
         relevantMemories: [],
         memoryReport: null,
+        payPinText: null,
         snapshotText: null,
         degraded: false,
       };
@@ -454,6 +466,7 @@ async function processTelegramUpdate(
       instructions,
       memories: relevantMemories,
       memoryReport: ctx.memoryReport ?? undefined,
+      payPinText: ctx.payPinText,
     };
     if (deps.runAgent && store) {
       const agentOutput = await deps.runAgent(chatInput);

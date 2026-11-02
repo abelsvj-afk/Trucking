@@ -39,6 +39,8 @@ export interface BotChatInput {
   memoryReport?: string;
   /** Lane 2: rolling summary block for conversation older than the verbatim history window. */
   summaryText?: string | null;
+  /** Phase D: the pay pin block (pin line, or the NOT PINNED instruction) - always injected when present, per design §3.5's context table. */
+  payPinText?: string | null;
 }
 
 const SYSTEM_PROMPT = `You are the owner's personal trucking assistant, talking with him in a private Telegram chat. He is a driver building his own trucking company, often working with Spanish-speaking contacts.
@@ -85,6 +87,7 @@ function buildUserPrompt(input: BotChatInput): string {
     );
   }
   if (input.summaryText) parts.push(input.summaryText);
+  if (input.payPinText) parts.push(input.payPinText);
   if (input.snapshotText) parts.push(input.snapshotText);
   if (input.memories.length > 0) {
     parts.push("REMEMBERED FACTS:\n" + input.memories.map((m) => `- (${m.kind}) ${m.content}`).join("\n"));

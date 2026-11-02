@@ -67,6 +67,23 @@ export interface PayEvaluation {
 const SE_TAX_EFFECTIVE = 0.153 * 0.9235;
 const EMPLOYEE_FICA = 0.0765;
 
+/**
+ * Tax-only W2<->1099 conversions, shared with Phase D's true-pay
+ * computation on ACTUAL settlements (services/bot/pay-truth.ts) so
+ * an offer and a settlement can never be converted two different
+ * ways. Protections (workers' comp, unemployment) are not in this
+ * math - callers say so.
+ */
+export function w2EquivalentDollars(payDollars: number, employment: "w2" | "1099"): number {
+  if (employment === "w2") return round2(payDollars);
+  return round2((payDollars * (1 - SE_TAX_EFFECTIVE)) / (1 - EMPLOYEE_FICA));
+}
+
+export function matching1099Dollars(payDollars: number, employment: "w2" | "1099"): number {
+  if (employment === "1099") return round2(payDollars);
+  return round2((payDollars * (1 - EMPLOYEE_FICA)) / (1 - SE_TAX_EFFECTIVE));
+}
+
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -155,17 +172,9 @@ export function evaluatePayOffer(input: PayOfferInput): PayEvaluation {
   // unemployment) aren't in this math - the questions cover them.
   const totalPayRounded = round2(totalPay);
   const w2Equivalent =
-    input.employment === "1099"
-      ? round2((totalPay * (1 - SE_TAX_EFFECTIVE)) / (1 - EMPLOYEE_FICA))
-      : input.employment === "w2"
-        ? totalPayRounded
-        : null;
+    input.employment != null ? w2EquivalentDollars(totalPay, input.employment) : null;
   const matching1099 =
-    input.employment === "w2"
-      ? round2((totalPay * (1 - EMPLOYEE_FICA)) / (1 - SE_TAX_EFFECTIVE))
-      : input.employment === "1099"
-        ? totalPayRounded
-        : null;
+    input.employment != null ? matching1099Dollars(totalPay, input.employment) : null;
 
   // -- Verdict against the bands -------------------------------------------
   const grades: Grade[] = [];

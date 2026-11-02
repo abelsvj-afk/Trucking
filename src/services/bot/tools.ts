@@ -28,6 +28,7 @@ import { buildExtendedWriteTools } from "./tools-write";
 import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
 import { buildRouteCheckTool } from "./route-check-tool";
+import { buildPayTools } from "./pay-tools";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -546,6 +547,10 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
     },
   ];
+
+  // Phase D (pay truth): the pin, settlements, and the weekly
+  // report - own module (pay-tools.ts), same registry.
+  tools.push(...buildPayTools(store));
 
   // Agent omnipresence (§9): full read/write coverage from
   // tools-read.ts / tools-write.ts, then the two meta tools that

@@ -38,6 +38,8 @@ export interface TelegramStore {
   retrieveFacts?(query: string): Promise<FactRetrieval>;
   /** Lane 2 (Phase A): ALL standing instructions on their own query. Optional here, same fallback story as retrieveFacts. */
   loadInstructionMemories?(): Promise<RetrievedFact[]>;
+  /** Phase D: the current pay pin (from the brain store). Optional here; dispatch-bot skips the pin block when absent. */
+  loadPayPin?(): Promise<import("@/services/bot/pay-pin").PayPin>;
 }
 
 function serviceRoleClient(): SupabaseClient | null {
