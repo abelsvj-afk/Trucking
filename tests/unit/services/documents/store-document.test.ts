@@ -15,7 +15,9 @@ const COMPANY = "75efa4a5-a126-467d-b82a-c32a12628dba";
 
 function fakeClient(opts: { uploadError?: unknown; insertError?: unknown } = {}) {
   const upload = vi.fn().mockResolvedValue({ error: opts.uploadError ?? null });
-  const remove = vi.fn().mockResolvedValue({ error: null });
+  // Unit A: the compensation now CHECKS the removal result - a removal
+  // is only "confirmed" when Storage returns the removed objects.
+  const remove = vi.fn().mockResolvedValue({ data: [{ name: "removed" }], error: null });
   const single = vi.fn().mockResolvedValue(
     opts.insertError
       ? { data: null, error: opts.insertError }

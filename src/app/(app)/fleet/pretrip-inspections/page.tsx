@@ -12,10 +12,16 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { PretripInspection, Truck, Trailer, Driver } from "@/types/entities";
 
 export default function PretripInspectionsPage() {
   usePageTitle("Pre-trip inspections");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const [truckId, setTruckId] = useState("");
   const { state, retry } = useApiList<PretripInspection>(
     "pretrip-inspections",
@@ -49,6 +55,18 @@ export default function PretripInspectionsPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="pre-trip inspections" />
+
+      {showDeleted ? (
+        <DeletedListSection<PretripInspection>
+          resource="pretrip-inspections"
+          labelFor={(inspection) =>
+            `${inspection.passed ? "Passed" : "Failed"} — ${new Date(inspection.inspected_at).toLocaleDateString()}`
+          }
+          sublabelFor={(inspection) => inspection.defects_found ?? null}
+        />
+      ) : (
+        <>
       <label htmlFor="truck_filter">Truck</label>
       <select id="truck_filter" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
         <option value="">All trucks</option>
@@ -74,22 +92,26 @@ export default function PretripInspectionsPage() {
             const driver = driverLabel(inspection);
             return (
               <li key={inspection.id}>
-                <span className="row-title">
-                  <strong data-status={inspection.passed ? "ok" : "overdue"}>
-                    {inspection.passed ? "Passed" : "Failed"}
-                  </strong>
-                  {new Date(inspection.inspected_at).toLocaleDateString()} — Truck/Trailer{" "}
-                  {vehicleLabel(inspection)}
-                </span>
-                {(driver || inspection.defects_found) && (
-                  <span className="row-sub">
-                    {[driver, inspection.defects_found].filter(Boolean).join(" · ")}
+                <Link href={`/fleet/pretrip-inspections/${inspection.id}`}>
+                  <span className="row-title">
+                    <strong data-status={inspection.passed ? "ok" : "overdue"}>
+                      {inspection.passed ? "Passed" : "Failed"}
+                    </strong>
+                    {new Date(inspection.inspected_at).toLocaleDateString()} — Truck/Trailer{" "}
+                    {vehicleLabel(inspection)}
                   </span>
-                )}
+                  {(driver || inspection.defects_found) && (
+                    <span className="row-sub">
+                      {[driver, inspection.defects_found].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                </Link>
               </li>
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

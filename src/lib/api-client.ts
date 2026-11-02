@@ -10,42 +10,27 @@ import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/type
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
 
-/** One row of the "What Abel remembers" list (Lane 2, Phase B). */
-export interface BotMemoryListItem {
-  id: string;
-  kind: string;
-  content: string;
-  created_at: string;
-  valid_to: string | null;
-  superseded_by: string | null;
-}
-
-/** The night shift's staleness status, riding the memories list response (fix round, pitfall hunt CD-1). Null when the server couldn't produce one. */
-export interface BotConsolidationStatus {
-  enabled: boolean;
-  known: boolean;
-  stale: boolean;
-  lastRanAt: string | null;
-  hoursSinceLastRun: number | null;
-}
-
-export interface BotMemoryListResult {
-  data: BotMemoryListItem[];
-  consolidation: BotConsolidationStatus | null;
-}
-
 export interface ApiErrorBody {
-  error: { code: string; message: string };
+  error: { code: string; message: string; fields?: { path: string; message: string }[] };
 }
 
 export class ApiClientError extends Error {
   code: string;
   status: number;
+  // Field-level errors when the API returns them (Unit A/F 422s), so
+  // edit forms can show WHAT is wrong, not just that something is.
+  fields?: { path: string; message: string }[];
 
-  constructor(status: number, code: string, message: string) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    fields?: { path: string; message: string }[],
+  ) {
     super(message);
     this.code = code;
     this.status = status;
+    this.fields = fields;
   }
 }
 
@@ -65,6 +50,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       res.status,
       body?.error.code ?? "UNKNOWN_ERROR",
       body?.error.message ?? "Something went wrong. Please try again.",
+      body?.error.fields,
     );
   }
 
@@ -90,6 +76,13 @@ export const apiClient = {
     request<T>(`/api/v1/${resource}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: (resource: string, id: string) =>
     request<void>(`/api/v1/${resource}/${id}`, { method: "DELETE" }),
+  // Restore a soft-deleted record (Reliability Unit A): POST
+  // /api/v1/{resource}/{id}/restore. A refusal is a 422 ApiClientError
+  // whose message names the reason (deleted parent, invalid record...).
+  // The Deleted view of a list is the plain list call with
+  // params { deleted: "only" }.
+  restore: <T>(resource: string, id: string) =>
+    request<T>(`/api/v1/${resource}/${id}/restore`, { method: "POST" }),
   // Documents don't fit the generic list/create/remove shape above -
   // multipart upload, filtered by related entity, no PATCH
   // (docs/api-contracts.md) - so they get their own three methods.
@@ -126,6 +119,24 @@ export const apiClient = {
     return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
   },
   removeDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
+  // Retention-delete lifecycle (Unit A / F-007): the Deleted view of a
+  // record's documents (tombstones carry retention status and no signed
+  // URLs), restore, and the cleanup-incident surface (F-038) - open
+  // incidents plus the per-incident removal retry.
+  listDeletedDocuments: <T>(relatedEntityType: string, relatedEntityId: string) => {
+    const qs = new URLSearchParams({
+      related_entity_type: relatedEntityType,
+      related_entity_id: relatedEntityId,
+      deleted: "only",
+    });
+    return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
+  },
+  restoreDocument: <T>(id: string) =>
+    request<T>(`/api/v1/documents/${id}/restore`, { method: "POST" }),
+  listCleanupIncidents: <T>() =>
+    request<{ data: T[] }>("/api/v1/documents/cleanup-incidents"),
+  retryCleanupIncident: <T>(id: string) =>
+    request<T>(`/api/v1/documents/cleanup-incidents/${id}/retry`, { method: "POST" }),
   // Computed, read-only (docs/api-contracts.md) - omit params for the
   // server's current-calendar-month default.
   financialSummary: (params?: { from: string; to: string }) => {
@@ -173,20 +184,6 @@ export const apiClient = {
     }),
   // The AI kill switches (docs/governance.md) - a normal owner-session
   // read/write, unlike everything else about an AI capability.
-  // Lane 2: "What Abel remembers" - view / edit (supersede) / delete
-  // over the shared brain store (Intelligence Upgrade Phase B).
-  listMemories: (includeHistory = false) =>
-    request<BotMemoryListResult>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
-  editMemory: (id: string, content: string) =>
-    request<{ data: { id: string } }>("/api/v1/memories", {
-      method: "PATCH",
-      body: JSON.stringify({ id, content }),
-    }),
-  deleteMemory: (id: string) =>
-    request<{ data: { id: string; deleted: boolean } }>("/api/v1/memories", {
-      method: "DELETE",
-      body: JSON.stringify({ id }),
-    }),
   getAiSettings: () => request<AiSettings>("/api/v1/ai-settings"),
   updateAiSettings: (body: Partial<AiSettings>) =>
     request<AiSettings>("/api/v1/ai-settings", { method: "PATCH", body: JSON.stringify(body) }),

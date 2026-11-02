@@ -11,11 +11,13 @@
 // is never called a balance, and every surface that touches the
 // suggestion says the app never moves real money.
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useTruckFund } from "@/lib/use-truck-fund";
 import { ListLoading, ListError, ListEmpty } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import {
   EMERGENCY_FUND_TARGET_CENTS,
   TRUCK_PRICE_BANDS,
@@ -42,6 +44,20 @@ export default function TruckFundPage() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  // Idempotent creates (Unit A / F-006): the entry form carries one
+  // token per opening; the suggestion recorder carries one token per
+  // distinct suggestion amount, so a double-tap or retry replays
+  // instead of double-recording a money move.
+  const entrySubmissionId = useSubmissionId();
+  const suggestionTokenRef = useRef<{ amount: number; token: string } | null>(null);
+  const [showDeletedEntries, setShowDeletedEntries] = useDeletedToggle();
+
+  function tokenForSuggestion(amount: number): string {
+    if (!suggestionTokenRef.current || suggestionTokenRef.current.amount !== amount) {
+      suggestionTokenRef.current = { amount, token: crypto.randomUUID() };
+    }
+    return suggestionTokenRef.current.token;
+  }
 
   // Add-entry form state.
   const [entryFund, setEntryFund] = useState<FundKey>("truck_fund");
@@ -80,6 +96,7 @@ export default function TruckFundPage() {
     setRecording(true);
     try {
       await apiClient.create<FundEntry>("fund-entries", {
+        submission_id: tokenForSuggestion(data.suggestion.amount_cents),
         fund_key: "truck_fund",
         kind: "deposit",
         amount_cents: data.suggestion.amount_cents,
@@ -102,6 +119,7 @@ export default function TruckFundPage() {
     setSavingEntry(true);
     try {
       await apiClient.create<FundEntry>("fund-entries", {
+        submission_id: entrySubmissionId,
         fund_key: entryFund,
         kind: entryKind,
         amount_cents: Math.round(parseFloat(entryAmount || "0") * 100),
@@ -279,6 +297,21 @@ export default function TruckFundPage() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            <DeletedToggleButton
+              showDeleted={showDeletedEntries}
+              onChange={setShowDeletedEntries}
+              listLabel="the fund log"
+            />
+            {showDeletedEntries && (
+              <DeletedListSection<FundEntry>
+                resource="fund-entries"
+                labelFor={(entry) =>
+                  `${entry.entry_date} — ${entry.kind === "deposit" ? "+" : "−"}${formatDollars(entry.amount_cents)}`
+                }
+                sublabelFor={(entry) => entry.fund_key}
+              />
             )}
 
             <h3>Log a move</h3>

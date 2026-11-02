@@ -8,10 +8,16 @@ import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { Customer } from "@/types/entities";
 
 export default function CustomersListPage() {
   usePageTitle("Customers");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Customer>("customers");
 
   return (
@@ -26,6 +32,18 @@ export default function CustomersListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="customers" />
+
+      {showDeleted ? (
+        <DeletedListSection
+          resource="customers"
+          labelFor={(customer: Customer) => customer.name}
+          sublabelFor={(customer: Customer) =>
+            [customer.contact_phone, customer.contact_email].filter(Boolean).join(" · ") || null
+          }
+        />
+      ) : (
+        <>
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
@@ -41,13 +59,17 @@ export default function CustomersListPage() {
             const sub = [customer.contact_phone, customer.contact_email].filter(Boolean).join(" · ");
             return (
               <li key={customer.id}>
-                <span className="row-title">{customer.name}</span>
-                {sub && <span className="row-sub">{sub}</span>}
-                {customer.notes && <span className="row-sub">{customer.notes}</span>}
+                <Link href={`/more/customers/${customer.id}`}>
+                  <span className="row-title">{customer.name}</span>
+                  {sub && <span className="row-sub">{sub}</span>}
+                  {customer.notes && <span className="row-sub">{customer.notes}</span>}
+                </Link>
               </li>
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

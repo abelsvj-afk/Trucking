@@ -6,7 +6,10 @@
 
 import { z } from "zod";
 
-export const loadStatusSchema = z.enum(["draft", "confirmed", "completed"]);
+// "cancelled" added by Reliability Unit A per ruling D-01: a cancelled
+// load is a state, never a deletion. loads.status is unconstrained text
+// at the database level, so no migration is needed for the new value.
+export const loadStatusSchema = z.enum(["draft", "confirmed", "completed", "cancelled"]);
 
 const loadFieldsSchema = z.object({
   truck_id: z.string().uuid().nullable().optional(),

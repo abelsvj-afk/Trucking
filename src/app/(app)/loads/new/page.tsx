@@ -22,6 +22,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { Broker, Customer, Driver, Load, LoadStatus, Truck } from "@/types/entities";
@@ -47,6 +48,9 @@ export default function NewLoadPage() {
   const [customerId, setCustomerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the load.
+  const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
   const drivers = usePickerList<Driver>("drivers");
@@ -60,6 +64,7 @@ export default function NewLoadPage() {
 
     try {
       await apiClient.create<Load>("loads", {
+        submission_id: submissionId,
         origin,
         destination,
         pickup_date: pickupDate || undefined,

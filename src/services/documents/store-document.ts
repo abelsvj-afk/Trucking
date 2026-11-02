@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Document } from "@/types/entities";
+import { recordCleanupIncident } from "./cleanup-incidents";
 
 // Generous enough for scanned paperwork (BOLs, receipts, permits)
 // without being unbounded - the same limit the web route has always
@@ -61,15 +62,6 @@ export interface StoreDocumentInput {
   body: Blob;
   contentType: string;
   size: number;
-  /**
-   * Lane 1 (audit B-6): the sender's note on the file (a Telegram
-   * photo caption), stored ON the document row (migration 00033)
-   * and folded into the document search vector - a caption that
-   * lives only in a chat timeline stops being findable once the
-   * conversation scrolls past it. Optional; before 00033 lands the
-   * insert retries without it (graceful absence, below).
-   */
-  caption?: string;
 }
 
 /**
@@ -108,37 +100,43 @@ export async function storeDocumentFile(
     );
   }
 
-  const baseRow = {
-    company_id: input.companyId,
-    related_entity_type: input.relatedEntityType,
-    related_entity_id: input.relatedEntityId,
-    file_name: input.fileName,
-    storage_path: storagePath,
-    uploaded_at: new Date().toISOString(),
-  };
-  // The caption column arrives with migration 00033; the client's
-  // generated row type predates it, so the payload is widened
-  // explicitly here (the runtime fallback below covers databases
-  // where the column doesn't exist yet).
-  const insertRow: typeof baseRow & { caption?: string } = input.caption
-    ? { ...baseRow, caption: input.caption }
-    : baseRow;
-  let insertResult = await client
+  const { data: row, error: insertError } = await client
     .from("documents")
-    .insert(insertRow as typeof baseRow)
+    .insert({
+      company_id: input.companyId,
+      related_entity_type: input.relatedEntityType,
+      related_entity_id: input.relatedEntityId,
+      file_name: input.fileName,
+      storage_path: storagePath,
+      uploaded_at: new Date().toISOString(),
+    })
     .select()
     .single();
-  if (insertResult.error && input.caption && /caption/.test(insertResult.error.message) && /does not exist|could not find/i.test(insertResult.error.message)) {
-    // Graceful absence: migration 00033 (documents.caption) not
-    // applied yet - store the document without the caption rather
-    // than losing the file over a note.
-    insertResult = await client.from("documents").insert(baseRow).select().single();
-  }
-  const { data: row, error: insertError } = insertResult;
 
   if (insertError || !row) {
-    // Don't leave an orphaned file in Storage when the DB write fails.
-    await client.storage.from("documents").remove([storagePath]);
+    // Don't leave an orphaned file in Storage when the DB write fails -
+    // and CHECK that the removal actually happened (Unit A / F-038).
+    // The old code fired remove() and never looked at the result, so a
+    // failed cleanup was indistinguishable from a successful one. On
+    // failure the obligation is recorded as a cleanup incident for the
+    // Documents page's retry surface, and the error says plainly that
+    // cleanup may have failed.
+    const { data: removed, error: removeError } = await client.storage
+      .from("documents")
+      .remove([storagePath]);
+    const cleanupFailed = removeError !== null || !removed || removed.length === 0;
+    if (cleanupFailed) {
+      await recordCleanupIncident(client, {
+        companyId: input.companyId,
+        storagePath,
+        kind: "row_insert_failed",
+        detail: `Row insert failed (${insertError?.message ?? "no row returned"}) and the compensating storage removal did not confirm the object is gone.`,
+      });
+      throw new StoreDocumentError(
+        "insert_failed",
+        `${insertError?.message ?? "Failed to save document metadata."} The uploaded file could not be cleaned up automatically - it has been recorded for manual cleanup.`,
+      );
+    }
     throw new StoreDocumentError(
       "insert_failed",
       insertError?.message ?? "Failed to save document metadata.",

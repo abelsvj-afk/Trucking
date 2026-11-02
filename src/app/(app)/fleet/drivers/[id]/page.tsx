@@ -18,6 +18,7 @@ import DriverProfileFields, {
 } from "@/components/DriverProfileFields";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { driverRoleLabel } from "@/lib/fleet-display";
 import type { Driver, Truck } from "@/types/entities";
 
@@ -115,6 +116,17 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
       </section>
 
       <DriverEditForm key={driver.id} driver={driver} onSaved={setDriver} />
+
+      <section aria-label="Delete this record">
+        <h2>Delete this record</h2>
+        <DeleteRecordButton
+          resource="drivers"
+          id={driver.id}
+          recordName={driver.name}
+          listHref="/fleet/drivers"
+          listLabel="drivers"
+        />
+      </section>
     </div>
   );
 }

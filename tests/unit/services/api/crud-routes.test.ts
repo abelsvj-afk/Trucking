@@ -111,8 +111,13 @@ describe("createCrudRoutes", () => {
     expect((await res.json()).error.code).toBe("NOT_FOUND");
   });
 
-  it("remove: 204 with no body on success", async () => {
-    vi.mocked(createClient).mockResolvedValue(mockSupabase({}) as never);
+  it("remove: 204 with no body when a row was actually deleted", async () => {
+    // Unit A (F-005): softDelete now selects the affected ids, so the
+    // mock models a real deletion - one affected row. (The pre-Unit-A
+    // mock resolved no data at all, which under the truthful-delete
+    // contract is a 404; that case is covered in
+    // tests/unit/services/api/record-lifecycle.test.ts.)
+    vi.mocked(createClient).mockResolvedValue(mockSupabase({ data: [{ id: "1" }] }) as never);
     const routes = createCrudRoutes<TestRow>("things", schemas);
 
     const res = await routes.remove(new NextRequest("http://localhost/api/v1/things/1"), {

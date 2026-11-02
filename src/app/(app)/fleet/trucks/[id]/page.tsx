@@ -24,6 +24,7 @@ import TruckIdentityFields, {
   type TruckIdentityValues,
 } from "@/components/TruckIdentityFields";
 import { usePageTitle } from "@/lib/use-page-title";
+import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { truckTypeLabel } from "@/lib/fleet-display";
 import type { Truck } from "@/types/entities";
 
@@ -98,10 +99,10 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
             </Link>
           </li>
           <li>
-            <Link href="/fleet/maintenance-events">Maintenance history</Link>
+            <Link href={`/fleet/maintenance-events?truck_id=${truck.id}`}>Maintenance history</Link>
           </li>
           <li>
-            <Link href="/fleet/equipment-checklist">Equipment on board</Link>
+            <Link href={`/fleet/equipment-checklist?truck_id=${truck.id}`}>Equipment on board</Link>
           </li>
           <li>
             <Link href="/fleet/truck-profile">Route profile (size, speed, cab)</Link>
@@ -110,6 +111,17 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
       </section>
 
       <TruckEditForm key={truck.id} truck={truck} onSaved={setTruck} />
+
+      <section aria-label="Delete this record">
+        <h2>Delete this record</h2>
+        <DeleteRecordButton
+          resource="trucks"
+          id={truck.id}
+          recordName={`Truck ${truck.unit_number}`}
+          listHref="/fleet/trucks"
+          listLabel="trucks"
+        />
+      </section>
     </div>
   );
 }

@@ -9,15 +9,25 @@
 // away. Fuel is deliberately NOT here: fuel_purchases has no load_id
 // in the data model (fuel is recorded per truck), so a per-load fuel
 // figure would be invented, not computed.
+//
+// Reliability Unit A (F-016/F-028): this screen is also where a load's
+// record is actually maintained - the edit form below PATCHes through
+// merged-record validation, and the status section moves the load
+// through its lifecycle (draft -> confirmed -> completed, or
+// cancelled) behind the server's completeness rules: confirming needs
+// rate + pickup + delivery dates, completing needs a delivery date.
+// A refusal comes back as a named 422 and is shown as-is.
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
+import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { useApiList } from "@/lib/use-api-list";
+import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { DutyLog, Expense, Load } from "@/types/entities";
+import type { Broker, Customer, Driver, DutyLog, Expense, Load, LoadStatus, Truck } from "@/types/entities";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -110,6 +120,8 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
         {load.notes && <p>{load.notes}</p>}
       </section>
 
+      <LoadStatusSection key={`status-${load.id}-${load.status}`} load={load} onChanged={setLoad} />
+
       <section aria-label="Expenses on this load">
         <h2>Expenses on this load</h2>
         {expenseRows.length === 0 ? (
@@ -147,6 +159,270 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
           </li>
         </ul>
       </section>
+
+      <LoadEditForm key={`edit-${load.id}`} load={load} onSaved={setLoad} />
+
+      <section aria-label="Delete this load">
+        <h2>Delete this load</h2>
+        <DeleteRecordButton
+          resource="loads"
+          id={load.id}
+          recordName={`Load ${load.origin} → ${load.destination}`}
+          listHref="/loads"
+          listLabel="loads"
+        />
+      </section>
     </div>
+  );
+}
+
+// Draft-completeness checklist + status transitions (design A.4): the
+// checklist shows what confirming still needs BEFORE the tap; the
+// server enforces the same rules on the merged record and its 422
+// names anything still missing.
+function LoadStatusSection({
+  load,
+  onChanged,
+}: {
+  load: Load;
+  onChanged: (load: Load) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const checklist = [
+    { label: "Rate", ok: load.rate_cents != null },
+    { label: "Pickup date", ok: Boolean(load.pickup_date) },
+    { label: "Delivery date", ok: Boolean(load.delivery_date) },
+  ];
+  const readyToConfirm = checklist.every((item) => item.ok);
+
+  async function transition(status: LoadStatus) {
+    setError(null);
+    setBusy(true);
+    try {
+      const updated = await apiClient.update<Load>("loads", load.id, { status });
+      onChanged(updated);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Couldn't update this load. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-label="Load status">
+      <h2>Status — {load.status}</h2>
+      {load.status === "draft" && (
+        <div>
+          <p className="row-sub">
+            {readyToConfirm
+              ? "This draft has everything confirming needs."
+              : "Still needed before this load can be confirmed:"}
+          </p>
+          <ul>
+            {checklist.map((item) => (
+              <li key={item.label}>
+                {item.ok ? "✓" : "✗"} {item.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && <p role="alert">{error}</p>}
+      <p>
+        {load.status !== "confirmed" && load.status !== "completed" && (
+          <button type="button" disabled={busy} onClick={() => transition("confirmed")}>
+            Confirm load
+          </button>
+        )}{" "}
+        {load.status !== "completed" && (
+          <button type="button" disabled={busy} onClick={() => transition("completed")}>
+            Mark completed
+          </button>
+        )}{" "}
+        {load.status !== "cancelled" && load.status !== "completed" && (
+          <button type="button" disabled={busy} onClick={() => transition("cancelled")}>
+            Cancel load
+          </button>
+        )}{" "}
+        {(load.status === "cancelled" || load.status === "completed") && (
+          <button type="button" disabled={busy} onClick={() => transition("draft")}>
+            Back to draft
+          </button>
+        )}
+      </p>
+    </section>
+  );
+}
+
+function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => void }) {
+  const [origin, setOrigin] = useState(load.origin);
+  const [destination, setDestination] = useState(load.destination);
+  const [pickupDate, setPickupDate] = useState(load.pickup_date ?? "");
+  const [deliveryDate, setDeliveryDate] = useState(load.delivery_date ?? "");
+  const [rateDollars, setRateDollars] = useState(
+    load.rate_cents != null ? (load.rate_cents / 100).toString() : "",
+  );
+  const [miles, setMiles] = useState(load.miles != null ? load.miles.toString() : "");
+  const [notes, setNotes] = useState(load.notes ?? "");
+  const [truckId, setTruckId] = useState(load.truck_id ?? "");
+  const [driverId, setDriverId] = useState(load.driver_id ?? "");
+  const [brokerId, setBrokerId] = useState(load.broker_id ?? "");
+  const [customerId, setCustomerId] = useState(load.customer_id ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
+  const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const trucks = usePickerList<Truck>("trucks");
+  const drivers = usePickerList<Driver>("drivers");
+  const brokers = usePickerList<Broker>("brokers");
+  const customers = usePickerList<Customer>("customers");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setFieldErrors([]);
+    setSaved(false);
+    setSubmitting(true);
+    try {
+      const updated = await apiClient.update<Load>("loads", load.id, {
+        origin,
+        destination,
+        pickup_date: pickupDate || null,
+        delivery_date: deliveryDate || null,
+        rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : null,
+        miles: miles ? Math.round(parseFloat(miles)) : null,
+        notes: notes || null,
+        truck_id: truckId || null,
+        driver_id: driverId || null,
+        broker_id: brokerId || null,
+        customer_id: customerId || null,
+      });
+      onSaved(updated);
+      setSaved(true);
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+        setFieldErrors(err.fields ?? []);
+      } else {
+        setError("Couldn't save. Try again.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section aria-label="Edit this load">
+      <h2>Edit this load</h2>
+      <form onSubmit={handleSubmit}>
+        <label htmlFor="edit-origin">Origin</label>
+        <input id="edit-origin" value={origin} onChange={(event) => setOrigin(event.target.value)} required />
+
+        <label htmlFor="edit-destination">Destination</label>
+        <input
+          id="edit-destination"
+          value={destination}
+          onChange={(event) => setDestination(event.target.value)}
+          required
+        />
+
+        <label htmlFor="edit-pickup_date">Pickup date</label>
+        <input
+          id="edit-pickup_date"
+          type="date"
+          value={pickupDate}
+          onChange={(event) => setPickupDate(event.target.value)}
+        />
+
+        <label htmlFor="edit-delivery_date">Delivery date</label>
+        <input
+          id="edit-delivery_date"
+          type="date"
+          value={deliveryDate}
+          onChange={(event) => setDeliveryDate(event.target.value)}
+        />
+
+        <label htmlFor="edit-rate">Rate ($)</label>
+        <input
+          id="edit-rate"
+          type="number"
+          step="0.01"
+          min="0"
+          value={rateDollars}
+          onChange={(event) => setRateDollars(event.target.value)}
+        />
+
+        <label htmlFor="edit-miles">Miles</label>
+        <input
+          id="edit-miles"
+          type="number"
+          step="1"
+          min="0"
+          value={miles}
+          onChange={(event) => setMiles(event.target.value)}
+        />
+
+        <label htmlFor="edit-truck_id">Truck</label>
+        <select id="edit-truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
+          <option value="">Unassigned</option>
+          {trucks.map((truck) => (
+            <option key={truck.id} value={truck.id}>
+              {truck.unit_number}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="edit-driver_id">Driver</label>
+        <select id="edit-driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
+          <option value="">Unassigned</option>
+          {drivers.map((driver) => (
+            <option key={driver.id} value={driver.id}>
+              {driver.name}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="edit-broker_id">Broker</label>
+        <select id="edit-broker_id" value={brokerId} onChange={(event) => setBrokerId(event.target.value)}>
+          <option value="">None</option>
+          {brokers.map((broker) => (
+            <option key={broker.id} value={broker.id}>
+              {broker.name}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="edit-customer_id">Customer</label>
+        <select id="edit-customer_id" value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
+          <option value="">None</option>
+          {customers.map((customer) => (
+            <option key={customer.id} value={customer.id}>
+              {customer.name}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="edit-notes">Notes</label>
+        <input id="edit-notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+
+        {error && <p role="alert">{error}</p>}
+        {fieldErrors.length > 0 && (
+          <ul role="alert">
+            {fieldErrors.map((field) => (
+              <li key={`${field.path}-${field.message}`}>
+                {field.path}: {field.message}
+              </li>
+            ))}
+          </ul>
+        )}
+        {saved && <p role="status">Saved.</p>}
+        <button type="submit" disabled={submitting}>
+          {submitting ? "Saving…" : "Save changes"}
+        </button>
+      </form>
+    </section>
   );
 }

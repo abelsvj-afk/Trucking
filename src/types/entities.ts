@@ -90,7 +90,7 @@ export interface Broker extends BaseRow {
   notes: string | null;
 }
 
-export type LoadStatus = "draft" | "confirmed" | "completed";
+export type LoadStatus = "draft" | "confirmed" | "completed" | "cancelled";
 
 export interface Load extends BaseRow {
   truck_id: string | null;
@@ -212,8 +212,11 @@ export type DocumentExtractionStatus =
   | "disabled"
   | "not_applicable";
 
-// Documents don't soft-delete like other entities (docs/schemas.md) - no
-// updated_at/deleted_at, so this doesn't extend BaseRow.
+// Documents historically didn't soft-delete (docs/schemas.md) - no
+// updated_at. Reliability Unit A (migration 00029, design A.7) adds a
+// RETENTION delete instead: deletion tombstones the row and retains the
+// stored file, so this still doesn't extend BaseRow but gains
+// deleted_at + the retention fields below.
 export interface Document {
   id: string;
   company_id: string;
@@ -231,6 +234,39 @@ export interface Document {
   extraction_status: DocumentExtractionStatus;
   extraction_error: string | null;
   extracted_at: string | null;
+  // Retention delete (migration 00029): set when the document is
+  // deleted; the file stays in storage while retention_status is
+  // 'retained'. purged_at is only ever set by a future purge process
+  // under an owner-approved retention policy - never by deletion.
+  deleted_at: string | null;
+  retention_status: DocumentRetentionStatus | null;
+  retention_error: string | null;
+  purged_at: string | null;
+}
+
+// The retention lifecycle of a deleted document (design A.7):
+// 'retained' (file kept, restore available) until a future approved
+// purge moves it to 'purge_pending' -> 'purged' (or 'purge_failed').
+// Unit A implements only 'retained'; the rest are specified states.
+export type DocumentRetentionStatus =
+  | "retained"
+  | "purge_pending"
+  | "purged"
+  | "purge_failed";
+
+// A recorded cleanup obligation for a storage object with no owning row
+// (migration 00029): an upload whose rollback removal failed, or an
+// object whose compensating row insert failed. Surfaced on the
+// Documents page until retried to resolution.
+export interface CleanupIncident {
+  id: string;
+  company_id: string | null;
+  storage_path: string;
+  kind: "upload_rollback" | "row_insert_failed";
+  status: "open" | "resolved" | "object_absent";
+  detail: string | null;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 export interface DocumentWithSignedUrl extends Document {
@@ -480,14 +516,4 @@ export interface ResearchPageData {
     max_runs_per_day: number;
     max_runs_per_month: number;
   };
-  /**
-   * Runner proof-of-life (2026-11-02 design, D-1.3): the last tick
-   * heartbeat and whether it is stale (>26h old, or never recorded).
-   * Absent/null on databases where migration 00040 hasn't run yet.
-   */
-  runner: {
-    last_tick_at: string | null;
-    last_source: string | null;
-    stale: boolean;
-  } | null;
 }

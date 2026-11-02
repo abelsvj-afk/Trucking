@@ -30,7 +30,16 @@ export function createApiHandler(handler: Handler) {
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json(
-          { error: { code: err.code, message: err.message } },
+          {
+            error: {
+              code: err.code,
+              message: err.message,
+              // Field-level detail when the error carries it (Unit A/F
+              // 422s); omitted entirely otherwise, keeping the original
+              // body shape for every pre-existing error.
+              ...(err.fields ? { fields: err.fields } : {}),
+            },
+          },
           { status: err.status },
         );
       }

@@ -9,12 +9,14 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import PageHeader from "@/components/PageHeader";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
 
 export default function NewMaintenanceEventPage() {
   usePageTitle("Add maintenance event");
   const router = useRouter();
+  const submissionId = useSubmissionId();
   const [truckId, setTruckId] = useState("");
   const [description, setDescription] = useState("");
   const [costDollars, setCostDollars] = useState("");
@@ -37,6 +39,7 @@ export default function NewMaintenanceEventPage() {
         cost_cents: costDollars ? Math.round(parseFloat(costDollars) * 100) : null,
         service_date: serviceDate,
         mileage_at_service: mileage ? parseInt(mileage, 10) : null,
+        submission_id: submissionId,
       });
       router.push("/fleet/maintenance-events");
     } catch (err) {

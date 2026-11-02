@@ -40,19 +40,22 @@ Standard HTTP status codes: `400` invalid input, `401` not authenticated, `403` 
 
 Every write (`POST`/`PATCH`) is validated against the corresponding schema in `docs/schemas.md` before touching the database — reject invalid input with `400`, never silently coerce or drop bad fields, per `CLAUDE.md`.
 
+**Reliability Unit A additions** (full contract: `docs/record-lifecycle.md`): a `PATCH` additionally validates the MERGED record (existing row + patch) against the create schema — a well-formed patch that would produce an invalid record is refused `422` with field-level errors in `error.fields`, and the database is untouched. `POST` accepts an optional `submission_id` (UUID) for idempotent creates: same token + same validated payload replays the original create (`200`, `deduplicated: true`); same token + different payload is `409` (`submission_token_reused_with_different_payload`).
+
 ## Resource endpoints
 
 Every MVP entity in `docs/schemas.md` gets the same five endpoints, scoped automatically to the caller's `company_id` (never accepted as a request parameter — always derived from the authenticated session):
 
 | Method | Path | Behavior |
 |---|---|---|
-| GET | `/api/v1/{resource}` | List, paginated, excludes soft-deleted rows |
+| GET | `/api/v1/{resource}` | List, paginated, excludes soft-deleted rows; `?deleted=only` lists ONLY soft-deleted rows (the Deleted view) |
 | GET | `/api/v1/{resource}/{id}` | Get one; `404` if missing or soft-deleted |
-| POST | `/api/v1/{resource}` | Create |
-| PATCH | `/api/v1/{resource}/{id}` | Partial update |
-| DELETE | `/api/v1/{resource}/{id}` | Soft delete |
+| POST | `/api/v1/{resource}` | Create (idempotent with `submission_id` — see Validation) |
+| PATCH | `/api/v1/{resource}/{id}` | Partial update; the merged record is validated (`422` on failure) |
+| DELETE | `/api/v1/{resource}/{id}` | Soft delete; `204` only when a row was actually deleted, else `404` |
+| POST | `/api/v1/{resource}/{id}/restore` | Restore a soft-deleted record behind safeguard checks (create-schema validity, live FK parents); refusals are `422` naming the reason |
 
-`{resource}` is one of: `trucks`, `trailers`, `drivers`, `customers`, `brokers`, `loads`, `expenses`, `fuel-purchases`, `maintenance-events`, `maintenance-schedules`, `equipment-checklist-items`, `pretrip-inspections`. **Not `documents`** — it has its own contract (see "Documents" below) because it doesn't fit this shape: creation is `multipart/form-data` not JSON, there's no `PATCH` (documents aren't edited in place, per `docs/schemas.md`), and `DELETE` removes the row and file outright rather than soft-deleting. Applying this generic table to `documents` too would describe two incompatible APIs for the same resource.
+`{resource}` is one of: `trucks`, `trailers`, `drivers`, `customers`, `brokers`, `loads`, `expenses`, `fuel-purchases`, `maintenance-events`, `maintenance-schedules`, `equipment-checklist-items`, `pretrip-inspections`. **Not `documents`** — it has its own contract (see "Documents" below) because it doesn't fit this shape: creation is `multipart/form-data` not JSON, there's no `PATCH` (documents aren't edited in place, per `docs/schemas.md`), and `DELETE` is a retention delete (tombstone + retained file) rather than the generic soft delete. Applying this generic table to `documents` too would describe two incompatible APIs for the same resource.
 
 ### Worked example — `trucks`
 
@@ -228,7 +231,7 @@ Documents differ from the other resources — creating one involves a file, not 
 
 **`GET /api/v1/documents?q={terms}`** — full-text search over every document's `extracted_text` + `file_name` (Postgres `websearch_to_tsquery` semantics), newest first, same row shape as the list. `related_entity_type` + `related_entity_id` may accompany `q` to scope the search to one record; without `q` they remain required together, exactly as before. **This is the agent's document read path**: the bot's document tooling searches with `q`, then answers from the returned rows' `extracted_text`/`extracted_fields` — no separate bot-only endpoint exists.
 
-**`DELETE /api/v1/documents/{id}`** — per `docs/schemas.md`, documents don't soft-delete like other resources; this removes the row and the underlying files (original and scan rendition).
+**`DELETE /api/v1/documents/{id}`** — **Reliability Unit A (F-007/D-05) changed this contract:** deletion is now a RETENTION delete. The row is tombstoned (`deleted_at` + `retention_status: "retained"`) and the underlying files are RETAINED — the endpoint never removes files; `204` only when a row was actually tombstoned, else `404`. The default list and search exclude tombstones; `GET /api/v1/documents?...&deleted=only` returns tombstones with retention status and no signed URLs. **`POST /api/v1/documents/{id}/restore`** clears the tombstone (refused `422` while the record the document is filed against is itself deleted). **`GET /api/v1/documents/cleanup-incidents`** lists open cleanup incidents (storage objects whose compensating removal failed) and **`POST /api/v1/documents/cleanup-incidents/{id}/retry`** retries the removal, closing the incident as `resolved` or `object_absent`. Full contract: `docs/record-lifecycle.md`.
 
 ## AI and integration endpoints
 

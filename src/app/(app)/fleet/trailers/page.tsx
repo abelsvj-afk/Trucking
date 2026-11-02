@@ -10,6 +10,11 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { EntityPhoto } from "@/components/EntityPhoto";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { Trailer } from "@/types/entities";
 
 const STATUS_BADGES: Record<Trailer["status"], string> = {
@@ -20,6 +25,7 @@ const STATUS_BADGES: Record<Trailer["status"], string> = {
 
 export default function TrailersListPage() {
   usePageTitle("Trailers");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Trailer>("trailers");
 
   return (
@@ -34,6 +40,18 @@ export default function TrailersListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="trailers" />
+
+      {showDeleted ? (
+        <DeletedListSection
+          resource="trailers"
+          labelFor={(trailer: Trailer) => `Trailer ${trailer.unit_number}`}
+          sublabelFor={(trailer: Trailer) =>
+            [trailer.status, trailer.trailer_type].filter(Boolean).join(" · ") || null
+          }
+        />
+      ) : (
+        <>
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
@@ -69,6 +87,8 @@ export default function TrailersListPage() {
             </li>
           ))}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

@@ -9,12 +9,14 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import PageHeader from "@/components/PageHeader";
 import type { DutyLog, DutyStatus, Driver, Load } from "@/types/entities";
 
 export default function NewDutyLogPage() {
   usePageTitle("Log duty status");
   const router = useRouter();
+  const submissionId = useSubmissionId();
   const [driverId, setDriverId] = useState("");
   const [loadId, setLoadId] = useState("");
   const [dutyStatus, setDutyStatus] = useState<DutyStatus>("on_duty");
@@ -42,6 +44,7 @@ export default function NewDutyLogPage() {
         location: location || null,
         odometer: odometer ? Number(odometer) : null,
         notes: notes || null,
+        submission_id: submissionId,
       });
       router.push("/fleet/hos");
     } catch (err) {
