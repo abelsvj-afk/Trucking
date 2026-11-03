@@ -76,7 +76,10 @@ export function topicConvergenceScore(
  * its market threshold, so the convergence layer can count them.
  */
 export function marketPressureSignals(signal: PressureSignal, config: ResearchConfig): PressureSignal[] {
-  if (signal.watcherKey !== "stooq_market") return [];
+  // "fred_market" is the watcher since the 2026-11-03 Stooq -> FRED
+  // switch; "stooq_market" signals already stored from before the
+  // switch keep scoring until they age out of the window.
+  if (signal.watcherKey !== "fred_market" && signal.watcherKey !== "stooq_market") return [];
   const out: PressureSignal[] = [];
   const crude = signal.data.crudeWowPct;
   if (typeof crude === "number" && Math.abs(crude) >= config.marketCrudeThresholdPct) {
