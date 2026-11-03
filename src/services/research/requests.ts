@@ -7,9 +7,12 @@
 // - Abel's side READS pending rows (listPendingResearchRequests),
 //   asks him in the conversation, and can dismiss an ask he declines
 //   (dismissResearchRequest). Marking a request FULFILLED belongs to
-//   photo intake (the img-maint lane): when a matching photo is
-//   filed, that pipeline stamps fulfilled_at - this module never
-//   guesses that a photo matched.
+//   photo intake (the img-maint lane): when a MATCHING photo is
+//   filed, that pipeline stamps fulfilled_at via
+//   fulfilMatchingPretripRequest below — matching means the ask's
+//   load (when it carries one) equals the photo's load AND the
+//   photo's evidence covers EVERY item the ask requested (UH-03 fix:
+//   one tire photo no longer discharges a BOL ask or a 4-item ask).
 //
 // Everything here takes the caller's Supabase client and scopes every
 // query to the company in code, because one of Abel's surfaces (the
@@ -132,4 +135,74 @@ export function requestPhotoItems(request: ResearchRequestRow): string[] {
 export function requestReason(request: ResearchRequestRow): string | null {
   const reason = (request.detail as { reason?: unknown }).reason;
   return typeof reason === "string" && reason.length > 0 ? reason : null;
+}
+
+// ---------------------------------------------------------------------------
+// UH-03 fix: the matching fulfilment writer (single source of the rule;
+// photo-purpose.ts on the img-maint lane implements the same contract).
+// ---------------------------------------------------------------------------
+
+const ITEM_PATTERNS: { match: RegExp; evidence: RegExp }[] = [
+  { match: /bol|bill of lading/i, evidence: /\bbol\b|bill of lading/i },
+  { match: /tire|tyre|wheel/i, evidence: /tire|tyre|wheel|tread/i },
+  { match: /light|lamp/i, evidence: /light|lamp|headlight|brake light/i },
+  { match: /secure|strap|chain|tarp/i, evidence: /secure|strap|chain|tarp|binder/i },
+  { match: /brake/i, evidence: /brake/i },
+  { match: /mirror/i, evidence: /mirror/i },
+  { match: /fluid|leak/i, evidence: /fluid|leak/i },
+  { match: /coupling|fifth|gladhand/i, evidence: /coupling|fifth wheel|gladhand/i },
+];
+
+/** True when the evidence text covers every requested item. */
+export function pretripItemsCovered(items: string[], evidenceText: string): boolean {
+  // An ask that names NO items asked only for "a pre-trip photo" —
+  // coverage is vacuous. (The writer always records items; this is
+  // for degenerate rows.) An ask WITH items requires every one.
+  if (items.length === 0) return true;
+  return items.every((item) => {
+    const known = ITEM_PATTERNS.find((p) => p.match.test(item));
+    if (known) return known.evidence.test(evidenceText);
+    const word = item.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+    return word.length >= 3 && evidenceText.toLowerCase().includes(word);
+  });
+}
+
+/** The matching rule, pure: load match (when load-scoped) + full item coverage. */
+export function pretripRequestMatches(
+  request: ResearchRequestRow,
+  input: { evidenceText: string; loadId: string | null },
+): boolean {
+  if (request.load_id && input.loadId !== request.load_id) return false;
+  // Raw recorded items only: an ask that recorded none asked only
+  // for "a pre-trip photo" (vacuous coverage). requestPhotoItems'
+  // display defaults must not become a fulfilment requirement.
+  const itemsRaw = (request.detail as { items?: unknown }).items;
+  const items = Array.isArray(itemsRaw)
+    ? itemsRaw.filter((i): i is string => typeof i === "string" && i.length > 0)
+    : [];
+  return pretripItemsCovered(items, input.evidenceText);
+}
+
+/**
+ * Fulfil the OLDEST queued pretrip_photo ask that MATCHES the filed
+ * photo. Returns the fulfilled request id, or null when nothing
+ * matched (the ask stays queued — a non-matching photo changes
+ * nothing). Photo intake calls this; this module owns the rule.
+ */
+export async function fulfilMatchingPretripRequest(
+  client: SupabaseClient,
+  companyId: string,
+  input: { evidenceText: string; loadId: string | null },
+): Promise<string | null> {
+  const pending = await listPendingResearchRequests(client, companyId, 5);
+  const match = pending.find((r) => r.kind === "pretrip_photo" && pretripRequestMatches(r, input));
+  if (!match) return null;
+  const { error } = await client
+    .from("research_requests")
+    .update({ status: "fulfilled", fulfilled_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("id", match.id)
+    .eq("status", "queued");
+  if (error) throw new Error(error.message);
+  return match.id;
 }

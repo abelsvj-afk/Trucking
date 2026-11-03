@@ -279,7 +279,7 @@ async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string
     return (
       "OUTSTANDING PRE-TRIP PHOTO ASKS (from the Deep Research engine - it governs when you ask; R-6):\n" +
       lines.join("\n") +
-      "\nIf the moment fits (he's doing his pre-trip or about to roll), ask him for these photos once, with the reason. Don't raise them in every message. If he says skip it, call dismiss_research_request. His photos are filed by photo intake, which marks the ask fulfilled - you never mark it fulfilled yourself."
+      "\nIf the moment fits (he's doing his pre-trip or about to roll), ask him for these photos once, with the reason. Don't raise them in every message. If he says skip it, call dismiss_research_request. Matching pre-trip photos filed through Abel mark the ask fulfilled (the photo must match the ask's load and cover everything it asked for) - you never mark it fulfilled yourself."
     );
   } catch {
     return null;

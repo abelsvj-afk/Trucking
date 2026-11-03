@@ -1008,7 +1008,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   tools.push({
     name: "request_pretrip_photos",
     description:
-      "Record a pre-trip photo ask (a pending research_requests row): ask him to photograph specific things - by default tires, lights, load securement, and the BOL. Use when he wants to be asked for photos before a load rolls, or when a pre-trip is coming up and the photos should be captured. The ask stays pending until photo intake files matching photos (that pipeline marks it fulfilled) or he says skip it (dismiss_research_request).",
+      "Record a pre-trip photo ask (a pending research_requests row): ask him to photograph specific things - by default tires, lights, load securement, and the BOL. Use when he wants to be asked for photos before a load rolls, or when a pre-trip is coming up and the photos should be captured. The ask stays pending until Abel files MATCHING pre-trip photos through photo intake (same load, covering every item asked for — that pipeline marks it fulfilled) or he says skip it (dismiss_research_request).",
     parameters: {
       type: "object",
       properties: {
