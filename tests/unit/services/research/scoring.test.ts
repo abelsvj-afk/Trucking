@@ -87,12 +87,23 @@ describe("scoreSignal", () => {
 
 describe("marketPressureSignals", () => {
   const snapshot = (data: Record<string, unknown>) =>
-    signal({ watcherKey: "stooq_market", kind: "market_snapshot", topic: "market", data, dedupeKey: "market_snapshot:2026-10-31" });
+    signal({ watcherKey: "fred_market", kind: "market_snapshot", topic: "market", data, dedupeKey: "market_snapshot:2026-10-31" });
 
   it("turns a big crude move into fuel pressure and a big Transports move into rates pressure", () => {
     const out = marketPressureSignals(snapshot({ crudeWowPct: -7, transportsWowPct: 5 }), config);
     expect(out.map((s) => s.topic)).toEqual(["fuel", "rates"]);
     expect(out[0]?.kind).toBe("market_pressure");
+  });
+
+  it("still scores stored stooq_market snapshots from before the FRED switch", () => {
+    const legacy = signal({
+      watcherKey: "stooq_market",
+      kind: "market_snapshot",
+      topic: "market",
+      data: { crudeWowPct: -7 },
+      dedupeKey: "market_snapshot:2026-10-30",
+    });
+    expect(marketPressureSignals(legacy, config).map((s) => s.topic)).toEqual(["fuel"]);
   });
 
   it("stays silent on ordinary market moves and on non-market signals", () => {

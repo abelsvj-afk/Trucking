@@ -1,10 +1,12 @@
-// FRED (Federal Reserve Economic Data) source for the market
-// watcher (2026-11-02 design, D-3): free key from fred.stlouisfed.org.
-// Optional enrichment only - without FRED_API_KEY the market watcher
-// runs on Stooq alone and says so in its poll message. The series
-// used here is GASDESW, FRED's weekly U.S. diesel sales price, as a
-// second read on the EIA number. Response strictly Zod-validated; a
-// shape mismatch fails loudly into the watcher's visible message.
+// FRED (Federal Reserve Economic Data) client - the market watcher's
+// ONLY source since the 2026-11-03 Stooq -> FRED switch: Stooq's CSV
+// endpoints sit behind a JavaScript browser-verification wall no
+// server client can pass (live-proven, MARKETS-FRED record), so the
+// watcher polls FRED daily series (SP500, DJTA, DCOILWTICO, DHHNGSP)
+// plus GASDESW weekly diesel. Free key from fred.stlouisfed.org; the
+// watcher skips visibly without FRED_API_KEY. Response strictly
+// Zod-validated; a shape mismatch fails loudly into the watcher's
+// visible message.
 
 import { z } from "zod";
 
@@ -30,6 +32,23 @@ export function fredWeekOverWeek(observations: FredPoint[]): number | null {
   const [latest, previous] = numeric;
   if (!latest || !previous || previous.value <= 0) return null;
   return ((latest.value - previous.value) / previous.value) * 100;
+}
+
+/**
+ * % change between the newest numeric observation and the one
+ * `stepsBack` numeric observations earlier (desc-order input, as
+ * fetchFredSeries returns). For FRED's daily business-day series,
+ * 5 steps back is one trading week - the same read the Stooq-era
+ * watcher took from 6 daily closes. Non-numeric observations ("." -
+ * holidays/gaps) are skipped, never counted as steps. Returns null
+ * when history is too thin or the base value is not positive.
+ */
+export function fredChangeOverSteps(observations: FredPoint[], stepsBack: number = 5): number | null {
+  const numeric = observations.filter((o) => Number.isFinite(o.value));
+  const latest = numeric[0];
+  const prior = numeric[stepsBack];
+  if (!latest || !prior || prior.value <= 0) return null;
+  return ((latest.value - prior.value) / prior.value) * 100;
 }
 
 export async function fetchFredSeries(

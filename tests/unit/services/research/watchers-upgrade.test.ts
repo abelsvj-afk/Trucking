@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseNwsAlerts, statesFromZones } from "@/services/integrations/nws";
 import { billIsEnacted } from "@/services/integrations/openstates";
-import { parseStooqHistory, weekOverWeekChange } from "@/services/integrations/stooq";
+import { fredChangeOverSteps, type FredPoint } from "@/services/integrations/fred";
 import { buildRegionalDieselSignal } from "@/services/research/watchers/eia-regional";
 import { buildGdeltSignals } from "@/services/research/watchers/gdelt-geo";
 import { buildMarketSignal } from "@/services/research/watchers/market-snapshot";
@@ -38,47 +38,31 @@ describe("EIA regional diesel (buildRegionalDieselSignal)", () => {
   });
 });
 
-describe("Stooq parsing (parseStooqHistory / weekOverWeekChange)", () => {
-  const csv = [
-    "Date,Open,High,Low,Close,Volume",
-    "2026-10-23,100,101,99,100,1000",
-    "2026-10-26,101,102,100,101,1000",
-    "2026-10-27,102,103,101,102,1000",
-    "2026-10-28,103,104,102,103,1000",
-    "2026-10-29,104,105,103,104,1000",
-    "2026-10-30,110,111,109,110,1000",
-  ].join("\n");
+describe("FRED daily WoW (fredChangeOverSteps)", () => {
+  // Desc order, as fetchFredSeries returns: newest first.
+  const pointsOf = (values: number[]): FredPoint[] => values.map((value, i) => ({ date: `2026-10-${30 - i}`, value }));
 
-  it("parses closes and computes the 5-trading-day change", () => {
-    const points = parseStooqHistory(csv);
-    expect(points).toHaveLength(6);
-    expect(weekOverWeekChange(points)).toBeCloseTo(10);
+  it("computes the 5-observation (one trading week) change for daily series", () => {
+    expect(fredChangeOverSteps(pointsOf([110, 104, 103, 102, 101, 100]), 5)).toBeCloseTo(10);
+    expect(fredChangeOverSteps(pointsOf([95, 99, 99, 99, 99, 100]), 5)).toBeCloseTo(-5);
   });
 
-  it("fails loudly on a wrong-shaped response instead of inventing numbers", () => {
-    expect(() => parseStooqHistory("<html>not csv</html>")).toThrow();
-    expect(() => parseStooqHistory("Date,Open\n2026-10-30,1")).toThrow();
+  it("skips non-numeric gap observations instead of counting them as steps, and returns null on thin history", () => {
+    const withGap = pointsOf([110, Number.NaN, 104, 103, 102, 101, 100]);
+    expect(fredChangeOverSteps(withGap, 5)).toBeCloseTo(10);
+    expect(fredChangeOverSteps(pointsOf([110, 104]), 5)).toBeNull();
   });
 });
 
 describe("market snapshot (buildMarketSignal)", () => {
-  const seriesOf = (closes: number[]) => closes.map((close, i) => ({ date: `2026-10-2${i}`, close }));
-
   it("emits one daily observation with per-series WoW reads and a date dedupe", () => {
-    const signal = buildMarketSignal(
-      {
-        spx: seriesOf([100, 100, 100, 100, 100, 102]),
-        transports: seriesOf([100, 100, 100, 100, 100, 95]),
-        crude: seriesOf([80, 80, 80, 80, 80, 88]),
-        natgas: seriesOf([3, 3, 3, 3, 3, 3]),
-      },
-      null,
-      OBSERVED,
-    );
+    const signal = buildMarketSignal({ spxWowPct: 2, transportsWowPct: -5, crudeWowPct: 10, natgasWowPct: 0 }, null, OBSERVED);
+    expect(signal.watcherKey).toBe("fred_market");
     expect(signal.kind).toBe("market_snapshot");
     expect(signal.topic).toBe("market");
     expect(signal.data.crudeWowPct).toBeCloseTo(10);
     expect(signal.data.transportsWowPct).toBeCloseTo(-5);
+    expect(signal.data.fredDieselWowPct).toBeNull();
     expect(signal.dedupeKey).toBe("market_snapshot:2026-10-31");
     expect(signal.summary).toContain("Transports down 5.0%");
   });
