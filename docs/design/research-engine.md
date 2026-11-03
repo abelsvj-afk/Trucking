@@ -190,3 +190,33 @@ a research tick: poll watchers → store signals → per eligible company,
 evaluate triggers → execute due runs (baseline, pressure, queued
 manual). DB state (watcher state, run counts) decides what's due —
 never in-memory timers — since Fly restarts the process freely.
+
+## 10. Conversational access (R-6)
+
+Abel (the bot) reads and queues this engine's work; the two briefing
+engines stay distinct in his answers until the R-7 door merge:
+
+- **Read:** `list_research_briefings` / `get_research_briefing` read
+  `research_briefings` (title/headline/takeaway/counter-move, findings
+  with sources on drill-in) and label their output as the Deep
+  Research engine; `list_industry_briefings` reads the Stage-4 table
+  and labels itself the industry-intelligence engine. The agent
+  prompt names both engines and requires the label in answers.
+- **Queue:** `queue_research` inserts exactly the §6 manual row
+  (own company, `trigger_kind='manual'`, `status='queued'`) from
+  conversation — same RLS fence, same caps and kill switch; it never
+  calls the AI provider itself. The finished briefing comes back
+  through the read tools and the Research page.
+- **Pre-trip photo asks (`research_requests`, migration `00040`):**
+  the contract in `src/services/research/requests.ts` —
+  `requestPretripPhotos` writes a `kind='pretrip_photo'` row whose
+  `detail` says what to photograph and why. Abel's side reads pending
+  rows (`listPendingResearchRequests`), surfaces them as a turn
+  context block so he asks in the conversation when the moment fits,
+  and can queue (`request_pretrip_photos`) or dismiss
+  (`dismiss_research_request`) an ask. Marking a request fulfilled
+  belongs to photo intake (the img-maint lane's pipeline), never to
+  Abel. Migration `00048` adds the owner-session INSERT/UPDATE RLS
+  policies (mirroring §6's fence) so the web surface's session client
+  can queue/dismiss exactly like the Telegram surface's service-role
+  client already could.
