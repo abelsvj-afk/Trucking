@@ -107,6 +107,19 @@ export function signalCrossesThreshold(signal: PressureSignal, config: ResearchC
     const count = signal.data.itemCount;
     return typeof count === "number" && count >= config.geoHardMinItems;
   }
+  if (signal.watcherKey === "gdelt_tech") {
+    // Technology corroborates like geopolitics, but the solo line
+    // additionally demands real-world deployment/regulatory evidence:
+    // a pile of vendor announcements, however large, never fires alone.
+    const count = signal.data.itemCount;
+    const deployments = signal.data.deploymentCount;
+    return (
+      typeof count === "number" &&
+      count >= config.techHardMinItems &&
+      typeof deployments === "number" &&
+      deployments >= config.techHardMinDeployment
+    );
+  }
   if (signal.kind === "news_burst") {
     return true; // a burst only exists because it already crossed its floor
   }

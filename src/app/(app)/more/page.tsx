@@ -11,17 +11,24 @@
 // usePageTitle() client hook every data-fetching screen uses instead.
 import Link from "next/link";
 import type { Metadata } from "next";
+import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import Reveal from "@/components/Reveal";
 
 export const metadata: Metadata = { title: "More — Trucking OS" };
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
+  // Fleet reachability under the parked nav default (src/lib/nav-config.ts,
+  // decision (a)): Fleet lost its bottom tab to Smart Path/Assistant, so
+  // its hub door sits at the TOP of More — one tap from this hub.
+  { href: "/fleet", label: "Fleet", desc: "Your trucks, trailers, drivers, and hours — the physical side of the business." },
   { href: "/more/assistant", label: "Assistant", desc: "King — ask anything, log anything, paste a whole dispatch thread or settlement." },
   { href: "/more/dispatch", label: "Dispatch helper", desc: "Paste a dispatch message; get a translation, a read on it, and reply drafts in English and Spanish." },
   { href: "/smart-path", label: "Smart Path", desc: "Map and route check — can you legally make this run, and where do fuel and food fit?" },
   { href: "/more/documents", label: "Documents", desc: "BOLs, permits, and photos, filed against the record they belong to." },
   { href: "/more/customers", label: "Customers", desc: "The shippers you haul for." },
   { href: "/more/brokers", label: "Brokers", desc: "The brokers you book through — MC numbers and contacts." },
+  { href: "/more/facilities", label: "Facilities", desc: "The places you run to — check-in, parking, and detention, remembered per place." },
   { href: "/more/industry-intelligence", label: "Industry intelligence", desc: "Briefings on fuel, rules, and the market that affect your lanes." },
   { href: "/more/research", label: "Research", desc: "Deep research engine — watches fuel, rules & news; briefs you when pressure hits." },
   { href: "/more/game-plan", label: "Game Plan", desc: "Your target, gamed: the path from your real numbers to the truck, the authority, the company — projections, not promises." },
@@ -34,13 +41,16 @@ export default function MorePage() {
     <div>
       <PageHeader title="More" purpose="The assistant, your paperwork, your contacts, and your settings." />
       <ul>
-        {SECTIONS.map((section) => (
-          <li key={section.href}>
-            <Link href={section.href} className="hub-link">
-              {section.label}
+        {SECTIONS.map((section, i) => (
+          <Reveal as="li" key={section.href} index={i}>
+            <Link href={section.href} className="hub-row-link">
+              <span className="hub-link">
+                {section.label}
+                <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" className="hub-chevron" />
+              </span>
+              <span className="hub-desc">{section.desc}</span>
             </Link>
-            <span className="hub-desc">{section.desc}</span>
-          </li>
+          </Reveal>
         ))}
       </ul>
     </div>

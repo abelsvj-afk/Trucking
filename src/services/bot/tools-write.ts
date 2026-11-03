@@ -25,6 +25,17 @@ import {
 } from "./tool-helpers";
 import { createBrokerSchema, updateBrokerSchema } from "@/data/schemas/brokers";
 import { createCustomerSchema, updateCustomerSchema } from "@/data/schemas/customers";
+import { createFacilitySchema, updateFacilitySchema } from "@/data/schemas/facilities";
+import { createCredentialSchema, updateCredentialSchema } from "@/data/schemas/credentials";
+import { createLoadInvoiceSchema, updateLoadInvoiceSchema } from "@/data/schemas/load-invoices";
+import {
+  createRecurringObligationSchema,
+  updateRecurringObligationSchema,
+} from "@/data/schemas/recurring-obligations";
+import {
+  createBrokerFollowupSchema,
+  updateBrokerFollowupSchema,
+} from "@/data/schemas/broker-followups";
 import { createDriverSchema, updateDriverSchema } from "@/data/schemas/drivers";
 import { relatedEntityTypeSchema } from "@/data/schemas/documents";
 import { updateExpenseSchema } from "@/data/schemas/expenses";
@@ -45,6 +56,12 @@ import {
 import { createPretripInspectionSchema } from "@/data/schemas/pretrip-inspections";
 import { createTrailerSchema, updateTrailerSchema } from "@/data/schemas/trailers";
 import { createTruckSchema, updateTruckSchema } from "@/data/schemas/trucks";
+import { researchNowSchema } from "@/data/schemas/research";
+import {
+  PRETRIP_PHOTO_DEFAULT_ITEMS,
+  dismissResearchRequest,
+  requestPretripPhotos,
+} from "@/services/research/requests";
 import {
   propagateMileage,
   MILEAGE_SOURCES,
@@ -199,6 +216,20 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     miles: z.number().int().nonnegative().optional(),
     status: loadStatusSchema.optional(),
     notes: z.string().optional(),
+    // GAP-02/04/05/03/15 (migrations 00049/00050): what the rate con
+    // already carries — windows, detention terms, weight, lane
+    // states, facility links.
+    pickup_window_start: z.string().optional(),
+    pickup_window_end: z.string().optional(),
+    delivery_window_start: z.string().optional(),
+    delivery_window_end: z.string().optional(),
+    detention_free_minutes: z.number().int().nonnegative().optional(),
+    detention_rate_dollars: z.number().nonnegative().optional(),
+    weight_lbs: z.number().int().positive().optional(),
+    origin_state: z.string().length(2).optional(),
+    destination_state: z.string().length(2).optional(),
+    pickup_facility_id: uuid.nullable().optional(),
+    delivery_facility_id: uuid.nullable().optional(),
   };
   const createLoadBot = z
     .object({
@@ -217,9 +248,12 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       { message: "delivery_date must not be before pickup_date.", path: ["delivery_date"] },
     );
   const loadToRow = (args: Row): Row => {
-    const { rate_dollars, ...rest } = definedOnly(args);
+    const { rate_dollars, detention_rate_dollars, ...rest } = definedOnly(args);
     const row: Row = { ...rest };
     if (rate_dollars !== undefined) row.rate_cents = Math.round(Number(rate_dollars) * 100);
+    if (detention_rate_dollars !== undefined) {
+      row.detention_rate_cents_per_hour = Math.round(Number(detention_rate_dollars) * 100);
+    }
     return row;
   };
   const loadParams = {
@@ -229,6 +263,15 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     delivery_date: { type: "string", description: "YYYY-MM-DD" },
     rate_dollars: { type: "number", description: "The load's rate in dollars." },
     miles: { type: "number" },
+    pickup_window_start: { type: "string", description: "Appointment window start (ISO timestamp) from the rate con." },
+    pickup_window_end: { type: "string", description: "Appointment window end (ISO timestamp)." },
+    delivery_window_start: { type: "string", description: "Delivery window start (ISO timestamp)." },
+    delivery_window_end: { type: "string", description: "Delivery window end (ISO timestamp)." },
+    detention_free_minutes: { type: "number", description: "Free minutes before detention bills, per the rate con." },
+    detention_rate_dollars: { type: "number", description: "Detention rate per hour in dollars, per the rate con." },
+    weight_lbs: { type: "number", description: "Load weight in pounds (from the scale ticket / rate con)." },
+    origin_state: { type: "string", description: "Two-letter origin state." },
+    destination_state: { type: "string", description: "Two-letter destination state." },
     status: { type: "string", enum: ["draft", "confirmed", "completed"] },
     broker_id: { type: "string" },
     customer_id: { type: "string" },
@@ -329,6 +372,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     total_dollars: z.number().positive().optional(),
     gallons: z.number().positive().optional(),
     location: z.string().min(1).optional(),
+    // GAP-15: purchase state (IFTA).
+    state: z.string().length(2).optional(),
     purchased_at: z.string().min(1).optional(),
   });
   tools.push({
@@ -341,6 +386,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         total_dollars: { type: "number" },
         gallons: { type: "number" },
         location: { type: "string" },
+        state: { type: "string", description: "Two-letter purchase state (IFTA)." },
         purchased_at: { type: "string", description: "ISO timestamp" },
       },
       required: ["fuel_purchase_id"],
@@ -441,6 +487,298 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       patchSchema: updateCustomerSchema,
       summarize: (args) => `Update customer ${args.customer_id}: ${changedFields(args, "customer_id")}`,
       confirm: (args) => `Updated customer ${args.customer_id} (${changedFields(args, "customer_id")}).`,
+    }),
+  );
+
+  // --- Facilities (GAP-03: place memory) ---------------------------
+
+  const facilityParams = {
+    name: { type: "string" },
+    address: { type: "string" },
+    city: { type: "string" },
+    state: { type: "string", description: "Two-letter state." },
+    kind: { type: "string", enum: ["shipper", "receiver", "both"] },
+    checkin_notes: { type: "string", description: "How check-in works there (guard shack, BOL number, appointment desk)." },
+    dock_notes: { type: "string", description: "Dock/yard realities (door assignment, lumpers, wait pattern)." },
+    parking_notes: { type: "string", description: "Overnight parking reality at or near the facility." },
+    detention_notes: { type: "string", description: "How detention actually goes there (when it started, whether it paid)." },
+    hours_notes: { type: "string", description: "Receiving/shipping hours." },
+    contact_name: { type: "string" },
+    contact_phone: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_facility",
+      description:
+        "Remember a facility/place he picks up or delivers at (Facilities): name, city/state, and what he learns about it — check-in, docks, parking, detention, hours. Created from rate cons and his after-action words; enriched over visits.",
+      parameters: { type: "object", properties: facilityParams, required: ["name"] },
+      botSchema: createFacilitySchema,
+      table: "facilities",
+      label: "facility",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createFacilitySchema,
+      summarize: (args) => `Facility: ${args.name}${args.city ? ` (${args.city}${args.state ? `, ${args.state}` : ""})` : ""}`,
+      confirm: (args) => `Remembered the facility ${args.name}.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_facility",
+      description:
+        "Update a facility's remembered facts — after a visit, what he learned (check-in, parking, detention behavior) belongs here so the next visit starts smarter.",
+      parameters: {
+        type: "object",
+        properties: { facility_id: idParam("facility_id", "facility"), ...facilityParams },
+        required: ["facility_id"],
+      },
+      botSchema: updateFacilitySchema.extend({ facility_id: uuid }),
+      table: "facilities",
+      label: "facility",
+      idKey: "facility_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateFacilitySchema,
+      summarize: (args) => `Update facility ${args.facility_id}: ${changedFields(args, "facility_id")}`,
+      confirm: (args) => `Updated facility ${args.facility_id} (${changedFields(args, "facility_id")}).`,
+    }),
+  );
+
+  // --- Cluster D (GAP-11/12/13/14): credentials, invoices,
+  // obligations, follow-ups ---------------------------------------
+
+  const credentialParams = {
+    kind: {
+      type: "string",
+      enum: ["cdl", "medical_card", "annual_inspection", "registration_irp", "insurance", "other"],
+    },
+    label: { type: "string", description: "What the document is, in his words ('Florida CDL', 'DOT medical card')." },
+    driver_id: { type: "string", description: "Driver id (uuid) when it's a driver's document." },
+    truck_id: { type: "string", description: "Truck id (uuid) when it's a truck's document." },
+    expires_on: { type: "string", description: "Expiry date, YYYY-MM-DD." },
+    document_id: { type: "string", description: "The filed document photo's id, when there is one." },
+    notes: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_credential",
+      description:
+        "Register a credential/document with an expiry date (Credentials): CDL, DOT medical card, annual inspection, registration/IRP, insurance. Once registered, the expiry is watched at 60/30/7 days and lands in the day-wrap.",
+      parameters: { type: "object", properties: credentialParams, required: ["kind", "label", "expires_on"] },
+      botSchema: createCredentialSchema,
+      table: "credentials",
+      label: "credential",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createCredentialSchema,
+      summarize: (args) => `Credential: ${args.label} (expires ${args.expires_on})`,
+      confirm: (args) => `Registered ${args.label}, expiring ${args.expires_on} — I'll watch it.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_credential",
+      description: "Update a credential — most often the new expiry date after a renewal.",
+      parameters: {
+        type: "object",
+        properties: { credential_id: idParam("credential_id", "credential"), ...credentialParams },
+        required: ["credential_id"],
+      },
+      botSchema: updateCredentialSchema.extend({ credential_id: uuid }),
+      table: "credentials",
+      label: "credential",
+      idKey: "credential_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateCredentialSchema,
+      summarize: (args) => `Update credential ${args.credential_id}: ${changedFields(args, "credential_id")}`,
+      confirm: (args) => `Updated the credential (${changedFields(args, "credential_id")}).`,
+    }),
+  );
+
+  const invoiceBotFields = {
+    load_id: uuid.optional(),
+    broker_id: uuid.nullable().optional(),
+    invoice_date: dateString.optional(),
+    due_date: dateString.optional(),
+    amount_dollars: z.number().nonnegative().optional(),
+    paid_amount_dollars: z.number().nonnegative().optional(),
+    paid_on: dateString.nullable().optional(),
+    factored: z.boolean().optional(),
+    factor_fee_dollars: z.number().nonnegative().nullable().optional(),
+    factor_reserve_dollars: z.number().nonnegative().nullable().optional(),
+    notes: z.string().optional(),
+  };
+  const createInvoiceBot = z.object({
+    ...invoiceBotFields,
+    load_id: uuid,
+    invoice_date: dateString,
+    due_date: dateString,
+    amount_dollars: z.number().nonnegative(),
+  });
+  const updateInvoiceBot = z.object({ invoice_id: uuid, ...invoiceBotFields });
+  const invoiceToRow = (args: Row): Row => {
+    const { amount_dollars, paid_amount_dollars, factor_fee_dollars, factor_reserve_dollars, ...rest } =
+      definedOnly(args);
+    const row: Row = { ...rest };
+    if (amount_dollars !== undefined) row.amount_cents = Math.round(Number(amount_dollars) * 100);
+    if (paid_amount_dollars !== undefined) {
+      row.paid_amount_cents = Math.round(Number(paid_amount_dollars) * 100);
+    }
+    if (factor_fee_dollars !== undefined && factor_fee_dollars !== null) {
+      row.factor_fee_cents = Math.round(Number(factor_fee_dollars) * 100);
+    }
+    if (factor_reserve_dollars !== undefined && factor_reserve_dollars !== null) {
+      row.factor_reserve_cents = Math.round(Number(factor_reserve_dollars) * 100);
+    }
+    return row;
+  };
+  const invoiceParams = {
+    load_id: { type: "string", description: "Load id (uuid)." },
+    broker_id: { type: "string", description: "Broker id (uuid)." },
+    invoice_date: { type: "string", description: "YYYY-MM-DD" },
+    due_date: { type: "string", description: "YYYY-MM-DD (invoice date + the broker's terms)." },
+    amount_dollars: { type: "number", description: "Invoice amount in dollars (the load's rate)." },
+    paid_amount_dollars: { type: "number", description: "Amount paid so far, in dollars." },
+    paid_on: { type: "string", description: "Date fully paid, YYYY-MM-DD." },
+    factored: { type: "boolean", description: "True when a factor bought this invoice." },
+    factor_fee_dollars: { type: "number", description: "The factor's fee in dollars, when factored." },
+    factor_reserve_dollars: { type: "number", description: "The factor's reserve holdback in dollars, when factored." },
+    notes: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_load_invoice",
+      description:
+        "Record an invoice for a completed load (Receivables): amount = the load's rate, due date = invoice date + the broker's payment terms. Starts the aging clock — 'completed' is not 'paid'.",
+      parameters: {
+        type: "object",
+        properties: invoiceParams,
+        required: ["load_id", "invoice_date", "due_date", "amount_dollars"],
+      },
+      botSchema: createInvoiceBot,
+      table: "load_invoices",
+      label: "invoice",
+      toRow: invoiceToRow,
+      rowSchema: createLoadInvoiceSchema,
+      summarize: (args) => `Invoice for load ${args.load_id}: $${args.amount_dollars} due ${args.due_date}`,
+      confirm: (args) => `Invoiced — $${args.amount_dollars} due ${args.due_date}. I'll age it from here.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_load_invoice",
+      description: "Update an invoice — record a payment (paid_amount_dollars, paid_on when fully paid) or correct terms.",
+      parameters: {
+        type: "object",
+        properties: { invoice_id: idParam("invoice_id", "invoice"), ...invoiceParams },
+        required: ["invoice_id"],
+      },
+      botSchema: updateInvoiceBot,
+      table: "load_invoices",
+      label: "invoice",
+      idKey: "invoice_id",
+      toPatch: invoiceToRow,
+      patchSchema: updateLoadInvoiceSchema,
+      summarize: (args) => `Update invoice ${args.invoice_id}: ${changedFields(args, "invoice_id")}`,
+      confirm: (args) => `Updated the invoice (${changedFields(args, "invoice_id")}).`,
+    }),
+  );
+
+  const obligationBotFields = {
+    name: z.string().min(1).optional(),
+    amount_dollars: z.number().nonnegative().optional(),
+    cadence: z.enum(["weekly", "biweekly", "monthly", "quarterly", "annual"]).optional(),
+    day_of_month: z.number().int().min(1).max(31).nullable().optional(),
+    weekday: z.number().int().min(0).max(6).nullable().optional(),
+    anchor_date: dateString.nullable().optional(),
+    active: z.boolean().optional(),
+    notes: z.string().optional(),
+  };
+  const obligationToRow = (args: Row): Row => {
+    const { amount_dollars, ...rest } = definedOnly(args);
+    const row: Row = { ...rest };
+    if (amount_dollars !== undefined) row.amount_cents = Math.round(Number(amount_dollars) * 100);
+    return row;
+  };
+  const obligationParams = {
+    name: { type: "string", description: "What the bill is ('Phone', 'Insurance', 'Truck payment')." },
+    amount_dollars: { type: "number" },
+    cadence: { type: "string", enum: ["weekly", "biweekly", "monthly", "quarterly", "annual"] },
+    day_of_month: { type: "number", description: "For monthly cadences: the day it leaves (1-31)." },
+    weekday: { type: "number", description: "For weekly cadences: 0 = Sunday .. 6 = Saturday." },
+    anchor_date: { type: "string", description: "For biweekly: a known occurrence date, YYYY-MM-DD." },
+    active: { type: "boolean" },
+    notes: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_recurring_obligation",
+      description:
+        "Register a recurring business obligation (Cash calendar): 'my phone bill is $95 on the 12th' becomes a dated, projected obligation so the tight week is visible before it arrives.",
+      parameters: {
+        type: "object",
+        properties: obligationParams,
+        required: ["name", "amount_dollars", "cadence"],
+      },
+      botSchema: z.object({
+        ...obligationBotFields,
+        name: z.string().min(1),
+        amount_dollars: z.number().nonnegative(),
+        cadence: z.enum(["weekly", "biweekly", "monthly", "quarterly", "annual"]),
+      }),
+      table: "recurring_obligations",
+      label: "obligation",
+      toRow: obligationToRow,
+      rowSchema: createRecurringObligationSchema,
+      summarize: (args) => `Obligation: ${args.name} $${args.amount_dollars} ${args.cadence}`,
+      confirm: (args) => `Noted — ${args.name}, $${args.amount_dollars} ${args.cadence}. It's on the cash calendar.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_recurring_obligation",
+      description: "Update or deactivate a recurring obligation (amount changed, bill ended).",
+      parameters: {
+        type: "object",
+        properties: { obligation_id: idParam("obligation_id", "obligation"), ...obligationParams },
+        required: ["obligation_id"],
+      },
+      botSchema: z.object({ obligation_id: uuid, ...obligationBotFields }),
+      table: "recurring_obligations",
+      label: "obligation",
+      idKey: "obligation_id",
+      toPatch: obligationToRow,
+      patchSchema: updateRecurringObligationSchema,
+      summarize: (args) => `Update obligation ${args.obligation_id}: ${changedFields(args, "obligation_id")}`,
+      confirm: (args) => `Updated the obligation (${changedFields(args, "obligation_id")}).`,
+    }),
+  );
+
+  const followupParams = {
+    broker_id: { type: "string", description: "Broker id (uuid)." },
+    note: { type: "string", description: "What's owed ('check call on the detention claim')." },
+    due_on: { type: "string", description: "YYYY-MM-DD" },
+    done_at: { type: "string", description: "ISO timestamp when done; null reopens it." },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_broker_followup",
+      description:
+        "Record a dated follow-up owed to a broker (a promised check call, paperwork to send). It surfaces in the day-wrap when it comes due.",
+      parameters: { type: "object", properties: followupParams, required: ["broker_id", "note", "due_on"] },
+      botSchema: createBrokerFollowupSchema,
+      table: "broker_followups",
+      label: "follow-up",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createBrokerFollowupSchema,
+      summarize: (args) => `Follow-up for broker ${args.broker_id} on ${args.due_on}: ${args.note}`,
+      confirm: (args) => `Follow-up set for ${args.due_on} — I'll surface it in the day-wrap.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_broker_followup",
+      description: "Update a broker follow-up — set done_at when it's handled, or move the date.",
+      parameters: {
+        type: "object",
+        properties: { followup_id: idParam("followup_id", "follow-up"), ...followupParams },
+        required: ["followup_id"],
+      },
+      botSchema: updateBrokerFollowupSchema.extend({ followup_id: uuid }),
+      table: "broker_followups",
+      label: "follow-up",
+      idKey: "followup_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateBrokerFollowupSchema,
+      summarize: (args) => `Update follow-up ${args.followup_id}: ${changedFields(args, "followup_id")}`,
+      confirm: (args) => `Updated the follow-up (${changedFields(args, "followup_id")}).`,
     }),
   );
 
@@ -1194,6 +1532,117 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   const deleteBot = z.object({
     entity: z.enum(Object.keys(DELETE_TARGETS) as [DeleteEntity, ...DeleteEntity[]]),
     record_id: uuid,
+  });
+
+  // R-6 (Research Intelligence design D-7/D-5): the conversational
+  // side of the Deep Research engine. queue_research writes EXACTLY
+  // the manual row the app's research-now route writes (migration
+  // 00019 fences owner-session inserts to that shape); the engine's
+  // tick executes it under the same caps and kill switch as every
+  // other run - this tool never calls the AI provider itself.
+  const queueResearchBot = z.object({
+    topic: z.string().trim().min(3).max(200),
+  });
+  tools.push({
+    name: "queue_research",
+    description:
+      "Queue a Deep Research run on a topic he names (e.g. diesel prices in the Southeast, a new state weight law). The research engine picks it up on its next tick under its normal caps - it does NOT run instantly. The finished briefing lands in list_research_briefings and the app's Research page. Use when he asks you to look into something the watchers don't already cover.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "The research topic, in his words (3-200 characters)." },
+      },
+      required: ["topic"],
+    },
+    access: "write",
+    validateArgs: validateWith(queueResearchBot),
+    summarize: (args) => `Queue Deep Research on "${String(args.topic ?? "")}"`,
+    async run(args) {
+      const parsed = queueResearchBot.parse(args);
+      // Same topic bounds the app route enforces (researchNowSchema).
+      researchNowSchema.parse({ topic: parsed.topic });
+      const { client, companyId } = store;
+      const id = await insertRow(client, "research_runs", companyId, {
+        trigger_kind: "manual",
+        topic: parsed.topic,
+        trigger_detail: { reason: "Owner requested this research in conversation with Abel." },
+        status: "queued",
+      });
+      return (
+        `Queued a Deep Research run on "${parsed.topic}" (run id ${id}). ` +
+        "The engine runs it on its next tick under its normal caps - when the briefing is ready it shows in list_research_briefings and the app's Research page, and the engine's delivery rules decide whether it also buzzes his phone."
+      );
+    },
+  });
+
+  const requestPhotosBot = z.object({
+    load_id: uuid.optional(),
+    checklist_kind: z.string().trim().min(1).max(60).optional(),
+    items: z.array(z.string().trim().min(1).max(60)).min(1).max(10).optional(),
+    reason: z.string().trim().min(1).max(300).optional(),
+  });
+  tools.push({
+    name: "request_pretrip_photos",
+    description:
+      "Record a pre-trip photo ask (a pending research_requests row): ask him to photograph specific things - by default tires, lights, load securement, and the BOL. Use when he wants to be asked for photos before a load rolls, or when a pre-trip is coming up and the photos should be captured. The ask stays pending until Abel files MATCHING pre-trip photos through photo intake (same load, covering every item asked for — that pipeline marks it fulfilled) or he says skip it (dismiss_research_request).",
+    parameters: {
+      type: "object",
+      properties: {
+        load_id: { type: "string", description: "Optional load id (from list_loads) the photos are for." },
+        checklist_kind: { type: "string", description: "Checklist context label, e.g. \"pre-trip\". Default \"pre-trip\"." },
+        items: {
+          type: "array",
+          items: { type: "string" },
+          description: "What to photograph. Default: tires, lights, load securement, BOL.",
+        },
+        reason: { type: "string", description: "Why the photos are wanted - you repeat this when you ask him." },
+      },
+    },
+    access: "write",
+    validateArgs: validateWith(requestPhotosBot),
+    summarize: (args) => {
+      const items = Array.isArray(args.items) && args.items.length > 0 ? args.items : PRETRIP_PHOTO_DEFAULT_ITEMS;
+      return `Ask him for pre-trip photos (${items.join(", ")})${args.load_id ? ` for load ${String(args.load_id)}` : ""}`;
+    },
+    async run(args) {
+      const parsed = requestPhotosBot.parse(args);
+      const { client, companyId } = store;
+      const id = await requestPretripPhotos(client, companyId, {
+        loadId: parsed.load_id ?? null,
+        checklistKind: parsed.checklist_kind,
+        items: parsed.items,
+        reason: parsed.reason,
+      });
+      const items = parsed.items ?? [...PRETRIP_PHOTO_DEFAULT_ITEMS];
+      return (
+        `Recorded the pre-trip photo ask (request id ${id}): photograph ${items.join(", ")}` +
+        `${parsed.load_id ? ` for load ${parsed.load_id}` : ""}. ` +
+        "It stays pending until his photos are filed; ask him for them when the pre-trip moment comes."
+      );
+    },
+  });
+
+  const dismissRequestBot = z.object({ request_id: uuid });
+  tools.push({
+    name: "dismiss_research_request",
+    description:
+      "Dismiss a pending pre-trip photo ask (from list_research_requests) when he says skip it or it's no longer needed. Only dismisses asks still waiting - a fulfilled ask is history and stays.",
+    parameters: {
+      type: "object",
+      properties: { request_id: { type: "string", description: "The research request id from list_research_requests." } },
+      required: ["request_id"],
+    },
+    access: "write",
+    validateArgs: validateWith(dismissRequestBot),
+    summarize: (args) => `Dismiss pre-trip photo ask ${String(args.request_id ?? "")}`,
+    async run(args) {
+      const parsed = dismissRequestBot.parse(args);
+      const { client, companyId } = store;
+      const dismissed = await dismissResearchRequest(client, companyId, parsed.request_id);
+      return dismissed
+        ? `Dismissed photo ask ${parsed.request_id} - it won't be raised again.`
+        : `Photo ask ${parsed.request_id} wasn't pending (already fulfilled, dismissed, or not his) - nothing changed.`;
+    },
   });
 
   tools.push({

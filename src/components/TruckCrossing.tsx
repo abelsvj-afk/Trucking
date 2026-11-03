@@ -14,6 +14,7 @@
 // login included - it's chrome, not per-page content.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { usePathname } from "next/navigation";
 
 type Terrain = "plain" | "hills" | "skyline";
 const TERRAINS: Terrain[] = ["plain", "hills", "skyline"];
@@ -104,6 +105,10 @@ function TerrainBand({ variant }: { variant: Terrain }) {
 }
 
 export function TruckCrossing() {
+  // Drive Mode (G-7): the crossings never render on the Drive
+  // surface, whatever is decided for parked screens - a rolling
+  // driver gets the glance surface and nothing else.
+  const onDriveSurface = usePathname()?.startsWith("/smart-path/drive") ?? false;
   const [direction, setDirection] = useState<"ltr" | "rtl" | null>(null);
   const [terrain, setTerrain] = useState<Terrain>("plain");
   const [bobDuration, setBobDuration] = useState(0.5);
@@ -130,7 +135,7 @@ export function TruckCrossing() {
     timeoutRef.current = setTimeout(startCrossing, randomMs(25, 75));
   }
 
-  if (!direction) return null;
+  if (!direction || onDriveSurface) return null;
 
   return (
     <div className="truck-scene" aria-hidden="true">

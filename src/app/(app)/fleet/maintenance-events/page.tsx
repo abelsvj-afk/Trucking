@@ -14,11 +14,21 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
 
 export default function MaintenanceEventsListPage() {
   usePageTitle("Maintenance");
-  const [truckId, setTruckId] = useState("");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
+  const [truckId, setTruckId] = useState(() =>
+    typeof window !== "undefined"
+      ? (new URLSearchParams(window.location.search).get("truck_id") ?? "")
+      : "",
+  );
   const { state, retry } = useApiList<MaintenanceEvent>(
     "maintenance-events",
     truckId ? { truck_id: truckId } : undefined,
@@ -37,6 +47,27 @@ export default function MaintenanceEventsListPage() {
           </Link>
         }
       />
+
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="maintenance events" />
+
+      {showDeleted ? (
+        <DeletedListSection<MaintenanceEvent>
+          resource="maintenance-events"
+          labelFor={(event) => event.description}
+          sublabelFor={(event) =>
+            new Date(`${event.service_date}T12:00:00`).toLocaleDateString()
+          }
+        />
+      ) : (
+        <>
+      {truckId && (
+        <p>
+          Showing one truck&apos;s maintenance —{" "}
+          <Link href="/fleet/maintenance-events" onClick={() => setTruckId("")}>
+            view all
+          </Link>
+        </p>
+      )}
 
       <label htmlFor="truck_filter">Truck</label>
       <select id="truck_filter" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
@@ -61,17 +92,21 @@ export default function MaintenanceEventsListPage() {
         <ul>
           {state.result.data.map((event) => (
             <li key={event.id}>
-              <span className="row-title">{event.description}</span>
-              <span className="row-sub">
-                Truck {truckLabel(event.truck_id)} ·{" "}
-                {new Date(`${event.service_date}T12:00:00`).toLocaleDateString()}
-                {event.cost_cents != null && ` · $${(event.cost_cents / 100).toFixed(2)}`}
-                {event.mileage_at_service != null &&
-                  ` · at ${event.mileage_at_service.toLocaleString("en-US")} mi`}
-              </span>
+              <Link href={`/fleet/maintenance-events/${event.id}`}>
+                <span className="row-title">{event.description}</span>
+                <span className="row-sub">
+                  Truck {truckLabel(event.truck_id)} ·{" "}
+                  {new Date(`${event.service_date}T12:00:00`).toLocaleDateString()}
+                  {event.cost_cents != null && ` · $${(event.cost_cents / 100).toFixed(2)}`}
+                  {event.mileage_at_service != null &&
+                    ` · at ${event.mileage_at_service.toLocaleString("en-US")} mi`}
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import TrailerFields, {
   EMPTY_TRAILER,
   trailerToPayload,
@@ -19,6 +20,7 @@ import type { Trailer } from "@/types/entities";
 
 export default function NewTrailerPage() {
   usePageTitle("Add trailer");
+  const submissionId = useSubmissionId();
   const router = useRouter();
   const [values, setValues] = useState<TrailerValues>(EMPTY_TRAILER);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +32,10 @@ export default function NewTrailerPage() {
     setSubmitting(true);
 
     try {
-      const trailer = await apiClient.create<Trailer>("trailers", trailerToPayload(values));
+      const trailer = await apiClient.create<Trailer>("trailers", {
+        ...trailerToPayload(values),
+        submission_id: submissionId,
+      });
       router.push(`/fleet/trailers/${trailer.id}`);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");

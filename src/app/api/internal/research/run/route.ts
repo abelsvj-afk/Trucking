@@ -46,6 +46,15 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("[research] consolidation piggyback failed", err);
     }
+    // Phase D piggyback: the same hourly invoker gives the weekly
+    // pay-truth report its due-check (same CD-1 reasoning - the
+    // report must not depend on the app happening to be awake).
+    try {
+      const { runWeeklyPayReportIfDue } = await import("@/services/bot/pay-report-scheduler");
+      await runWeeklyPayReportIfDue();
+    } catch (err) {
+      console.error("[research] pay-report piggyback failed", err);
+    }
     // Image Intelligence §5.6: the maintenance watcher's second
     // door - the same hourly invoker gives it its due-check, so
     // reminders don't depend on the app process staying awake.

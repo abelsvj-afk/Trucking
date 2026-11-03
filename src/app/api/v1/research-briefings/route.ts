@@ -9,11 +9,17 @@ import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
 import { createClient } from "@/services/db/server";
 import { getResearchConfig } from "@/services/research/config";
-import type { ResearchBriefing, ResearchRun, ResearchWatcherState } from "@/types/entities";
+import type {
+  ResearchBriefing,
+  ResearchRun,
+  ResearchSignal,
+  ResearchWatcherState,
+} from "@/types/entities";
+import { isDeepResearchEnabled } from "./capability";
 
 const RECENT_RUNS_TO_SHOW = 10;
 
-export const GET = createApiHandler(async () => {
+export const GET = createApiHandler(async (_req, ctx) => {
   const supabase = await createClient();
   const config = getResearchConfig();
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -77,6 +83,59 @@ export const GET = createApiHandler(async () => {
     runner = null;
   }
 
+  // Banner "Watching" signals (Home News Banner design §5): the same
+  // unconsumed predicate loadUnconsumedSignals() runs in SQL -
+  // observed within 7 days and the dedupe key present in no
+  // non-skipped run's trigger_detail - tightened for banner use to
+  // observed within 72h and magnitude >= 0.5. Computed here through
+  // the owner session (RLS scopes both tables to his company +
+  // global signals), so "consumed" means consumed by HIS runs - the
+  // only briefings his banner could ever show. Read-tolerant like
+  // the heartbeat above: any failure degrades to no Watching items,
+  // never a broken read surface.
+  let signals: ResearchSignal[] = [];
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    const [signalsResult, consumedResult] = await Promise.all([
+      supabase
+        .from("research_signals")
+        .select("id, watcher_key, kind, topic, magnitude, summary, items, observed_at, dedupe_key")
+        .gte("observed_at", sevenDaysAgo)
+        .order("observed_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("research_runs")
+        .select("trigger_detail")
+        .not("status", "in", "(skipped_cap,skipped_disabled)")
+        .gte("created_at", sevenDaysAgo)
+        .limit(200),
+    ]);
+    if (!signalsResult.error && !consumedResult.error) {
+      const consumed = new Set<string>();
+      for (const row of (consumedResult.data ?? []) as Array<{
+        trigger_detail?: { signal_dedupe_keys?: unknown };
+      }>) {
+        const keys = row.trigger_detail?.signal_dedupe_keys;
+        if (Array.isArray(keys)) {
+          for (const key of keys) {
+            if (typeof key === "string") consumed.add(key);
+          }
+        }
+      }
+      const cutoff72h = Date.now() - 72 * 3600 * 1000;
+      signals = ((signalsResult.data ?? []) as ResearchSignal[]).filter(
+        (signal) =>
+          !consumed.has(signal.dedupe_key) &&
+          new Date(signal.observed_at).getTime() >= cutoff72h &&
+          signal.magnitude >= 0.5,
+      );
+    }
+  } catch {
+    signals = [];
+  }
+
+  const engineEnabled = await isDeepResearchEnabled(supabase, ctx.auth.companyId);
+
   return NextResponse.json({
     data: (briefingsResult.data ?? []) as ResearchBriefing[],
     unread_count: unreadResult.count ?? 0,
@@ -89,5 +148,7 @@ export const GET = createApiHandler(async () => {
       max_runs_per_month: config.maxRunsPerMonth,
     },
     runner,
+    signals,
+    engine_enabled: engineEnabled,
   });
 });

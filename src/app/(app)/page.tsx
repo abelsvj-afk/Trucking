@@ -13,7 +13,12 @@ import { useFinancialSummary } from "@/lib/use-financial-summary";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
+import NewsBanner from "@/components/NewsBanner";
 import AskAssistant from "@/components/AskAssistant";
+import ActivePlanCard from "@/components/ActivePlanCard";
+import DayWrapCard from "@/components/DayWrapCard";
+import Reveal from "@/components/Reveal";
+import { Bot, ClipboardCheck, Fuel, PackagePlus } from "lucide-react";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { DutyLog } from "@/types/entities";
@@ -33,12 +38,56 @@ const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
   on_duty: "On duty (not driving)",
 };
 
+// UH-12 fix (Home half): the paper/partial-day label for the Home
+// HOS summary. The fields it reads (DutyLog.source /
+// source_document_id, Document.photo_purpose / extracted_fields) are
+// added by the img-maint paper-logs lane in the union, so they're
+// read structurally here — on a tree without that lane every value
+// is absent and the label is simply null. The RULES are the shared
+// helper's (src/lib/hos-paper.ts on the img-maint tip): paper rows
+// count from source === "paper_photo"; a day is partial when its
+// paper sheet's paper_log_complete is false.
+interface PaperDocLike {
+  id: string;
+  photo_purpose?: string | null;
+  extracted_fields?: Record<string, unknown> | null;
+}
+function homeHosPaperLabel(logs: DutyLog[], documents: PaperDocLike[]): string | null {
+  const paperDocs = new Map<string, { complete: boolean; date: string | null }>();
+  for (const doc of documents) {
+    if (doc.photo_purpose !== "paper_log") continue;
+    const fields = doc.extracted_fields ?? {};
+    paperDocs.set(doc.id, {
+      complete: fields.paper_log_complete !== false,
+      date: typeof fields.paper_log_date === "string" ? fields.paper_log_date : null,
+    });
+  }
+  const rows = logs as (DutyLog & { source?: string | null; source_document_id?: string | null })[];
+  const paperRowCount = rows.filter((r) => r.source === "paper_photo").length;
+  if (paperRowCount === 0) return null;
+  const partialDates = [
+    ...new Set(
+      rows
+        .filter((r) => r.source_document_id && paperDocs.get(r.source_document_id)?.complete === false)
+        .map((r) => paperDocs.get(r.source_document_id!)?.date ?? "that day"),
+    ),
+  ];
+  const base = "Includes hours from your paper log sheet";
+  return partialDates.length > 0
+    ? `${base} — ${partialDates.length === 1 ? `the ${partialDates[0]} sheet was partial (unreadable spans aren't counted)` : "some sheets were partial (unreadable spans aren't counted)"}.`
+    : `${base}.`;
+}
+
 export default function HomePage() {
   usePageTitle("Home");
   const { state, retry } = useFinancialSummary();
   const duty = useApiList<DutyLog>("duty-logs", { limit: "200" });
+  // UH-12 fix: documents feed the paper/partial label under the hours.
+  const documents = useApiList<PaperDocLike & Record<string, unknown>>("documents", { limit: "200" });
 
   const logs = duty.state.status === "loaded" ? duty.state.result.data : [];
+  const paperLabel =
+    documents.state.status === "loaded" ? homeHosPaperLabel(logs, documents.state.result.data) : null;
   const summary = duty.state.status === "loaded" ? summarizeHos(logs) : null;
   const latest = [...logs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null;
   const onTheClock = latest != null && (latest.duty_status === "driving" || latest.duty_status === "on_duty");
@@ -50,7 +99,11 @@ export default function HomePage() {
         purpose="Your whole business at a glance — hours, money, and the one thing to do next."
       />
 
-      <section aria-label="Your next step" className="next-step">
+      <NewsBanner />
+
+      <DayWrapCard />
+
+      <Reveal aria-label="Your next step" className="next-step" index={0}>
         <h2>Your next step</h2>
         {duty.state.status === "loading" && <p>Checking your hours…</p>}
         {duty.state.status === "error" && (
@@ -91,20 +144,30 @@ export default function HomePage() {
             </Link>
           </>
         )}
-      </section>
+      </Reveal>
 
-      <section aria-label="Quick actions">
+      <ActivePlanCard />
+
+      <Reveal aria-label="Quick actions" index={1}>
         <h2>Quick actions</h2>
         <div className="quick-actions">
-          <Link href="/fleet/pretrip-inspections/new">Start pre-trip</Link>
-          <Link href="/money/fuel-purchases/new">Log fuel</Link>
-          <Link href="/loads/new">Add load</Link>
-          <Link href="/more/assistant">Ask the assistant</Link>
+          <Link href="/fleet/pretrip-inspections/new">
+            <ClipboardCheck size={20} strokeWidth={1.75} aria-hidden="true" /> Start pre-trip
+          </Link>
+          <Link href="/money/fuel-purchases/new">
+            <Fuel size={20} strokeWidth={1.75} aria-hidden="true" /> Log fuel
+          </Link>
+          <Link href="/loads/new">
+            <PackagePlus size={20} strokeWidth={1.75} aria-hidden="true" /> Add load
+          </Link>
+          <Link href="/more/assistant">
+            <Bot size={20} strokeWidth={1.75} aria-hidden="true" /> Ask the assistant
+          </Link>
         </div>
-      </section>
+      </Reveal>
 
       {summary && logs.length > 0 && (
-        <section aria-label="Your hours today">
+        <Reveal aria-label="Your hours today" index={2}>
           <h2>Your hours</h2>
           <dl>
             <dt>Driving left (11h)</dt>
@@ -120,11 +183,12 @@ export default function HomePage() {
             Paper-log helper, not an ELD — from what you&apos;ve logged here. The truck&apos;s ELD is the
             legal record.
           </p>
+          {paperLabel && <p className="row-sub">{paperLabel}</p>}
           <Link href="/fleet/hos">Hours of service</Link>
-        </section>
+        </Reveal>
       )}
 
-      <section aria-label="This month's financial summary">
+      <Reveal aria-label="This month's financial summary" index={3}>
         <h2>This month</h2>
         {state.status === "loading" && <ListLoading />}
         {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
@@ -145,7 +209,7 @@ export default function HomePage() {
           </dl>
         )}
         <Link href="/money/summary">View full summary</Link>
-      </section>
+      </Reveal>
 
       <AskAssistant
         heading="King knows your loads, hours, money, and fleet — and can log things for you. Try one:"

@@ -9,10 +9,16 @@ import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { Broker } from "@/types/entities";
 
 export default function BrokersListPage() {
   usePageTitle("Brokers");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Broker>("brokers");
 
   return (
@@ -27,6 +33,16 @@ export default function BrokersListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="brokers" />
+
+      {showDeleted ? (
+        <DeletedListSection
+          resource="brokers"
+          labelFor={(broker: Broker) => broker.name}
+          sublabelFor={(broker: Broker) => (broker.mc_number ? `MC ${broker.mc_number}` : null)}
+        />
+      ) : (
+        <>
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
@@ -47,13 +63,17 @@ export default function BrokersListPage() {
               .join(" · ");
             return (
               <li key={broker.id}>
-                <span className="row-title">{broker.name}</span>
-                {sub && <span className="row-sub">{sub}</span>}
-                {broker.notes && <span className="row-sub">{broker.notes}</span>}
+                <Link href={`/more/brokers/${broker.id}`}>
+                  <span className="row-title">{broker.name}</span>
+                  {sub && <span className="row-sub">{sub}</span>}
+                  {broker.notes && <span className="row-sub">{broker.notes}</span>}
+                </Link>
               </li>
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

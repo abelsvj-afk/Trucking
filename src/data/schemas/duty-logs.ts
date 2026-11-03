@@ -7,6 +7,9 @@ export const dutyStatusSchema = z.enum(["off_duty", "sleeper", "driving", "on_du
 
 const dutyLogFieldsSchema = z.object({
   driver_id: z.string().uuid().nullable().optional(),
+  // GAP-07: client-generated id for safe offline replay (create only
+  // in practice; updates address rows by URL id).
+  id: z.string().uuid().optional(),
   load_id: z.string().uuid().nullable().optional(),
   duty_status: dutyStatusSchema,
   started_at: z.string().min(1, "started_at is required."),

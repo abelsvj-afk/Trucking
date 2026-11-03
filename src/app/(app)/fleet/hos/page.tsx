@@ -10,6 +10,11 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { summarizeHos } from "@/lib/hos";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import { buildPaperDocMap, hosPaperBanner, hosPartialLines, hosRowPaperSuffix } from "@/lib/hos-paper";
 import type { Document, DutyLog } from "@/types/entities";
 
@@ -26,6 +31,7 @@ function formatMinutes(minutes: number): string {
 
 export default function HosPage() {
   usePageTitle("Hours of service");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<DutyLog>("duty-logs", { limit: "200" });
   // Paper-log provenance (Image Intelligence §7.5/§7.7): a sheet's
   // completeness stamp lives on its document row; the clocks built
@@ -55,6 +61,18 @@ export default function HosPage() {
       </p>
       <Link href="/fleet/hos/new">Log duty status</Link>
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="duty logs" />
+
+      {showDeleted ? (
+        <DeletedListSection<DutyLog>
+          resource="duty-logs"
+          labelFor={(row) =>
+            `${STATUS_LABELS[row.duty_status]} — ${new Date(row.started_at).toLocaleDateString()}`
+          }
+          sublabelFor={(row) => row.location ?? null}
+        />
+      ) : (
+        <>
       {summary && state.status === "loaded" && state.result.data.length > 0 && (
         <section aria-label="Summary">
           <h2>Where you stand</h2>
@@ -93,14 +111,18 @@ export default function HosPage() {
             .sort((a, b) => b.started_at.localeCompare(a.started_at))
             .map((row) => (
               <li key={row.id}>
-                {STATUS_LABELS[row.duty_status]} —{" "}
-                {new Date(row.started_at).toLocaleString()}
-                {row.location ? ` — ${row.location}` : ""}
-                {row.notes ? ` — ${row.notes}` : ""}
-                {hosRowPaperSuffix(row, paperDocs)}
+                <Link href={`/fleet/hos/${row.id}`}>
+                  {STATUS_LABELS[row.duty_status]} —{" "}
+                  {new Date(row.started_at).toLocaleString()}
+                  {row.location ? ` — ${row.location}` : ""}
+                  {row.notes ? ` — ${row.notes}` : ""}
+                  {hosRowPaperSuffix(row, paperDocs)}
+                </Link>
               </li>
             ))}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

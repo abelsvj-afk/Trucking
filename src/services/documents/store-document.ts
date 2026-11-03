@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Document } from "@/types/entities";
+import { recordCleanupIncident } from "./cleanup-incidents";
 
 // Generous enough for scanned paperwork (BOLs, receipts, permits)
 // without being unbounded - the same limit the web route has always
@@ -137,8 +138,32 @@ export async function storeDocumentFile(
   const { data: row, error: insertError } = insertResult;
 
   if (insertError || !row) {
-    // Don't leave an orphaned file in Storage when the DB write fails.
-    await client.storage.from("documents").remove([storagePath]);
+    // Don't leave an orphaned file in Storage when the DB write fails -
+    // and CHECK that the removal actually happened (Unit A / F-038).
+    // The old code fired remove() and never looked at the result, so a
+    // failed cleanup was indistinguishable from a successful one. On
+    // failure the obligation is recorded as a cleanup incident for the
+    // Documents page's retry surface, and the error says plainly that
+    // cleanup may have failed.
+    const { data: removed, error: removeError } = await client.storage
+      .from("documents")
+      .remove([storagePath]);
+    const cleanupFailed = removeError !== null || !removed || removed.length === 0;
+    if (cleanupFailed) {
+      await recordCleanupIncident(client, {
+        companyId: input.companyId,
+        storagePath,
+        // Kind name per design A.7/A.8.6b: this is the upload-rollback
+        // case - the upload happened, its row insert failed, and the
+        // rollback removal could not confirm the object is gone.
+        kind: "upload_rollback",
+        detail: `Row insert failed (${insertError?.message ?? "no row returned"}) and the compensating storage removal did not confirm the object is gone.`,
+      });
+      throw new StoreDocumentError(
+        "insert_failed",
+        `${insertError?.message ?? "Failed to save document metadata."} The uploaded file could not be cleaned up automatically - it has been recorded for manual cleanup.`,
+      );
+    }
     throw new StoreDocumentError(
       "insert_failed",
       insertError?.message ?? "Failed to save document metadata.",
