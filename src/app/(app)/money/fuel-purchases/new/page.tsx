@@ -7,7 +7,9 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { FuelPurchase, Truck } from "@/types/entities";
@@ -23,6 +25,9 @@ export default function NewFuelPurchasePage() {
   const [purchasedAt, setPurchasedAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the purchase.
+  const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
 
@@ -31,18 +36,27 @@ export default function NewFuelPurchasePage() {
     setError(null);
     setSubmitting(true);
 
+    const body = {
+      submission_id: submissionId,
+      truck_id: truckId,
+      location: location || undefined,
+      gallons: parseFloat(gallons || "0"),
+      price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
+      total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
+      purchased_at: purchasedAt,
+    };
     try {
-      await apiClient.create<FuelPurchase>("fuel-purchases", {
-        truck_id: truckId,
-        location: location || undefined,
-        gallons: parseFloat(gallons || "0"),
-        price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
-        total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
-        purchased_at: purchasedAt,
-      });
+      await apiClient.create<FuelPurchase>("fuel-purchases", body);
       router.push("/money/fuel-purchases");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        // GAP-07: no signal is not a lost fuel stop — queue it on
+        // the device; it sends itself when signal returns.
+        offlineOutbox.enqueue("fuel-purchases", body);
+        router.push("/money/fuel-purchases");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -67,7 +81,7 @@ export default function NewFuelPurchasePage() {
           ))}
         </select>
 
-        <label htmlFor="location">Location</label>
+        <label htmlFor="location">Location (optional)</label>
         <input id="location" value={location} onChange={(event) => setLocation(event.target.value)} />
 
         <label htmlFor="gallons">Gallons</label>

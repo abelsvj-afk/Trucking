@@ -7,7 +7,9 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { Driver, Expense, ExpenseCategory, Load, Truck } from "@/types/entities";
@@ -31,6 +33,9 @@ export default function NewExpensePage() {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the expense.
+  const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
   const loads = usePickerList<Load>("loads");
@@ -41,19 +46,27 @@ export default function NewExpensePage() {
     setError(null);
     setSubmitting(true);
 
+    const body = {
+      submission_id: submissionId,
+      category,
+      amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
+      expense_date: expenseDate,
+      truck_id: truckId || null,
+      load_id: loadId || null,
+      driver_id: driverId || null,
+      description: description || undefined,
+    };
     try {
-      await apiClient.create<Expense>("expenses", {
-        category,
-        amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
-        expense_date: expenseDate,
-        truck_id: truckId || null,
-        load_id: loadId || null,
-        driver_id: driverId || null,
-        description: description || undefined,
-      });
+      await apiClient.create<Expense>("expenses", body);
       router.push("/money/expenses");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        // GAP-07: queue on the device when there's no signal.
+        offlineOutbox.enqueue("expenses", body);
+        router.push("/money/expenses");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -97,7 +110,7 @@ export default function NewExpensePage() {
           required
         />
 
-        <label htmlFor="truck_id">Truck</label>
+        <label htmlFor="truck_id">Truck (optional)</label>
         <select id="truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
           <option value="">Unassigned</option>
           {trucks.map((truck) => (
@@ -107,7 +120,7 @@ export default function NewExpensePage() {
           ))}
         </select>
 
-        <label htmlFor="load_id">Load</label>
+        <label htmlFor="load_id">Load (optional)</label>
         <select id="load_id" value={loadId} onChange={(event) => setLoadId(event.target.value)}>
           <option value="">Unassigned</option>
           {loads.map((load) => (
@@ -117,7 +130,7 @@ export default function NewExpensePage() {
           ))}
         </select>
 
-        <label htmlFor="driver_id">Driver</label>
+        <label htmlFor="driver_id">Driver (optional)</label>
         <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
           <option value="">Unassigned</option>
           {drivers.map((driver) => (
@@ -127,7 +140,7 @@ export default function NewExpensePage() {
           ))}
         </select>
 
-        <label htmlFor="description">Description</label>
+        <label htmlFor="description">Description (optional)</label>
         <input
           id="description"
           value={description}

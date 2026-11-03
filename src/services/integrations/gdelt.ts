@@ -32,9 +32,10 @@ export async function fetchGdeltArticles(
   timespan: string = "48h",
   maxRecords: number = 75,
   fetchFn: typeof fetch = fetch,
+  query: string = GDELT_QUERY,
 ): Promise<GdeltArticle[]> {
   const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
-  url.searchParams.set("query", GDELT_QUERY);
+  url.searchParams.set("query", query);
   url.searchParams.set("mode", "artlist");
   url.searchParams.set("format", "json");
   url.searchParams.set("timespan", timespan);

@@ -227,3 +227,45 @@ describe("runRouteCheck - Piece 1 fuel estimate (P1-6)", () => {
     expect(candidate!.usedEstimate).toBe(false);
   });
 });
+
+describe("runRouteCheck - Drive Mode D1 additive fields", () => {
+  it("passes provider maneuvers through on route and deadhead, and carries the clocks", async () => {
+    const providers = makeProviders();
+    const maneuvers = [
+      { instruction: "Head north on I-95.", distanceMiles: 90, atFraction: 0 },
+      { instruction: "Turn right at the gate.", distanceMiles: 10, atFraction: 0.9 },
+    ];
+    (providers as { routing: { getRoute: unknown } }).routing = {
+      getRoute: async (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+        const isDeadhead = to.lat === MELBOURNE.lat && to.lng === MELBOURNE.lng;
+        return {
+          distanceMiles: isDeadhead ? 105.2 : 400,
+          durationMinutes: isDeadhead ? 110 : 400,
+          geometry: [from, to],
+          providerName: "Valhalla (truck costing)",
+          truckLegal: true,
+          providerNotes: [],
+          maneuvers,
+        };
+      },
+    };
+    const response = await runRouteCheck(
+      fakeClient(),
+      parseRequest({ start_location: "Orlando, FL" }),
+      providers,
+      NOW,
+    );
+    expect(response.route.maneuvers).toEqual(maneuvers);
+    expect(response.deadhead?.maneuvers).toEqual(maneuvers);
+    // No duty logs in the fake client: fresh clocks, honestly flagged.
+    expect(response.clocks).toBeDefined();
+    expect(response.clocks!.fromLogs).toBe(false);
+    expect(response.clocks!.driveLeftMin).toBeGreaterThan(0);
+  });
+
+  it("omits maneuvers when the provider returns none (no fabrication)", async () => {
+    const response = await runRouteCheck(fakeClient(), parseRequest({}), makeProviders(), NOW);
+    expect(response.route.maneuvers).toBeUndefined();
+    expect(response.clocks).toBeDefined();
+  });
+});

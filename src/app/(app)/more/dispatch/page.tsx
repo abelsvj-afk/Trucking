@@ -11,7 +11,7 @@
 // you actually sent) is optional and always your explicit tap; those
 // saved exchanges are how the app learns how you write.
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
@@ -39,6 +39,11 @@ export default function DispatchHelperPage() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Idempotency token per suggestion (Unit A / F-006): one exchange =
+  // one suggestion; re-saving or retrying the same suggestion replays
+  // instead of storing the exchange twice. A new suggestion mints a
+  // new token in handleSubmit.
+  const exchangeTokenRef = useRef<string>(crypto.randomUUID());
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,6 +59,7 @@ export default function DispatchHelperPage() {
         message,
         context: context || undefined,
       });
+      exchangeTokenRef.current = crypto.randomUUID();
       setSuggestion(result);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't process that message. Try again.");
@@ -78,6 +84,7 @@ export default function DispatchHelperPage() {
 
     try {
       await apiClient.create<DispatchExchange>("dispatch-exchanges", {
+        submission_id: exchangeTokenRef.current,
         incoming_message: message,
         ai_translation: suggestion.translation_en,
         ai_suggested_reply_en:

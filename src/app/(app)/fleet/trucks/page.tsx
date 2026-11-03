@@ -12,6 +12,11 @@ import PageHeader from "@/components/PageHeader";
 import { EntityPhoto } from "@/components/EntityPhoto";
 import { usePageTitle } from "@/lib/use-page-title";
 import { truckTypeLabel, formatMileage, mileageProvenance } from "@/lib/fleet-display";
+import {
+  useDeletedToggle,
+  DeletedToggleButton,
+  DeletedListSection,
+} from "@/components/RecordLifecycle";
 import type { Truck } from "@/types/entities";
 
 const STATUS_BADGES: Record<Truck["status"], string> = {
@@ -22,6 +27,7 @@ const STATUS_BADGES: Record<Truck["status"], string> = {
 
 export default function TrucksListPage() {
   usePageTitle("Trucks");
+  const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Truck>("trucks");
 
   return (
@@ -36,6 +42,18 @@ export default function TrucksListPage() {
         }
       />
 
+      <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="trucks" />
+
+      {showDeleted ? (
+        <DeletedListSection
+          resource="trucks"
+          labelFor={(truck: Truck) => `Truck ${truck.unit_number}`}
+          sublabelFor={(truck: Truck) =>
+            [truck.status, truckTypeLabel(truck.truck_type)].filter(Boolean).join(" · ") || null
+          }
+        />
+      ) : (
+        <>
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && state.result.data.length === 0 && (
@@ -80,6 +98,8 @@ export default function TrucksListPage() {
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

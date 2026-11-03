@@ -98,9 +98,68 @@ export interface Broker extends BaseRow {
   contact_email: string | null;
   contact_phone: string | null;
   notes: string | null;
+  /** GAP-14 (migration 00054): the broker's payment terms (days) and setup requirements — the scorecard's inputs. */
+  payment_terms_days: number | null;
+  setup_notes: string | null;
 }
 
-export type LoadStatus = "draft" | "confirmed" | "completed";
+/** GAP-11 (migration 00051): a document with an expiry, watched. */
+export type CredentialKind =
+  | "cdl"
+  | "medical_card"
+  | "annual_inspection"
+  | "registration_irp"
+  | "insurance"
+  | "other";
+
+export interface Credential extends BaseRow {
+  kind: CredentialKind;
+  label: string;
+  driver_id: string | null;
+  truck_id: string | null;
+  expires_on: string;
+  document_id: string | null;
+  notes: string | null;
+}
+
+/** GAP-12 (migration 00052): a load's receivable lifecycle. Status is derived (lib/invoices.ts), never stored. */
+export interface LoadInvoice extends BaseRow {
+  load_id: string;
+  broker_id: string | null;
+  invoice_date: string;
+  due_date: string;
+  amount_cents: number;
+  paid_amount_cents: number;
+  paid_on: string | null;
+  factored: boolean;
+  factor_fee_cents: number | null;
+  factor_reserve_cents: number | null;
+  notes: string | null;
+}
+
+/** GAP-13 (migration 00053): a recurring business obligation. */
+export type ObligationCadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
+
+export interface RecurringObligation extends BaseRow {
+  name: string;
+  amount_cents: number;
+  cadence: ObligationCadence;
+  day_of_month: number | null;
+  weekday: number | null;
+  anchor_date: string | null;
+  active: boolean;
+  notes: string | null;
+}
+
+/** GAP-14 (migration 00054): a dated follow-up owed to a broker. */
+export interface BrokerFollowup extends BaseRow {
+  broker_id: string;
+  note: string;
+  due_on: string;
+  done_at: string | null;
+}
+
+export type LoadStatus = "draft" | "confirmed" | "completed" | "cancelled";
 
 export interface Load extends BaseRow {
   truck_id: string | null;
@@ -114,6 +173,52 @@ export interface Load extends BaseRow {
   rate_cents: number | null;
   miles: number | null;
   status: LoadStatus;
+  notes: string | null;
+  // GAP-02/04/05 (migration 00049): appointment windows, detention
+  // terms, scale-ticket weight. Null until captured.
+  pickup_window_start: string | null;
+  pickup_window_end: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+  detention_free_minutes: number | null;
+  detention_rate_cents_per_hour: number | null;
+  weight_lbs: number | null;
+  // GAP-03/15 (migration 00050): facility links + structured lane states.
+  pickup_facility_id: string | null;
+  delivery_facility_id: string | null;
+  origin_state: string | null;
+  destination_state: string | null;
+}
+
+export type FacilityKind = "shipper" | "receiver" | "both";
+
+/** GAP-03: a place he actually goes, remembered (migration 00050). */
+export interface Facility extends BaseRow {
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  kind: FacilityKind;
+  checkin_notes: string | null;
+  dock_notes: string | null;
+  parking_notes: string | null;
+  detention_notes: string | null;
+  hours_notes: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  visit_count: number;
+  last_visited_at: string | null;
+}
+
+export type DetentionStampType = "arrival" | "door" | "loading_done" | "departure";
+export type DetentionStopKind = "pickup" | "delivery";
+
+/** GAP-04: one stamp on a load's facility clock (migration 00049). */
+export interface DetentionStamp extends BaseRow {
+  load_id: string;
+  stamp_type: DetentionStampType;
+  stop_kind: DetentionStopKind;
+  occurred_at: string;
   notes: string | null;
 }
 
@@ -132,6 +237,8 @@ export interface Expense extends BaseRow {
 export interface FuelPurchase extends BaseRow {
   truck_id: string;
   location: string | null;
+  /** GAP-15 (migration 00050): purchase state, for the IFTA worksheet. */
+  state: string | null;
   gallons: number;
   price_per_gallon_cents: number;
   total_cost_cents: number;
@@ -237,6 +344,9 @@ export interface DispatchExchange extends BaseRow {
   ai_suggested_reply_es: string | null;
   actual_reply_sent: string | null;
   source: DispatchExchangeSource;
+  /** GAP-14 (migration 00054): the working-relationship links the scorecard computes from. */
+  broker_id: string | null;
+  load_id: string | null;
 }
 
 export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
@@ -256,8 +366,11 @@ export type DocumentExtractionStatus =
   | "disabled"
   | "not_applicable";
 
-// Documents don't soft-delete like other entities (docs/schemas.md) - no
-// updated_at/deleted_at, so this doesn't extend BaseRow.
+// Documents historically didn't soft-delete (docs/schemas.md) - no
+// updated_at. Reliability Unit A (migration 00041, design A.7) adds a
+// RETENTION delete instead: deletion tombstones the row and retains the
+// stored file, so this still doesn't extend BaseRow but gains
+// deleted_at + the retention fields below.
 export interface Document {
   id: string;
   company_id: string;
@@ -275,6 +388,14 @@ export interface Document {
   extraction_status: DocumentExtractionStatus;
   extraction_error: string | null;
   extracted_at: string | null;
+  // Retention delete (migration 00041): set when the document is
+  // deleted; the file stays in storage while retention_status is
+  // 'retained'. purged_at is only ever set by a future purge process
+  // under an owner-approved retention policy - never by deletion.
+  deleted_at: string | null;
+  retention_status: DocumentRetentionStatus | null;
+  retention_error: string | null;
+  purged_at: string | null;
   // Photo intelligence (Image Intelligence design §3, migration
   // 00042): the photo's settled purpose, who settled it, and the
   // read's confidence. All null on legacy documents and on photos
@@ -290,6 +411,34 @@ export interface Document {
     | null;
   photo_purpose_source: "vision" | "caption" | "owner" | null;
   photo_purpose_confidence: number | null;
+}
+
+// The retention lifecycle of a deleted document (design A.7):
+// 'retained' (file kept, restore available) until a future approved
+// purge moves it to 'purge_pending' -> 'purged' (or 'purge_failed').
+// Unit A implements only 'retained'; the rest are specified states.
+export type DocumentRetentionStatus =
+  | "retained"
+  | "purge_pending"
+  | "purged"
+  | "purge_failed";
+
+// A recorded cleanup obligation for a storage object with no owning row
+// (migration 00041): an upload whose rollback removal failed, or an
+// object whose compensating row insert failed. Surfaced on the
+// Documents page until retried to resolution.
+export interface CleanupIncident {
+  id: string;
+  company_id: string | null;
+  storage_path: string;
+  // 'upload_rollback' is the kind the upload pipeline records today
+  // (design A.8.6b); 'row_insert_failed' is reserved in the schema for
+  // a future door that discovers the orphan from the row side.
+  kind: "upload_rollback" | "row_insert_failed";
+  status: "open" | "resolved" | "object_absent";
+  detail: string | null;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 export interface DocumentWithSignedUrl extends Document {
@@ -388,6 +537,9 @@ export interface ResearchSourceRef {
   url: string;
 }
 
+/** Delivery timing class (migration 00040): how the Telegram buzz was handled. */
+export type ResearchDeliveryClass = "urgent" | "trip" | "routine";
+
 export interface ResearchBriefing {
   id: string;
   company_id: string;
@@ -406,6 +558,38 @@ export interface ResearchBriefing {
   read_at: string | null;
   dismissed_at: string | null;
   created_at: string;
+  /**
+   * Delivery bookkeeping (migration 00040). Null on rows/databases
+   * from before the delivery-timing upgrade - the banner and tab
+   * treat null as "no hold information", never as a hold.
+   */
+  delivery_class: ResearchDeliveryClass | null;
+  delivery_held_until: string | null;
+}
+
+/** One source item inside a research signal (mirrors ResearchSourceItem in services/research/watchers/types.ts). */
+export interface ResearchSignalItem {
+  title: string;
+  url: string;
+  publishedAt: string | null;
+  summary: string | null;
+}
+
+/**
+ * A stored pressure signal (research_signals, migration 00019) as the
+ * Home banner / Research tab consume it: raw watcher pressure that no
+ * executed run has consumed yet - a "Watching" item, never a briefing.
+ */
+export interface ResearchSignal {
+  id: string;
+  watcher_key: string;
+  kind: string;
+  topic: string;
+  magnitude: number;
+  summary: string;
+  items: ResearchSignalItem[];
+  observed_at: string;
+  dedupe_key: string;
 }
 
 export type ResearchRunStatus =
@@ -549,4 +733,33 @@ export interface ResearchPageData {
     last_source: string | null;
     stale: boolean;
   } | null;
+  /**
+   * Banner-eligible "Watching" signals (Home News Banner design §5):
+   * unconsumed, observed within 72h, magnitude >= 0.5. Server-filtered
+   * so the banner stays dumb; empty when the signal read degrades.
+   */
+  signals: ResearchSignal[];
+  /**
+   * Server-side deep_research capability verdict (global kill switch
+   * + per-capability row; no row = off). The banner hides entirely
+   * when false - off is the owner's choice, not an error.
+   */
+  engine_enabled: boolean;
+}
+
+/**
+ * POST /api/v1/research-briefings/check-wires response (Home News
+ * Banner design §4): the light pull's honest states. `available:
+ * false` (HTTP 200) means the pull cannot run in this deployment yet
+ * (job DB URL unset) - never a 500 on Home.
+ */
+export interface CheckWiresResult {
+  state: "fresh" | "quiet" | "cooldown" | "busy" | "unavailable";
+  available: boolean;
+  new_signals: number;
+  /** When the wires were last actually polled (this pull, or the stored poll a cooldown reports). */
+  checked_at: string | null;
+  /** Cooldown only: minutes until another pull is allowed. */
+  next_check_in_minutes: number | null;
+  reason: string | null;
 }

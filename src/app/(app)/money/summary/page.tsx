@@ -9,6 +9,7 @@ import { useFinancialSummary } from "@/lib/use-financial-summary";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import NumberTicker from "@/components/NumberTicker";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -55,15 +56,34 @@ export default function FinancialSummaryPage() {
             {state.summary.range.from} – {state.summary.range.to}
           </dd>
           <dt>Revenue</dt>
-          <dd>{formatDollars(state.summary.revenue_cents)}</dd>
+          <dd>
+            <NumberTicker
+              value={state.summary.revenue_cents}
+              format={(v) => formatDollars(Math.round(v))}
+            />
+          </dd>
           <dt>Expenses</dt>
-          <dd>{formatDollars(state.summary.expenses_cents)}</dd>
+          <dd>
+            <NumberTicker
+              value={state.summary.expenses_cents}
+              format={(v) => formatDollars(Math.round(v))}
+            />
+          </dd>
           <dt>Fuel</dt>
-          <dd>{formatDollars(state.summary.fuel_cents)}</dd>
+          <dd>
+            <NumberTicker value={state.summary.fuel_cents} format={(v) => formatDollars(Math.round(v))} />
+          </dd>
           <dt>Maintenance</dt>
-          <dd>{formatDollars(state.summary.maintenance_cents)}</dd>
+          <dd>
+            <NumberTicker
+              value={state.summary.maintenance_cents}
+              format={(v) => formatDollars(Math.round(v))}
+            />
+          </dd>
           <dt>Net</dt>
-          <dd>{formatDollars(state.summary.net_cents)}</dd>
+          <dd>
+            <NumberTicker value={state.summary.net_cents} format={(v) => formatDollars(Math.round(v))} />
+          </dd>
         </dl>
       )}
     </div>

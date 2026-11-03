@@ -10,19 +10,52 @@
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
   --color-primary-light: #eff6ff;
+  /* Button background: in the dark scheme --color-primary lightens to
+     #3b82f6 for links/text (white on it is only 3.68:1), so buttons get
+     their own token that stays at the passing value in both schemes
+     (white on #2563eb = 5.17:1). */
+  --color-primary-button: #2563eb;
+  --color-primary-button-hover: #1d4ed8;
+  /* Destructive-action background, same in both schemes so white text
+     on it always passes (white on #b91c1c = 6.47:1). */
+  --color-danger-button: #b91c1c;
 
-  --color-success: #16a34a;
+  /* Semantic colors darkened to pass WCAG AA at badge size (11px bold
+     is small text, so the bar is 4.5:1 against each color's own
+     -light background): success 4.79:1, warning 4.84:1, danger 5.91:1.
+     UI/UX audit 2026-11-01, Section D. */
+  --color-success: #15803d;
   --color-success-light: #f0fdf4;
-  --color-warning: #d97706;
+  --color-warning: #b45309;
   --color-warning-light: #fffbeb;
-  --color-danger: #dc2626;
+  --color-danger: #b91c1c;
   --color-danger-light: #fef2f2;
 
   --color-surface: #ffffff;
   --color-surface-alt: #f8fafc;
   --color-border: #e2e8f0;
+  /* Essential boundaries only (input/select/textarea resting borders):
+     3.47:1 on white, meeting WCAG 1.4.11's 3:1. Decorative card
+     borders keep the light --color-border. */
+  --color-border-strong: #7c8ba0;
   --color-text: #0f172a;
   --color-text-muted: #64748b;
+  /* Muted text that sits on tinted surfaces (page-purpose lines on the
+     primary-light gradient, paused/unknown badges and unpressed
+     segmented buttons on the border track): 6.96:1 on #eff6ff,
+     7.58:1 on white, 6.15:1 on #e2e8f0. The global muted token is
+     unchanged - it passes on plain white. */
+  --color-text-muted-strong: #475569;
+
+  /* Motion tokens (UI/UX pass): durations/easings for feedback motion
+     (toasts, dialogs). Entrance animation of content is gone - see the
+     motion section below. */
+  --motion-instant: 90ms;
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 360ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
@@ -68,15 +101,16 @@ h1 {
   margin: 0 0 1.25rem;
 }
 
-/* h2 reads as a card's own eyebrow/section header, not a second body
-   heading - every current use (Home's "This month", Settings' "AI
-   authorization") is exactly that: the title of the card it sits atop. */
+/* h2 is a real heading, not a whisper: full text color at 14px (audit
+   D-1 - 12px muted caps failed to read as headings on long screens).
+   The caps/letterspacing stay, so the look is kept while the hierarchy
+   works. */
 h2 {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   margin: 0 0 0.75rem;
 }
 
@@ -139,7 +173,7 @@ a[role="button"] {
   padding: 0 1.25rem;
   border: 1px solid transparent;
   border-radius: 0.625rem;
-  background-color: var(--color-primary);
+  background-color: var(--color-primary-button);
   color: white;
   font-family: inherit;
   font-size: 1rem;
@@ -151,7 +185,7 @@ a[role="button"] {
 
 button:hover,
 a[role="button"]:hover {
-  background-color: var(--color-primary-hover);
+  background-color: var(--color-primary-button-hover);
   box-shadow: var(--shadow-md);
   text-decoration: none;
 }
@@ -184,7 +218,9 @@ button:disabled {
 
 [role="group"] button {
   background-color: transparent;
-  color: var(--color-text-muted);
+  /* Unpressed options sit on the border-colored track: muted was
+     3.86:1 there, muted-strong is 6.15:1 (audit Section D). */
+  color: var(--color-text-muted-strong);
   border-color: transparent;
   font-weight: 600;
   font-size: 0.875rem;
@@ -220,6 +256,23 @@ label {
   margin-top: 1rem;
 }
 
+/* A label wrapping a checkbox/radio is itself the tap target - give
+   the whole row a 44px minimum height and a flex row layout so the
+   thumb hits the label, not just the native small box (audit E-7). */
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+label:has(input[type="checkbox"]) input,
+label:has(input[type="radio"]) input {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
 input,
 select,
 textarea {
@@ -228,18 +281,26 @@ textarea {
   min-height: 44px;
   padding: 0.5rem 0.875rem;
   margin-top: 0.375rem;
-  border: 1px solid var(--color-border);
+  /* Resting border uses border-strong (3.47:1 on white, 5.12:1 on the
+     dark surface) - the old border token was 1.23:1 / 1.21:1, so
+     fields were effectively un-outlined (audit Section D). */
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.625rem;
   background-color: var(--color-surface);
   color: var(--color-text);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* Focus must be visible: the old 3px glow in primary-light was 1.09:1
+   on white. A 2px outline in primary is 5.17:1 on white (4.82:1 on the
+   dark surface) - well over the 3:1 bar for focus indicators. */
 input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+  box-shadow: none;
 }
 
 button:focus-visible,
@@ -385,7 +446,10 @@ main li strong[data-status="ok"] {
 
 main li strong[data-status="paused"],
 main li strong[data-status="unknown"] {
-  color: var(--color-text-muted);
+  /* Muted on the border background was 3.86:1; muted-strong (#475569
+     in light) is 6.15:1 on it. Scoped here only - the global muted
+     token passes on white and stays. */
+  color: var(--color-text-muted-strong);
   background-color: var(--color-border);
 }
 
@@ -397,7 +461,7 @@ a[href="#main-content"] {
   top: -3rem;
   left: 0.5rem;
   z-index: 100;
-  background-color: var(--color-primary);
+  background-color: var(--color-primary-button);
   color: white;
   padding: 0.5rem 1rem;
   border-radius: 0 0 0.5rem 0.5rem;
@@ -462,7 +526,6 @@ nav[aria-label="Primary"] a:hover {
 nav[aria-label="Primary"] a[aria-current="page"] {
   color: var(--color-primary);
   background-color: var(--color-primary-light);
-  animation: tabPop 0.3s ease;
 }
 
 /* --- Motion: the site actually moves now, per explicit owner request -
@@ -484,34 +547,11 @@ nav[aria-label="Primary"] a[aria-current="page"] {
   }
 }
 
-section {
-  animation: fadeInUp 0.35s ease both;
-}
-
-main li {
-  animation: fadeInUp 0.3s ease both;
-}
-
-/* Stagger the first several rows so a list "arrives" rather than
-   popping in as one block - pure CSS, no per-item inline style needed. */
-main li:nth-child(1) { animation-delay: 0ms; }
-main li:nth-child(2) { animation-delay: 40ms; }
-main li:nth-child(3) { animation-delay: 80ms; }
-main li:nth-child(4) { animation-delay: 120ms; }
-main li:nth-child(5) { animation-delay: 160ms; }
-main li:nth-child(6) { animation-delay: 200ms; }
-
-@keyframes tabPop {
-  0% {
-    transform: scale(1);
-  }
-  40% {
-    transform: scale(1.08);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
+/* Entrance animations OFF (audit F-2): sections and list rows no
+   longer fade/rise on every navigation, and the active tab no longer
+   plays a scale bounce - content must sit still while a thumb is
+   reaching for it. Motion is reserved for feedback (toasts/dialogs).
+   fadeInUp stays defined only because .truck-scene still uses it. */
 
 /* --- Random truck crossing (TruckCrossing.tsx): a whole small roadside
    scene, not a truck floating in empty space - a terrain silhouette
@@ -668,12 +708,25 @@ main li:nth-child(6) { animation-delay: 200ms; }
    dark scheme + the teaching/discoverability components. The design
    system is CSS-variable driven, so the dark scheme is one token
    override block - every screen follows at once, in a cab at night
-   where a white screen is a hazard, not a preference. */
+   where a white screen is a hazard, not a preference.
+   Theme choice (parked decision (d), src/lib/theme.ts): the dark
+   tokens apply when the OS is dark AND the owner has not forced
+   light (:root:not([data-theme="light"]) inside the media query), OR
+   whenever the owner forced dark (:root[data-theme="dark"], no media
+   query). The two blocks below must carry identical tokens. Dark
+   scheme fixes (audit Section D): primary stays #3b82f6 for
+   links/text (4.82:1 on the #111827 surface - passes), buttons use
+   --color-primary-button (#2563eb; white on it 5.17:1), the active
+   tab pill and quick actions use #93c5fd on #172554 (8.15:1), input
+   borders use border-strong #7c8ba0 (5.12:1 on the surface). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-primary: #3b82f6;
     --color-primary-hover: #60a5fa;
     --color-primary-light: #172554;
+    --color-primary-button: #2563eb;
+    --color-primary-button-hover: #1d4ed8;
+    --color-danger-button: #b91c1c;
     --color-success: #4ade80;
     --color-success-light: #052e16;
     --color-warning: #fbbf24;
@@ -683,18 +736,61 @@ main li:nth-child(6) { animation-delay: 200ms; }
     --color-surface: #111827;
     --color-surface-alt: #0b1120;
     --color-border: #1f2937;
+    --color-border-strong: #7c8ba0;
     --color-text: #f1f5f9;
     --color-text-muted: #94a3b8;
+    --color-text-muted-strong: #cbd5e1;
   }
 
-  body {
+  :root:not([data-theme="light"]) body {
     background: linear-gradient(180deg, #0f2040 0%, var(--color-surface-alt) 260px);
   }
 
-  nav[aria-label="Primary"] {
+  :root:not([data-theme="light"]) nav[aria-label="Primary"] {
     background-color: rgba(17, 24, 39, 0.92);
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
   }
+
+  :root:not([data-theme="light"]) nav[aria-label="Primary"] a[aria-current="page"],
+  :root:not([data-theme="light"]) .quick-actions a {
+    color: #93c5fd;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-primary-light: #172554;
+  --color-primary-button: #2563eb;
+  --color-primary-button-hover: #1d4ed8;
+  --color-danger-button: #b91c1c;
+  --color-success: #4ade80;
+  --color-success-light: #052e16;
+  --color-warning: #fbbf24;
+  --color-warning-light: #451a03;
+  --color-danger: #f87171;
+  --color-danger-light: #450a0a;
+  --color-surface: #111827;
+  --color-surface-alt: #0b1120;
+  --color-border: #1f2937;
+  --color-border-strong: #7c8ba0;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --color-text-muted-strong: #cbd5e1;
+}
+
+:root[data-theme="dark"] body {
+  background: linear-gradient(180deg, #0f2040 0%, var(--color-surface-alt) 260px);
+}
+
+:root[data-theme="dark"] nav[aria-label="Primary"] {
+  background-color: rgba(17, 24, 39, 0.92);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] nav[aria-label="Primary"] a[aria-current="page"],
+:root[data-theme="dark"] .quick-actions a {
+  color: #93c5fd;
 }
 
 /* Page header: title, the one-line purpose statement under it, and the
@@ -711,7 +807,10 @@ main li:nth-child(6) { animation-delay: 200ms; }
 }
 
 .page-purpose {
-  color: var(--color-text-muted);
+  /* Sits on the primary-light page gradient at the top of every
+     screen: muted was 4.37:1 there; muted-strong is 6.96:1 on
+     #eff6ff and 9.90:1 on the dark tint (audit Section D). */
+  color: var(--color-text-muted-strong);
   font-size: 0.9375rem;
   line-height: 1.45;
   margin: 0 0 0.5rem;
@@ -730,7 +829,7 @@ a.page-action,
   min-height: 44px;
   padding: 0 1.25rem;
   border-radius: 0.625rem;
-  background-color: var(--color-primary);
+  background-color: var(--color-primary-button);
   color: white;
   font-weight: 600;
   box-shadow: var(--shadow-sm);
@@ -739,7 +838,7 @@ a.page-action,
 
 a.page-action:hover,
 .empty-state a:hover {
-  background-color: var(--color-primary-hover);
+  background-color: var(--color-primary-button-hover);
   color: white;
   text-decoration: none;
 }
@@ -969,7 +1068,7 @@ a.page-action:hover,
 }
 
 .chat-turn-user {
-  background-color: var(--color-primary);
+  background-color: var(--color-primary-button);
   color: white;
   margin-left: auto;
   border-bottom-right-radius: 0.25rem;
@@ -994,6 +1093,7 @@ a.page-action:hover,
   display: block;
   color: var(--color-text-muted);
   font-size: 0.875rem;
+  font-weight: 400;
   line-height: 1.45;
   margin-top: 0.25rem;
 }
@@ -1003,13 +1103,352 @@ a.page-action:hover,
   font-weight: 700;
 }
 
+/* Hub rows: the whole row is the link (audit A-2) - the Link wraps
+   label + description and is a full-row, 56px-minimum tap target
+   instead of only the label word being tappable. */
+.hub-row-link {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 56px;
+}
+
+.hub-row-link:hover {
+  text-decoration: none;
+}
+
+.hub-row-link:hover .hub-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+/* --- Home news banner (src/components/NewsBanner.tsx; 2026-11-02
+   design): a slim strip under the Home header rotating the research
+   engine's briefings and Watching signals. The strip is a FIXED
+   height in every state (loading, item, quiet, stale, setup) so
+   Home never layout-shifts under his hours. Rotation itself is a JS
+   timer - the component checks prefers-reduced-motion itself and
+   never starts the timer; bannerFade below is the crossfade each
+   item enters with, neutralized by the reduced-motion block like
+   every other animation here. */
+@keyframes bannerFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.news-banner {
+  height: 13.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  overflow: hidden;
+}
+
+.news-banner-item-zone {
+  height: 5.5rem;
+  overflow: hidden;
+}
+
+.news-banner-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: inherit;
+  animation: bannerFade 0.45s ease both;
+}
+
+.news-banner-item:hover {
+  text-decoration: none;
+}
+
+.news-banner-tagrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.news-banner-watching {
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  border-radius: 999px;
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.news-banner-new {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.news-banner-headline {
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-banner-sub {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.news-banner-line {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.news-banner-warning {
+  margin: 0;
+  color: var(--color-warning);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.news-banner-dots {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.news-banner-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  background-color: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.news-banner-dot.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.news-banner-actions {
+  margin: auto 0 0;
+}
+
+.news-banner-result {
+  margin-top: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Deep-link spotlight (Research tab, 2026-11-02 design §6): the
+   banner's tapped item gets a brief outline so his eye lands on it;
+   the page clears it after ~4s or on first interaction. */
+.spotlight {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: 0.5rem;
+}
+
+/* The closing "Original sources" block of a briefing read: in-app
+   content first, exits last and visibly secondary. */
+.original-sources {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* --- Toast feedback (Toast.tsx, audit F-3): the app's one success /
+   failure voice. The viewport is a polite live region; success and
+   error differ by icon and shape, not color alone. The entrance uses
+   the motion tokens and is neutralized by the reduced-motion block
+   at the end of this file, like every other animation here. */
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-viewport {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: calc(4.5rem + 1rem);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--color-text);
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-left: 4px solid var(--color-success);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  box-shadow: var(--shadow-md);
+  animation: toastIn var(--motion-base) var(--ease-out) both;
+}
+
+.toast-error {
+  border-left-color: var(--color-danger);
+}
+
+.toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  font-weight: 800;
+  font-size: 0.875rem;
+}
+
+.toast-icon-success {
+  border-radius: 999px;
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.toast-icon-error {
+  border-radius: 0.375rem;
+  background-color: var(--color-danger-light);
+  color: var(--color-danger);
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-dismiss {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.5rem;
+  background-color: transparent;
+  color: var(--color-text-muted-strong);
+  box-shadow: none;
+  font-size: 1.125rem;
+}
+
+.toast-dismiss:hover {
+  background-color: var(--color-surface-alt);
+  box-shadow: none;
+}
+
+/* --- Confirm dialog (ConfirmDialog.tsx): destructive actions ask
+   first. Backdrop + centered card, token-styled. */
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background-color: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.confirm-dialog {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-lg);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 26rem;
+  animation: toastIn var(--motion-fast) var(--ease-out) both;
+}
+
+.confirm-dialog-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.confirm-dialog p {
+  line-height: 1.5;
+  margin: 0;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+}
+
+.confirm-dialog-cancel {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+}
+
+.confirm-dialog-cancel:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.confirm-dialog-confirm {
+  background-color: var(--color-danger-button);
+}
+
+.confirm-dialog-confirm:hover {
+  background-color: var(--color-danger-button);
+}
+
+/* --- Research queue feedback (audit F-3): success and error must
+   read differently at a glance, not just in wording. */
+.queue-message {
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  margin-top: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.queue-message-success {
+  color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+.queue-message-error {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
 /* Motion sensitivity (WCAG 2.3.3, part of this project's WCAG 2.1 AA
    commitment in docs/design/ui-ux.md) - must stay the LAST rule in this
    file. TruckCrossing.tsx also independently checks this preference in
    JS and skips scheduling entirely, so a user who asked for less motion
    never gets a truck even if this CSS were somehow not loaded - this is
    the second, CSS-level layer of that same guarantee, and it also
-   covers every other animation in this file (fadeInUp, tabPop, hover/
+   covers every other animation in this file (fadeInUp, hover/
    active transitions) in one place instead of repeating a guard on each
    rule above. */
 @media (prefers-reduced-motion: reduce) {
@@ -1024,5 +1463,136 @@ a.page-action:hover,
   .truck-scene,
   .bird-crossing {
     display: none;
+  }
+}
+
+/* --- UI/UX pass: motion + nav fit (Crew B) --- */
+/* Everything below this line is Crew B's single appended section
+   (motion + icons + navigation crew). It only ADDS rules; no existing
+   rule above is edited. Motion tokens are Crew A's (@theme motion
+   and ease tokens); every reference here carries the mini-spec
+   value as a fallback so these rules are correct with or without
+   A's tokens. All animation below is transform/opacity only. */
+
+/* Page transitions (mini-spec rule 1): IF Next's experimental View
+   Transitions are ever enabled (next.config experimental.viewTransition),
+   the browser-native root transition is this exact crossfade + 4px
+   rise — 240ms on the spec ease-out. Inert until then (the shipped
+   shell transition is Motion-driven; see components/PageTransition.tsx
+   for the investigation). Tabs crossfade — nothing slides sideways. */
+@keyframes crewb-vt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+::view-transition-old(root) {
+  animation: crewb-vt-fade-out var(--motion-base, 240ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+::view-transition-new(root) {
+  animation:
+    crewb-vt-fade-in var(--motion-base, 240ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both,
+    crewb-vt-rise var(--motion-base, 240ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+@keyframes crewb-vt-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes crewb-vt-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Micro-motion (mini-spec rule 2): press feedback — primary buttons
+   and bottom-tab links scale to 0.97 over 90ms while pressed.
+   :active is user-initiated feedback, not decorative motion. This
+   overrides the older translateY(1px) button press by source order. */
+button,
+a[role="button"],
+nav[aria-label="Primary"] a {
+  transition-property: background-color, box-shadow, color, transform;
+  transition-duration: var(--motion-instant, 90ms);
+  transition-timing-function: var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+button:active,
+a[role="button"]:active,
+nav[aria-label="Primary"] a:active {
+  transform: scale(0.97);
+}
+
+button:disabled:active {
+  transform: none;
+}
+
+/* Nav fit (six bottom tabs): with six tabs in the same 40rem bar the
+   labels need tighter padding and a step smaller type so "Smart Path"
+   and "Assistant" never wrap or crowd. Scoped to the primary nav only. */
+nav[aria-label="Primary"] ul {
+  padding: 0.5rem 0.25rem;
+  gap: 0.125rem;
+}
+
+nav[aria-label="Primary"] a {
+  font-size: 0.625rem;
+  padding: 0.25rem 0.125rem;
+  letter-spacing: -0.01em;
+}
+
+nav[aria-label="Primary"] a span {
+  white-space: nowrap;
+}
+
+/* Hub-row affordance + inline action icons (Lucide, Crew B): the
+   chevron trailing hub labels and the arrow trailing key action
+   links, sized by their components (18px / 16px) and quieted here. */
+.hub-chevron {
+  vertical-align: -0.2em;
+  margin-left: 0.375rem;
+  opacity: 0.55;
+}
+
+.inline-action-icon {
+  vertical-align: -0.15em;
+}
+
+/* Word-split reveals (components/WordReveal.tsx): word spans must be
+   inline-block for Motion's transform (fade + rise) to apply; the
+   trailing space between words is inside each span, so wrapping
+   still breaks at word boundaries. */
+.word-reveal-word {
+  display: inline-block;
+}
+
+/* Reduced motion for THIS section (the global block above predates
+   it): no view-transition animation, no press scaling. Motion-driven
+   pieces (PageTransition, WordReveal, NumberTicker, Reveal) honor
+   the same preference in JS via useReducedMotion. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+
+  button:active,
+  a[role="button"]:active,
+  nav[aria-label="Primary"] a:active {
+    transform: none;
   }
 }

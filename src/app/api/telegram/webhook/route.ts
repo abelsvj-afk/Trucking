@@ -30,6 +30,8 @@ import {
 } from "@/services/telegram/photo-purpose";
 import { runAgentTurn } from "@/services/bot/agent-turn";
 import { stageRecordables } from "@/services/bot/stage-recordables";
+import { captureForwardThread } from "@/services/bot/thread-capture";
+import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
 export const runtime = "nodejs";
 
@@ -168,6 +170,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // store - his "yes" resolves them through the agent turn.
     stageRecordables: brainStore
       ? (userText, items) => stageRecordables(brainStore, userText, items)
+      : undefined,
+    // Phase C: every dispatch workup also reconstructs the
+    // conversation into a stored thread record (best-effort, after
+    // the reply - see dispatch-bot). Same brain store scope.
+    captureThread: brainStore
+      ? (text) => captureForwardThread(brainStore, new OpenAiProvider(), text)
+      : undefined,
+    // Phase E: voice notes - downloaded + transcribed under the
+    // voice_transcription kill switch (brain store reads the same
+    // capability rows as every other surface); the transcript then
+    // runs the normal text pipeline in dispatch-bot.
+    handleVoice: brainStore
+      ? (voice) =>
+          handleTelegramVoice(voice, {
+            botToken,
+            isEnabled: () => brainStore.isVoiceTranscriptionEnabled(),
+          })
       : undefined,
     // Lane 1 (audit B-1): the dispatch_helper kill switch (global +
     // capability) is checked on this path too, from the same store

@@ -22,9 +22,10 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
-import type { Broker, Customer, Driver, Load, LoadStatus, Truck } from "@/types/entities";
+import type { Broker, Customer, Driver, Facility, Load, LoadStatus, Truck } from "@/types/entities";
 
 const STATUS_OPTIONS: { label: string; value: LoadStatus }[] = [
   { label: "Draft", value: "draft" },
@@ -39,19 +40,34 @@ export default function NewLoadPage() {
   const [destination, setDestination] = useState("");
   const [pickupDate, setPickupDate] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  // GAP-02/04: appointment windows + detention terms, straight off
+  // the rate con when he has them — optional like everything else.
+  const [pickupWindowStart, setPickupWindowStart] = useState("");
+  const [pickupWindowEnd, setPickupWindowEnd] = useState("");
+  const [deliveryWindowStart, setDeliveryWindowStart] = useState("");
+  const [deliveryWindowEnd, setDeliveryWindowEnd] = useState("");
+  const [detentionFreeMinutes, setDetentionFreeMinutes] = useState("");
+  const [detentionRateDollars, setDetentionRateDollars] = useState("");
   const [rateDollars, setRateDollars] = useState("");
   const [status, setStatus] = useState<LoadStatus>("draft");
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [brokerId, setBrokerId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  // GAP-03: pick a remembered facility instead of re-typing the place.
+  const [pickupFacilityId, setPickupFacilityId] = useState("");
+  const [deliveryFacilityId, setDeliveryFacilityId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // One idempotency token per form opening (Unit A / F-006): retries
+  // and double-taps replay this create instead of duplicating the load.
+  const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
   const drivers = usePickerList<Driver>("drivers");
   const brokers = usePickerList<Broker>("brokers");
   const customers = usePickerList<Customer>("customers");
+  const facilities = usePickerList<Facility>("facilities");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,16 +76,33 @@ export default function NewLoadPage() {
 
     try {
       await apiClient.create<Load>("loads", {
+        submission_id: submissionId,
         origin,
         destination,
         pickup_date: pickupDate || undefined,
         delivery_date: deliveryDate || undefined,
+        pickup_window_start: pickupWindowStart ? new Date(pickupWindowStart).toISOString() : undefined,
+        pickup_window_end: pickupWindowEnd ? new Date(pickupWindowEnd).toISOString() : undefined,
+        delivery_window_start: deliveryWindowStart
+          ? new Date(deliveryWindowStart).toISOString()
+          : undefined,
+        delivery_window_end: deliveryWindowEnd
+          ? new Date(deliveryWindowEnd).toISOString()
+          : undefined,
+        detention_free_minutes: detentionFreeMinutes
+          ? Number.parseInt(detentionFreeMinutes, 10)
+          : undefined,
+        detention_rate_cents_per_hour: detentionRateDollars
+          ? Math.round(parseFloat(detentionRateDollars) * 100)
+          : undefined,
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : undefined,
         status,
         truck_id: truckId || null,
         driver_id: driverId || null,
         broker_id: brokerId || null,
         customer_id: customerId || null,
+        pickup_facility_id: pickupFacilityId || null,
+        delivery_facility_id: deliveryFacilityId || null,
       });
       router.push("/loads");
     } catch (err) {
@@ -94,7 +127,7 @@ export default function NewLoadPage() {
           required
         />
 
-        <label htmlFor="pickup_date">Pickup date</label>
+        <label htmlFor="pickup_date">Pickup date (optional)</label>
         <input
           id="pickup_date"
           type="date"
@@ -102,7 +135,7 @@ export default function NewLoadPage() {
           onChange={(event) => setPickupDate(event.target.value)}
         />
 
-        <label htmlFor="delivery_date">Delivery date</label>
+        <label htmlFor="delivery_date">Delivery date (optional)</label>
         <input
           id="delivery_date"
           type="date"
@@ -110,7 +143,59 @@ export default function NewLoadPage() {
           onChange={(event) => setDeliveryDate(event.target.value)}
         />
 
-        <label htmlFor="rate">Rate ($)</label>
+        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con) (optional)</label>
+        <input
+          id="pickup_window_start"
+          type="datetime-local"
+          value={pickupWindowStart}
+          onChange={(event) => setPickupWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="pickup_window_end">Pickup window ends (optional)</label>
+        <input
+          id="pickup_window_end"
+          type="datetime-local"
+          value={pickupWindowEnd}
+          onChange={(event) => setPickupWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_start">Delivery window starts (optional)</label>
+        <input
+          id="delivery_window_start"
+          type="datetime-local"
+          value={deliveryWindowStart}
+          onChange={(event) => setDeliveryWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_end">Delivery window ends (optional)</label>
+        <input
+          id="delivery_window_end"
+          type="datetime-local"
+          value={deliveryWindowEnd}
+          onChange={(event) => setDeliveryWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills (optional)</label>
+        <input
+          id="detention_free_minutes"
+          type="number"
+          min="0"
+          step="15"
+          value={detentionFreeMinutes}
+          onChange={(event) => setDetentionFreeMinutes(event.target.value)}
+        />
+
+        <label htmlFor="detention_rate">Detention rate ($/hour after free time) (optional)</label>
+        <input
+          id="detention_rate"
+          type="number"
+          step="0.01"
+          min="0"
+          value={detentionRateDollars}
+          onChange={(event) => setDetentionRateDollars(event.target.value)}
+        />
+
+        <label htmlFor="rate">Rate ($) (optional)</label>
         <input
           id="rate"
           type="number"
@@ -133,7 +218,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="truck_id">Truck</label>
+        <label htmlFor="truck_id">Truck (optional)</label>
         <select id="truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
           <option value="">Unassigned</option>
           {trucks.map((truck) => (
@@ -143,7 +228,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="driver_id">Driver</label>
+        <label htmlFor="driver_id">Driver (optional)</label>
         <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
           <option value="">Unassigned</option>
           {drivers.map((driver) => (
@@ -153,7 +238,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="broker_id">Broker</label>
+        <label htmlFor="broker_id">Broker (optional)</label>
         <select id="broker_id" value={brokerId} onChange={(event) => setBrokerId(event.target.value)}>
           <option value="">None</option>
           {brokers.map((broker) => (
@@ -163,7 +248,37 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="customer_id">Customer</label>
+        <label htmlFor="pickup_facility_id">Pickup facility (remembered place) (optional)</label>
+        <select
+          id="pickup_facility_id"
+          value={pickupFacilityId}
+          onChange={(event) => setPickupFacilityId(event.target.value)}
+        >
+          <option value="">None</option>
+          {facilities.map((facility) => (
+            <option key={facility.id} value={facility.id}>
+              {facility.name}
+              {facility.city ? ` — ${facility.city}` : ""}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="delivery_facility_id">Delivery facility (remembered place) (optional)</label>
+        <select
+          id="delivery_facility_id"
+          value={deliveryFacilityId}
+          onChange={(event) => setDeliveryFacilityId(event.target.value)}
+        >
+          <option value="">None</option>
+          {facilities.map((facility) => (
+            <option key={facility.id} value={facility.id}>
+              {facility.name}
+              {facility.city ? ` — ${facility.city}` : ""}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="customer_id">Customer (optional)</label>
         <select
           id="customer_id"
           value={customerId}
