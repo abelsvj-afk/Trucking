@@ -146,26 +146,44 @@ Both are standard resources (the 5-endpoint table above) with the fields in `doc
 
 **`GET /api/v1/financial-summary?from={date}&to={date}&tz={iana-zone}`**
 
-Not backed by a table (see `docs/schemas.md`). Computes revenue from `confirmed`/`completed` loads and total expenses (`expenses` + `fuel_purchases` + `maintenance_events`) within the given date range.
+Not backed by a table (see `docs/schemas.md`). The full money contract — recognition rule, the three measures, the labeling rule, the snapshot guarantee — lives in `docs/money-and-revenue.md`; this section is the wire shape.
 
-Reliability Unit B (B.2.1): the client always sends the viewer's IANA timezone as `tz`; an absent or invalid value falls back to `America/New_York`, and the zone in force is reported in the response's `timeZone` field — never silently assumed. The period bounds themselves become viewer-local under Unit C's C1 (the shared month helper); see `docs/time-and-hos.md`.
-
-A load is placed within the range by its `delivery_date` (when the freight actually moved), falling back to `pickup_date` if `delivery_date` isn't set yet. A `confirmed`/`completed` load with neither date set has no date to place it at and is excluded from every date-scoped query — an edge case `docs/schemas.md`'s nullable `pickup_date`/`delivery_date` allows in principle, but one a load would realistically not still be in by the time it's confirmed.
+Reliability Unit C (design C.2/C.3, ruling D-01): revenue is **operational load revenue recognized on delivery** — a load counts when it is `completed` AND has a `delivery_date`, in the viewer-local month of that date. There is no pickup-date fallback. `draft`/`confirmed` loads are **pipeline** (reported separately, never added to revenue or net); `completed` loads with no `delivery_date` are a named exception; `cancelled` loads are in neither figure. The client always sends the viewer's IANA timezone as `tz` (Unit B, B.2.1); absent/invalid falls back to `America/New_York`, reported in `timeZone`; the period bounds are computed in that zone (Unit C, C1). All figures come from ONE database snapshot taken inside a dedicated repeatable-read transaction (F-033) — if the snapshot cannot be verified, the response is `503 SUMMARY_UNVERIFIED` with no totals, never a partial or blended figure.
 
 Response `200`:
 ```json
 {
   "range": { "from": "2026-08-01", "to": "2026-08-31" },
   "timeZone": "America/New_York",
+  "revenueConvention": "recognized_on_delivery",
   "revenue_cents": 1240000,
   "expenses_cents": 812000,
   "fuel_cents": 310000,
   "maintenance_cents": 95000,
-  "net_cents": 23000
+  "net_cents": 23000,
+  "components": {
+    "revenue": { "total_cents": 1240000, "row_count": 7, "record_ids": ["…"] },
+    "expenses": { "total_cents": 812000, "row_count": 21, "record_ids": ["…"] },
+    "fuel": { "total_cents": 310000, "row_count": 9, "record_ids": ["…"] },
+    "maintenance": { "total_cents": 95000, "row_count": 3, "record_ids": ["…"] }
+  },
+  "pipeline": { "total_cents": 450000, "row_count": 3, "record_ids": ["…"], "loadsWithoutRateCount": 1 },
+  "exceptions": {
+    "completedMissingDeliveryDate": { "count": 1, "record_ids": ["…"] }
+  },
+  "measures": {
+    "recognizedRevenue": 1240000,
+    "periodOperatingResult": 23000,
+    "aggregateContributionMargin": 1050000
+  }
 }
 ```
 
-If `from`/`to` are omitted, defaults to the current calendar month.
+`net_cents` is the period operating result under its legacy field name. If `from`/`to` are omitted, the range defaults to the current viewer-local month.
+
+**`GET /api/v1/financial-summary/detail?component={revenue|expenses|fuel|maintenance}&from={date}&to={date}&tz={iana-zone}`**
+
+The rows behind one component total (F-010), read under the same snapshot mechanism and reconciled against the component aggregate inside the transaction; a mismatch is `503 SUMMARY_UNVERIFIED`. Response `200`: `{ component, range, timeZone, total_cents, row_count, rows }` — `rows` are the full records, ordered `(created_at, id)`, and their amounts sum exactly to `total_cents`.
 
 ## Truck Fund (Wave D — `docs/design/driver-mvp.md` §9)
 

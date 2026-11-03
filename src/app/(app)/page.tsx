@@ -17,6 +17,7 @@ import AskAssistant from "@/components/AskAssistant";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { DutyLog } from "@/types/entities";
+import { revenueConventionLabel } from "@/types/financial-summary";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -130,7 +131,11 @@ export default function HomePage() {
         {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
         {state.status === "loaded" && (
           <dl>
-            <dt>Revenue</dt>
+            {/* Unit C labeling rule (C.3): the revenue figure is
+                operational load revenue recognized on delivery -
+                never worded as cash received or settled. The label
+                renders from the API's revenueConvention field. */}
+            <dt>{revenueConventionLabel(state.summary.revenueConvention)}</dt>
             <dd>{formatDollars(state.summary.revenue_cents)}</dd>
             <dt>Expenses</dt>
             <dd>
@@ -140,7 +145,7 @@ export default function HomePage() {
                   state.summary.maintenance_cents,
               )}
             </dd>
-            <dt>Net</dt>
+            <dt>Operating result</dt>
             <dd>{formatDollars(state.summary.net_cents)}</dd>
           </dl>
         )}

@@ -2,7 +2,7 @@
 // screen state (loading/empty/populated/error, per docs/design/ui-ux.md)
 // is driven off what this returns, not ad hoc per-screen fetch logic.
 
-import type { FinancialSummary } from "@/types/financial-summary";
+import type { FinancialSummary, FinancialSummaryDetail } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { DutyLogWindowSummary, HosSettings } from "@/types/hos-settings";
 import type { DutyLog } from "@/types/entities";
@@ -172,6 +172,11 @@ export const apiClient = {
   financialSummary: (params?: { from: string; to: string }) => {
     const qs = new URLSearchParams({ ...(params ?? {}), tz: viewerTimeZone() });
     return request<FinancialSummary>(`/api/v1/financial-summary?${qs.toString()}`);
+  },
+  // F-010 drill-down (Unit C, C3): the rows behind one summary total.
+  financialSummaryDetail: (component: string, params: { from: string; to: string }) => {
+    const qs = new URLSearchParams({ component, ...params, tz: viewerTimeZone() });
+    return request<FinancialSummaryDetail>(`/api/v1/financial-summary/detail?${qs.toString()}`);
   },
   // HOS carrier configuration + the duty-log calculation window
   // (Reliability Unit B, B.2.4/B.5).
