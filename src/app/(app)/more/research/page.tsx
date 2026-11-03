@@ -157,7 +157,18 @@ export default function ResearchPage() {
   // Deep-link state (§6): the target parsed from the URL, the
   // spotlighted item, a dismissed briefing pinned via the by-id
   // fallback, and the plain line when the target isn't available.
-  const [target, setTarget] = useState<DeepLinkTarget | null>(null);
+  // The target is read once, lazily, from the URL - no markup depends
+  // on it during the first render (resolution happens in an effect
+  // after the data loads), so server and hydration renders agree.
+  const [target] = useState<DeepLinkTarget | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const briefingId = params.get("briefing");
+    const signalId = params.get("signal");
+    if (briefingId) return { kind: "briefing", id: briefingId };
+    if (signalId) return { kind: "signal", id: signalId };
+    return null;
+  });
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
   const [pinnedBriefing, setPinnedBriefing] = useState<ResearchBriefing | null>(null);
   const [targetMissing, setTargetMissing] = useState<string | null>(null);
@@ -188,14 +199,6 @@ export default function ResearchPage() {
     fetchPage();
   }, [fetchPage]);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const briefingId = params.get("briefing");
-    const signalId = params.get("signal");
-    if (briefingId) setTarget({ kind: "briefing", id: briefingId });
-    else if (signalId) setTarget({ kind: "signal", id: signalId });
-  }, []);
-
   const scrollToItem = useCallback((id: string) => {
     itemRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
@@ -213,49 +216,64 @@ export default function ResearchPage() {
   }, [spotlightId]);
 
   // Resolve the deep link once the page data is in (§6.2/§6.4/§6.5).
+  // All state writes happen in the async continuation / promise
+  // callbacks, never synchronously in the effect body.
   useEffect(() => {
     if (state.status !== "loaded" || !target || targetHandledRef.current) return;
     targetHandledRef.current = true;
     const page = state.page;
+    let cancelled = false;
 
-    if (target.kind === "signal") {
-      const found = page.signals.some((signal) => signal.id === target.id);
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+
+      if (target.kind === "signal") {
+        const found = page.signals.some((signal) => signal.id === target.id);
+        if (found) {
+          setSpotlightId(target.id);
+          scrollToItem(target.id);
+        } else {
+          setTargetMissing("That wire item isn't current anymore - what's live is below.");
+        }
+        return;
+      }
+
+      const briefing = page.data.find((item) => item.id === target.id);
+      if (briefing) {
+        setSpotlightId(briefing.id);
+        scrollToItem(briefing.id);
+        // Opening from the banner is reading it in full - leaving it
+        // "unread" would be a false state.
+        if (!briefing.read_at) {
+          void apiClient
+            .markResearchBriefingRead(briefing.id)
+            .then(() => fetchPage())
+            .catch(() => undefined);
+        }
+        return;
+      }
+
+      // Not in the list - the realistic case is an earlier dismissal.
+      const found = await apiClient.getResearchBriefing(target.id).catch(() => null);
+      if (cancelled) return;
       if (found) {
-        setSpotlightId(target.id);
-        scrollToItem(target.id);
+        setPinnedBriefing(found);
+        setSpotlightId(found.id);
       } else {
-        setTargetMissing("That wire item isn't current anymore - what's live is below.");
+        setTargetMissing("That briefing isn't available anymore.");
       }
-      return;
-    }
+    })();
 
-    const briefing = page.data.find((item) => item.id === target.id);
-    if (briefing) {
-      setSpotlightId(briefing.id);
-      scrollToItem(briefing.id);
-      // Opening from the banner is reading it in full - leaving it
-      // "unread" would be a false state.
-      if (!briefing.read_at) {
-        void apiClient
-          .markResearchBriefingRead(briefing.id)
-          .then(() => fetchPage())
-          .catch(() => undefined);
-      }
-      return;
-    }
-
-    // Not in the list - the realistic case is an earlier dismissal.
-    void apiClient
-      .getResearchBriefing(target.id)
-      .then((found) => setPinnedBriefing(found))
-      .catch(() => setTargetMissing("That briefing isn't available anymore."));
+    return () => {
+      cancelled = true;
+    };
   }, [state, target, fetchPage, scrollToItem]);
 
-  // The pinned fallback renders after the effect above resolves;
-  // spotlight + scroll once it exists in the DOM.
+  // The pinned fallback renders after the resolution above lands;
+  // scroll to it once it exists in the DOM (a DOM write, no state).
   useEffect(() => {
     if (!pinnedBriefing) return;
-    setSpotlightId(pinnedBriefing.id);
     scrollToItem(pinnedBriefing.id);
   }, [pinnedBriefing, scrollToItem]);
 

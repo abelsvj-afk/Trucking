@@ -28,28 +28,39 @@ export default function NewsBanner() {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [docHidden, setDocHidden] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState<boolean>(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
   const [now, setNow] = useState(() => new Date());
   const [checking, setChecking] = useState(false);
   const [wireResult, setWireResult] = useState<ReactNode | null>(null);
-  const resumeAtRef = useRef(0);
+  const [manualHold, setManualHold] = useState(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (initial: boolean) => {
-    try {
-      const page = await apiClient.listResearchBriefings();
-      // Deep research off (or unverifiable) = no strip at all (§7).
-      if (!page.engine_enabled) {
-        setPhase({ status: "hidden" });
-        return;
-      }
-      setPhase({ status: "ready", page });
-    } catch {
-      // Fail closed on the first load; a failed refresh keeps the
-      // last good payload rather than blanking Home.
-      if (initial) setPhase({ status: "hidden" });
-    }
-  }, []);
+  // .then-chain style (the house pattern): state writes land in
+  // promise callbacks, never synchronously inside an effect.
+  const load = useCallback(
+    (initial: boolean) =>
+      apiClient
+        .listResearchBriefings()
+        .then((page) => {
+          // Deep research off (or unverifiable) = no strip at all (§7).
+          if (!page.engine_enabled) {
+            setPhase({ status: "hidden" });
+            return;
+          }
+          setPhase({ status: "ready", page });
+        })
+        .catch(() => {
+          // Fail closed on the first load; a failed refresh keeps
+          // the last good payload rather than blanking Home.
+          if (initial) setPhase({ status: "hidden" });
+        }),
+    [],
+  );
 
   useEffect(() => {
     void load(true);
@@ -57,7 +68,6 @@ export default function NewsBanner() {
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(mq.matches);
     const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
@@ -85,11 +95,11 @@ export default function NewsBanner() {
   useEffect(() => {
     if (items.length <= 1 || reducedMotion) return;
     const timer = setInterval(() => {
-      if (paused || docHidden || Date.now() < resumeAtRef.current) return;
+      if (paused || manualHold || docHidden) return;
       setIndex((value) => (value + 1) % items.length);
     }, ROTATE_MS);
     return () => clearInterval(timer);
-  }, [items.length, paused, docHidden, reducedMotion]);
+  }, [items.length, paused, manualHold, docHidden, reducedMotion]);
 
   const showResult = useCallback((node: ReactNode) => {
     setWireResult(node);
@@ -100,6 +110,7 @@ export default function NewsBanner() {
   useEffect(
     () => () => {
       if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
     },
     [],
   );
@@ -144,7 +155,11 @@ export default function NewsBanner() {
 
   function stepTo(next: number) {
     setIndex(next);
-    resumeAtRef.current = Date.now() + MANUAL_PAUSE_MS;
+    // A manual step holds the rotation for 12s (§3) - a timer, not a
+    // timestamp, so no impure clock read lives in render scope.
+    setManualHold(true);
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = setTimeout(() => setManualHold(false), MANUAL_PAUSE_MS);
   }
 
   if (phase.status === "hidden") return null;
