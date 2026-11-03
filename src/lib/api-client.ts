@@ -4,6 +4,9 @@
 
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
+import type { DutyLogWindowSummary, HosSettings } from "@/types/hos-settings";
+import type { DutyLog } from "@/types/entities";
+import { viewerTimeZone } from "@/lib/time";
 import type { ServiceStatus } from "@/types/service-status";
 import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
@@ -162,11 +165,24 @@ export const apiClient = {
   retryCleanupIncident: <T>(id: string) =>
     request<T>(`/api/v1/documents/cleanup-incidents/${id}/retry`, { method: "POST" }),
   // Computed, read-only (docs/api-contracts.md) - omit params for the
-  // server's current-calendar-month default.
+  // server's current-calendar-month default. The viewer's timezone
+  // always rides along (Reliability Unit B, B.2.1): period semantics
+  // are viewer-local, and the server reports the zone it used in the
+  // response's timeZone field.
   financialSummary: (params?: { from: string; to: string }) => {
-    const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
-    return request<FinancialSummary>(`/api/v1/financial-summary${qs}`);
+    const qs = new URLSearchParams({ ...(params ?? {}), tz: viewerTimeZone() });
+    return request<FinancialSummary>(`/api/v1/financial-summary?${qs.toString()}`);
   },
+  // HOS carrier configuration + the duty-log calculation window
+  // (Reliability Unit B, B.2.4/B.5).
+  getHosSettings: () => request<HosSettings>("/api/v1/hos-settings"),
+  updateHosSettings: (body: Partial<HosSettings>) =>
+    request<HosSettings>("/api/v1/hos-settings", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  dutyLogWindow: () =>
+    request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
   // Truck Fund + money visibility (docs/design/driver-mvp.md §9).
   truckFund: () => request<TruckFundOverview>("/api/v1/truck-fund"),
   updateFundSettings: (body: Record<string, unknown>) =>

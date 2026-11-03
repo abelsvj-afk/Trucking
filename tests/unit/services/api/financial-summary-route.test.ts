@@ -78,12 +78,55 @@ describe("GET /api/v1/financial-summary", () => {
     const body = await res.json();
     expect(body).toEqual({
       range: { from: "2026-08-01", to: "2026-08-31" },
+      // Unit B (B.2.1): with no tz parameter the response reports the
+      // America/New_York fallback - visibly, in the body.
+      timeZone: "America/New_York",
       revenue_cents: 800000,
       expenses_cents: 15000,
       fuel_cents: 40000,
       maintenance_cents: 20000,
       net_cents: 800000 - 15000 - 40000 - 20000,
     });
+  });
+
+  it("reports a valid client-supplied timezone (Unit B, B.2.1)", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({
+        loads: { data: [] },
+        expenses: { data: [] },
+        fuel_purchases: { data: [] },
+        maintenance_events: { data: [] },
+      }) as never,
+    );
+
+    const res = await GET(
+      new NextRequest(
+        "http://localhost/api/v1/financial-summary?from=2026-08-01&to=2026-08-31&tz=America%2FChicago",
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.timeZone).toBe("America/Chicago");
+  });
+
+  it("reports the fallback - not the garbage - for an invalid timezone (Unit B, B.2.1)", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({
+        loads: { data: [] },
+        expenses: { data: [] },
+        fuel_purchases: { data: [] },
+        maintenance_events: { data: [] },
+      }) as never,
+    );
+
+    const res = await GET(
+      new NextRequest(
+        "http://localhost/api/v1/financial-summary?from=2026-08-01&to=2026-08-31&tz=Bogus%2FZone",
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.timeZone).toBe("America/New_York");
   });
 
   it("excludes a load with neither delivery_date nor pickup_date set", async () => {

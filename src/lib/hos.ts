@@ -35,13 +35,16 @@ const RESET_REST_MIN = 10 * 60;
 const EIGHT_DAY_ON_DUTY_LIMIT_MIN = 70 * 60;
 const EIGHT_DAYS_MS = 8 * 24 * 60 * MINUTE_MS;
 
-interface Segment {
+// Segment construction is shared with the carrier-anchored cycle
+// engine (lib/hos-cycle.ts, Reliability Unit B): both engines read the
+// same status-start event sequence, so the tiling must not diverge.
+export interface Segment {
   status: DutyStatus;
   startMs: number;
   endMs: number;
 }
 
-function buildSegments(logs: DutySegmentInput[], nowMs: number): Segment[] {
+export function buildSegments(logs: DutySegmentInput[], nowMs: number): Segment[] {
   const sorted = [...logs]
     .map((log) => ({ status: log.duty_status, startMs: new Date(log.started_at).getTime() }))
     .filter((log) => Number.isFinite(log.startMs) && log.startMs <= nowMs)
@@ -54,11 +57,11 @@ function buildSegments(logs: DutySegmentInput[], nowMs: number): Segment[] {
   }));
 }
 
-function isRest(status: DutyStatus): boolean {
+export function isRest(status: DutyStatus): boolean {
   return status === "off_duty" || status === "sleeper";
 }
 
-function sumMinutes(
+export function sumMinutes(
   segments: Segment[],
   fromMs: number,
   toMs: number,

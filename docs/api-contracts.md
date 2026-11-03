@@ -110,13 +110,45 @@ All three support filtering the list endpoint by `truck_id` and by `trailer_id` 
 
 ### `duty-logs`, `dispatch-exchanges` — Driver MVP additions
 
-Both are standard resources (the 5-endpoint table above) with the fields in `docs/schemas.md`, added per `docs/design/driver-mvp.md` §§3/5. `duty-logs` rows are duty-status starts (warn-only HOS summaries are computed client-side in `src/lib/hos.ts`, never returned by the API — same pattern as `maintenance-schedules`' due status). `dispatch-exchanges` is written by the client only on the owner's explicit save, or by the owner's private Telegram bot (see the webhook contract below) — never automatically by `/api/v1/dispatch-suggest`.
+Both are standard resources (the 5-endpoint table above) with the fields in `docs/schemas.md`, added per `docs/design/driver-mvp.md` §§3/5. `duty-logs` rows are duty-status starts. (Reliability Unit B update: the HOS *cycle* summary is now computed server-side and returned by the dedicated window endpoint below, from the carrier-anchored engine in `src/lib/hos-cycle.ts`; the short-term figures — 14-hour window, 11-hour driving, 30-minute break — are still computed client-side in `src/lib/hos.ts`, fed from the same window rows. The pre-Unit-B arrangement — summary computed from the capped, newest-first list response — is gone; see `docs/time-and-hos.md`.) `dispatch-exchanges` is written by the client only on the owner's explicit save, or by the owner's private Telegram bot (see the webhook contract below) — never automatically by `/api/v1/dispatch-suggest`.
+
+### HOS window + carrier settings — Reliability Unit B additions
+
+**`GET /api/v1/duty-logs/window`** — every non-deleted duty log in the HOS calculation window (from the carrier-anchored period `cycle periods + 2` before the current period through now), ordered by `started_at` ascending, plus the server-computed cycle summary and the window actually used:
+
+```json
+{
+  "data": [ "…duty_logs rows, started_at ascending…" ],
+  "hos": {
+    "cycle": "70/8",
+    "cycleLimitMinutes": 4200,
+    "periodAnchor": "00:00",
+    "restartEnabled": true,
+    "carrierTimeZone": "America/New_York",
+    "windowStart": "2026-01-08T05:00:00.000Z",
+    "windowEnd": "2026-01-15T20:00:00.000Z",
+    "currentPeriodStart": "2026-01-15T05:00:00.000Z",
+    "onDutyMinutesInCycle": 3840,
+    "restartApplied": null,
+    "restartUnverified": false,
+    "warnings": []
+  }
+}
+```
+
+`windowStart` is the counted span's start (the oldest counted period); the query itself opens two periods earlier (see `docs/time-and-hos.md`). If the window holds more than 5000 rows the endpoint fails `500 HOS_WINDOW_TOO_LARGE` rather than returning a partial window. `restartApplied: { "endedAt": "…" }` reports an observed, applied 34-hour restart; `restartUnverified: true` reports a qualifying-length interval that was deliberately NOT applied (its start is unobserved) — the total is then the conservative full-window count.
+
+**`GET /api/v1/hos-settings`** — the company's carrier HOS configuration: `{ hos_cycle, hos_period_anchor, hos_restart_enabled, hos_carrier_timezone }`. Before migration `00042` is applied, reads return the labeled provisional defaults (`70/8`, `00:00`, `true`, `America/New_York`).
+
+**`PATCH /api/v1/hos-settings`** — any subset of the same four fields. Values are validated (cycle enum, anchor `HH:MM` pattern, IANA timezone) and refused with `400 VALIDATION_ERROR` carrying field-named `fields[]`; unknown keys are refused. A write before migration `00042` fails `500 HOS_CONFIG_UNAVAILABLE` — never a silent no-save.
 
 ## Financial summary (read-only, computed)
 
-**`GET /api/v1/financial-summary?from={date}&to={date}`**
+**`GET /api/v1/financial-summary?from={date}&to={date}&tz={iana-zone}`**
 
 Not backed by a table (see `docs/schemas.md`). Computes revenue from `confirmed`/`completed` loads and total expenses (`expenses` + `fuel_purchases` + `maintenance_events`) within the given date range.
+
+Reliability Unit B (B.2.1): the client always sends the viewer's IANA timezone as `tz`; an absent or invalid value falls back to `America/New_York`, and the zone in force is reported in the response's `timeZone` field — never silently assumed. The period bounds themselves become viewer-local under Unit C's C1 (the shared month helper); see `docs/time-and-hos.md`.
 
 A load is placed within the range by its `delivery_date` (when the freight actually moved), falling back to `pickup_date` if `delivery_date` isn't set yet. A `confirmed`/`completed` load with neither date set has no date to place it at and is excluded from every date-scoped query — an edge case `docs/schemas.md`'s nullable `pickup_date`/`delivery_date` allows in principle, but one a load would realistically not still be in by the time it's confirmed.
 
@@ -124,6 +156,7 @@ Response `200`:
 ```json
 {
   "range": { "from": "2026-08-01", "to": "2026-08-31" },
+  "timeZone": "America/New_York",
   "revenue_cents": 1240000,
   "expenses_cents": 812000,
   "fuel_cents": 310000,

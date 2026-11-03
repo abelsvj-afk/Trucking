@@ -11,6 +11,7 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { useSubmissionId } from "@/lib/use-submission-id";
+import { localDateTimeInputValue } from "@/lib/time";
 import PageHeader from "@/components/PageHeader";
 import type { PretripInspection, Truck, Trailer, Driver } from "@/types/entities";
 
@@ -37,7 +38,7 @@ export default function NewPretripInspectionPage() {
   const [vehicleType, setVehicleType] = useState<"truck" | "trailer">("truck");
   const [vehicleId, setVehicleId] = useState("");
   const [driverId, setDriverId] = useState("");
-  const [inspectedAt, setInspectedAt] = useState(() => new Date().toISOString().slice(0, 16));
+  const [inspectedAt, setInspectedAt] = useState(() => localDateTimeInputValue(new Date()));
   const [passed, setPassed] = useState(true);
   const [defectsFound, setDefectsFound] = useState("");
   const [error, setError] = useState<string | null>(null);

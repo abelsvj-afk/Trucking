@@ -22,6 +22,7 @@ import { createClient } from "@/services/db/client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import HosCarrierSettings from "@/components/settings/HosCarrierSettings";
 import type { AiSettings } from "@/types/ai-settings";
 
 const CAPABILITY_LABELS: Record<string, string> = {
@@ -104,6 +105,8 @@ export default function AccountSettingsPage() {
           {signingOut ? "Signing out…" : "Sign out"}
         </button>
       </section>
+
+      <HosCarrierSettings />
 
       <section aria-label="AI authorization">
         <h2>AI authorization</h2>

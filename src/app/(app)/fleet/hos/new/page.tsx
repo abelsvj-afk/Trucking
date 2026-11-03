@@ -10,6 +10,7 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { useSubmissionId } from "@/lib/use-submission-id";
+import { localDateTimeInputValue } from "@/lib/time";
 import PageHeader from "@/components/PageHeader";
 import type { DutyLog, DutyStatus, Driver, Load } from "@/types/entities";
 
@@ -20,7 +21,9 @@ export default function NewDutyLogPage() {
   const [driverId, setDriverId] = useState("");
   const [loadId, setLoadId] = useState("");
   const [dutyStatus, setDutyStatus] = useState<DutyStatus>("on_duty");
-  const [startedAt, setStartedAt] = useState(() => new Date().toISOString().slice(0, 16));
+  // Local wall time for the datetime-local input (Unit B / F-011) -
+  // a UTC slice would pre-fill tomorrow's midnight at 8 PM Eastern.
+  const [startedAt, setStartedAt] = useState(() => localDateTimeInputValue(new Date()));
   const [location, setLocation] = useState("");
   const [odometer, setOdometer] = useState("");
   const [notes, setNotes] = useState("");

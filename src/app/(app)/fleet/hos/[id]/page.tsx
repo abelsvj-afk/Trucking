@@ -12,6 +12,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { formatDate, formatDateTime, localDateTimeInputValue } from "@/lib/time";
 import type { DutyLog, DutyStatus, Driver, Load } from "@/types/entities";
 
 const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
@@ -59,7 +60,7 @@ export default function DutyLogDetailPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  const recordName = `${STATUS_LABELS[record.duty_status]} — ${new Date(record.started_at).toLocaleDateString()}`;
+  const recordName = `${STATUS_LABELS[record.duty_status]} — ${formatDate(record.started_at)}`;
 
   return (
     <div>
@@ -71,7 +72,7 @@ export default function DutyLogDetailPage({ params }: { params: Promise<{ id: st
           <dt>Duty status</dt>
           <dd>{STATUS_LABELS[record.duty_status]}</dd>
           <dt>Started at</dt>
-          <dd>{new Date(record.started_at).toLocaleString()}</dd>
+          <dd>{formatDateTime(record.started_at)}</dd>
           <dt>Location</dt>
           <dd>{record.location ?? "Not recorded"}</dd>
           <dt>Odometer</dt>
@@ -105,7 +106,7 @@ function DutyLogEditForm({ record, onSaved }: { record: DutyLog; onSaved: (row: 
   const [driverId, setDriverId] = useState(record.driver_id ?? "");
   const [loadId, setLoadId] = useState(record.load_id ?? "");
   const [dutyStatus, setDutyStatus] = useState<DutyStatus>(record.duty_status);
-  const [startedAt, setStartedAt] = useState(() => new Date(record.started_at).toISOString().slice(0, 16));
+  const [startedAt, setStartedAt] = useState(() => localDateTimeInputValue(new Date(record.started_at)));
   const [location, setLocation] = useState(record.location ?? "");
   const [odometer, setOdometer] = useState(record.odometer != null ? String(record.odometer) : "");
   const [notes, setNotes] = useState(record.notes ?? "");

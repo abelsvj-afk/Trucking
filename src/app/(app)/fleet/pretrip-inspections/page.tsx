@@ -12,6 +12,7 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import { formatDate } from "@/lib/time";
 import {
   useDeletedToggle,
   DeletedToggleButton,
@@ -61,7 +62,7 @@ export default function PretripInspectionsPage() {
         <DeletedListSection<PretripInspection>
           resource="pretrip-inspections"
           labelFor={(inspection) =>
-            `${inspection.passed ? "Passed" : "Failed"} — ${new Date(inspection.inspected_at).toLocaleDateString()}`
+            `${inspection.passed ? "Passed" : "Failed"} — ${formatDate(inspection.inspected_at)}`
           }
           sublabelFor={(inspection) => inspection.defects_found ?? null}
         />
@@ -97,7 +98,7 @@ export default function PretripInspectionsPage() {
                     <strong data-status={inspection.passed ? "ok" : "overdue"}>
                       {inspection.passed ? "Passed" : "Failed"}
                     </strong>
-                    {new Date(inspection.inspected_at).toLocaleDateString()} — Truck/Trailer{" "}
+                    {formatDate(inspection.inspected_at)} — Truck/Trailer{" "}
                     {vehicleLabel(inspection)}
                   </span>
                   {(driver || inspection.defects_found) && (

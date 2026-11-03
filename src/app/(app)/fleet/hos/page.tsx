@@ -1,15 +1,28 @@
 "use client";
 
 // Driver MVP (docs/design/driver-mvp.md §3). The duty-log list plus the
-// warn-only summary from lib/hos.ts. Labeled everywhere it appears:
-// this is a paper-log helper, not an ELD, and never the legal record.
+// warn-only summary. Labeled everywhere it appears: this is a paper-log
+// helper, not an ELD, and never the legal record.
+//
+// Reliability Unit B (design B.2.4/B.2.5, F-013/F-015): the summary is
+// computed from the dedicated duty-log WINDOW fetch (every log in the
+// carrier-anchored calculation window, ascending - never the capped,
+// newest-first display list). The weekly figure is the
+// carrier-anchored cycle (lib/hos-cycle.ts): current + previous
+// carrier periods from the carrier's configured anchor and timezone,
+// with the basis stated on the surface. The short-term figures
+// (14-hour window, 11-hour driving, 30-minute break) still come from
+// lib/hos.ts, fed the same window rows so both engines segment the
+// same history.
 
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
+import { useHosWindow } from "@/lib/use-hos-window";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { summarizeHos } from "@/lib/hos";
+import { formatDate, formatDateTime } from "@/lib/time";
 import {
   useDeletedToggle,
   DeletedToggleButton,
@@ -32,9 +45,20 @@ export default function HosPage() {
   usePageTitle("Hours of service");
   const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<DutyLog>("duty-logs", { limit: "200" });
+  const hosWindow = useHosWindow();
 
-  const summary =
-    state.status === "loaded" ? summarizeHos(state.result.data) : null;
+  // Short-term summary over the WINDOW rows (complete history), not
+  // the display list. hos.ts's own rolling 8-day figure and warning
+  // are superseded by the carrier-anchored cycle below and filtered
+  // out - showing both would state two different weekly totals.
+  const shortTerm =
+    hosWindow.state.status === "loaded" ? summarizeHos(hosWindow.state.data) : null;
+  const shortTermWarnings = (shortTerm?.warnings ?? []).filter(
+    (warning) => !warning.includes("8-day on-duty limit"),
+  );
+  const hos = hosWindow.state.status === "loaded" ? hosWindow.state.hos : null;
+  const hasAnyLogs =
+    hosWindow.state.status === "loaded" ? hosWindow.state.data.length > 0 : state.status === "loaded" && state.result.data.length > 0;
 
   return (
     <div>
@@ -56,22 +80,59 @@ export default function HosPage() {
         <DeletedListSection<DutyLog>
           resource="duty-logs"
           labelFor={(row) =>
-            `${STATUS_LABELS[row.duty_status]} — ${new Date(row.started_at).toLocaleDateString()}`
+            `${STATUS_LABELS[row.duty_status]} — ${formatDate(row.started_at)}`
           }
           sublabelFor={(row) => row.location ?? null}
         />
       ) : (
         <>
-      {summary && state.status === "loaded" && state.result.data.length > 0 && (
+      {hosWindow.state.status === "error" && (
+        <section aria-label="Summary">
+          <h2>Where you stand</h2>
+          <p role="alert">
+            Your summary couldn&apos;t be computed completely, so it isn&apos;t
+            shown rather than risk understating your hours: {hosWindow.state.message}{" "}
+            <button type="button" onClick={hosWindow.retry}>Retry</button>
+          </p>
+        </section>
+      )}
+      {shortTerm && hos && hasAnyLogs && (
         <section aria-label="Summary">
           <h2>Where you stand</h2>
           <ul>
-            <li>Driving in this 14-hour window: {formatMinutes(summary.drivingMinutesInWindow)} of 11h</li>
-            <li>Window elapsed: {formatMinutes(summary.windowElapsedMinutes)} of 14h</li>
-            <li>Driving since your last 30-minute break: {formatMinutes(summary.drivingMinutesSinceBreak)} of 8h</li>
-            <li>On duty in the last 8 days: {formatMinutes(summary.onDutyMinutesLast8Days)} of 70h</li>
+            <li>Driving in this 14-hour window: {formatMinutes(shortTerm.drivingMinutesInWindow)} of 11h</li>
+            <li>Window elapsed: {formatMinutes(shortTerm.windowElapsedMinutes)} of 14h</li>
+            <li>Driving since your last 30-minute break: {formatMinutes(shortTerm.drivingMinutesSinceBreak)} of 8h</li>
+            <li>
+              On duty this cycle ({hos.cycle}): {formatMinutes(hos.onDutyMinutesInCycle)} of{" "}
+              {formatMinutes(hos.cycleLimitMinutes)}
+            </li>
           </ul>
-          {summary.warnings.map((warning) => (
+          <p>
+            Cycle basis: current + previous {hos.cycle === "70/8" ? 7 : 6} carrier periods
+            (the {hos.cycle} cycle), each starting at {hos.periodAnchor} {hos.carrierTimeZone} —
+            your carrier&apos;s specified period start, not calendar days.
+          </p>
+          {hos.restartApplied && (
+            <p>
+              Cycle restarted — 34-hour restart ended{" "}
+              {formatDateTime(hos.restartApplied.endedAt, hos.carrierTimeZone)} ({hos.carrierTimeZone});
+              duty before it doesn&apos;t count toward this cycle.
+            </p>
+          )}
+          {hos.restartUnverified && (
+            <p role="alert">
+              A possible 34-hour restart couldn&apos;t be verified from the visible
+              log, so it wasn&apos;t applied — this total is the conservative
+              full-cycle count.
+            </p>
+          )}
+          {shortTermWarnings.map((warning) => (
+            <p key={warning} role="alert">
+              {warning}
+            </p>
+          ))}
+          {hos.warnings.map((warning) => (
             <p key={warning} role="alert">
               {warning}
             </p>
@@ -96,7 +157,7 @@ export default function HosPage() {
               <li key={row.id}>
                 <Link href={`/fleet/hos/${row.id}`}>
                   {STATUS_LABELS[row.duty_status]} —{" "}
-                  {new Date(row.started_at).toLocaleString()}
+                  {formatDateTime(row.started_at)}
                   {row.location ? ` — ${row.location}` : ""}
                   {row.notes ? ` — ${row.notes}` : ""}
                 </Link>

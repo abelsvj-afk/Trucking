@@ -15,6 +15,7 @@ import {
   DeletedListSection,
 } from "@/components/RecordLifecycle";
 import { formatDollars } from "@/lib/truck-fund";
+import { formatDate } from "@/lib/time";
 import type { FuelPurchase } from "@/types/entities";
 
 export default function FuelPurchasesListPage() {
@@ -46,10 +47,10 @@ export default function FuelPurchasesListPage() {
           labelFor={(purchase: FuelPurchase) =>
             purchase.location
               ? `${purchase.location} — ${purchase.gallons} gal — ${formatDollars(purchase.total_cost_cents)}`
-              : `${new Date(purchase.purchased_at).toLocaleDateString()} — ${purchase.gallons} gal — ${formatDollars(purchase.total_cost_cents)}`
+              : `${formatDate(purchase.purchased_at)} — ${purchase.gallons} gal — ${formatDollars(purchase.total_cost_cents)}`
           }
           sublabelFor={(purchase: FuelPurchase) =>
-            purchase.location ? new Date(purchase.purchased_at).toLocaleDateString() : null
+            purchase.location ? formatDate(purchase.purchased_at) : null
           }
         />
       ) : (
@@ -73,7 +74,7 @@ export default function FuelPurchasesListPage() {
                   {purchase.location ? ` at ${purchase.location}` : ""}
                 </span>
                 <span className="row-sub">
-                  {new Date(purchase.purchased_at).toLocaleDateString()} · $
+                  {formatDate(purchase.purchased_at)} · $
                   {(purchase.price_per_gallon_cents / 100).toFixed(2)}/gal
                 </span>
               </Link>
