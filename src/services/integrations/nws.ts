@@ -5,6 +5,14 @@
 // affectedZones carry the state code (e.g. ".../zones/forecast/FLZ162"
 // -> FL), which is how an alert's states are derived - county names
 // in areaDesc are never parsed for geography.
+//
+// PAGINATION SHAPE (live-verified 2026-11-03): /alerts/active does
+// NOT accept a `limit` query parameter - sending one is a 400
+// ("Query parameter \"limit\" is not recognized", the exact error
+// this watcher showed in production). With no limit the endpoint
+// returns the full active set in one response; if it ever answers
+// with a `pagination.next` cursor link instead, we follow it (only
+// ever to api.weather.gov URLs) up to MAX_ALERT_PAGES pages.
 
 import { z } from "zod";
 
@@ -57,15 +65,33 @@ export function parseNwsAlerts(json: unknown): NwsAlert[] {
   }));
 }
 
+export const MAX_ALERT_PAGES = 10;
+
+/** Extracts the next-page cursor URL from a raw alerts page, or null when the set is complete. */
+export function nextAlertsPageUrl(json: unknown): string | null {
+  if (typeof json !== "object" || json === null || !("pagination" in json)) return null;
+  const pagination = (json as { pagination?: { next?: unknown } }).pagination;
+  if (!pagination || typeof pagination.next !== "string") return null;
+  // Only ever follow pagination to the same official host - the
+  // response is untrusted external content (CLAUDE.md).
+  return pagination.next.startsWith("https://api.weather.gov/") ? pagination.next : null;
+}
+
 export async function fetchActiveAlerts(fetchFn: typeof fetch = fetch): Promise<NwsAlert[]> {
-  const url = "https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=200";
-  const res = await fetchFn(url, {
-    headers: {
-      "User-Agent": "TruckingResearchEngine/1.0 (owner-operator research bot)",
-      Accept: "application/geo+json",
-    },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`NWS request failed: ${res.status} ${res.statusText}`);
-  return parseNwsAlerts(await res.json());
+  let url: string | null = "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
+  const alerts: NwsAlert[] = [];
+  for (let page = 0; page < MAX_ALERT_PAGES && url !== null; page++) {
+    const res = await fetchFn(url, {
+      headers: {
+        "User-Agent": "TruckingResearchEngine/1.0 (owner-operator research bot)",
+        Accept: "application/geo+json",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`NWS request failed: ${res.status} ${res.statusText}`);
+    const json: unknown = await res.json();
+    alerts.push(...parseNwsAlerts(json));
+    url = nextAlertsPageUrl(json);
+  }
+  return alerts;
 }
