@@ -34,6 +34,7 @@ import { formatCompanySnapshot } from "@/services/telegram/context";
 import type { BotBrainStore, PendingAction } from "./store";
 import { buildBotTools, executeWriteTool } from "./tools";
 import { expandMaintenancePairings } from "./maintenance-pairing";
+import { annotatePaperLogEdits } from "@/services/fleet/paper-logs";
 import {
   PHOTO_PURPOSE_TOOL,
   tryResolvePhotoPurposeAsk,
@@ -357,6 +358,17 @@ export async function runAgentTurn(
       proposals = await expandMaintenancePairings(store, proposals);
     } catch (err) {
       console.error("[bot] maintenance pairing failed:", err);
+    }
+  }
+  // §7.6 correction discipline (Image Intelligence): a delete
+  // aimed at a paper-sourced duty row carries the re-mark-your-
+  // paper line in its proposal text - the app's mirror can
+  // change, the paper can't, and his yes must know that.
+  if (proposals.some((p) => p.tool === "delete_record")) {
+    try {
+      proposals = await annotatePaperLogEdits(store, proposals);
+    } catch (err) {
+      console.error("[bot] paper-log edit annotation failed:", err);
     }
   }
   if (proposals.length > 0) {

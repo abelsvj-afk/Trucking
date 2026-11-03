@@ -37,6 +37,12 @@ import {
   stageTruckPhoto,
   type VehicleStageOutcome,
 } from "./vehicle-photos";
+import {
+  extractPaperLog,
+  type PaperLogExtraction,
+} from "@/services/ai/paper-log-extraction";
+import { OpenAiProvider } from "@/services/ai/providers/openai";
+import { stagePaperLogDay } from "@/services/fleet/paper-logs";
 
 /** Sentinel tool_name for a photo-purpose question in bot_pending_actions (design §6). */
 export const PHOTO_PURPOSE_TOOL = "photo_purpose";
@@ -301,6 +307,8 @@ export interface SettlePhotoPurposeDeps {
   processDocument?: (documentId: string, fileBuffer: Buffer) => Promise<"ran" | "off">;
   /** Injectable for tests; defaults to the §13 extraction seam reader. */
   extractionStatus?: (documentId: string) => Promise<DocumentExtractionStatus>;
+  /** Injectable for tests; defaults to downloading the sheet and running the §7 paper-log reader. */
+  readPaperLog?: (documentId: string, knownBytes?: Buffer) => Promise<PaperLogExtraction>;
 }
 
 export interface SettlePhotoPurposeInput {
@@ -405,6 +413,42 @@ async function settlePaperwork(
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
   }
   return lines.join("\n");
+}
+
+/**
+ * The §7 reader's default wiring: pull the stored sheet back down
+ * (the scan rendition when one exists - the crisper read) and run
+ * the dedicated paper-log contract over it.
+ */
+function defaultReadPaperLog(
+  deps: SettlePhotoPurposeDeps,
+): (documentId: string, knownBytes?: Buffer) => Promise<PaperLogExtraction> {
+  return async (documentId, knownBytes) => {
+    const { data: row, error } = await deps.client
+      .from("documents")
+      .select("storage_path, scan_storage_path, content_type")
+      .eq("id", documentId)
+      .eq("company_id", deps.companyId)
+      .maybeSingle();
+    if (error || !row) throw new Error("The stored sheet couldn't be loaded back.");
+    const doc = row as { storage_path: string; scan_storage_path: string | null; content_type: string | null };
+
+    let buffer = knownBytes;
+    let mediaType = doc.content_type ?? "image/jpeg";
+    if (!buffer) {
+      const path = doc.scan_storage_path ?? doc.storage_path;
+      const { data: blob, error: downloadError } = await deps.client.storage
+        .from("documents")
+        .download(path);
+      if (downloadError || !blob) throw new Error("The stored sheet couldn't be downloaded.");
+      buffer = Buffer.from(await blob.arrayBuffer());
+      if (doc.scan_storage_path) mediaType = "image/png";
+    }
+    return extractPaperLog(new OpenAiProvider(), {
+      imageBase64: buffer.toString("base64"),
+      mediaType,
+    });
+  };
 }
 
 const DAMAGE_WORDS = /\b(damage|damaged|bent|crack|cut|leak|broken|flat|dent|torn|missing|scrape|gouge)\b/i;
@@ -656,13 +700,31 @@ export async function settlePhotoPurpose(
       );
       return { reply: lines.join("\n") };
     }
-    case "paper_log":
-      return {
-        reply: [
-          headline ?? "That's a paper log sheet.",
-          "Saved in your documents, marked as a paper log sheet — the sheet itself is your stored copy, and your paper stays the legal record. Reading the grid into your app hours is a separate step I'm not running on this one yet; if you want today's hours in the app meanwhile, tell me the day's totals in words and I'll log them.",
-        ].join("\n"),
-      };
+    case "paper_log": {
+      // §7: the grid reader runs now (Phase 5) - the sheet is
+      // read by the dedicated paper-log contract, cross-checked
+      // in code, and staged as a propose->approve batch. A failed
+      // read stays honest: stored, marked, paper still the record.
+      const lines = [headline ?? "That's a paper log sheet."];
+      if (deps.brainStore) {
+        try {
+          const readPaperLog = deps.readPaperLog ?? defaultReadPaperLog(deps);
+          const extraction = await readPaperLog(documentId, input.knownBytes);
+          const staged = await stagePaperLogDay({ store: deps.brainStore, documentId, extraction });
+          lines.push(...staged.lines);
+        } catch (err) {
+          console.error("[telegram] paper log read failed", err);
+          lines.push(
+            "I tried to read the grid and couldn't — the sheet is saved in your documents, marked as a paper log sheet, and your paper stays the legal record either way. A flatter, closer photo of the grid usually reads; or tell me the day in words and I'll log it from that.",
+          );
+        }
+      } else {
+        lines.push(
+          "Saved in your documents, marked as a paper log sheet — the sheet itself is your stored copy, and your paper stays the legal record. Tell me the day's hours in words and I'll log them.",
+        );
+      }
+      return { reply: lines.join("\n") };
+    }
     case "other":
       return {
         reply: [

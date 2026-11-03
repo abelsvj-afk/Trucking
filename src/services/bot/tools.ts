@@ -29,6 +29,7 @@ import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
 import { buildRouteCheckTool } from "./route-check-tool";
 import { propagateMileage } from "@/services/fleet/mileage";
+import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
 
 function dollars(cents: number): string {
@@ -110,6 +111,9 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           `On duty in last 8 days: ${formatMinutes(hos.onDutyMinutesLast8Days)} of 70h.`,
         ];
         if (hos.warnings.length > 0) lines.push(`Warnings: ${hos.warnings.join("; ")}`);
+        // §7.7 trust labeling: paper-sourced clocks say so, and a
+        // partial paper day says partial - in this surface too.
+        lines.push(...(await hosProvenanceLines(client, companyId, rows)));
         return lines.join("\n");
       },
     },
@@ -423,7 +427,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "log_duty_status",
-      description: "Log a duty-status change in his paper-log helper (NOT the ELD - the helper never replaces the legal record): off_duty, sleeper, driving, or on_duty. Starts now unless he names a start time.",
+      description: "Log a duty-status change in his paper-log helper (NOT the ELD - the helper never replaces the legal record): off_duty, sleeper, driving, or on_duty. Starts now unless he names a start time. Provenance: omit source for ordinary entries; when he dictates hours in words to fill a gap a paper sheet read couldn't resolve, pass source 'conversation' (his word, not a read); 'paper_photo' rows are staged by the sheet pipeline itself, never invented in conversation. Correcting an entry that came from a paper sheet changes only the app's mirror - his paper still says the old time until he re-marks it, and any proposal to change one must say so.",
       parameters: {
         type: "object",
         properties: {
@@ -444,7 +448,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
       async run(args) {
         const parsed = logDutyArgs.parse(args);
-        const { error } = await client.from("duty_logs").insert({
+        const baseRow: Record<string, unknown> = {
           company_id: companyId,
           duty_status: parsed.duty_status,
           started_at: parsed.started_at ?? new Date().toISOString(),
@@ -452,7 +456,21 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           notes: parsed.notes ?? null,
           odometer: parsed.odometer ?? null,
           load_id: parsed.load_id ?? null,
-        });
+        };
+        if (parsed.source !== undefined) baseRow.source = parsed.source;
+        if (parsed.source_document_id !== undefined) {
+          baseRow.source_document_id = parsed.source_document_id;
+        }
+        let { error } = await client.from("duty_logs").insert(baseRow);
+        if (error && parsed.source !== undefined && isMissingColumnError(error)) {
+          // Pre-00043 database: the entry still lands; provenance
+          // is restated in the note so the mirror stays honest
+          // about where the row came from.
+          delete baseRow.source;
+          delete baseRow.source_document_id;
+          baseRow.notes = `${baseRow.notes ? `${baseRow.notes} ` : ""}(Provenance: ${parsed.source} - the source columns haven't landed in the database yet.)`;
+          ({ error } = await client.from("duty_logs").insert(baseRow));
+        }
         if (error) throw new Error(error.message);
         // §5.3: a duty-log odometer is an observation of the
         // truck's mileage - through the load's truck, via the one
@@ -725,6 +743,13 @@ const logDutyArgs = z.object({
   started_at: z.string().min(1).optional(),
   odometer: z.number().int().nonnegative().optional(),
   load_id: z.string().uuid().optional(),
+  // Provenance (Image Intelligence §7, migration 00043): code
+  // stages 'paper_photo' rows from sheet reads with the sheet's
+  // document id; when HE types hours in words - e.g. filling a
+  // span a sheet read couldn't resolve - they are his word, so
+  // pass source 'conversation'. Ordinary app logging omits both.
+  source: z.enum(["app", "paper_photo", "conversation"]).optional(),
+  source_document_id: z.string().uuid().optional(),
 });
 
 const saveMemoryArgs = z.object({

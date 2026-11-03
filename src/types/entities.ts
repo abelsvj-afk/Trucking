@@ -215,6 +215,14 @@ export interface DutyLog extends BaseRow {
   location: string | null;
   odometer: number | null;
   notes: string | null;
+  /**
+   * Provenance (Image Intelligence §7, migration 00043). Optional:
+   * rows read from a database where 00043 hasn't landed simply
+   * don't carry it - 'app' is the honest default assumption.
+   */
+  source?: "app" | "paper_photo" | "conversation";
+  /** For paper_photo rows: the documents row of the sheet photograph. */
+  source_document_id?: string | null;
 }
 
 export type DispatchExchangeSource = "web" | "telegram";
