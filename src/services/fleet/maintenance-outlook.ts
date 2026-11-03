@@ -35,9 +35,9 @@ export interface MaintenanceOutlook {
   schedules: ScheduleOutlook[];
   trucks: TruckOutlook[];
   defects: VehicleDefect[];
-  /** False before migration 00042 lands - stated, never hidden. */
+  /** False before migration 00043 lands - stated, never hidden. */
   defectsAvailable: boolean;
-  /** False before migration 00042 lands (template columns absent). */
+  /** False before migration 00043 lands (template columns absent). */
   templateStateAvailable: boolean;
 }
 
@@ -74,7 +74,7 @@ export async function computeMaintenanceOutlook(
     .order("unit_number", { ascending: true });
   let truckRows: TruckRow[];
   if (trucksResult.error) {
-    // Pre-00041 the provenance columns are absent; mileage still reads.
+    // Pre-00042 the provenance columns are absent; mileage still reads.
     if (!/does not exist/i.test(trucksResult.error.message)) {
       throw new Error(trucksResult.error.message);
     }

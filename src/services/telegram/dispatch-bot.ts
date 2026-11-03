@@ -63,6 +63,8 @@ export interface TelegramUpdate {
     text?: string;
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
     photo?: TelegramPhotoSize[];
+    /** UH-14 fix: Telegram album grouping id, when the photo arrived as part of an album. */
+    media_group_id?: string;
     caption?: string;
     forward_origin?: unknown;
     forward_from?: unknown;
@@ -129,6 +131,7 @@ export interface TelegramDeps {
   handlePhoto?: (
     photo: TelegramPhotoSize[],
     caption: string | undefined,
+    mediaGroupId?: string,
   ) => Promise<TelegramPhotoResult>;
   /**
    * §3.3: sends a message with an inline keyboard (photo-purpose
@@ -424,7 +427,10 @@ async function processTelegramUpdate(
     let reply: string;
     if (deps.handlePhoto) {
       try {
-        result = await deps.handlePhoto(photo, caption);
+        const mediaGroupId = update.message?.media_group_id;
+        result = mediaGroupId
+          ? await deps.handlePhoto(photo, caption, mediaGroupId)
+          : await deps.handlePhoto(photo, caption);
       } catch (err) {
         console.error("[telegram] photo intake failed", err);
         result =

@@ -184,11 +184,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // turns Photo understanding on.
     handlePhoto:
       brainStore && photoCompanyId
-        ? (photo, caption) =>
+        ? (photo, caption, mediaGroupId) =>
             handleTelegramPhotoIntelligent(
               { client: brainStore.client, companyId: photoCompanyId, botToken, brainStore },
               photo,
               caption,
+              mediaGroupId,
             )
         : undefined,
     // §3.3: inline-keyboard asks + their tap resolution.

@@ -1,4 +1,4 @@
-// Vehicle defects (migration 00042, Image Intelligence §5.5):
+// Vehicle defects (migration 00043, Image Intelligence §5.5):
 // a tracked observed problem on exactly one vehicle - the third
 // maintenance noun beside events (work done) and schedules
 // (future work). Same exactly-one-vehicle rule as schedules and

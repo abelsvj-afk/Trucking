@@ -70,6 +70,7 @@ export async function handleTelegramPhotoIntelligent(
   deps: TelegramPhotoIntelligenceDeps,
   photos: TelegramPhotoSize[],
   caption?: string,
+  mediaGroupId?: string,
 ): Promise<TelegramPhotoResult> {
   // Beat 0 - the kill switch (§3.4). A failed check degrades to
   // the legacy path too: the photo must never be lost to a
@@ -82,7 +83,26 @@ export async function handleTelegramPhotoIntelligent(
     console.error("[telegram] photo intelligence capability check failed", err);
   }
   if (!enabled) {
-    return handleTelegramPhoto(deps, photos, caption);
+    return handleTelegramPhoto(deps, photos, caption, mediaGroupId);
+  }
+
+  // UH-14 fix: an album's later pages attach to the first page's
+  // document and never re-run purpose/proposals for the group.
+  if (mediaGroupId) {
+    try {
+      const { findAlbumPrimary, attachAlbumPage } = await import("./album");
+      const primary = await findAlbumPrimary(deps.client, deps.companyId, mediaGroupId);
+      if (primary) {
+        const dl = await downloadTelegramPhoto(deps, pickLargestPhoto(photos));
+        if (!dl.ok) return dl.reply;
+        const pageCount = await attachAlbumPage(deps.client, deps.companyId, primary, dl.bytes);
+        if (pageCount != null) {
+          return `Added that as page ${pageCount} of the document you just sent — one document, pages together, so it reads as a single piece of paperwork.`;
+        }
+      }
+    } catch (err) {
+      console.error("[telegram] album grouping (intelligent) failed; continuing single-photo", err);
+    }
   }
 
   // Beat 1 - store first, unfiled.
@@ -93,6 +113,24 @@ export async function handleTelegramPhotoIntelligent(
   if (!stored.ok) return stored.reply;
   const documentId = stored.documentId;
   const bytes = Buffer.from(download.bytes);
+  if (mediaGroupId) {
+    try {
+      const { findAlbumPrimary, markAlbumPrimary } = await import("./album");
+      const existing = await findAlbumPrimary(deps.client, deps.companyId, mediaGroupId);
+      if (!existing) {
+        const { data: row } = await deps.client
+          .from("documents")
+          .select("storage_path, extracted_fields")
+          .eq("id", documentId)
+          .eq("company_id", deps.companyId)
+          .maybeSingle();
+        const r = row as { storage_path: string; extracted_fields: Record<string, unknown> | null } | null;
+        if (r) await markAlbumPrimary(deps.client, deps.companyId, documentId, mediaGroupId, r.storage_path, r.extracted_fields);
+      }
+    } catch (err) {
+      console.error("[telegram] album primary marking (intelligent) failed", err);
+    }
+  }
 
   const settleDeps = {
     client: deps.client as SupabaseClient,

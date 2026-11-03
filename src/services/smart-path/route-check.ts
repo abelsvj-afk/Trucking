@@ -228,8 +228,8 @@ export async function runRouteCheck(
   }
 
   // --- his clocks -------------------------------------------------------
-  // Provenance rides along when migration 00043 has landed (§7.7:
-  // the math never changes - only the labeling). Pre-00043 the
+  // Provenance rides along when migration 00044 has landed (§7.7:
+  // the math never changes - only the labeling). Pre-00044 the
   // wide select errors and the narrow one runs, unlabeled.
   const dutySince = new Date(now.getTime() - EIGHT_DAYS_MS).toISOString();
   const buildDutyQuery = (columns: string) => {

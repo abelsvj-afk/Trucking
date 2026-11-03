@@ -11,7 +11,7 @@
 // the rule that does the work is simpler and stated on the helper:
 // a reading applies when it is >= the recorded one; a lower
 // reading NEVER overwrites (it is surfaced as a question by the
-// caller instead). Provenance columns land with migration 00041;
+// caller instead). Provenance columns land with migration 00042;
 // before it, the helper still moves the mileage and says plainly
 // that the provenance couldn't be stamped.
 
@@ -87,7 +87,7 @@ export interface PropagateMileageResult {
   reason?: "not_forward" | "no_truck" | "invalid" | "update_failed";
   /** The mileage on the truck before this call (null = none recorded). */
   previousMiles: number | null;
-  /** False when migration 00041's provenance columns aren't live yet. */
+  /** False when migration 00042's provenance columns aren't live yet. */
   provenanceRecorded: boolean;
 }
 
@@ -132,7 +132,7 @@ export async function propagateMileage(
     return { applied: true, previousMiles: previous, provenanceRecorded: true };
   }
   if (isMissingColumnError(stamped.error)) {
-    // Pre-00041: move the number, say the stamp didn't happen.
+    // Pre-00042: move the number, say the stamp didn't happen.
     const bare = await client
       .from("trucks")
       .update({ current_mileage: miles })

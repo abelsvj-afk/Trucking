@@ -21,7 +21,7 @@ const maintenanceScheduleFieldsSchema = z.object({
     .nullable()
     .optional(),
   status: maintenanceScheduleStatusSchema.optional(),
-  // The maintenance brain (migration 00042): the interval-library
+  // The maintenance brain (migration 00043): the interval-library
   // key (§5.1) and where this row came from. Reminder state
   // (last_reminded_at / last_reminder_key) is watcher-owned and is
   // deliberately NOT accepted here.

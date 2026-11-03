@@ -45,7 +45,7 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
         if (!cancelled) setError("Couldn't load this truck. Check the connection and try again.");
       });
     // Open tracked defects (Image Intelligence §5.5): a line on
-    // the truck's own page. Best-effort - before migration 00042
+    // the truck's own page. Best-effort - before migration 00043
     // the resource doesn't exist and the section simply stays off.
     apiClient
       .list<VehicleDefect>("vehicle-defects", { truck_id: id })

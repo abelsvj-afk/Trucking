@@ -91,6 +91,17 @@ export interface TelegramPhotoIntakeDeps {
    */
   processDocument?: (documentId: string, fileBuffer: Buffer) => Promise<"ran" | "off">;
   now?: () => Date;
+  /** UH-14 fix (injectable for tests): album grouping hooks; defaults wire ./album against the client. */
+  album?: {
+    findPrimary: (mediaGroupId: string) => Promise<import("./album").AlbumPrimary | null>;
+    attachPage: (
+      primary: import("./album").AlbumPrimary,
+      bytes: ArrayBuffer,
+    ) => Promise<number | null>;
+    markPrimary: (documentId: string, mediaGroupId: string) => Promise<void>;
+  };
+  /** UH-03 fix (injectable for tests): matching pretrip-ask fulfilment for the legacy path; defaults to photo-purpose's matcher. */
+  fulfilPretripAsks?: (input: { evidenceText: string; loadId: string | null }) => Promise<void>;
 }
 
 const TOO_BIG_REPLY =
@@ -233,10 +244,50 @@ export async function handleTelegramPhoto(
   deps: TelegramPhotoIntakeDeps,
   photos: TelegramPhotoSize[],
   caption?: string,
+  mediaGroupId?: string,
 ): Promise<string> {
   const photo = pickLargestPhoto(photos);
   const download = await downloadTelegramPhoto(deps, photo);
   if (!download.ok) return download.reply;
+
+  // --- UH-14 fix: album pages attach to the group's ONE document --
+  const album = deps.album ?? {
+    findPrimary: async (gid: string) => {
+      const { findAlbumPrimary } = await import("./album");
+      return findAlbumPrimary(deps.client, deps.companyId, gid);
+    },
+    attachPage: async (primary: import("./album").AlbumPrimary, b: ArrayBuffer) => {
+      const { attachAlbumPage } = await import("./album");
+      return attachAlbumPage(deps.client, deps.companyId, primary, b);
+    },
+    markPrimary: async (documentId: string, gid: string) => {
+      const { markAlbumPrimary } = await import("./album");
+      const { data: row } = await deps.client
+        .from("documents")
+        .select("storage_path, extracted_fields")
+        .eq("id", documentId)
+        .eq("company_id", deps.companyId)
+        .maybeSingle();
+      const r = row as { storage_path: string; extracted_fields: Record<string, unknown> | null } | null;
+      if (r) await markAlbumPrimary(deps.client, deps.companyId, documentId, gid, r.storage_path, r.extracted_fields);
+    },
+  };
+  if (mediaGroupId) {
+    try {
+      const primary = await album.findPrimary(mediaGroupId);
+      if (primary) {
+        const pageCount = await album.attachPage(primary, download.bytes);
+        if (pageCount != null) {
+          return `Added that as page ${pageCount} of the document you just sent — one document, pages together, so it reads as a single piece of paperwork.`;
+        }
+        // Attach failed — fall through and store it as its own
+        // document rather than losing the photo.
+        console.error("[telegram] album attach failed; storing page as its own document");
+      }
+    } catch (err) {
+      console.error("[telegram] album grouping failed; storing as single document", err);
+    }
+  }
 
   // --- store through the shared documents pipeline -------------------
   const stored = await storeTelegramPhoto(deps, download.bytes, caption);
@@ -244,6 +295,13 @@ export async function handleTelegramPhoto(
   const documentId = stored.documentId;
   const fileName = stored.fileName;
   const bytes = download.bytes;
+  if (mediaGroupId) {
+    try {
+      await album.markPrimary(documentId, mediaGroupId);
+    } catch (err) {
+      console.error("[telegram] album primary marking failed", err);
+    }
+  }
 
   // --- processing: the same pipeline a web upload runs (§13) --------
   // Only when extraction is enabled — the gate is process-document's
@@ -285,6 +343,29 @@ export async function handleTelegramPhoto(
   } catch (err) {
     console.error("[telegram] photo extraction status failed", err);
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
+  }
+  // UH-03 fix: the legacy path also fulfils MATCHING pretrip_photo
+  // asks (it never fired before). Evidence = the read doc type plus
+  // his caption; the matcher requires load + full item coverage.
+  try {
+    const fulfil =
+      deps.fulfilPretripAsks ??
+      (async (input: { evidenceText: string; loadId: string | null }) => {
+        const brain = (deps as { brainStore?: import("@/services/bot/store").BotBrainStore }).brainStore;
+        const client = brain?.client ?? deps.client;
+        const { fulfilMatchingPretripAsk } = await import("./photo-purpose");
+        await fulfilMatchingPretripAsk(client, deps.companyId, input);
+      });
+    const statusForEvidence = await getStatus(documentId).catch(() => null);
+    const evidenceText = [
+      statusForEvidence?.state === "done" ? (statusForEvidence.docType ?? "") : "",
+      caption ?? "",
+    ].join(" ");
+    if (evidenceText.trim().length > 0) {
+      await fulfil({ evidenceText, loadId: null });
+    }
+  } catch (err) {
+    console.error("[telegram] legacy pretrip fulfilment failed", err);
   }
   if (caption) lines.push(`Your note on it: "${caption}"`);
   return lines.join("\n");

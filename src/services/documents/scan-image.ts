@@ -10,7 +10,7 @@
 // state on the document row, not an upload failure.
 
 import sharp from "sharp";
-import { enhanceScanPixels, type GrayImage } from "./pixels";
+import { enhanceScanPixels, isBlurryScore, laplacianVariance, type GrayImage } from "./pixels";
 
 // Bounds CPU/memory on a phone photo while staying far above what
 // OCR needs to read printed text.
@@ -55,6 +55,36 @@ export async function createScanRendition(
   } catch (err) {
     // Detail stays server-side; the caller just records "no scan".
     console.error("Document scan enhancement failed:", err);
+    return null;
+  }
+}
+
+/**
+ * UH-13 fix: advisory clarity assessment of a stored photo. Decodes
+ * a small grayscale rendition and scores it with the Laplacian
+ * variance metric. Returns null when the image can't be decoded —
+ * the check is advisory and must never fail an upload or a filing.
+ */
+export async function assessPhotoClarity(
+  input: Buffer,
+  contentType: string,
+): Promise<{ score: number; blurry: boolean } | null> {
+  if (!SCANNABLE_CONTENT_TYPES.has(contentType)) return null;
+  try {
+    const { data, info } = await sharp(input)
+      .rotate()
+      .greyscale()
+      .resize({ width: 800, height: 800, fit: "inside", withoutEnlargement: true })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const gray: GrayImage = {
+      data: new Uint8ClampedArray(data),
+      width: info.width,
+      height: info.height,
+    };
+    const score = laplacianVariance(gray);
+    return { score, blurry: isBlurryScore(score) };
+  } catch {
     return null;
   }
 }

@@ -362,7 +362,7 @@ export async function evaluateMaintenanceWatch(deps: WatchDeps): Promise<WatchPa
 
   const lastRun = await latestWatchRun(store);
   if (lastRun === "unavailable") {
-    console.error("[maintenance-watch] maintenance_watch_runs is missing - migration 00042 not applied; the watch is standing down");
+    console.error("[maintenance-watch] maintenance_watch_runs is missing - migration 00043 not applied; the watch is standing down");
     return { ran: false, urgentSent: 0, digestSent: false, routineHeld: 0, reason: "migration_missing" };
   }
   const ledger: WatchLedger = {
@@ -520,7 +520,7 @@ export async function runMaintenanceWatchIfDue(
     const now = overrides.now ?? new Date();
     const lastRun = await latestWatchRun(store);
     if (lastRun === "unavailable") {
-      console.error("[maintenance-watch] migration 00042 not applied - the watch is standing down");
+      console.error("[maintenance-watch] migration 00043 not applied - the watch is standing down");
       return;
     }
     if (lastRun && now.getTime() - new Date(lastRun.ran_at).getTime() < DUE_AFTER_MS) return;

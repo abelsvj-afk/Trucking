@@ -35,7 +35,7 @@ export interface Truck extends BaseRow {
   year: number | null;
   status: EntityStatus;
   current_mileage: number | null;
-  // Mileage provenance (migration 00041, Image Intelligence §5.3):
+  // Mileage provenance (migration 00042, Image Intelligence §5.3):
   // where the current reading came from and when it was observed.
   current_mileage_source:
     | "odometer_photo"
@@ -136,7 +136,7 @@ export interface FuelPurchase extends BaseRow {
   price_per_gallon_cents: number;
   total_cost_cents: number;
   purchased_at: string;
-  /** Dash reading at this stop (migration 00041, §5.3). */
+  /** Dash reading at this stop (migration 00042, §5.3). */
   odometer: number | null;
 }
 
@@ -159,7 +159,7 @@ export interface MaintenanceSchedule extends BaseRow {
   last_done_date: string | null;
   last_done_mileage: number | null;
   status: MaintenanceScheduleStatus;
-  // The maintenance brain (migration 00042, Image Intelligence
+  // The maintenance brain (migration 00043, Image Intelligence
   // §5.1/§5.6): the interval-library key this schedule came from,
   // where the row originated, and the watcher's reminder state.
   template_key: string | null;
@@ -171,7 +171,7 @@ export interface MaintenanceSchedule extends BaseRow {
 export type VehicleDefectSource = "pretrip" | "photo" | "conversation";
 export type VehicleDefectStatus = "open" | "acknowledged" | "closed" | "dismissed";
 
-/** A tracked observed problem (migration 00042, §5.5) - not work done (event) and not future work (schedule). */
+/** A tracked observed problem (migration 00043, §5.5) - not work done (event) and not future work (schedule). */
 export interface VehicleDefect extends BaseRow {
   truck_id: string | null;
   trailer_id: string | null;
@@ -216,8 +216,8 @@ export interface DutyLog extends BaseRow {
   odometer: number | null;
   notes: string | null;
   /**
-   * Provenance (Image Intelligence §7, migration 00043). Optional:
-   * rows read from a database where 00043 hasn't landed simply
+   * Provenance (Image Intelligence §7, migration 00044). Optional:
+   * rows read from a database where 00044 hasn't landed simply
    * don't carry it - 'app' is the honest default assumption.
    */
   source?: "app" | "paper_photo" | "conversation";
@@ -276,7 +276,7 @@ export interface Document {
   extraction_error: string | null;
   extracted_at: string | null;
   // Photo intelligence (Image Intelligence design §3, migration
-  // 00041): the photo's settled purpose, who settled it, and the
+  // 00042): the photo's settled purpose, who settled it, and the
   // read's confidence. All null on legacy documents and on photos
   // whose purpose question is still open.
   photo_purpose:

@@ -1,7 +1,7 @@
 // Mileage propagation (Image Intelligence §5.3 / GAP-09): the
 // sanity rules are code, the number never moves backwards, and
 // every accepted value carries its source. Provenance columns
-// land with migration 00041 - before it, the mileage still moves
+// land with migration 00042 - before it, the mileage still moves
 // and the helper says the stamp didn't happen.
 
 import { describe, expect, it } from "vitest";
@@ -142,7 +142,7 @@ describe("propagateMileage — the one door (§5.3)", () => {
     expect(truck.current_mileage).toBe(514_020);
   });
 
-  it("pre-00041: still moves the mileage, reports the stamp as not recorded", async () => {
+  it("pre-00042: still moves the mileage, reports the stamp as not recorded", async () => {
     const truck: TruckState = { current_mileage: 100 };
     const { client } = fakeClient(truck, { provenanceColumnMissing: true });
     const out = await propagateMileage(client, COMPANY, {

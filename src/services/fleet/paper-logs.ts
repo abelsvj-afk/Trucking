@@ -397,7 +397,7 @@ interface PaperAwareRow {
  * The labeling every clock surface owes him: paper-sourced clocks
  * say so, mixed clocks say so, and a day whose sheet didn't read
  * in full says "partial — from the readable part of [date]'s log".
- * Pre-00043 rows simply have no source field - no label, no error.
+ * Pre-00044 rows simply have no source field - no label, no error.
  */
 export async function hosProvenanceLines(
   client: SupabaseClient,

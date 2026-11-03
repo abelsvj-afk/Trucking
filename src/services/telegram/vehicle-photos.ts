@@ -156,7 +156,7 @@ async function loadTrucks(store: BotBrainStore): Promise<TruckRow[]> {
     .is("deleted_at", null)
     .order("unit_number", { ascending: true });
   if (error) {
-    // Pre-00041 the provenance column is absent - read without it.
+    // Pre-00042 the provenance column is absent - read without it.
     if (/current_mileage_at/.test(error.message)) {
       const retry = await store.client
         .from("trucks")

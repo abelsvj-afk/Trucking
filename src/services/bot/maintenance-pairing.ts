@@ -69,7 +69,7 @@ export async function expandMaintenancePairings(
       .order("created_at", { ascending: true })
       .limit(1);
     if (error) {
-      // Pre-00042 there is no template_key column - pairing is
+      // Pre-00043 there is no template_key column - pairing is
       // simply unavailable; the event proposal stands on its own.
       if (/does not exist/i.test(error.message)) return proposals;
       throw new Error(error.message);

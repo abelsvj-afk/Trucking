@@ -392,7 +392,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           total_cost_cents: totalCents,
           purchased_at: parsed.purchased_at ?? new Date().toISOString(),
         };
-        // The odometer column arrives with migration 00041 - only
+        // The odometer column arrives with migration 00042 - only
         // send it when he actually gave a reading, and if the
         // column isn't live yet, land the fuel entry anyway and
         // say the reading itself wasn't saved (§5.3 honesty).
@@ -463,7 +463,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         }
         let { error } = await client.from("duty_logs").insert(baseRow);
         if (error && parsed.source !== undefined && isMissingColumnError(error)) {
-          // Pre-00043 database: the entry still lands; provenance
+          // Pre-00044 database: the entry still lands; provenance
           // is restated in the note so the mirror stays honest
           // about where the row came from.
           delete baseRow.source;
@@ -743,7 +743,7 @@ const logDutyArgs = z.object({
   started_at: z.string().min(1).optional(),
   odometer: z.number().int().nonnegative().optional(),
   load_id: z.string().uuid().optional(),
-  // Provenance (Image Intelligence §7, migration 00043): code
+  // Provenance (Image Intelligence §7, migration 00044): code
   // stages 'paper_photo' rows from sheet reads with the sheet's
   // document id; when HE types hours in words - e.g. filling a
   // span a sheet read couldn't resolve - they are his word, so

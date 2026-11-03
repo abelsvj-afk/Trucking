@@ -5,7 +5,7 @@ import {
 } from "@/data/schemas/vehicle-defects";
 import type { VehicleDefect } from "@/types/entities";
 
-// Vehicle defects (migration 00042, Image Intelligence §5.5):
+// Vehicle defects (migration 00043, Image Intelligence §5.5):
 // tracked observed problems. The truck page reads its open ones
 // from here; Abel reads/writes through his own tools.
 const routes = createCrudRoutes<VehicleDefect>(

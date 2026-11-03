@@ -10,6 +10,7 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { summarizeHos } from "@/lib/hos";
+import { buildPaperDocMap, hosPaperBanner, hosPartialLines, hosRowPaperSuffix } from "@/lib/hos-paper";
 import type { Document, DutyLog } from "@/types/entities";
 
 const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
@@ -30,29 +31,15 @@ export default function HosPage() {
   // completeness stamp lives on its document row; the clocks built
   // on a partial day must say partial on this surface too.
   const documents = useApiList<Document>("documents", { limit: "200" });
-  const paperDocs = new Map<string, { complete: boolean; date: string | null }>();
-  if (documents.state.status === "loaded") {
-    for (const doc of documents.state.result.data) {
-      if (doc.photo_purpose !== "paper_log") continue;
-      const fields = (doc.extracted_fields ?? {}) as Record<string, unknown>;
-      paperDocs.set(doc.id, {
-        complete: fields.paper_log_complete !== false,
-        date: typeof fields.paper_log_date === "string" ? fields.paper_log_date : null,
-      });
-    }
-  }
-
+  // UH-12 fix: the paper/partial computation lives in the shared
+  // helper (src/lib/hos-paper.ts) — Home consumes the same labels.
+  const paperDocs =
+    documents.state.status === "loaded" ? buildPaperDocMap(documents.state.result.data) : new Map();
   const summary =
     state.status === "loaded" ? summarizeHos(state.result.data) : null;
   const rows = state.status === "loaded" ? state.result.data : [];
-  const paperRowCount = rows.filter((row) => row.source === "paper_photo").length;
-  const partialDates = [
-    ...new Set(
-      rows
-        .filter((row) => row.source_document_id && paperDocs.get(row.source_document_id)?.complete === false)
-        .map((row) => paperDocs.get(row.source_document_id!)?.date ?? "that day"),
-    ),
-  ];
+  const paperBanner = hosPaperBanner(rows, paperDocs);
+  const partialLines = hosPartialLines(rows, paperDocs);
 
   return (
     <div>
@@ -82,16 +69,10 @@ export default function HosPage() {
               {warning}
             </p>
           ))}
-          {paperRowCount > 0 && (
-            <p>
-              {paperRowCount === rows.length
-                ? "Every hour above was read off your paper log sheet(s) — the paper stays the legal record; this page mirrors it."
-                : "The hours above mix what you logged here with hours read off your paper log sheet(s) — where they differ, the paper is the legal record."}
-            </p>
-          )}
-          {partialDates.map((date) => (
-            <p key={date} role="alert">
-              Partial — from the readable part of {date}&apos;s log; the unreadable spans aren&apos;t in these numbers.
+          {paperBanner && <p>{paperBanner}</p>}
+          {partialLines.map((line) => (
+            <p key={line} role="alert">
+              {line}
             </p>
           ))}
         </section>
@@ -116,12 +97,7 @@ export default function HosPage() {
                 {new Date(row.started_at).toLocaleString()}
                 {row.location ? ` — ${row.location}` : ""}
                 {row.notes ? ` — ${row.notes}` : ""}
-                {row.source === "paper_photo" ? " — from your paper log sheet" : ""}
-                {row.source === "conversation" ? " — from your words" : ""}
-                {row.source_document_id &&
-                paperDocs.get(row.source_document_id)?.complete === false
-                  ? " (partial day)"
-                  : ""}
+                {hosRowPaperSuffix(row, paperDocs)}
               </li>
             ))}
         </ul>

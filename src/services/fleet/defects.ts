@@ -92,7 +92,7 @@ export async function listActiveDefects(
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) {
-    // Pre-00042 the table doesn't exist - say so via the flag,
+    // Pre-00043 the table doesn't exist - say so via the flag,
     // never by inventing an empty answer that looks authoritative.
     if (/does not exist/i.test(error.message)) return { defects: [], available: false };
     throw new Error(error.message);

@@ -108,14 +108,14 @@ export function askOptionsFor(candidates: PhotoPurposeCandidate[]): TelegramPhot
 }
 
 // ---------------------------------------------------------------------------
-// Purpose stamping (migration 00041)
+// Purpose stamping (migration 00042)
 // ---------------------------------------------------------------------------
 
 export type PhotoPurposeSource = "vision" | "caption" | "owner";
 
 /**
  * Stamps the settled purpose on the document row. Graceful before
- * migration 00041 lands (the house pattern): a missing column logs
+ * migration 00042 lands (the house pattern): a missing column logs
  * and reports false - the photo is still stored and the reply still
  * names its purpose; the stamp is provenance, not the filing.
  */
@@ -136,7 +136,7 @@ export async function stampPhotoPurpose(
     .eq("company_id", companyId);
   if (!error) return true;
   if (isMissingColumnError(error)) {
-    console.error("[telegram] photo purpose stamp skipped - migration 00041 not applied yet");
+    console.error("[telegram] photo purpose stamp skipped - migration 00042 not applied yet");
     return false;
   }
   console.error("[telegram] photo purpose stamp failed", error.message);
@@ -309,6 +309,10 @@ export interface SettlePhotoPurposeDeps {
   extractionStatus?: (documentId: string) => Promise<DocumentExtractionStatus>;
   /** Injectable for tests; defaults to downloading the sheet and running the §7 paper-log reader. */
   readPaperLog?: (documentId: string, knownBytes?: Buffer) => Promise<PaperLogExtraction>;
+  /** UH-02 fix (injectable for tests): stage GAP-01 document proposals for a settled paperwork photo, exactly like the legacy intake does. Resolves the outcome line to append, or null. */
+  stageProposals?: (documentId: string) => Promise<string | null>;
+  /** UH-13 fix (injectable for tests): advisory clarity check on the photo bytes. Resolves true when the photo looks blurry. Never blocks filing. */
+  clarityCheck?: (bytes: Buffer) => Promise<boolean>;
 }
 
 export interface SettlePhotoPurposeInput {
@@ -346,6 +350,87 @@ function readLines(fields: PhotoClassificationFields | undefined): string[] {
   if (fields.door_company_name) lines.push(`The door says: ${fields.door_company_name}.`);
   if (fields.description) lines.push(fields.description);
   return lines;
+}
+
+// ---------------------------------------------------------------------------
+// UH-03 fix: research-request fulfilment MATCHING. A queued
+// pretrip_photo ask is fulfilled ONLY by a matching photo: the ask's
+// load must match the photo's load (when the ask carries one), and
+// the photo's evidence must cover EVERY item the ask requested. One
+// tire photo no longer discharges a BOL ask or a four-item ask.
+// ---------------------------------------------------------------------------
+
+const ITEM_PATTERNS: { match: RegExp; evidence: RegExp }[] = [
+  { match: /bol|bill of lading/i, evidence: /\bbol\b|bill of lading/i },
+  { match: /tire|tyre|wheel/i, evidence: /tire|tyre|wheel|tread/i },
+  { match: /light|lamp/i, evidence: /light|lamp|headlight|brake light/i },
+  { match: /secure|strap|chain|tarp/i, evidence: /secure|strap|chain|tarp|binder/i },
+  { match: /brake/i, evidence: /brake/i },
+  { match: /mirror/i, evidence: /mirror/i },
+  { match: /fluid|leak/i, evidence: /fluid|leak/i },
+  { match: /coupling|fifth|gladhand/i, evidence: /coupling|fifth wheel|gladhand/i },
+];
+
+/** True when the evidence text covers every requested item. Unknown items require their first word in the evidence. */
+export function pretripItemsCovered(items: string[], evidenceText: string): boolean {
+  // An ask that names NO items asked only for "a pre-trip photo" —
+  // coverage is vacuous. (The writer always records items; this is
+  // for degenerate rows.) An ask WITH items requires every one.
+  if (items.length === 0) return true;
+  return items.every((item) => {
+    const known = ITEM_PATTERNS.find((p) => p.match.test(item));
+    if (known) return known.evidence.test(evidenceText);
+    const word = item.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+    return word.length >= 3 && evidenceText.toLowerCase().includes(word);
+  });
+}
+
+export interface PretripAskRow {
+  id: string;
+  load_id: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+/** The matching rule, pure: load match (when the ask is load-scoped) + full item coverage. */
+export function pretripAskMatches(
+  ask: PretripAskRow,
+  input: { evidenceText: string; loadId: string | null },
+): boolean {
+  if (ask.load_id && input.loadId !== ask.load_id) return false;
+  const itemsRaw = (ask.detail as { items?: unknown } | null)?.items;
+  const items = Array.isArray(itemsRaw)
+    ? itemsRaw.filter((i): i is string => typeof i === "string" && i.length > 0)
+    : [];
+  return pretripItemsCovered(items, input.evidenceText);
+}
+
+/**
+ * Stamps the OLDEST queued pretrip_photo ask that MATCHES this photo.
+ * Failure-isolated by design (CL-09): any error is logged by callers'
+ * try/catch and never fails the settle. Returns the fulfilled id.
+ */
+export async function fulfilMatchingPretripAsk(
+  client: SupabaseClient,
+  companyId: string,
+  input: { evidenceText: string; loadId: string | null },
+): Promise<string | null> {
+  const { data: requests } = await client
+    .from("research_requests")
+    .select("id, load_id, detail")
+    .eq("company_id", companyId)
+    .eq("kind", "pretrip_photo")
+    .eq("status", "queued")
+    .order("created_at", { ascending: true })
+    .limit(5);
+  const rows = (requests ?? []) as PretripAskRow[];
+  const match = rows.find((r) => pretripAskMatches(r, input));
+  if (!match) return null;
+  await client
+    .from("research_requests")
+    .update({ status: "fulfilled", fulfilled_at: new Date().toISOString() })
+    .eq("id", match.id)
+    .eq("company_id", companyId);
+  return match.id;
 }
 
 /** Paperwork settling: the EXISTING pipeline, run on the stored photo (§4.1 - byte for byte the web door's read). */
@@ -406,11 +491,84 @@ async function settlePaperwork(
       gateClosed
         ? { state: "off" }
         : getDocumentExtractionStatus(deps.client, deps.companyId, id));
+  let status: DocumentExtractionStatus | null = null;
   try {
-    lines.push(...extractionLines(await getStatus(documentId)));
+    status = await getStatus(documentId);
+    lines.push(...extractionLines(status));
   } catch (err) {
     console.error("[telegram] photo extraction status failed", err);
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
+  }
+
+  // UH-13 fix: ADVISORY clarity check — warns with retake guidance,
+  // NEVER blocks the filing above.
+  try {
+    const blurry = deps.clarityCheck
+      ? await deps.clarityCheck(buffer)
+      : await (async () => {
+          const { assessPhotoClarity } = await import("@/services/documents/scan-image");
+          const verdict = await assessPhotoClarity(buffer, "image/jpeg");
+          return verdict?.blurry ?? false;
+        })();
+    if (blurry) {
+      lines.push(
+        "Heads up: that photo looks blurry — if the text on it matters, a flatter, closer retake in good light will read better. I filed this one either way.",
+      );
+    }
+  } catch (err) {
+    console.error("[telegram] photo clarity check failed", err);
+  }
+
+  // UH-02 fix: GAP-01 proposal staging on the intelligent path, the
+  // same call the legacy intake makes — when extraction is done,
+  // stage the record proposals (fuel / rate-con / BOL) for his yes.
+  // A staging failure never costs him the stored photo or its reply.
+  if (status?.state === "done") {
+    try {
+      const stageProposals =
+        deps.stageProposals ??
+        (async (id: string): Promise<string | null> => {
+          // The proposals module is GAP-owned: present in the union,
+          // absent on this lane's tip — a non-literal specifier keeps
+          // this tip compiling standalone; a missing module lands in
+          // the catch below and the settle continues without staging.
+          const proposalsSpecifier: string = ["@/services/documents", "document-proposals"].join("/");
+          const { stageDocumentProposalsForClient } = await import(proposalsSpecifier);
+          const { formatRecordableOutcome } = await import("@/services/bot/stage-recordables");
+          const result = await stageDocumentProposalsForClient(
+            deps.client,
+            deps.companyId,
+            id,
+            "telegram",
+          );
+          return result ? formatRecordableOutcome(result) || null : null;
+        });
+      const proposalText = await stageProposals(documentId);
+      if (proposalText) lines.push(proposalText.trim());
+    } catch (err) {
+      console.error("[telegram] document proposal staging failed", err);
+    }
+
+    // UH-03 fix (paperwork half): a BOL read through this path can
+    // fulfil a MATCHING pretrip_photo ask (BOL is a default ask item
+    // but settles as paperwork, so the pretrip branch never sees it).
+    if (deps.brainStore && status.docType && /bol/i.test(status.docType)) {
+      try {
+        const { data: docRow } = await deps.client
+          .from("documents")
+          .select("related_entity_type, related_entity_id")
+          .eq("id", documentId)
+          .eq("company_id", deps.companyId)
+          .maybeSingle();
+        const rel = docRow as { related_entity_type?: string; related_entity_id?: string } | null;
+        await fulfilMatchingPretripAsk(deps.client, deps.companyId, {
+          evidenceText: "BOL bill of lading",
+          loadId: rel?.related_entity_type === "load" ? (rel.related_entity_id ?? null) : null,
+        });
+      } catch (err) {
+        console.error("[telegram] BOL research-request fulfilment failed", err);
+      }
+    }
   }
   return lines.join("\n");
 }
@@ -469,6 +627,7 @@ async function pretripPhotoFollowUps(
   deps: SettlePhotoPurposeDeps,
   documentId: string,
   fields: PhotoClassificationFields | undefined,
+  headline?: string,
 ): Promise<string[]> {
   const store = deps.brainStore!;
   const lines: string[] = [];
@@ -548,24 +707,29 @@ async function pretripPhotoFollowUps(
   }
 
   try {
-    // R-6 fulfilment hook (built inert, §5.5): a queued
-    // pretrip_photo request is fulfilled by this photo's arrival.
-    const { data: requests } = await store.client
-      .from("research_requests")
-      .select("id")
-      .eq("company_id", deps.companyId)
-      .eq("kind", "pretrip_photo")
-      .eq("status", "queued")
-      .order("created_at", { ascending: true })
-      .limit(1);
-    const request = ((requests ?? []) as { id: string }[])[0];
-    if (request) {
-      await store.client
-        .from("research_requests")
-        .update({ status: "fulfilled", fulfilled_at: new Date().toISOString() })
-        .eq("id", request.id)
-        .eq("company_id", deps.companyId);
+    // R-6 fulfilment hook, UH-03 fix: only a MATCHING photo fulfils
+    // an ask — load must match when the ask is load-scoped, and the
+    // photo's evidence must cover every requested item.
+    // The photo's load linkage is best-effort: a surface whose
+    // client can't read it back just means "no load scope known".
+    let photoLoadId: string | null = null;
+    try {
+      const { data: docRow } = await store.client
+        .from("documents")
+        .select("related_entity_type, related_entity_id")
+        .eq("id", documentId)
+        .eq("company_id", deps.companyId)
+        .maybeSingle();
+      const rel = docRow as { related_entity_type?: string; related_entity_id?: string } | null;
+      photoLoadId = rel?.related_entity_type === "load" ? (rel.related_entity_id ?? null) : null;
+    } catch {
+      photoLoadId = null;
     }
+    const evidenceText = [fields?.description ?? "", fields?.unit_number ?? "", headline ?? ""].join(" ");
+    await fulfilMatchingPretripAsk(store.client, deps.companyId, {
+      evidenceText,
+      loadId: photoLoadId,
+    });
   } catch (err) {
     console.error("[telegram] pretrip research-request fulfilment failed", err);
   }
@@ -690,7 +854,7 @@ export async function settlePhotoPurpose(
     case "pretrip": {
       const lines = [headline ?? "That's a pre-trip photo.", ...readLines(fields)];
       if (deps.brainStore) {
-        lines.push(...(await pretripPhotoFollowUps(deps, documentId, fields)));
+        lines.push(...(await pretripPhotoFollowUps(deps, documentId, fields, input.headline)));
       }
       lines.push("Saved in your documents, marked as a pre-trip photo.");
       // §4.5: skip is first-class, forever - a photo never becomes

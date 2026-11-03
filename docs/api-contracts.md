@@ -307,3 +307,15 @@ The web chat window onto the **same bot brain** as the Telegram bot — same sto
 ---
 
 *Exact UI screens consuming this API are Phase 7 (`docs/design/ui-ux.md`). This document is the boundary between frontend and backend — both must conform to it once implementation starts.*
+
+### Vehicle defects (Image Intelligence §5.5, migration 00043 — UH-11 fix)
+
+Standard resource semantics (the 5-endpoint table above) over the `vehicle_defects` table; authenticated owner session, RLS tenant isolation.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/vehicle-defects` | List vehicle defects |
+| POST | `/api/v1/vehicle-defects` | Create a vehicle defect |
+| GET | `/api/v1/vehicle-defects/{id}` | Get one vehicle defect |
+| PATCH | `/api/v1/vehicle-defects/{id}` | Partial update |
+| DELETE | `/api/v1/vehicle-defects/{id}` | Soft delete |
