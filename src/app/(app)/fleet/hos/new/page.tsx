@@ -7,14 +7,17 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useSubmissionId } from "@/lib/use-submission-id";
 import PageHeader from "@/components/PageHeader";
 import type { DutyLog, DutyStatus, Driver, Load } from "@/types/entities";
 
 export default function NewDutyLogPage() {
   usePageTitle("Log duty status");
   const router = useRouter();
+  const submissionId = useSubmissionId();
   const [driverId, setDriverId] = useState("");
   const [loadId, setLoadId] = useState("");
   const [dutyStatus, setDutyStatus] = useState<DutyStatus>("on_duty");
@@ -33,19 +36,28 @@ export default function NewDutyLogPage() {
     setError(null);
     setSubmitting(true);
 
+    const body = {
+      submission_id: submissionId,
+      driver_id: driverId || null,
+      load_id: loadId || null,
+      duty_status: dutyStatus,
+      started_at: new Date(startedAt).toISOString(),
+      location: location || null,
+      odometer: odometer ? Number(odometer) : null,
+      notes: notes || null,
+    };
     try {
-      await apiClient.create<DutyLog>("duty-logs", {
-        driver_id: driverId || null,
-        load_id: loadId || null,
-        duty_status: dutyStatus,
-        started_at: new Date(startedAt).toISOString(),
-        location: location || null,
-        odometer: odometer ? Number(odometer) : null,
-        notes: notes || null,
-      });
+      await apiClient.create<DutyLog>("duty-logs", body);
       router.push("/fleet/hos");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        // GAP-07: a duty change in a dead zone still gets logged —
+        // queued on the device with its real start time.
+        offlineOutbox.enqueue("duty-logs", body);
+        router.push("/fleet/hos");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -60,7 +72,7 @@ export default function NewDutyLogPage() {
       </p>
 
       <form onSubmit={handleSubmit}>
-        <label htmlFor="driver_id">Driver</label>
+        <label htmlFor="driver_id">Driver (optional)</label>
         <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
           <option value="">Unassigned</option>
           {drivers.map((driver) => (
@@ -70,7 +82,7 @@ export default function NewDutyLogPage() {
           ))}
         </select>
 
-        <label htmlFor="load_id">Load</label>
+        <label htmlFor="load_id">Load (optional)</label>
         <select id="load_id" value={loadId} onChange={(event) => setLoadId(event.target.value)}>
           <option value="">No load</option>
           {loads.map((load) => (
@@ -101,7 +113,7 @@ export default function NewDutyLogPage() {
           required
         />
 
-        <label htmlFor="location">Location</label>
+        <label htmlFor="location">Location (optional)</label>
         <input
           id="location"
           value={location}
@@ -109,7 +121,7 @@ export default function NewDutyLogPage() {
           placeholder="e.g. Melbourne, FL"
         />
 
-        <label htmlFor="odometer">Odometer</label>
+        <label htmlFor="odometer">Odometer (optional)</label>
         <input
           id="odometer"
           type="number"
@@ -118,7 +130,7 @@ export default function NewDutyLogPage() {
           onChange={(event) => setOdometer(event.target.value)}
         />
 
-        <label htmlFor="notes">Notes</label>
+        <label htmlFor="notes">Notes (optional)</label>
         <input id="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
 
         {error && <p role="alert">{error}</p>}

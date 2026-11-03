@@ -24,6 +24,8 @@ import TruckIdentityFields, {
   type TruckIdentityValues,
 } from "@/components/TruckIdentityFields";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useToast } from "@/components/Toast";
+import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { truckTypeLabel } from "@/lib/fleet-display";
 import type { Truck, VehicleDefect } from "@/types/entities";
 
@@ -128,10 +130,10 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
             </Link>
           </li>
           <li>
-            <Link href="/fleet/maintenance-events">Maintenance history</Link>
+            <Link href={`/fleet/maintenance-events?truck_id=${truck.id}`}>Maintenance history</Link>
           </li>
           <li>
-            <Link href="/fleet/equipment-checklist">Equipment on board</Link>
+            <Link href={`/fleet/equipment-checklist?truck_id=${truck.id}`}>Equipment on board</Link>
           </li>
           <li>
             <Link href="/fleet/truck-profile">Route profile (size, speed, cab)</Link>
@@ -140,11 +142,23 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
       </section>
 
       <TruckEditForm key={truck.id} truck={truck} onSaved={setTruck} />
+
+      <section aria-label="Delete this record">
+        <h2>Delete this record</h2>
+        <DeleteRecordButton
+          resource="trucks"
+          id={truck.id}
+          recordName={`Truck ${truck.unit_number}`}
+          listHref="/fleet/trucks"
+          listLabel="trucks"
+        />
+      </section>
     </div>
   );
 }
 
 function TruckEditForm({ truck, onSaved }: { truck: Truck; onSaved: (truck: Truck) => void }) {
+  const toast = useToast();
   const [identity, setIdentity] = useState<TruckIdentityValues>(() => truckIdentityFromTruck(truck));
   const [profile, setProfile] = useState<TruckProfileValues>(() => truckProfileFromTruck(truck));
   const [error, setError] = useState<string | null>(null);
@@ -163,6 +177,7 @@ function TruckEditForm({ truck, onSaved }: { truck: Truck; onSaved: (truck: Truc
       });
       onSaved(updated);
       setSaved(true);
+      toast.success("Saved");
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
     } finally {

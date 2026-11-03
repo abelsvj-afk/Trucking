@@ -15,6 +15,8 @@ import TrailerFields, {
   type TrailerValues,
 } from "@/components/TrailerFields";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useToast } from "@/components/Toast";
+import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import type { Trailer } from "@/types/entities";
 
 export default function TrailerDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -99,11 +101,23 @@ export default function TrailerDetailPage({ params }: { params: Promise<{ id: st
       </section>
 
       <TrailerEditForm key={trailer.id} trailer={trailer} onSaved={setTrailer} />
+
+      <section aria-label="Delete this record">
+        <h2>Delete this record</h2>
+        <DeleteRecordButton
+          resource="trailers"
+          id={trailer.id}
+          recordName={`Trailer ${trailer.unit_number}`}
+          listHref="/fleet/trailers"
+          listLabel="trailers"
+        />
+      </section>
     </div>
   );
 }
 
 function TrailerEditForm({ trailer, onSaved }: { trailer: Trailer; onSaved: (trailer: Trailer) => void }) {
+  const toast = useToast();
   const [values, setValues] = useState<TrailerValues>(() => trailerFromTrailer(trailer));
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -118,6 +132,7 @@ function TrailerEditForm({ trailer, onSaved }: { trailer: Trailer; onSaved: (tra
       const updated = await apiClient.update<Trailer>("trailers", trailer.id, trailerToPayload(values));
       onSaved(updated);
       setSaved(true);
+      toast.success("Saved");
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
     } finally {

@@ -11,6 +11,7 @@ import { eiaDieselWatcher } from "./eia-diesel";
 import { eiaRegionalWatcher } from "./eia-regional";
 import { federalRegisterWatcher } from "./federal-register";
 import { gdeltGeoWatcher } from "./gdelt-geo";
+import { gdeltTechWatcher } from "./gdelt-tech";
 import { industryNewsWatcher } from "./industry-news";
 import { marketSnapshotWatcher } from "./market-snapshot";
 import { nwsWeatherWatcher } from "./nws-weather";
@@ -27,6 +28,7 @@ export const WATCHERS: Watcher[] = [
   industryNewsWatcher,
   marketSnapshotWatcher,
   gdeltGeoWatcher,
+  gdeltTechWatcher,
   nwsWeatherWatcher,
   openStatesWatcher,
 ];

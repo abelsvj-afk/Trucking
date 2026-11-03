@@ -6,7 +6,10 @@
 
 import { z } from "zod";
 
-export const loadStatusSchema = z.enum(["draft", "confirmed", "completed"]);
+// "cancelled" added by Reliability Unit A per ruling D-01: a cancelled
+// load is a state, never a deletion. loads.status is unconstrained text
+// at the database level, so no migration is needed for the new value.
+export const loadStatusSchema = z.enum(["draft", "confirmed", "completed", "cancelled"]);
 
 const loadFieldsSchema = z.object({
   truck_id: z.string().uuid().nullable().optional(),
@@ -17,6 +20,24 @@ const loadFieldsSchema = z.object({
   destination: z.string().min(1, "destination is required."),
   pickup_date: z.string().optional(),
   delivery_date: z.string().optional(),
+  // GAP-02 (Fresh-Eyes Register 2026-11-02): appointment windows as
+  // full timestamps, captured from the rate con / dispatch forward at
+  // intake instead of re-typed into every Smart Path check.
+  pickup_window_start: z.string().optional(),
+  pickup_window_end: z.string().optional(),
+  delivery_window_start: z.string().optional(),
+  delivery_window_end: z.string().optional(),
+  // GAP-04: detention terms from the rate con - free minutes before
+  // the facility clock bills, and the per-hour rate after them.
+  detention_free_minutes: z.number().int().nonnegative().optional(),
+  detention_rate_cents_per_hour: z.number().int().nonnegative().optional(),
+  // GAP-05: scale-ticket weight lands on the load.
+  weight_lbs: z.number().int().positive().optional(),
+  // GAP-03/15: facility links + structured lane states.
+  pickup_facility_id: z.string().uuid().nullable().optional(),
+  delivery_facility_id: z.string().uuid().nullable().optional(),
+  origin_state: z.string().length(2).optional(),
+  destination_state: z.string().length(2).optional(),
   rate_cents: z.number().int().nonnegative("rate_cents must not be negative.").optional(),
   miles: z.number().int().nonnegative("miles must not be negative.").optional(),
   status: loadStatusSchema.optional(),

@@ -36,6 +36,10 @@ export interface ResearchConfig {
   marketTransportsThresholdPct: number;
   /** GDELT cluster size that hard-fires on its own; smaller clusters only converge (D-3). */
   geoHardMinItems: number;
+  /** GDELT tech cluster size that may hard-fire - and only with deployment evidence (owner scope addition, 2026-11-02). */
+  techHardMinItems: number;
+  /** Deployment/regulatory items a tech cluster must contain before it may hard-fire alone. */
+  techHardMinDeployment: number;
   /** Heartbeat older than this many hours = the runner is stale (D-1.3). */
   heartbeatStaleHours: number;
   /** A watcher in 'error' longer than this many hours alerts (D-1.3). */
@@ -71,6 +75,8 @@ export function getResearchConfig(env: NodeJS.ProcessEnv = process.env): Researc
     marketCrudeThresholdPct: num("RESEARCH_MARKET_CRUDE_THRESHOLD_PCT", 5),
     marketTransportsThresholdPct: num("RESEARCH_MARKET_TRANSPORTS_THRESHOLD_PCT", 4),
     geoHardMinItems: num("RESEARCH_GEO_HARD_MIN_ITEMS", 12),
+    techHardMinItems: num("RESEARCH_TECH_HARD_MIN_ITEMS", 15),
+    techHardMinDeployment: num("RESEARCH_TECH_HARD_MIN_DEPLOYMENT", 2),
     heartbeatStaleHours: num("RESEARCH_HEARTBEAT_STALE_HOURS", 26),
     watcherErrorAlertHours: num("RESEARCH_WATCHER_ERROR_ALERT_HOURS", 24),
     floorAlertDays: num("RESEARCH_FLOOR_ALERT_DAYS", 35),

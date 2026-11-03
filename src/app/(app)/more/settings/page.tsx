@@ -15,14 +15,27 @@
 // task's literal scope, so it's included here rather than left for a
 // separate task on the exact page that already exists to hold it.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { createClient } from "@/services/db/client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import { useToast } from "@/components/Toast";
+import {
+  applyThemeChoice,
+  resolveThemeChoice,
+  THEME_STORAGE_KEY,
+  type ThemeChoice,
+} from "@/lib/theme";
 import type { AiSettings } from "@/types/ai-settings";
+
+const THEME_OPTIONS: { value: ThemeChoice; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "auto", label: "Auto" },
+];
 
 const CAPABILITY_LABELS: Record<string, string> = {
   industry_intelligence: "Industry intelligence briefings",
@@ -32,6 +45,8 @@ const CAPABILITY_LABELS: Record<string, string> = {
   document_extraction: "Document text extraction (reads uploaded paperwork so the assistant can answer questions about it)",
   game_plan: "Game Plan (your target + strategy planner — games your real numbers into a path to the target; projections, never promises)",
   memory_consolidation: "Memory night shift (nightly pass that organizes Abel's memory and stages things he noticed in your chats as proposals for your yes/no — never saves anything on its own)",
+  voice_transcription: "Voice transcription (Abel turns your Telegram voice notes into text and works them like typed messages — audio goes to the transcription provider; typical cost is under a cent per note, or free when a free-tier provider is configured)",
+  driver_twin: "Driver twin (on Telegram, Abel drafts dispatch replies using your own past sent replies as examples, and tracks how much you edit his drafts — web dispatch drafts don't use the twin yet; off means no examples in drafts and no edit tracking)",
   photo_intelligence: "Photo understanding (when you send Abel a photo, he figures out what it's for — paperwork, the truck, a trailer, the dash, a pre-trip — and asks you with one tap when he isn't sure; off means photos are just filed as documents, like before)",
   maintenance_watch: "Maintenance reminders (Abel watches your maintenance schedules and open defects in the background and messages you when something is due, overdue, or going stale — one digest a day at most, urgent safety/legal items right away; off means he only answers when you ask)",
 };
@@ -44,8 +59,32 @@ type SettingsState =
 export default function AccountSettingsPage() {
   usePageTitle("Settings");
   const router = useRouter();
+  const toast = useToast();
   const [state, setState] = useState<SettingsState>({ status: "loading" });
   const [signingOut, setSigningOut] = useState(false);
+  // Toggle failures used to roll back silently (audit Section B/F-3):
+  // the switch flipped back and said nothing. Now the failure speaks -
+  // an inline message here plus a toast.
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  // Theme choice (parked decision (d), src/lib/theme.ts): read from
+  // localStorage via useSyncExternalStore (server snapshot = the
+  // shipped default, so hydration agrees); a pick in this session
+  // overrides the stored value immediately.
+  const storedTheme = useSyncExternalStore(
+    (onChange) => {
+      window.addEventListener("storage", onChange);
+      return () => window.removeEventListener("storage", onChange);
+    },
+    () => window.localStorage.getItem(THEME_STORAGE_KEY),
+    () => null,
+  );
+  const [pickedTheme, setPickedTheme] = useState<ThemeChoice | null>(null);
+  const themeChoice = pickedTheme ?? resolveThemeChoice(storedTheme);
+
+  function pickTheme(choice: ThemeChoice) {
+    setPickedTheme(choice);
+    applyThemeChoice(choice);
+  }
 
   const fetchSettings = useCallback(() => {
     apiClient
@@ -65,18 +104,23 @@ export default function AccountSettingsPage() {
   async function toggleGlobal(nextValue: boolean) {
     if (state.status !== "loaded") return;
     const previous = state.settings;
+    setToggleError(null);
     setState({ status: "loaded", settings: { ...previous, globally_disabled: nextValue } });
     try {
       const settings = await apiClient.updateAiSettings({ globally_disabled: nextValue });
       setState({ status: "loaded", settings });
     } catch {
       setState({ status: "loaded", settings: previous });
+      const message = "Couldn't save that change — the switch has been put back. Try again.";
+      setToggleError(message);
+      toast.error(message);
     }
   }
 
   async function toggleCapability(capability: string, nextValue: boolean) {
     if (state.status !== "loaded") return;
     const previous = state.settings;
+    setToggleError(null);
     setState({
       status: "loaded",
       settings: { ...previous, capabilities: { ...previous.capabilities, [capability]: nextValue } },
@@ -86,6 +130,9 @@ export default function AccountSettingsPage() {
       setState({ status: "loaded", settings });
     } catch {
       setState({ status: "loaded", settings: previous });
+      const message = "Couldn't save that change — the switch has been put back. Try again.";
+      setToggleError(message);
+      toast.error(message);
     }
   }
 
@@ -107,6 +154,26 @@ export default function AccountSettingsPage() {
         </button>
       </section>
 
+      <section aria-label="Appearance">
+        <h2>Appearance</h2>
+        <p>
+          Light, dark, or Auto — Auto follows your phone&apos;s own setting, like it does today.
+          Your pick is saved on this device.
+        </p>
+        <div role="group" aria-label="Theme">
+          {THEME_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={themeChoice === option.value}
+              onClick={() => pickTheme(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section aria-label="AI authorization">
         <h2>AI authorization</h2>
         <p>
@@ -114,6 +181,7 @@ export default function AccountSettingsPage() {
           effect before the next scheduled run — it never interrupts one already in progress.
         </p>
 
+        {toggleError && <p role="alert">{toggleError}</p>}
         {state.status === "loading" && <ListLoading />}
         {state.status === "error" && <ListError message={state.message} onRetry={fetchSettings} />}
         {state.status === "loaded" && (

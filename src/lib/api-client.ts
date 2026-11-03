@@ -5,7 +5,15 @@
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
-import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
+import type {
+  CheckWiresResult,
+  DetentionStamp,
+  ResearchBriefing,
+  ResearchPageData,
+  ResearchRun,
+} from "@/types/entities";
+import type { DetentionSummary } from "@/lib/detention";
+import type { PaperworkState } from "@/lib/paperwork";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
@@ -35,17 +43,26 @@ export interface BotMemoryListResult {
 }
 
 export interface ApiErrorBody {
-  error: { code: string; message: string };
+  error: { code: string; message: string; fields?: { path: string; message: string }[] };
 }
 
 export class ApiClientError extends Error {
   code: string;
   status: number;
+  // Field-level errors when the API returns them (Unit A/F 422s), so
+  // edit forms can show WHAT is wrong, not just that something is.
+  fields?: { path: string; message: string }[];
 
-  constructor(status: number, code: string, message: string) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    fields?: { path: string; message: string }[],
+  ) {
     super(message);
     this.code = code;
     this.status = status;
+    this.fields = fields;
   }
 }
 
@@ -65,6 +82,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       res.status,
       body?.error.code ?? "UNKNOWN_ERROR",
       body?.error.message ?? "Something went wrong. Please try again.",
+      body?.error.fields,
     );
   }
 
@@ -90,6 +108,13 @@ export const apiClient = {
     request<T>(`/api/v1/${resource}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: (resource: string, id: string) =>
     request<void>(`/api/v1/${resource}/${id}`, { method: "DELETE" }),
+  // Restore a soft-deleted record (Reliability Unit A): POST
+  // /api/v1/{resource}/{id}/restore. A refusal is a 422 ApiClientError
+  // whose message names the reason (deleted parent, invalid record...).
+  // The Deleted view of a list is the plain list call with
+  // params { deleted: "only" }.
+  restore: <T>(resource: string, id: string) =>
+    request<T>(`/api/v1/${resource}/${id}/restore`, { method: "POST" }),
   // Documents don't fit the generic list/create/remove shape above -
   // multipart upload, filtered by related entity, no PATCH
   // (docs/api-contracts.md) - so they get their own three methods.
@@ -126,6 +151,38 @@ export const apiClient = {
     return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
   },
   removeDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
+  // Retention-delete lifecycle (Unit A / F-007): the Deleted view of a
+  // record's documents (tombstones carry retention status and no signed
+  // URLs), restore, and the cleanup-incident surface (F-038) - open
+  // incidents plus the per-incident removal retry.
+  listDeletedDocuments: <T>(relatedEntityType: string, relatedEntityId: string) => {
+    const qs = new URLSearchParams({
+      related_entity_type: relatedEntityType,
+      related_entity_id: relatedEntityId,
+      deleted: "only",
+    });
+    return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
+  },
+  restoreDocument: <T>(id: string) =>
+    request<T>(`/api/v1/documents/${id}/restore`, { method: "POST" }),
+  listCleanupIncidents: <T>() =>
+    request<{ data: T[] }>("/api/v1/documents/cleanup-incidents"),
+  retryCleanupIncident: <T>(id: string) =>
+    request<T>(`/api/v1/documents/cleanup-incidents/${id}/retry`, { method: "POST" }),
+  // GAP-04/05 (Fresh-Eyes Register 2026-11-02): the load's facility
+  // clock + paperwork state — nested under the load, computed
+  // server-side by src/lib/detention.ts / src/lib/paperwork.ts.
+  detention: (loadId: string) =>
+    request<{ data: DetentionStamp[]; summary: DetentionSummary }>(
+      `/api/v1/loads/${loadId}/detention-stamps`,
+    ),
+  stampDetention: (loadId: string, body: Record<string, unknown>) =>
+    request<{ data: DetentionStamp }>(`/api/v1/loads/${loadId}/detention-stamps`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  loadPaperwork: (loadId: string) =>
+    request<{ data: PaperworkState }>(`/api/v1/loads/${loadId}/paperwork`),
   // Computed, read-only (docs/api-contracts.md) - omit params for the
   // server's current-calendar-month default.
   financialSummary: (params?: { from: string; to: string }) => {
@@ -216,4 +273,11 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ topic }),
     }),
+  // Home News Banner (2026-11-02 design §6.4): one briefing by id,
+  // including dismissed - the deep-link fallback for a banner tap.
+  getResearchBriefing: (id: string) => request<ResearchBriefing>(`/api/v1/research-briefings/${id}`),
+  // Home News Banner (2026-11-02 design §4): the watcher-only light
+  // pull - free sources, no AI call, no run-cap spend.
+  checkWires: () =>
+    request<CheckWiresResult>("/api/v1/research-briefings/check-wires", { method: "POST" }),
 };

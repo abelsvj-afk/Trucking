@@ -11,11 +11,17 @@
 // the same block is what the Telegram bot will speak later.
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { Suspense, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import {
+  ACTIVE_PLAN_STORAGE_KEY,
+  DRIVE_COPY,
+  serializeActivePlan,
+} from "@/lib/drive";
 import { useApiList } from "@/lib/use-api-list";
-import { ListLoading, ListError } from "@/components/ListStates";
+import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { formatEastern, formatMinutes, routeCaption } from "@/lib/smart-path";
@@ -211,6 +217,17 @@ function SmartPathInner() {
       }
       const response = await apiClient.create<RouteCheckResponse>("smart-path/route-check", body);
       setResult(response);
+      // Drive Mode D1: the checked plan becomes the active plan -
+      // Home's GO card and the Drive surface both read it from
+      // here. Storage is a nicety, never a reason to fail a check.
+      try {
+        window.localStorage.setItem(
+          ACTIVE_PLAN_STORAGE_KEY,
+          serializeActivePlan(response, Date.now()),
+        );
+      } catch {
+        // Private mode / full storage: the check still stands.
+      }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "The route check failed. Try again.");
     } finally {
@@ -258,7 +275,15 @@ function SmartPathInner() {
       {loadsState.status === "loading" && <ListLoading />}
       {loadsState.status === "error" && <ListError message={loadsState.message} onRetry={retry} />}
       {loadsState.status === "loaded" && loads.length === 0 && (
-        <p>No loads yet — add a load first, then check its run here.</p>
+        <TeachingEmpty
+          title="No loads yet"
+          message="Add a load first, then check its run here."
+          action={
+            <Link href="/loads/new" className="page-action">
+              Add load
+            </Link>
+          }
+        />
       )}
 
       {loads.length > 0 && (
@@ -443,6 +468,28 @@ function SmartPathInner() {
             {result.plan?.arrivalAt && <> · arrival {formatEastern(new Date(result.plan.arrivalAt))}</>}
           </p>
           <p>{routeCaption(result.route)}</p>
+
+          {result.route.truckLegal ? (
+            <p>
+              <Link
+                href="/smart-path/drive"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "56px",
+                  padding: "0 28px",
+                  fontSize: "1.25rem",
+                  fontWeight: 800,
+                  border: "2px solid currentColor",
+                  borderRadius: "12px",
+                }}
+              >
+                GO — Drive this run
+              </Link>
+            </p>
+          ) : (
+            <p role="note">{DRIVE_COPY.carRouteRefusal}</p>
+          )}
 
           {result.deadhead && (
             <>

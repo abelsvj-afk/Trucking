@@ -14,8 +14,10 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, ListEmpty, ListError, TeachingEmpty } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { DocumentPreview, extractionStatusText } from "@/components/DocumentPreview";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { usePageTitle } from "@/lib/use-page-title";
 import type {
+  CleanupIncident,
   Driver,
   DocumentWithSignedUrl,
   Load,
@@ -82,8 +84,18 @@ function DocumentsInner() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [docsState, setDocsState] = useState<DocsState>({ status: "loaded", documents: [] });
   const [previewDoc, setPreviewDoc] = useState<DocumentWithSignedUrl | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<DocumentWithSignedUrl | null>(null);
   const [searchText, setSearchText] = useState("");
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
+  // Cleanup incidents (Unit A / F-038 surface): leftover files whose
+  // automatic cleanup failed, with a working retry - never silent.
+  const [incidents, setIncidents] = useState<CleanupIncident[]>([]);
+  const [incidentNotice, setIncidentNotice] = useState<string | null>(null);
+  // Deleted documents for the selected record (Unit A / F-007):
+  // tombstones with retention status and a restore action.
+  const [showDeletedDocs, setShowDeletedDocs] = useState(false);
+  const [deletedDocs, setDeletedDocs] = useState<DocumentWithSignedUrl[]>([]);
+  const [deletedNotice, setDeletedNotice] = useState<string | null>(null);
 
   const trucks = usePickerList<Truck>("trucks");
   const trailers = usePickerList<Trailer>("trailers");
@@ -118,6 +130,63 @@ function DocumentsInner() {
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  const fetchIncidents = useCallback(() => {
+    apiClient
+      .listCleanupIncidents<CleanupIncident>()
+      .then((result) => setIncidents(result.data))
+      .catch(() => setIncidents([]));
+  }, []);
+
+  useEffect(() => {
+    fetchIncidents();
+  }, [fetchIncidents]);
+
+  const fetchDeletedDocuments = useCallback(() => {
+    if (!entityId) return;
+    apiClient
+      .listDeletedDocuments<DocumentWithSignedUrl>(entityType, entityId)
+      .then((result) => setDeletedDocs(result.data))
+      .catch(() => setDeletedDocs([]));
+  }, [entityType, entityId]);
+
+  useEffect(() => {
+    if (showDeletedDocs) fetchDeletedDocuments();
+  }, [showDeletedDocs, fetchDeletedDocuments]);
+
+  async function handleRetryIncident(id: string) {
+    setIncidentNotice(null);
+    try {
+      const updated = await apiClient.retryCleanupIncident<CleanupIncident>(id);
+      if (updated.status === "open") {
+        setIncidentNotice("That file still couldn't be removed — the incident stays open below.");
+        fetchIncidents();
+      } else {
+        setIncidentNotice(
+          updated.status === "object_absent"
+            ? "That leftover file was already gone — incident closed."
+            : "Leftover file removed — incident closed.",
+        );
+        fetchIncidents();
+      }
+    } catch {
+      setIncidentNotice("Couldn't retry cleanup. Try again.");
+    }
+  }
+
+  async function handleRestoreDocument(id: string) {
+    setDeletedNotice(null);
+    try {
+      await apiClient.restoreDocument(id);
+      setDeletedNotice("Document restored.");
+      fetchDeletedDocuments();
+      fetchDocuments();
+    } catch (err) {
+      setDeletedNotice(
+        err instanceof ApiClientError ? err.message : "Couldn't restore that document. Try again.",
+      );
+    }
+  }
 
   // Picking a record is a user action (not an effect), so it's safe to set
   // loading state synchronously here - this is what actually shows the
@@ -182,6 +251,31 @@ function DocumentsInner() {
         title="Documents"
         purpose="Paperwork and photos, filed against the truck, trailer, driver, or load they belong to — BOLs, permits, registrations, receipts. The assistant can read these."
       />
+
+      {incidents.length > 0 && (
+        <section aria-label="Files needing cleanup">
+          <h2>Leftover files needing cleanup</h2>
+          <p className="row-sub">
+            These files were uploaded but their automatic cleanup failed, so no record points
+            at them. Retry the removal here — an incident only closes when the file is
+            actually gone or confirmed absent.
+          </p>
+          {incidentNotice && <p role="status">{incidentNotice}</p>}
+          <ul>
+            {incidents.map((incident) => (
+              <li key={incident.id}>
+                {incident.storage_path}{" "}
+                <span className="row-sub">
+                  recorded {new Date(incident.created_at).toLocaleDateString()}
+                </span>{" "}
+                <button type="button" onClick={() => handleRetryIncident(incident.id)}>
+                  Retry removal
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <form onSubmit={handleSearch}>
         <label htmlFor="document_search">Search your paperwork</label>
@@ -288,7 +382,7 @@ function DocumentsInner() {
               <button type="button" onClick={() => setPreviewDoc(doc)}>
                 View
               </button>{" "}
-              <button type="button" onClick={() => handleRemove(doc.id)}>
+              <button type="button" onClick={() => setPendingRemove(doc)}>
                 Remove
               </button>
               <p>{extractionStatusText(doc)}</p>
@@ -296,6 +390,66 @@ function DocumentsInner() {
           ))}
         </ul>
       )}
+
+      {entityId && (
+        <section aria-label="Deleted documents">
+          <p>
+            <button
+              type="button"
+              onClick={() => setShowDeletedDocs((current) => !current)}
+              aria-pressed={showDeletedDocs}
+            >
+              {showDeletedDocs ? "Hide deleted documents" : "Deleted documents"}
+            </button>
+          </p>
+          {showDeletedDocs && (
+            <div>
+              <p className="row-sub">
+                Removing a document keeps its file — nothing here is erased. Restore brings
+                the document back exactly as it was.
+              </p>
+              {deletedNotice && <p role="status">{deletedNotice}</p>}
+              {deletedDocs.length === 0 && <p>No deleted documents for this record.</p>}
+              {deletedDocs.length > 0 && (
+                <ul>
+                  {deletedDocs.map((doc) => (
+                    <li key={doc.id}>
+                      {doc.file_name}{" "}
+                      <span className="row-sub">
+                        {doc.deleted_at
+                          ? `Removed ${new Date(doc.deleted_at).toLocaleDateString()}`
+                          : ""}
+                        {doc.retention_status ? ` · file ${doc.retention_status}` : ""}
+                      </span>{" "}
+                      <button type="button" onClick={() => handleRestoreDocument(doc.id)}>
+                        Restore
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove this document?"
+        message={
+          pendingRemove
+            ? `Remove "${pendingRemove.file_name}"? It moves to Deleted documents, where you can restore it.`
+            : ""
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          if (!pendingRemove) return;
+          const id = pendingRemove.id;
+          setPendingRemove(null);
+          void handleRemove(id);
+        }}
+      />
 
       {previewDoc && <DocumentPreview key={previewDoc.id} doc={previewDoc} />}
     </div>
