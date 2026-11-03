@@ -57,7 +57,7 @@ export async function getDayWrap(
       .eq("company_id", companyId)
       .is("deleted_at", null),
     // GAP-11/12/14 inputs. These tables arrive with migrations
-    // 00048/00049/00051 — a missing table must never break the
+    // 00051/00052/00054 — a missing table must never break the
     // wrap, so their errors are tolerated (treated as empty).
     supabase
       .from("credentials")
@@ -126,7 +126,11 @@ export async function getDayWrap(
     ]);
     if (docsResult.error) throw new Error(docsResult.error.message);
     if (expensesResult.error) throw new Error(expensesResult.error.message);
-    if (stampsResult.error) throw new Error(stampsResult.error.message);
+    // UH-07 fix: detention_stamps gets the SAME missing-table tolerance
+    // as credentials/load_invoices/broker_followups above — the GAP-04
+    // table arrives with its own migration and a missing table must
+    // mean "no stamps", never a failed day-wrap.
+    const stampsData = stampsResult.error ? [] : (stampsResult.data ?? []);
     const label = `${load.origin} → ${load.destination}`;
     paperwork.push({
       loadLabel: label,
@@ -139,7 +143,7 @@ export async function getDayWrap(
         >[],
       ),
     });
-    const stamps = (stampsResult.data ?? []) as DetentionStamp[];
+    const stamps = stampsData as DetentionStamp[];
     if (stamps.some((s) => s.stamp_type === "departure" && onDate(s.occurred_at))) {
       detention.push({ loadLabel: label, summary: computeDetention(load, stamps) });
     }

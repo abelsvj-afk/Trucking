@@ -46,7 +46,7 @@ export async function getBrokerScorecard(
       .is("deleted_at", null),
   ]);
   if (loadsResult.error) throw new Error(loadsResult.error.message);
-  // Invoices arrive with migration 00049 — tolerate its absence.
+  // Invoices arrive with migration 00052 — tolerate its absence.
   const invoices = invoicesResult.error ? [] : ((invoicesResult.data ?? []) as LoadInvoice[]);
   const loads = (loadsResult.data ?? []) as Load[];
 

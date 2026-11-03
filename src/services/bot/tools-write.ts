@@ -175,7 +175,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     miles: z.number().int().nonnegative().optional(),
     status: loadStatusSchema.optional(),
     notes: z.string().optional(),
-    // GAP-02/04/05/03/15 (migrations 00046/00047): what the rate con
+    // GAP-02/04/05/03/15 (migrations 00049/00050): what the rate con
     // already carries — windows, detention terms, weight, lane
     // states, facility links.
     pickup_window_start: z.string().optional(),

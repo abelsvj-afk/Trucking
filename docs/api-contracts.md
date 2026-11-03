@@ -307,3 +307,49 @@ The web chat window onto the **same bot brain** as the Telegram bot — same sto
 ---
 
 *Exact UI screens consuming this API are Phase 7 (`docs/design/ui-ux.md`). This document is the boundary between frontend and backend — both must conform to it once implementation starts.*
+
+### Fresh-Eyes GAP endpoints (GAP-02…GAP-16, union wave 2 — UH-11 fix)
+
+All routes below require the standard authenticated owner session (see Auth above); tenant isolation is RLS + `company_id` scoping, as everywhere. The five register resources are standard resources (the 5-endpoint table above applies: list/get-one/create/PATCH/DELETE-soft-delete) over the tables named, with fields per `docs/schemas.md` and the entity types in `src/types/entities.ts`.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/credentials` | List credentials (GAP-11, migration 00051) |
+| POST | `/api/v1/credentials` | Create a credential |
+| GET | `/api/v1/credentials/{id}` | Get one credential |
+| PATCH | `/api/v1/credentials/{id}` | Partial update |
+| DELETE | `/api/v1/credentials/{id}` | Soft delete |
+| GET | `/api/v1/facilities` | List facilities (GAP-03, migration 00050) |
+| POST | `/api/v1/facilities` | Create a facility |
+| GET | `/api/v1/facilities/{id}` | Get one facility |
+| PATCH | `/api/v1/facilities/{id}` | Partial update |
+| DELETE | `/api/v1/facilities/{id}` | Soft delete |
+| GET | `/api/v1/load-invoices` | List load invoices (GAP-12, migration 00052) |
+| POST | `/api/v1/load-invoices` | Create a load invoice |
+| GET | `/api/v1/load-invoices/{id}` | Get one load invoice |
+| PATCH | `/api/v1/load-invoices/{id}` | Partial update |
+| DELETE | `/api/v1/load-invoices/{id}` | Soft delete |
+| GET | `/api/v1/recurring-obligations` | List recurring obligations (GAP-13, migration 00053) |
+| POST | `/api/v1/recurring-obligations` | Create a recurring obligation |
+| GET | `/api/v1/recurring-obligations/{id}` | Get one recurring obligation |
+| PATCH | `/api/v1/recurring-obligations/{id}` | Partial update |
+| DELETE | `/api/v1/recurring-obligations/{id}` | Soft delete |
+| GET | `/api/v1/broker-followups` | List broker follow-ups (GAP-14, migration 00054) |
+| POST | `/api/v1/broker-followups` | Create a broker follow-up |
+| GET | `/api/v1/broker-followups/{id}` | Get one broker follow-up |
+| PATCH | `/api/v1/broker-followups/{id}` | Partial update |
+| DELETE | `/api/v1/broker-followups/{id}` | Soft delete |
+| GET | `/api/v1/brokers/{id}/scorecard` | GAP-14: the broker's computed scorecard (loads run, days-to-pay, detention raised, outstanding); `404` when the broker isn't the caller's. Response: `{ data: BrokerScorecard }` |
+| GET | `/api/v1/detention-stamps` | List detention stamps (GAP-04, migration 00049) |
+| POST | `/api/v1/detention-stamps` | Create a detention stamp |
+| GET | `/api/v1/detention-stamps/{id}` | Get one detention stamp |
+| PATCH | `/api/v1/detention-stamps/{id}` | Partial update |
+| DELETE | `/api/v1/detention-stamps/{id}` | Soft delete |
+| GET | `/api/v1/loads/{id}/detention-stamps` | The load's stamps plus the computed detention summary (`{ data: { stamps, summary } }`); `404` for a missing/other-tenant load |
+| POST | `/api/v1/loads/{id}/detention-stamps` | Stamp the load's facility clock; body names the stamp type, `occurred_at` defaults to now |
+| GET | `/api/v1/loads/{id}/paperwork` | GAP-05: the load's paperwork state — required vs attached, computed by `src/lib/paperwork.ts`; `404` for a missing/other-tenant load |
+| GET | `/api/v1/day-wrap` | GAP-08: one reconciliation pass over a day's records. Query: `?date=YYYY-MM-DD` (America/New_York; defaults to today ET). Response: `{ data: { date, items: DayWrapItem[] } }` |
+| GET | `/api/v1/ifta` | GAP-15: the IFTA worksheet for a quarter. Query: `?quarter=YYYYQn` (defaults to the current quarter, ET). Response: `{ data: IftaWorksheet }` — gallons by state exact; interstate miles reported unallocated; odometer miles pass the sanity gate (implausible readings excluded and flagged in `anomalies`, count in `excludedOdometerReadings`) |
+| GET | `/api/v1/tax-packet` | GAP-16: the year-end tax packet. Query: `?year=YYYY` (defaults to the current year, ET). Response: `{ data: TaxPacket }` — per-diem count at the labeled rate, fuel totals, expenses by category, load revenue, and settlement income (`settlementIncomeCents`, `settlementsCount`) joined from Abel Phase D's `settlements` table (driver pay, periods ending in the year; zero when the table is absent) |
+
+**`POST /api/v1/documents` response addition (GAP-01, UH-11 fix)** — when document text extraction completes and record proposals are staged from the read, the response also carries `proposals_staged: number` (how many record proposals were staged for the owner's approval; the proposals themselves ride the standard pending-proposal flow, never a silent write).

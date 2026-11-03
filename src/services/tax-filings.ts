@@ -56,6 +56,9 @@ export interface TaxPacket {
   expensesTotalCents: number;
   loadRevenueCents: number;
   completedLoads: number;
+  /** UH-09 fix: settlement income actually joined from Abel Phase D's settlements table (driver pay, periods ending in the year). */
+  settlementIncomeCents: number;
+  settlementsCount: number;
   note: string;
 }
 
@@ -100,6 +103,28 @@ export async function getTaxPacket(
   if (expensesResult.error) throw new Error(expensesResult.error.message);
   if (loadsResult.error) throw new Error(loadsResult.error.message);
 
+  // UH-09 fix: settlements (Abel Phase D) ARE joined now — the note
+  // below used to promise this join while no query existed. Missing-
+  // table tolerant like day-wrap's Cluster-D reads: a database
+  // without the settlements migration yields zero, never a failure.
+  let settlementIncomeCents = 0;
+  let settlementsCount = 0;
+  try {
+    const settlementsResult = await supabase
+      .from("settlements")
+      .select("driver_pay_cents, period_end")
+      .eq("company_id", companyId)
+      .gte("period_end", from)
+      .lte("period_end", to);
+    if (!settlementsResult.error) {
+      const rows = (settlementsResult.data ?? []) as { driver_pay_cents: number }[];
+      settlementsCount = rows.length;
+      settlementIncomeCents = rows.reduce((s, r) => s + (r.driver_pay_cents ?? 0), 0);
+    }
+  } catch {
+    // Table absent on this database — packet proceeds without it.
+  }
+
   const fuel = (fuelResult.data ?? []) as FuelPurchase[];
   const expenses = (expensesResult.data ?? []) as Expense[];
   const loads = ((loadsResult.data ?? []) as Load[]).filter((l) => {
@@ -124,6 +149,8 @@ export async function getTaxPacket(
     expensesTotalCents: expenses.reduce((s, e) => s + e.amount_cents, 0),
     loadRevenueCents: loads.reduce((s, l) => s + (l.rate_cents ?? 0), 0),
     completedLoads: loads.length,
-    note: "Assembled from his own records for his tax preparer — per-diem counted by the rule in lib/per-diem.ts at the labeled rate; settlement income (Abel Phase D) joins this packet when settlements exist.",
+    settlementIncomeCents,
+    settlementsCount,
+    note: "Assembled from his own records for his tax preparer — per-diem counted by the rule in lib/per-diem.ts at the labeled rate; settlement income (Abel Phase D, driver pay on settlements whose period ends in the year) is included above when settlements exist.",
   };
 }

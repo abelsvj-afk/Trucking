@@ -4,7 +4,7 @@
 // run with the broker, invoices and how fast they actually paid
 // (GAP-12), detention raised on the broker's loads (GAP-04), and
 // the dispatch exchanges now linked to the broker (migration
-// 00051). Nothing here is entered twice — it's arithmetic over
+// 00054). Nothing here is entered twice — it's arithmetic over
 // the existing record, surfaced at booking-decision time.
 
 import type { DetentionStamp, Load, LoadInvoice } from "@/types/entities";

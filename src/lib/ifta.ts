@@ -18,6 +18,7 @@
 // with fuel and no miles, and the quarter's real MPG.
 
 import type { DutyLog, FuelPurchase, Load } from "@/types/entities";
+import { easternDate } from "./day-wrap";
 
 export interface IftaWorksheet {
   quarter: string; // e.g. 2026Q4
@@ -31,6 +32,8 @@ export interface IftaWorksheet {
   odometerMiles: number | null;
   /** Odometer miles per gallon (null when either side is unknown). */
   fleetMpg: number | null;
+  /** UH-08 fix: odometer readings excluded by the sanity gate (implausible jumps / non-monotonic). */
+  excludedOdometerReadings: number;
   anomalies: string[];
 }
 
@@ -51,6 +54,14 @@ export function quarterRange(quarter: string): { from: string; to: string } {
   return { from, to };
 }
 
+/** UH-15 fix: bucket a timestamp by its America/New_York calendar date
+ * (the same rule per-diem/day-wrap use), never by UTC slicing. A bare
+ * YYYY-MM-DD value is already a calendar date and is taken as-is. */
+export function bucketDate(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return easternDate(new Date(value));
+}
+
 export function buildIftaWorksheet(
   quarter: string,
   input: { fuel: FuelPurchase[]; loads: Load[]; dutyLogs: DutyLog[] },
@@ -62,7 +73,7 @@ export function buildIftaWorksheet(
   let gallonsUnknownState = 0;
   let totalGallons = 0;
   for (const purchase of input.fuel) {
-    if (!inQuarter(purchase.purchased_at.slice(0, 10))) continue;
+    if (!inQuarter(bucketDate(purchase.purchased_at))) continue;
     totalGallons += purchase.gallons;
     if (purchase.state) {
       gallonsByState[purchase.state] = (gallonsByState[purchase.state] ?? 0) + purchase.gallons;
@@ -84,12 +95,34 @@ export function buildIftaWorksheet(
     }
   }
 
-  const odometers = input.dutyLogs
-    .filter((l) => inQuarter(l.started_at.slice(0, 10)))
-    .map((l) => l.odometer)
-    .filter((o): o is number => typeof o === "number");
+  // UH-08 fix: odometer readings pass a sanity gate before they can
+  // move a tax-facing number. Walk the series in time order and
+  // EXCLUDE any reading that is non-monotonic or implies more than
+  // 1,500 miles/day since the last accepted reading (the GAP-09 /
+  // mileage sanity bound) — a typo'd reading must never silently
+  // become quarter miles or a >1000 MPG figure. Exclusions are
+  // counted and surfaced as an anomaly below.
+  const MAX_PLAUSIBLE_MILES_PER_DAY = 1500;
+  const readings = input.dutyLogs
+    .filter((l) => inQuarter(bucketDate(l.started_at)))
+    .filter((l) => typeof l.odometer === "number")
+    .sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at));
+  const accepted: { at: number; miles: number }[] = [];
+  let excludedOdometerReadings = 0;
+  for (const log of readings) {
+    const miles = log.odometer as number;
+    const at = Date.parse(log.started_at);
+    const prev = accepted[accepted.length - 1];
+    if (!prev) { accepted.push({ at, miles }); continue; }
+    const days = Math.max(1, (at - prev.at) / 86_400_000);
+    if (miles < prev.miles || miles - prev.miles > MAX_PLAUSIBLE_MILES_PER_DAY * days) {
+      excludedOdometerReadings += 1;
+      continue;
+    }
+    accepted.push({ at, miles });
+  }
   const odometerMiles =
-    odometers.length >= 2 ? Math.max(...odometers) - Math.min(...odometers) : null;
+    accepted.length >= 2 ? accepted[accepted.length - 1]!.miles - accepted[0]!.miles : null;
   const fleetMpg =
     odometerMiles != null && totalGallons > 0
       ? Math.round((odometerMiles / totalGallons) * 100) / 100
@@ -119,6 +152,16 @@ export function buildIftaWorksheet(
     );
   }
 
+  if (excludedOdometerReadings > 0) {
+    anomalies.push(
+      `${excludedOdometerReadings} odometer reading(s) were EXCLUDED from the quarter's miles as implausible (non-monotonic or faster than 1,500 miles/day since the previous reading) — check the duty logs for a typo before filing.`,
+    );
+  }
+  if (fleetMpg != null && (fleetMpg > 15 || fleetMpg < 3)) {
+    anomalies.push(
+      `Fleet MPG of ${fleetMpg} is outside the plausible range for a working truck (3–15 MPG) — the odometer or fuel figures behind it need a second look.`,
+    );
+  }
   return {
     quarter,
     gallonsByState,
@@ -127,6 +170,7 @@ export function buildIftaWorksheet(
     unallocatedMiles,
     odometerMiles,
     fleetMpg,
+    excludedOdometerReadings,
     anomalies,
   };
 }

@@ -13,7 +13,7 @@ const dispatchExchangeFieldsSchema = z.object({
   ai_suggested_reply_es: z.string().nullable().optional(),
   actual_reply_sent: z.string().nullable().optional(),
   source: dispatchExchangeSourceSchema,
-  // GAP-14 (migration 00051): links the scorecard computes from.
+  // GAP-14 (migration 00054): links the scorecard computes from.
   broker_id: z.string().uuid().nullable().optional(),
   load_id: z.string().uuid().nullable().optional(),
 });

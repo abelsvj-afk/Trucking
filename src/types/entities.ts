@@ -88,12 +88,12 @@ export interface Broker extends BaseRow {
   contact_email: string | null;
   contact_phone: string | null;
   notes: string | null;
-  /** GAP-14 (migration 00051): the broker's payment terms (days) and setup requirements — the scorecard's inputs. */
+  /** GAP-14 (migration 00054): the broker's payment terms (days) and setup requirements — the scorecard's inputs. */
   payment_terms_days: number | null;
   setup_notes: string | null;
 }
 
-/** GAP-11 (migration 00048): a document with an expiry, watched. */
+/** GAP-11 (migration 00051): a document with an expiry, watched. */
 export type CredentialKind =
   | "cdl"
   | "medical_card"
@@ -112,7 +112,7 @@ export interface Credential extends BaseRow {
   notes: string | null;
 }
 
-/** GAP-12 (migration 00049): a load's receivable lifecycle. Status is derived (lib/invoices.ts), never stored. */
+/** GAP-12 (migration 00052): a load's receivable lifecycle. Status is derived (lib/invoices.ts), never stored. */
 export interface LoadInvoice extends BaseRow {
   load_id: string;
   broker_id: string | null;
@@ -127,7 +127,7 @@ export interface LoadInvoice extends BaseRow {
   notes: string | null;
 }
 
-/** GAP-13 (migration 00050): a recurring business obligation. */
+/** GAP-13 (migration 00053): a recurring business obligation. */
 export type ObligationCadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
 
 export interface RecurringObligation extends BaseRow {
@@ -141,7 +141,7 @@ export interface RecurringObligation extends BaseRow {
   notes: string | null;
 }
 
-/** GAP-14 (migration 00051): a dated follow-up owed to a broker. */
+/** GAP-14 (migration 00054): a dated follow-up owed to a broker. */
 export interface BrokerFollowup extends BaseRow {
   broker_id: string;
   note: string;
@@ -164,7 +164,7 @@ export interface Load extends BaseRow {
   miles: number | null;
   status: LoadStatus;
   notes: string | null;
-  // GAP-02/04/05 (migration 00046): appointment windows, detention
+  // GAP-02/04/05 (migration 00049): appointment windows, detention
   // terms, scale-ticket weight. Null until captured.
   pickup_window_start: string | null;
   pickup_window_end: string | null;
@@ -173,7 +173,7 @@ export interface Load extends BaseRow {
   detention_free_minutes: number | null;
   detention_rate_cents_per_hour: number | null;
   weight_lbs: number | null;
-  // GAP-03/15 (migration 00047): facility links + structured lane states.
+  // GAP-03/15 (migration 00050): facility links + structured lane states.
   pickup_facility_id: string | null;
   delivery_facility_id: string | null;
   origin_state: string | null;
@@ -182,7 +182,7 @@ export interface Load extends BaseRow {
 
 export type FacilityKind = "shipper" | "receiver" | "both";
 
-/** GAP-03: a place he actually goes, remembered (migration 00047). */
+/** GAP-03: a place he actually goes, remembered (migration 00050). */
 export interface Facility extends BaseRow {
   name: string;
   address: string | null;
@@ -203,7 +203,7 @@ export interface Facility extends BaseRow {
 export type DetentionStampType = "arrival" | "door" | "loading_done" | "departure";
 export type DetentionStopKind = "pickup" | "delivery";
 
-/** GAP-04: one stamp on a load's facility clock (migration 00046). */
+/** GAP-04: one stamp on a load's facility clock (migration 00049). */
 export interface DetentionStamp extends BaseRow {
   load_id: string;
   stamp_type: DetentionStampType;
@@ -227,7 +227,7 @@ export interface Expense extends BaseRow {
 export interface FuelPurchase extends BaseRow {
   truck_id: string;
   location: string | null;
-  /** GAP-15 (migration 00047): purchase state, for the IFTA worksheet. */
+  /** GAP-15 (migration 00050): purchase state, for the IFTA worksheet. */
   state: string | null;
   gallons: number;
   price_per_gallon_cents: number;
@@ -300,7 +300,7 @@ export interface DispatchExchange extends BaseRow {
   ai_suggested_reply_es: string | null;
   actual_reply_sent: string | null;
   source: DispatchExchangeSource;
-  /** GAP-14 (migration 00051): the working-relationship links the scorecard computes from. */
+  /** GAP-14 (migration 00054): the working-relationship links the scorecard computes from. */
   broker_id: string | null;
   load_id: string | null;
 }
