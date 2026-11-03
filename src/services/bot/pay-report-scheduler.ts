@@ -20,7 +20,7 @@
 //   is what lets an empty week ever reach that close window, and
 //   lets a week the job slept through still get its report.
 // Gated on the bot_chat capability (it is Abel talking) and on the
-// settlements table existing (migration 00044): without either, the
+// settlements table existing (migration 00045): without either, the
 // job stays quiet instead of erroring hourly.
 
 import { getIndustryBriefingPool } from "@/services/db/industry-briefing-pool";
@@ -28,6 +28,8 @@ import type { BotBrainStore } from "@/services/bot/store";
 import { createTelegramBrainStore } from "@/services/telegram/store";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 import { addDays, buildWeeklyReportForStore, lastCompletedWeekStart } from "./pay-report";
+import { deliveryDecision, type DeliveryDecision } from "@/services/research/delivery";
+import { getResearchConfig } from "@/services/research/config";
 
 const CHECK_IN_MS = 60 * 60 * 1000;
 
@@ -88,6 +90,36 @@ export interface PayReportDueDeps {
   acquireLock: () => Promise<LockHandle | null>;
   notify: (text: string) => Promise<boolean>;
   now: () => Date;
+  /** UH-06 fix (injectable for tests): the shared delivery gate — same deliveryDecision the maintenance watcher consults. */
+  deliveryGate?: (store: BotBrainStore, now: Date) => Promise<DeliveryDecision>;
+}
+
+/** UH-06 fix: the pay report is a proactive Telegram send, so it goes
+ * through the SAME deliveryDecision as every other routine buzz
+ * (quiet hours 21:00–06:00 ET + driving/on-duty hold). Duty status is
+ * read from his latest duty log; a read failure degrades to "unknown"
+ * (null), never to a crash — quiet hours still apply. */
+async function defaultDeliveryGate(store: BotBrainStore, now: Date): Promise<DeliveryDecision> {
+  let latestDutyStatus: string | null = null;
+  try {
+    const { data } = await store.client
+      .from("duty_logs")
+      .select("duty_status")
+      .eq("company_id", store.companyId)
+      .is("deleted_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1);
+    const row = (data ?? [])[0] as { duty_status?: string } | undefined;
+    latestDutyStatus = row?.duty_status ?? null;
+  } catch {
+    latestDutyStatus = null;
+  }
+  return deliveryDecision({
+    now,
+    deliveryClass: "routine",
+    latestDutyStatus,
+    config: getResearchConfig(),
+  });
 }
 
 /**
@@ -139,6 +171,18 @@ export async function runWeeklyPayReportIfDue(
             await store.recordPayReportRun(weekStart, false, { ...report.figures, closedEmpty: true });
           }
           continue;
+        }
+        // UH-06 fix: held by quiet hours / driving -> do NOT send
+        // and do NOT record the run; the next hourly tick re-checks
+        // and releases it at the first sendable moment — the same
+        // release behavior as the maintenance watcher's digest.
+        const gate = overrides.deliveryGate ?? defaultDeliveryGate;
+        const verdict = await gate(store, now);
+        if (!verdict.sendNow) {
+          console.log(
+            `[pay-report] weekly report for ${weekStart} held by delivery decision (${verdict.reason ?? "held"}) - will re-check next tick`,
+          );
+          return;
         }
         const sent = await notify(report.text);
         await store.recordPayReportRun(weekStart, sent, { ...report.figures });

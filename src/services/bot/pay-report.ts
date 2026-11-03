@@ -6,6 +6,7 @@
 
 import type { BotBrainStore } from "./store";
 import { buildWeeklyPayReport, type WeeklyReport } from "./pay-truth";
+import { formatTwinDigestLine } from "./voice-corpus";
 
 /** Monday (YYYY-MM-DD) of the week containing `date`, UTC - the report's week key. (Weeks are labeled with their dates in the report text; the key only needs to be stable across machines.) */
 export function mondayOf(date: Date): string {
@@ -43,5 +44,14 @@ export async function buildWeeklyReportForStore(
     completedLoads,
     pin,
   });
-  return { ...report, weekStart, weekEnd };
+  // Phase E: the weekly digest carries the twin's one line when
+  // the twin is ON and the week produced measurements - off means
+  // no line and no tracking talk (design Phase E acceptance).
+  let text = report.text;
+  if (await store.isDriverTwinEnabled()) {
+    const stats = await store.twinEditStats(`${weekStart}T00:00:00.000Z`, `${weekEnd}T23:59:59.999Z`);
+    const twinLine = formatTwinDigestLine(stats);
+    if (twinLine) text += `\n${twinLine}`;
+  }
+  return { ...report, text, weekStart, weekEnd };
 }

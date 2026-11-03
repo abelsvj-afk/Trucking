@@ -1,6 +1,6 @@
 // Phase D acceptance (design §5, test 1 + store discipline): a
 // settlement recorded against a pin gets code-computed true-pay
-// columns and a pin check at record time; before migration 00044
+// columns and a pin check at record time; before migration 00045
 // the WRITE fails with a plain "not applied" message while reads
 // degrade to empty; the weekly report job delivers once per week
 // and closes empty weeks silently.
@@ -251,10 +251,10 @@ describe("recordSettlement", () => {
     expect((db.settlements ?? [])[0]!.tax_setaside_cents).toBeNull(); // employment unknown - no set-aside computed, none invented
   });
 
-  it("before migration 00044 the WRITE fails plainly; reads degrade to empty", async () => {
+  it("before migration 00045 the WRITE fails plainly; reads degrade to empty", async () => {
     const missing = new Set(["settlements", "settlement_lines", "settlement_load_links", "pay_report_runs"]);
     const store = fakeStore({}, missing);
-    await expect(store.recordSettlement(SETTLEMENT_INPUT)).rejects.toThrow(/migration 00044/);
+    await expect(store.recordSettlement(SETTLEMENT_INPUT)).rejects.toThrow(/migration 00045/);
     expect(await store.listSettlements(5)).toEqual([]);
     expect(await store.listSettlementsInRange("2026-10-26", "2026-11-01")).toEqual([]);
     expect(await store.payReportRunForWeek("2026-10-26")).toBeNull();
@@ -315,5 +315,34 @@ describe("weekly pay report job", () => {
     const notify = vi.fn(async () => true);
     await runWeeklyPayReportIfDue({ store, acquireLock: async () => unlock, notify, now: () => NOW });
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("UH-06: weekly pay report honors the delivery gate", () => {
+  const unlock = { release: async () => {} };
+  it("held during quiet hours: no send, no run recorded; released on the next sendable tick", async () => {
+    const db: Record<string, Row[]> = {};
+    seedCapabilities(db);
+    seedPin(db);
+    const store = fakeStore(db);
+    await store.recordSettlement(SETTLEMENT_INPUT);
+    const sent: string[] = [];
+    const notify = async (text: string) => { sent.push(text); return true; };
+    // Tick 1: gate holds (quiet hours) -> nothing sent, week still due.
+    await runWeeklyPayReportIfDue({
+      store, acquireLock: async () => unlock, notify,
+      now: () => new Date("2026-11-02T12:00:00.000Z"),
+      deliveryGate: async () => ({ sendNow: false, heldUntil: new Date("2026-11-02T11:00:00.000Z"), reason: "quiet hours" }),
+    });
+    expect(sent.length).toBe(0);
+    expect(await store.payReportRunForWeek("2026-10-26")).toBeNull();
+    // Tick 2: gate releases -> the same week's report goes out, once.
+    await runWeeklyPayReportIfDue({
+      store, acquireLock: async () => unlock, notify,
+      now: () => new Date("2026-11-02T12:00:00.000Z"),
+      deliveryGate: async () => ({ sendNow: true, heldUntil: null, reason: null }),
+    });
+    expect(sent.length).toBe(1);
+    expect((await store.payReportRunForWeek("2026-10-26"))?.sent).toBe(true);
   });
 });
