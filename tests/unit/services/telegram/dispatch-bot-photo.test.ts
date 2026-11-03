@@ -134,6 +134,50 @@ describe("handleTelegramUpdate — photo messages (§13)", () => {
     expect(d.sendMessage.mock.calls[0]?.[1]).toContain("couldn't store it");
   });
 
+  // Telegram repairs D1: a photo sent "as a file" (message.document,
+  // uncompressed) used to fall through to the no-text reply and be
+  // silently dropped - nothing stored, nothing read.
+  it("routes an image sent as a file through the photo intake", async () => {
+    const d = deps();
+    const result = await handleTelegramUpdate(
+      {
+        message: {
+          chat: { id: 4242, type: "private" },
+          document: { file_id: "doc-file-1", file_name: "bol.jpg", mime_type: "image/jpeg", file_size: 240_000 },
+          caption: "BOL for Georgia",
+        },
+      },
+      CONFIG,
+      d,
+    );
+    expect(result).toBe("photo_replied");
+    expect(d.handlePhoto).toHaveBeenCalledWith(
+      [{ file_id: "doc-file-1", file_size: 240_000 }],
+      "BOL for Georgia",
+    );
+    expect(d.sendMessage).toHaveBeenCalledWith(4242, "Saved that photo as a document in your app.");
+  });
+
+  it("answers a non-image file honestly instead of dropping it silently", async () => {
+    const d = deps();
+    const result = await handleTelegramUpdate(
+      {
+        message: {
+          chat: { id: 4242, type: "private" },
+          document: { file_id: "doc-pdf-1", file_name: "bol.pdf", mime_type: "application/pdf", file_size: 90_000 },
+          caption: "BOL for Georgia",
+        },
+      },
+      CONFIG,
+      d,
+    );
+    expect(result).toBe("photo_replied");
+    expect(d.handlePhoto).not.toHaveBeenCalled();
+    const sent = d.sendMessage.mock.calls[0]?.[1] as string;
+    expect(sent).toContain("bol.pdf");
+    expect(sent).toContain("as a photo");
+  });
+
   it("survives an intake crash with an honest nothing-was-saved reply", async () => {
     const d = deps();
     d.handlePhoto.mockRejectedValue(new Error("kaboom"));

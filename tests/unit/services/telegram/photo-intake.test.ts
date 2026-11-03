@@ -72,6 +72,17 @@ describe("pickLargestPhoto", () => {
     expect(pickLargestPhoto(PHOTOS).file_id).toBe("large");
   });
 
+  // Telegram repairs D7: byte size and pixel dimensions were
+  // compared per-rendition in mixed units - a higher-resolution
+  // but better-compressed rendition (the readable one) could lose.
+  it("prefers the higher-resolution rendition even when it compresses smaller", () => {
+    const photos: TelegramPhotoSize[] = [
+      { file_id: "dense", width: 800, height: 600, file_size: 300_000 },
+      { file_id: "wide", width: 2560, height: 1920, file_size: 120_000 },
+    ];
+    expect(pickLargestPhoto(photos).file_id).toBe("wide");
+  });
+
   it("falls back to pixel area when sizes are undeclared", () => {
     const photos: TelegramPhotoSize[] = [
       { file_id: "a", width: 100, height: 100 },
@@ -117,6 +128,32 @@ describe("handleTelegramPhoto", () => {
     const reply = await handleTelegramPhoto(d, PHOTOS);
     expect(reply).toContain("I read it as a bol");
     expect(reply).toContain("PRO 4417, pickup Atlanta");
+  });
+
+  it("reads back the structured BOL fields, not only the text's opening", async () => {
+    const d = deps({
+      extractionStatus: vi
+        .fn()
+        .mockResolvedValue({ state: "done", docType: "bol", summary: "BILL OF LADING..." }),
+      extractedDocument: vi.fn().mockResolvedValue({
+        docType: "bol",
+        fields: {
+          bol_number: "BOL-88",
+          shipper: "Acme Foods",
+          shipper_address: "12 Dock Rd, Jacksonville, FL",
+          receiver: "Blue Retail DC",
+          consignee_address: "900 Peachtree St, Atlanta, GA",
+          pieces: 18,
+          weight_lbs: 42100,
+          seal_number: "SL-004417",
+        },
+      }) as never,
+    });
+    const reply = await handleTelegramPhoto(d, PHOTOS);
+    expect(reply).toContain("BOL details I read:");
+    expect(reply).toContain("Shipper: Acme Foods — 12 Dock Rd, Jacksonville, FL");
+    expect(reply).toContain("Consignee: Blue Retail DC — 900 Peachtree St, Atlanta, GA");
+    expect(reply).toContain("Seal #: SL-004417");
   });
 
   it("calls a pending read pending — never read", async () => {

@@ -100,7 +100,33 @@ export const POST = createApiHandler(async (req, ctx) => {
     .eq("id", row.id as string)
     .single();
 
-  return NextResponse.json(finalRow ?? row, { status: 201 });
+  // GAP-01: stage record proposals from the extracted fields
+  // (fuel receipt → fuel purchase, rate con → load, BOL → attach +
+  // complete) — only when extraction actually completed. They
+  // surface in the Assistant for his yes; the upload itself never
+  // depends on staging succeeding.
+  let proposalsStaged = 0;
+  if ((finalRow as { extraction_status?: string } | null)?.extraction_status === "done") {
+    try {
+      const { stageDocumentProposalsForClient } = await import(
+        "@/services/documents/document-proposals"
+      );
+      const staged = await stageDocumentProposalsForClient(
+        supabase,
+        ctx.auth.companyId,
+        row.id as string,
+        "web",
+      );
+      proposalsStaged = staged?.proposals.length ?? 0;
+    } catch (err) {
+      console.error("[documents] proposal staging failed", err);
+    }
+  }
+
+  return NextResponse.json(
+    { ...(finalRow ?? row), proposals_staged: proposalsStaged },
+    { status: 201 },
+  );
 });
 
 export const GET = createApiHandler(async (req) => {

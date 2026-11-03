@@ -26,13 +26,14 @@ import TruckIdentityFields, {
 import { usePageTitle } from "@/lib/use-page-title";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { truckTypeLabel } from "@/lib/fleet-display";
-import type { Truck } from "@/types/entities";
+import type { Truck, VehicleDefect } from "@/types/entities";
 
 export default function TruckDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Truck");
   const [truck, setTruck] = useState<Truck | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openDefects, setOpenDefects] = useState<VehicleDefect[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +44,21 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
       })
       .catch(() => {
         if (!cancelled) setError("Couldn't load this truck. Check the connection and try again.");
+      });
+    // Open tracked defects (Image Intelligence §5.5): a line on
+    // the truck's own page. Best-effort - before migration 00043
+    // the resource doesn't exist and the section simply stays off.
+    apiClient
+      .list<VehicleDefect>("vehicle-defects", { truck_id: id })
+      .then((result) => {
+        if (!cancelled) {
+          setOpenDefects(
+            result.data.filter((d) => d.status === "open" || d.status === "acknowledged"),
+          );
+        }
+      })
+      .catch(() => {
+        // Defect tracking not live yet - no section, no error.
       });
     return () => {
       cancelled = true;
@@ -89,6 +105,20 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
         hasPhoto={truck.photo_document_id != null}
         onUploaded={(documentId) => setTruck({ ...truck, photo_document_id: documentId })}
       />
+
+      {openDefects.length > 0 && (
+        <section aria-label="Open defects">
+          <h2>Open defects ({openDefects.length})</h2>
+          <ul>
+            {openDefects.map((defect) => (
+              <li key={defect.id}>
+                {defect.description} — {defect.status}, first noted{" "}
+                {new Date(defect.created_at).toLocaleDateString("en-US")}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section aria-label="Related records">
         <h2>This truck&apos;s records</h2>

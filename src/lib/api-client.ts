@@ -5,7 +5,15 @@
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { ServiceStatus } from "@/types/service-status";
-import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
+import type {
+  CheckWiresResult,
+  DetentionStamp,
+  ResearchBriefing,
+  ResearchPageData,
+  ResearchRun,
+} from "@/types/entities";
+import type { DetentionSummary } from "@/lib/detention";
+import type { PaperworkState } from "@/lib/paperwork";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
@@ -161,6 +169,20 @@ export const apiClient = {
     request<{ data: T[] }>("/api/v1/documents/cleanup-incidents"),
   retryCleanupIncident: <T>(id: string) =>
     request<T>(`/api/v1/documents/cleanup-incidents/${id}/retry`, { method: "POST" }),
+  // GAP-04/05 (Fresh-Eyes Register 2026-11-02): the load's facility
+  // clock + paperwork state — nested under the load, computed
+  // server-side by src/lib/detention.ts / src/lib/paperwork.ts.
+  detention: (loadId: string) =>
+    request<{ data: DetentionStamp[]; summary: DetentionSummary }>(
+      `/api/v1/loads/${loadId}/detention-stamps`,
+    ),
+  stampDetention: (loadId: string, body: Record<string, unknown>) =>
+    request<{ data: DetentionStamp }>(`/api/v1/loads/${loadId}/detention-stamps`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  loadPaperwork: (loadId: string) =>
+    request<{ data: PaperworkState }>(`/api/v1/loads/${loadId}/paperwork`),
   // Computed, read-only (docs/api-contracts.md) - omit params for the
   // server's current-calendar-month default.
   financialSummary: (params?: { from: string; to: string }) => {
@@ -251,4 +273,11 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ topic }),
     }),
+  // Home News Banner (2026-11-02 design §6.4): one briefing by id,
+  // including dismissed - the deep-link fallback for a banner tap.
+  getResearchBriefing: (id: string) => request<ResearchBriefing>(`/api/v1/research-briefings/${id}`),
+  // Home News Banner (2026-11-02 design §4): the watcher-only light
+  // pull - free sources, no AI call, no run-cap spend.
+  checkWires: () =>
+    request<CheckWiresResult>("/api/v1/research-briefings/check-wires", { method: "POST" }),
 };

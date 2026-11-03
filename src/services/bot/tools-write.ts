@@ -25,6 +25,17 @@ import {
 } from "./tool-helpers";
 import { createBrokerSchema, updateBrokerSchema } from "@/data/schemas/brokers";
 import { createCustomerSchema, updateCustomerSchema } from "@/data/schemas/customers";
+import { createFacilitySchema, updateFacilitySchema } from "@/data/schemas/facilities";
+import { createCredentialSchema, updateCredentialSchema } from "@/data/schemas/credentials";
+import { createLoadInvoiceSchema, updateLoadInvoiceSchema } from "@/data/schemas/load-invoices";
+import {
+  createRecurringObligationSchema,
+  updateRecurringObligationSchema,
+} from "@/data/schemas/recurring-obligations";
+import {
+  createBrokerFollowupSchema,
+  updateBrokerFollowupSchema,
+} from "@/data/schemas/broker-followups";
 import { createDriverSchema, updateDriverSchema } from "@/data/schemas/drivers";
 import { relatedEntityTypeSchema } from "@/data/schemas/documents";
 import { updateExpenseSchema } from "@/data/schemas/expenses";
@@ -45,14 +56,44 @@ import {
 import { createPretripInspectionSchema } from "@/data/schemas/pretrip-inspections";
 import { createTrailerSchema, updateTrailerSchema } from "@/data/schemas/trailers";
 import { createTruckSchema, updateTruckSchema } from "@/data/schemas/trucks";
+import { researchNowSchema } from "@/data/schemas/research";
+import {
+  PRETRIP_PHOTO_DEFAULT_ITEMS,
+  dismissResearchRequest,
+  requestPretripPhotos,
+} from "@/services/research/requests";
+import {
+  propagateMileage,
+  MILEAGE_SOURCES,
+  MILEAGE_SOURCE_LABELS,
+  type MileageSource,
+} from "@/services/fleet/mileage";
+import {
+  createVehicleDefectSchema,
+  updateVehicleDefectSchema,
+} from "@/data/schemas/vehicle-defects";
+import {
+  defectMatchesWork,
+  listActiveDefects,
+  splitDefectTexts,
+  stageDefectProposals,
+} from "@/services/fleet/defects";
+import { stageMaintenancePack } from "@/services/fleet/maintenance-seeding";
+import { guessTemplateKey } from "@/lib/maintenance-templates";
 
 type Row = Record<string, unknown>;
 
 const uuid = z.string().uuid();
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD");
 
-function changedFields(args: Record<string, unknown>, idKey: string): string {
-  const fields = Object.keys(args).filter((k) => k !== idKey && args[k] !== undefined);
+function changedFields(
+  args: Record<string, unknown>,
+  idKey: string,
+  exclude: string[] = [],
+): string {
+  const fields = Object.keys(args).filter(
+    (k) => k !== idKey && !exclude.includes(k) && args[k] !== undefined,
+  );
   return fields.length > 0 ? fields.join(", ") : "nothing";
 }
 
@@ -70,6 +111,8 @@ function makeCreateTool(
     rowSchema: z.ZodType;
     summarize: (args: Row) => string;
     confirm: (args: Row, id: string) => string;
+    /** Optional post-insert hook (mileage propagation, schedule completion): returns a sentence appended to the confirmation, or void. Runs after the row exists; its own failures must be reported in its sentence, never thrown over the landed write. */
+    afterCreate?: (args: Row, id: string) => Promise<string | void>;
   },
 ): AgentTool {
   const { client, companyId } = store;
@@ -84,7 +127,16 @@ function makeCreateTool(
       const parsed = spec.botSchema.parse(args) as Row;
       const row = spec.rowSchema.parse(spec.toRow(parsed)) as Row;
       const id = await insertRow(client, spec.table, companyId, row);
-      return `${spec.confirm(args as Row, id)} Record id ${id}.`;
+      let note = "";
+      if (spec.afterCreate) {
+        try {
+          note = (await spec.afterCreate(parsed, id)) ?? "";
+        } catch (err) {
+          console.error(`[tools-write] ${spec.name} afterCreate failed:`, err);
+          note = " (One follow-on update didn't go through - the record itself is saved.)";
+        }
+      }
+      return `${spec.confirm(args as Row, id)} Record id ${id}.${note}`;
     },
   };
 }
@@ -164,6 +216,20 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     miles: z.number().int().nonnegative().optional(),
     status: loadStatusSchema.optional(),
     notes: z.string().optional(),
+    // GAP-02/04/05/03/15 (migrations 00049/00050): what the rate con
+    // already carries — windows, detention terms, weight, lane
+    // states, facility links.
+    pickup_window_start: z.string().optional(),
+    pickup_window_end: z.string().optional(),
+    delivery_window_start: z.string().optional(),
+    delivery_window_end: z.string().optional(),
+    detention_free_minutes: z.number().int().nonnegative().optional(),
+    detention_rate_dollars: z.number().nonnegative().optional(),
+    weight_lbs: z.number().int().positive().optional(),
+    origin_state: z.string().length(2).optional(),
+    destination_state: z.string().length(2).optional(),
+    pickup_facility_id: uuid.nullable().optional(),
+    delivery_facility_id: uuid.nullable().optional(),
   };
   const createLoadBot = z
     .object({
@@ -182,9 +248,12 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       { message: "delivery_date must not be before pickup_date.", path: ["delivery_date"] },
     );
   const loadToRow = (args: Row): Row => {
-    const { rate_dollars, ...rest } = definedOnly(args);
+    const { rate_dollars, detention_rate_dollars, ...rest } = definedOnly(args);
     const row: Row = { ...rest };
     if (rate_dollars !== undefined) row.rate_cents = Math.round(Number(rate_dollars) * 100);
+    if (detention_rate_dollars !== undefined) {
+      row.detention_rate_cents_per_hour = Math.round(Number(detention_rate_dollars) * 100);
+    }
     return row;
   };
   const loadParams = {
@@ -194,6 +263,15 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     delivery_date: { type: "string", description: "YYYY-MM-DD" },
     rate_dollars: { type: "number", description: "The load's rate in dollars." },
     miles: { type: "number" },
+    pickup_window_start: { type: "string", description: "Appointment window start (ISO timestamp) from the rate con." },
+    pickup_window_end: { type: "string", description: "Appointment window end (ISO timestamp)." },
+    delivery_window_start: { type: "string", description: "Delivery window start (ISO timestamp)." },
+    delivery_window_end: { type: "string", description: "Delivery window end (ISO timestamp)." },
+    detention_free_minutes: { type: "number", description: "Free minutes before detention bills, per the rate con." },
+    detention_rate_dollars: { type: "number", description: "Detention rate per hour in dollars, per the rate con." },
+    weight_lbs: { type: "number", description: "Load weight in pounds (from the scale ticket / rate con)." },
+    origin_state: { type: "string", description: "Two-letter origin state." },
+    destination_state: { type: "string", description: "Two-letter destination state." },
     status: { type: "string", enum: ["draft", "confirmed", "completed"] },
     broker_id: { type: "string" },
     customer_id: { type: "string" },
@@ -294,6 +372,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     total_dollars: z.number().positive().optional(),
     gallons: z.number().positive().optional(),
     location: z.string().min(1).optional(),
+    // GAP-15: purchase state (IFTA).
+    state: z.string().length(2).optional(),
     purchased_at: z.string().min(1).optional(),
   });
   tools.push({
@@ -306,6 +386,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         total_dollars: { type: "number" },
         gallons: { type: "number" },
         location: { type: "string" },
+        state: { type: "string", description: "Two-letter purchase state (IFTA)." },
         purchased_at: { type: "string", description: "ISO timestamp" },
       },
       required: ["fuel_purchase_id"],
@@ -409,6 +490,298 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     }),
   );
 
+  // --- Facilities (GAP-03: place memory) ---------------------------
+
+  const facilityParams = {
+    name: { type: "string" },
+    address: { type: "string" },
+    city: { type: "string" },
+    state: { type: "string", description: "Two-letter state." },
+    kind: { type: "string", enum: ["shipper", "receiver", "both"] },
+    checkin_notes: { type: "string", description: "How check-in works there (guard shack, BOL number, appointment desk)." },
+    dock_notes: { type: "string", description: "Dock/yard realities (door assignment, lumpers, wait pattern)." },
+    parking_notes: { type: "string", description: "Overnight parking reality at or near the facility." },
+    detention_notes: { type: "string", description: "How detention actually goes there (when it started, whether it paid)." },
+    hours_notes: { type: "string", description: "Receiving/shipping hours." },
+    contact_name: { type: "string" },
+    contact_phone: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_facility",
+      description:
+        "Remember a facility/place he picks up or delivers at (Facilities): name, city/state, and what he learns about it — check-in, docks, parking, detention, hours. Created from rate cons and his after-action words; enriched over visits.",
+      parameters: { type: "object", properties: facilityParams, required: ["name"] },
+      botSchema: createFacilitySchema,
+      table: "facilities",
+      label: "facility",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createFacilitySchema,
+      summarize: (args) => `Facility: ${args.name}${args.city ? ` (${args.city}${args.state ? `, ${args.state}` : ""})` : ""}`,
+      confirm: (args) => `Remembered the facility ${args.name}.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_facility",
+      description:
+        "Update a facility's remembered facts — after a visit, what he learned (check-in, parking, detention behavior) belongs here so the next visit starts smarter.",
+      parameters: {
+        type: "object",
+        properties: { facility_id: idParam("facility_id", "facility"), ...facilityParams },
+        required: ["facility_id"],
+      },
+      botSchema: updateFacilitySchema.extend({ facility_id: uuid }),
+      table: "facilities",
+      label: "facility",
+      idKey: "facility_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateFacilitySchema,
+      summarize: (args) => `Update facility ${args.facility_id}: ${changedFields(args, "facility_id")}`,
+      confirm: (args) => `Updated facility ${args.facility_id} (${changedFields(args, "facility_id")}).`,
+    }),
+  );
+
+  // --- Cluster D (GAP-11/12/13/14): credentials, invoices,
+  // obligations, follow-ups ---------------------------------------
+
+  const credentialParams = {
+    kind: {
+      type: "string",
+      enum: ["cdl", "medical_card", "annual_inspection", "registration_irp", "insurance", "other"],
+    },
+    label: { type: "string", description: "What the document is, in his words ('Florida CDL', 'DOT medical card')." },
+    driver_id: { type: "string", description: "Driver id (uuid) when it's a driver's document." },
+    truck_id: { type: "string", description: "Truck id (uuid) when it's a truck's document." },
+    expires_on: { type: "string", description: "Expiry date, YYYY-MM-DD." },
+    document_id: { type: "string", description: "The filed document photo's id, when there is one." },
+    notes: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_credential",
+      description:
+        "Register a credential/document with an expiry date (Credentials): CDL, DOT medical card, annual inspection, registration/IRP, insurance. Once registered, the expiry is watched at 60/30/7 days and lands in the day-wrap.",
+      parameters: { type: "object", properties: credentialParams, required: ["kind", "label", "expires_on"] },
+      botSchema: createCredentialSchema,
+      table: "credentials",
+      label: "credential",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createCredentialSchema,
+      summarize: (args) => `Credential: ${args.label} (expires ${args.expires_on})`,
+      confirm: (args) => `Registered ${args.label}, expiring ${args.expires_on} — I'll watch it.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_credential",
+      description: "Update a credential — most often the new expiry date after a renewal.",
+      parameters: {
+        type: "object",
+        properties: { credential_id: idParam("credential_id", "credential"), ...credentialParams },
+        required: ["credential_id"],
+      },
+      botSchema: updateCredentialSchema.extend({ credential_id: uuid }),
+      table: "credentials",
+      label: "credential",
+      idKey: "credential_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateCredentialSchema,
+      summarize: (args) => `Update credential ${args.credential_id}: ${changedFields(args, "credential_id")}`,
+      confirm: (args) => `Updated the credential (${changedFields(args, "credential_id")}).`,
+    }),
+  );
+
+  const invoiceBotFields = {
+    load_id: uuid.optional(),
+    broker_id: uuid.nullable().optional(),
+    invoice_date: dateString.optional(),
+    due_date: dateString.optional(),
+    amount_dollars: z.number().nonnegative().optional(),
+    paid_amount_dollars: z.number().nonnegative().optional(),
+    paid_on: dateString.nullable().optional(),
+    factored: z.boolean().optional(),
+    factor_fee_dollars: z.number().nonnegative().nullable().optional(),
+    factor_reserve_dollars: z.number().nonnegative().nullable().optional(),
+    notes: z.string().optional(),
+  };
+  const createInvoiceBot = z.object({
+    ...invoiceBotFields,
+    load_id: uuid,
+    invoice_date: dateString,
+    due_date: dateString,
+    amount_dollars: z.number().nonnegative(),
+  });
+  const updateInvoiceBot = z.object({ invoice_id: uuid, ...invoiceBotFields });
+  const invoiceToRow = (args: Row): Row => {
+    const { amount_dollars, paid_amount_dollars, factor_fee_dollars, factor_reserve_dollars, ...rest } =
+      definedOnly(args);
+    const row: Row = { ...rest };
+    if (amount_dollars !== undefined) row.amount_cents = Math.round(Number(amount_dollars) * 100);
+    if (paid_amount_dollars !== undefined) {
+      row.paid_amount_cents = Math.round(Number(paid_amount_dollars) * 100);
+    }
+    if (factor_fee_dollars !== undefined && factor_fee_dollars !== null) {
+      row.factor_fee_cents = Math.round(Number(factor_fee_dollars) * 100);
+    }
+    if (factor_reserve_dollars !== undefined && factor_reserve_dollars !== null) {
+      row.factor_reserve_cents = Math.round(Number(factor_reserve_dollars) * 100);
+    }
+    return row;
+  };
+  const invoiceParams = {
+    load_id: { type: "string", description: "Load id (uuid)." },
+    broker_id: { type: "string", description: "Broker id (uuid)." },
+    invoice_date: { type: "string", description: "YYYY-MM-DD" },
+    due_date: { type: "string", description: "YYYY-MM-DD (invoice date + the broker's terms)." },
+    amount_dollars: { type: "number", description: "Invoice amount in dollars (the load's rate)." },
+    paid_amount_dollars: { type: "number", description: "Amount paid so far, in dollars." },
+    paid_on: { type: "string", description: "Date fully paid, YYYY-MM-DD." },
+    factored: { type: "boolean", description: "True when a factor bought this invoice." },
+    factor_fee_dollars: { type: "number", description: "The factor's fee in dollars, when factored." },
+    factor_reserve_dollars: { type: "number", description: "The factor's reserve holdback in dollars, when factored." },
+    notes: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_load_invoice",
+      description:
+        "Record an invoice for a completed load (Receivables): amount = the load's rate, due date = invoice date + the broker's payment terms. Starts the aging clock — 'completed' is not 'paid'.",
+      parameters: {
+        type: "object",
+        properties: invoiceParams,
+        required: ["load_id", "invoice_date", "due_date", "amount_dollars"],
+      },
+      botSchema: createInvoiceBot,
+      table: "load_invoices",
+      label: "invoice",
+      toRow: invoiceToRow,
+      rowSchema: createLoadInvoiceSchema,
+      summarize: (args) => `Invoice for load ${args.load_id}: $${args.amount_dollars} due ${args.due_date}`,
+      confirm: (args) => `Invoiced — $${args.amount_dollars} due ${args.due_date}. I'll age it from here.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_load_invoice",
+      description: "Update an invoice — record a payment (paid_amount_dollars, paid_on when fully paid) or correct terms.",
+      parameters: {
+        type: "object",
+        properties: { invoice_id: idParam("invoice_id", "invoice"), ...invoiceParams },
+        required: ["invoice_id"],
+      },
+      botSchema: updateInvoiceBot,
+      table: "load_invoices",
+      label: "invoice",
+      idKey: "invoice_id",
+      toPatch: invoiceToRow,
+      patchSchema: updateLoadInvoiceSchema,
+      summarize: (args) => `Update invoice ${args.invoice_id}: ${changedFields(args, "invoice_id")}`,
+      confirm: (args) => `Updated the invoice (${changedFields(args, "invoice_id")}).`,
+    }),
+  );
+
+  const obligationBotFields = {
+    name: z.string().min(1).optional(),
+    amount_dollars: z.number().nonnegative().optional(),
+    cadence: z.enum(["weekly", "biweekly", "monthly", "quarterly", "annual"]).optional(),
+    day_of_month: z.number().int().min(1).max(31).nullable().optional(),
+    weekday: z.number().int().min(0).max(6).nullable().optional(),
+    anchor_date: dateString.nullable().optional(),
+    active: z.boolean().optional(),
+    notes: z.string().optional(),
+  };
+  const obligationToRow = (args: Row): Row => {
+    const { amount_dollars, ...rest } = definedOnly(args);
+    const row: Row = { ...rest };
+    if (amount_dollars !== undefined) row.amount_cents = Math.round(Number(amount_dollars) * 100);
+    return row;
+  };
+  const obligationParams = {
+    name: { type: "string", description: "What the bill is ('Phone', 'Insurance', 'Truck payment')." },
+    amount_dollars: { type: "number" },
+    cadence: { type: "string", enum: ["weekly", "biweekly", "monthly", "quarterly", "annual"] },
+    day_of_month: { type: "number", description: "For monthly cadences: the day it leaves (1-31)." },
+    weekday: { type: "number", description: "For weekly cadences: 0 = Sunday .. 6 = Saturday." },
+    anchor_date: { type: "string", description: "For biweekly: a known occurrence date, YYYY-MM-DD." },
+    active: { type: "boolean" },
+    notes: { type: "string" },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_recurring_obligation",
+      description:
+        "Register a recurring business obligation (Cash calendar): 'my phone bill is $95 on the 12th' becomes a dated, projected obligation so the tight week is visible before it arrives.",
+      parameters: {
+        type: "object",
+        properties: obligationParams,
+        required: ["name", "amount_dollars", "cadence"],
+      },
+      botSchema: z.object({
+        ...obligationBotFields,
+        name: z.string().min(1),
+        amount_dollars: z.number().nonnegative(),
+        cadence: z.enum(["weekly", "biweekly", "monthly", "quarterly", "annual"]),
+      }),
+      table: "recurring_obligations",
+      label: "obligation",
+      toRow: obligationToRow,
+      rowSchema: createRecurringObligationSchema,
+      summarize: (args) => `Obligation: ${args.name} $${args.amount_dollars} ${args.cadence}`,
+      confirm: (args) => `Noted — ${args.name}, $${args.amount_dollars} ${args.cadence}. It's on the cash calendar.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_recurring_obligation",
+      description: "Update or deactivate a recurring obligation (amount changed, bill ended).",
+      parameters: {
+        type: "object",
+        properties: { obligation_id: idParam("obligation_id", "obligation"), ...obligationParams },
+        required: ["obligation_id"],
+      },
+      botSchema: z.object({ obligation_id: uuid, ...obligationBotFields }),
+      table: "recurring_obligations",
+      label: "obligation",
+      idKey: "obligation_id",
+      toPatch: obligationToRow,
+      patchSchema: updateRecurringObligationSchema,
+      summarize: (args) => `Update obligation ${args.obligation_id}: ${changedFields(args, "obligation_id")}`,
+      confirm: (args) => `Updated the obligation (${changedFields(args, "obligation_id")}).`,
+    }),
+  );
+
+  const followupParams = {
+    broker_id: { type: "string", description: "Broker id (uuid)." },
+    note: { type: "string", description: "What's owed ('check call on the detention claim')." },
+    due_on: { type: "string", description: "YYYY-MM-DD" },
+    done_at: { type: "string", description: "ISO timestamp when done; null reopens it." },
+  };
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_broker_followup",
+      description:
+        "Record a dated follow-up owed to a broker (a promised check call, paperwork to send). It surfaces in the day-wrap when it comes due.",
+      parameters: { type: "object", properties: followupParams, required: ["broker_id", "note", "due_on"] },
+      botSchema: createBrokerFollowupSchema,
+      table: "broker_followups",
+      label: "follow-up",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createBrokerFollowupSchema,
+      summarize: (args) => `Follow-up for broker ${args.broker_id} on ${args.due_on}: ${args.note}`,
+      confirm: (args) => `Follow-up set for ${args.due_on} — I'll surface it in the day-wrap.`,
+    }),
+    makeUpdateTool(store, {
+      name: "update_broker_followup",
+      description: "Update a broker follow-up — set done_at when it's handled, or move the date.",
+      parameters: {
+        type: "object",
+        properties: { followup_id: idParam("followup_id", "follow-up"), ...followupParams },
+        required: ["followup_id"],
+      },
+      botSchema: updateBrokerFollowupSchema.extend({ followup_id: uuid }),
+      table: "broker_followups",
+      label: "follow-up",
+      idKey: "followup_id",
+      toPatch: (args) => definedOnly(args),
+      patchSchema: updateBrokerFollowupSchema,
+      summarize: (args) => `Update follow-up ${args.followup_id}: ${changedFields(args, "followup_id")}`,
+      confirm: (args) => `Updated the follow-up (${changedFields(args, "followup_id")}).`,
+    }),
+  );
+
   const driverParams = {
     name: { type: "string" },
     cdl_number: { type: "string" },
@@ -457,6 +830,14 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     year: { type: "number" },
     status: { type: "string", enum: ["active", "maintenance", "inactive"] },
     current_mileage: { type: "number" },
+    truck_type: { type: "string", description: "What kind of truck it is (sleeper, day cab, box truck...) in his words or the app's picklist values." },
+    photo_document_id: { type: "string", description: "Documents row id of this truck's profile photo (from a photo he sent)." },
+    mileage_source: {
+      type: "string",
+      enum: MILEAGE_SOURCES,
+      description:
+        "Where a current_mileage value came from (Image Intelligence §5.3 provenance): odometer_photo when read off a dash photo, owner_said when he states it. Omit when not setting mileage.",
+    },
   };
   const truckProfileFields = {
     height_in: z.number().positive().optional(),
@@ -500,7 +881,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     {
       name: "update_truck",
       description:
-        "Update a truck - base details (unit number, status, mileage) and/or its Smart Path profile: dimensions, governed speed, tank, MPG, and the APPLIANCE INVENTORY (fridge, microwave, hot plate, inverter...). Profile fields live in the Smart Path part of the database; if that hasn't landed yet the tool says so instead of pretending to save them.",
+        "Update a truck - base details (unit number, status, mileage, type, profile photo) and/or its Smart Path profile: dimensions, governed speed, tank, MPG, and the APPLIANCE INVENTORY (fridge, microwave, hot plate, inverter...). Profile fields live in the Smart Path part of the database; if that hasn't landed yet the tool says so instead of pretending to save them. Mileage moves through the §5.3 propagation rule: it never goes backwards - a lower value is refused and reported, and every accepted value is stamped with its source.",
       parameters: {
         type: "object",
         properties: {
@@ -512,19 +893,31 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       },
       access: "write",
       validateArgs: validateWith(
-        updateTruckSchema.extend({ truck_id: uuid }).extend(truckProfileFields),
+        updateTruckSchema
+          .extend({ truck_id: uuid })
+          .extend(truckProfileFields)
+          .extend({ mileage_source: z.enum(MILEAGE_SOURCES as [MileageSource, ...MileageSource[]]).optional() }),
       ),
       summarize: (args) =>
-        `Update truck ${args.truck_id}: ${changedFields(args as Row, "truck_id")}` +
+        `Update truck ${args.truck_id}: ${changedFields(args as Row, "truck_id", ["mileage_source"])}` +
         `${Array.isArray((args as Row).appliances) ? ` — appliances: ${((args as Row).appliances as string[]).join(", ")}` : ""}`,
       async run(args) {
-        const schema = updateTruckSchema.extend({ truck_id: uuid }).extend(truckProfileFields);
+        const schema = updateTruckSchema
+          .extend({ truck_id: uuid })
+          .extend(truckProfileFields)
+          .extend({ mileage_source: z.enum(MILEAGE_SOURCES as [MileageSource, ...MileageSource[]]).optional() });
         const parsed = schema.parse(args) as Row;
         const { client, companyId } = store;
         const id = String(parsed.truck_id);
         await fetchLiveRow(client, "trucks", companyId, id, "truck");
         const all = definedOnly(parsed);
         delete all.truck_id;
+        // §5.3: mileage leaves the plain patch and goes through
+        // the propagation helper (provenance + never-backwards).
+        const mileageSource = all.mileage_source as MileageSource | undefined;
+        delete all.mileage_source;
+        const mileageValue = typeof all.current_mileage === "number" ? all.current_mileage : undefined;
+        delete all.current_mileage;
         const profilePatch: Row = {};
         const basePatch: Row = {};
         for (const [key, value] of Object.entries(all)) {
@@ -554,7 +947,20 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           updateTruckSchema.parse(basePatch);
           await patchLiveRow(client, "trucks", companyId, id, basePatch);
         }
-        return `Updated truck ${id} (${changedFields(parsed, "truck_id")}).`;
+        let mileageNote = "";
+        if (mileageValue !== undefined) {
+          const source = mileageSource ?? "owner_said";
+          const outcome = await propagateMileage(client, companyId, {
+            truckId: id,
+            miles: mileageValue,
+            source,
+          });
+          mileageNote = outcome.applied
+            ? ` Mileage now ${Math.round(mileageValue).toLocaleString("en-US")} (from ${MILEAGE_SOURCE_LABELS[source]}${outcome.provenanceRecorded ? "" : "; provenance stamp pending the mileage migration"}).`
+            : ` Mileage NOT changed: ${Math.round(mileageValue).toLocaleString("en-US")} would move the truck backwards from ${outcome.previousMiles?.toLocaleString("en-US") ?? "its recorded mileage"} - if the recorded number is wrong, say so and it gets corrected openly.`;
+        }
+        const changed = changedFields(parsed, "truck_id", ["mileage_source"]);
+        return `Updated truck ${id} (${changed}).${mileageNote}`;
       },
     },
     makeCreateTool(store, {
@@ -580,7 +986,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     }),
     makeUpdateTool(store, {
       name: "update_trailer",
-      description: "Update a trailer (unit number, type, status).",
+      description: "Update a trailer (unit number, type, status, profile photo).",
       parameters: {
         type: "object",
         properties: {
@@ -589,6 +995,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           vin: { type: "string" },
           trailer_type: { type: "string" },
           status: { type: "string", enum: ["active", "maintenance", "inactive"] },
+          photo_document_id: { type: "string", description: "Documents row id of this trailer's picture (from a photo he sent)." },
         },
         required: ["trailer_id"],
       },
@@ -608,7 +1015,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   tools.push(
     makeCreateTool(store, {
       name: "create_maintenance_event",
-      description: "Record maintenance/repair work that was done on a truck (Maintenance tab): what, when, what it cost.",
+      description: "Record maintenance/repair work that was done on a truck (Maintenance tab): what, when, what it cost. Pass template_key when the work matches the standard library (engine_oil, fuel_filters, chassis_lube, brake_inspection, air_filter, tire_inspection, coolant_test, belt_hose_inspect, dot_annual, dpf_service, trans_diff_fluid) - it pairs the event with its schedule so the schedule advances in the same approval (§5.4).",
       parameters: {
         type: "object",
         properties: {
@@ -617,6 +1024,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           cost_dollars: { type: "number" },
           service_date: { type: "string", description: "YYYY-MM-DD" },
           mileage_at_service: { type: "number" },
+          template_key: { type: "string", description: "Standard-library key for this work, when it matches one (see the list in the description)." },
         },
         required: ["truck_id", "description", "service_date"],
       },
@@ -626,11 +1034,13 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         cost_dollars: z.number().nonnegative().nullable().optional(),
         service_date: dateString,
         mileage_at_service: z.number().int().nonnegative().nullable().optional(),
+        template_key: z.string().min(1).max(60).optional(),
       }),
       table: "maintenance_events",
       label: "maintenance event",
       toRow: (args) => {
-        const { cost_dollars, ...rest } = definedOnly(args);
+        // template_key is pairing metadata (§5.4), not an events column.
+        const { cost_dollars, template_key: _templateKey, ...rest } = definedOnly(args);
         const row: Row = { ...rest };
         if (cost_dollars !== undefined) {
           row.cost_cents = cost_dollars === null ? null : Math.round(Number(cost_dollars) * 100);
@@ -642,6 +1052,67 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         `Maintenance: ${args.description} on ${args.service_date}` +
         `${typeof args.cost_dollars === "number" ? ` — ${dollars(Math.round(args.cost_dollars * 100))}` : ""}`,
       confirm: (args) => `Recorded maintenance: ${args.description}.`,
+      // §5.3: a service mileage is an observation of the truck's
+      // odometer - it flows into current_mileage through the one
+      // propagation door (never backwards, provenance stamped).
+      // §5.5: the same landing SUGGESTS defect closures it sounds
+      // like - the closure itself is always a separate proposal.
+      afterCreate: async (args, eventId) => {
+        let note = "";
+        const miles = args.mileage_at_service;
+        if (typeof miles === "number") {
+          const outcome = await propagateMileage(store.client, store.companyId, {
+            truckId: String(args.truck_id),
+            miles,
+            source: "maintenance_event",
+          });
+          if (outcome.applied) {
+            note += ` Truck mileage now ${Math.round(miles).toLocaleString("en-US")} (from this service record).`;
+          } else if (outcome.reason === "not_forward") {
+            note += ` The truck's recorded mileage (${outcome.previousMiles?.toLocaleString("en-US")}) is already past this service mileage, so it stays.`;
+          }
+        }
+        try {
+          const { defects, available } = await listActiveDefects(store.client, store.companyId);
+          if (available) {
+            const matches = defects.filter(
+              (d) => d.truck_id === String(args.truck_id) && defectMatchesWork(d, String(args.description)),
+            );
+            for (const match of matches) {
+              note += ` That sounds like the fix for the open defect "${match.description}" (defect ${match.id}, event ${eventId}) - if it is, stage its closure with resolve_vehicle_defect and let him approve it; don't close it silently.`;
+            }
+          }
+        } catch (err) {
+          console.error("[tools-write] defect closure suggestion failed:", err);
+        }
+        // §5.4, executed path: proposal pairing doesn't run when
+        // the event was ordered directly, so if its schedule is
+        // still behind, say so - the completion stays a proposal
+        // he approves, never a silent side effect.
+        try {
+          const key =
+            (typeof args.template_key === "string" ? args.template_key : null) ??
+            guessTemplateKey(String(args.description));
+          if (key) {
+            const { data } = await store.client
+              .from("maintenance_schedules")
+              .select("description, last_done_date")
+              .eq("company_id", store.companyId)
+              .eq("truck_id", String(args.truck_id))
+              .eq("template_key", key)
+              .eq("status", "active")
+              .is("deleted_at", null)
+              .limit(1);
+            const schedule = ((data ?? []) as { description: string; last_done_date: string | null }[])[0];
+            if (schedule && (schedule.last_done_date == null || schedule.last_done_date < String(args.service_date))) {
+              note += ` The "${schedule.description}" schedule still shows ${schedule.last_done_date ? `last done ${schedule.last_done_date}` : "no last-done"} - tell me to mark it done and I'll stage that completion for your yes.`;
+            }
+          }
+        } catch (err) {
+          console.error("[tools-write] schedule advance note failed:", err);
+        }
+        return note || undefined;
+      },
     }),
     makeUpdateTool(store, {
       name: "update_maintenance_event",
@@ -682,7 +1153,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     makeCreateTool(store, {
       name: "create_maintenance_schedule",
       description:
-        "Set up a preventative-maintenance schedule (e.g. oil change every 10,000 miles, pigtail inspection every 30 days) for exactly one truck or trailer, with at least one interval.",
+        "Set up a preventative-maintenance schedule (e.g. oil change every 10,000 miles, pigtail inspection every 30 days) for exactly one truck or trailer, with at least one interval. template_key + origin='template' are for the standard-pack staging (§5.2) - schedules you set up from his words take origin 'abel' unless he dictated it as his own standing setup.",
       parameters: {
         type: "object",
         properties: {
@@ -694,6 +1165,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           last_done_date: { type: "string", description: "YYYY-MM-DD" },
           last_done_mileage: { type: "number" },
           status: { type: "string", enum: ["active", "paused"] },
+          template_key: { type: "string", description: "Standard-library key when this schedule comes from the pack." },
+          origin: { type: "string", enum: ["template", "owner", "abel"] },
         },
         required: ["description"],
       },
@@ -775,6 +1248,94 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         updateMaintenanceScheduleSchema.parse(patch);
         await patchLiveRow(client, "maintenance_schedules", companyId, String(parsed.schedule_id), patch);
         return `Marked "${schedule.description}" done (last done ${patch.last_done_date}${patch.last_done_mileage != null ? ` at ${patch.last_done_mileage} mi` : ""}).`;
+      },
+    },
+  );
+
+  // --- Vehicle defects + the standard pack (§5.5 / §5.2) -------------
+
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_vehicle_defect",
+      description:
+        "Track an observed problem on exactly one truck or trailer (a defect - not work done, not future work): from a failed pre-trip, a damage photo, or his words. It stays open until a matching maintenance event closes it (via resolve_vehicle_defect) or he dismisses it - dismissal is permanent, the watcher never asks about it again.",
+      parameters: {
+        type: "object",
+        properties: {
+          truck_id: { type: "string" },
+          trailer_id: { type: "string" },
+          description: { type: "string", description: "The problem, in his words where possible." },
+          source: { type: "string", enum: ["pretrip", "photo", "conversation"] },
+          source_inspection_id: { type: "string", description: "The failed pre-trip's id, when that's where it came from." },
+          source_document_id: { type: "string", description: "The damage photo's documents id, when that's where it came from." },
+        },
+        required: ["description", "source"],
+      },
+      botSchema: createVehicleDefectSchema,
+      table: "vehicle_defects",
+      label: "vehicle defect",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createVehicleDefectSchema,
+      summarize: (args) => `Defect (${args.source}): ${args.description}`,
+      confirm: (args) => `Tracking the defect: ${args.description}.`,
+    }),
+    {
+      name: "resolve_vehicle_defect",
+      description:
+        "Move a tracked defect forward: 'acknowledged' (he's seen it), 'closed' (fixed - pass maintenance_event_id when a recorded event is the fix), or 'dismissed' (not his problem / not worth tracking - permanent, never re-asked).",
+      parameters: {
+        type: "object",
+        properties: {
+          defect_id: idParam("defect_id", "vehicle defect"),
+          status: { type: "string", enum: ["acknowledged", "closed", "dismissed"] },
+          maintenance_event_id: { type: "string", description: "The maintenance event that fixed it, when closing." },
+        },
+        required: ["defect_id", "status"],
+      },
+      access: "write",
+      validateArgs: validateWith(
+        z.object({
+          defect_id: uuid,
+          status: z.enum(["acknowledged", "closed", "dismissed"]),
+          maintenance_event_id: uuid.optional(),
+        }),
+      ),
+      summarize: (args) => `Defect ${args.defect_id}: mark ${args.status}`,
+      async run(args) {
+        const parsed = z
+          .object({
+            defect_id: uuid,
+            status: z.enum(["acknowledged", "closed", "dismissed"]),
+            maintenance_event_id: uuid.optional(),
+          })
+          .parse(args) as Row;
+        const { client, companyId } = store;
+        const defect = await fetchLiveRow(client, "vehicle_defects", companyId, String(parsed.defect_id), "vehicle defect");
+        const patch: Row = { status: parsed.status, updated_at: new Date().toISOString() };
+        if (typeof parsed.maintenance_event_id === "string") {
+          patch.maintenance_event_id = parsed.maintenance_event_id;
+        }
+        updateVehicleDefectSchema.parse(patch);
+        await patchLiveRow(client, "vehicle_defects", companyId, String(parsed.defect_id), patch);
+        return `Defect "${defect.description}" marked ${String(parsed.status)}${parsed.status === "dismissed" ? " - it won't be raised again" : ""}.`;
+      },
+    },
+    {
+      name: "propose_maintenance_pack",
+      description:
+        "Stage the standard maintenance-schedule pack for a truck (§5.2): the interval library (oil, filters, brakes, DOT annual...) as one approval batch. Call it when a truck is new to the app or he asks what maintenance he should be tracking. It stages proposals only - nothing is recorded until he says yes - and the tool itself reports when the pack was already proposed or fully tracked.",
+      parameters: {
+        type: "object",
+        properties: { truck_id: idParam("truck_id", "truck") },
+        required: ["truck_id"],
+      },
+      access: "write",
+      validateArgs: validateWith(z.object({ truck_id: uuid })),
+      summarize: (args) => `Propose the standard maintenance pack for truck ${args.truck_id}`,
+      async run(args) {
+        const parsed = z.object({ truck_id: uuid }).parse(args);
+        const outcome = await stageMaintenancePack(store, parsed.truck_id);
+        return outcome.text;
       },
     },
   );
@@ -877,6 +1438,27 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       summarize: (args) =>
         `Pre-trip inspection: ${args.passed ? "PASSED" : "FAILED"}${args.defects_found ? ` — defects: ${args.defects_found}` : ""}`,
       confirm: (args) => `Recorded the pre-trip inspection (${args.passed ? "passed" : "FAILED"}).`,
+      // §5.5 (closes GAP-10's orphaned signal): a FAILED pre-trip's
+      // defects don't just sit in a text column - each distinct
+      // problem is staged as a tracked defect for his yes. A
+      // passed inspection stages nothing, exactly as before (C3).
+      afterCreate: async (args, inspectionId) => {
+        if (args.passed !== false) return;
+        const texts = splitDefectTexts(typeof args.defects_found === "string" ? args.defects_found : "");
+        if (texts.length === 0) {
+          return " It failed with no defect details written down - tell me what you found and I'll track each problem.";
+        }
+        const drafts = texts.map((description) => ({
+          truckId: typeof args.truck_id === "string" ? args.truck_id : null,
+          trailerId: typeof args.trailer_id === "string" ? args.trailer_id : null,
+          description,
+          source: "pretrip" as const,
+          sourceInspectionId: inspectionId,
+        }));
+        const staged = await stageDefectProposals(store, drafts, "from the failed pre-trip you just logged");
+        if (staged === 0) return;
+        return ` I also staged ${staged} defect${staged === 1 ? "" : "s"} to track from that pre-trip (${texts.join("; ")}) - say yes to track ${staged === 1 ? "it" : "them"}, name the numbers to pick, or no to let ${staged === 1 ? "it" : "them"} go. Nothing is tracked until you say so.`;
+      },
     }),
   );
 
@@ -950,6 +1532,117 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   const deleteBot = z.object({
     entity: z.enum(Object.keys(DELETE_TARGETS) as [DeleteEntity, ...DeleteEntity[]]),
     record_id: uuid,
+  });
+
+  // R-6 (Research Intelligence design D-7/D-5): the conversational
+  // side of the Deep Research engine. queue_research writes EXACTLY
+  // the manual row the app's research-now route writes (migration
+  // 00019 fences owner-session inserts to that shape); the engine's
+  // tick executes it under the same caps and kill switch as every
+  // other run - this tool never calls the AI provider itself.
+  const queueResearchBot = z.object({
+    topic: z.string().trim().min(3).max(200),
+  });
+  tools.push({
+    name: "queue_research",
+    description:
+      "Queue a Deep Research run on a topic he names (e.g. diesel prices in the Southeast, a new state weight law). The research engine picks it up on its next tick under its normal caps - it does NOT run instantly. The finished briefing lands in list_research_briefings and the app's Research page. Use when he asks you to look into something the watchers don't already cover.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "The research topic, in his words (3-200 characters)." },
+      },
+      required: ["topic"],
+    },
+    access: "write",
+    validateArgs: validateWith(queueResearchBot),
+    summarize: (args) => `Queue Deep Research on "${String(args.topic ?? "")}"`,
+    async run(args) {
+      const parsed = queueResearchBot.parse(args);
+      // Same topic bounds the app route enforces (researchNowSchema).
+      researchNowSchema.parse({ topic: parsed.topic });
+      const { client, companyId } = store;
+      const id = await insertRow(client, "research_runs", companyId, {
+        trigger_kind: "manual",
+        topic: parsed.topic,
+        trigger_detail: { reason: "Owner requested this research in conversation with Abel." },
+        status: "queued",
+      });
+      return (
+        `Queued a Deep Research run on "${parsed.topic}" (run id ${id}). ` +
+        "The engine runs it on its next tick under its normal caps - when the briefing is ready it shows in list_research_briefings and the app's Research page, and the engine's delivery rules decide whether it also buzzes his phone."
+      );
+    },
+  });
+
+  const requestPhotosBot = z.object({
+    load_id: uuid.optional(),
+    checklist_kind: z.string().trim().min(1).max(60).optional(),
+    items: z.array(z.string().trim().min(1).max(60)).min(1).max(10).optional(),
+    reason: z.string().trim().min(1).max(300).optional(),
+  });
+  tools.push({
+    name: "request_pretrip_photos",
+    description:
+      "Record a pre-trip photo ask (a pending research_requests row): ask him to photograph specific things - by default tires, lights, load securement, and the BOL. Use when he wants to be asked for photos before a load rolls, or when a pre-trip is coming up and the photos should be captured. The ask stays pending until Abel files MATCHING pre-trip photos through photo intake (same load, covering every item asked for — that pipeline marks it fulfilled) or he says skip it (dismiss_research_request).",
+    parameters: {
+      type: "object",
+      properties: {
+        load_id: { type: "string", description: "Optional load id (from list_loads) the photos are for." },
+        checklist_kind: { type: "string", description: "Checklist context label, e.g. \"pre-trip\". Default \"pre-trip\"." },
+        items: {
+          type: "array",
+          items: { type: "string" },
+          description: "What to photograph. Default: tires, lights, load securement, BOL.",
+        },
+        reason: { type: "string", description: "Why the photos are wanted - you repeat this when you ask him." },
+      },
+    },
+    access: "write",
+    validateArgs: validateWith(requestPhotosBot),
+    summarize: (args) => {
+      const items = Array.isArray(args.items) && args.items.length > 0 ? args.items : PRETRIP_PHOTO_DEFAULT_ITEMS;
+      return `Ask him for pre-trip photos (${items.join(", ")})${args.load_id ? ` for load ${String(args.load_id)}` : ""}`;
+    },
+    async run(args) {
+      const parsed = requestPhotosBot.parse(args);
+      const { client, companyId } = store;
+      const id = await requestPretripPhotos(client, companyId, {
+        loadId: parsed.load_id ?? null,
+        checklistKind: parsed.checklist_kind,
+        items: parsed.items,
+        reason: parsed.reason,
+      });
+      const items = parsed.items ?? [...PRETRIP_PHOTO_DEFAULT_ITEMS];
+      return (
+        `Recorded the pre-trip photo ask (request id ${id}): photograph ${items.join(", ")}` +
+        `${parsed.load_id ? ` for load ${parsed.load_id}` : ""}. ` +
+        "It stays pending until his photos are filed; ask him for them when the pre-trip moment comes."
+      );
+    },
+  });
+
+  const dismissRequestBot = z.object({ request_id: uuid });
+  tools.push({
+    name: "dismiss_research_request",
+    description:
+      "Dismiss a pending pre-trip photo ask (from list_research_requests) when he says skip it or it's no longer needed. Only dismisses asks still waiting - a fulfilled ask is history and stays.",
+    parameters: {
+      type: "object",
+      properties: { request_id: { type: "string", description: "The research request id from list_research_requests." } },
+      required: ["request_id"],
+    },
+    access: "write",
+    validateArgs: validateWith(dismissRequestBot),
+    summarize: (args) => `Dismiss pre-trip photo ask ${String(args.request_id ?? "")}`,
+    async run(args) {
+      const parsed = dismissRequestBot.parse(args);
+      const { client, companyId } = store;
+      const dismissed = await dismissResearchRequest(client, companyId, parsed.request_id);
+      return dismissed
+        ? `Dismissed photo ask ${parsed.request_id} - it won't be raised again.`
+        : `Photo ask ${parsed.request_id} wasn't pending (already fulfilled, dismissed, or not his) - nothing changed.`;
+    },
   });
 
   tools.push({

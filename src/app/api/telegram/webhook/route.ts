@@ -23,11 +23,26 @@ import {
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
-import { handleTelegramPhoto } from "@/services/telegram/photo-intake";
+import { createTelegramBurstCollector } from "@/services/telegram/burst";
+import { handleTelegramPhotoIntelligent } from "@/services/telegram/photo-intelligence";
+import {
+  resolvePhotoPurposeAskById,
+  type PhotoPurposeChoice,
+} from "@/services/telegram/photo-purpose";
 import { runAgentTurn } from "@/services/bot/agent-turn";
 import { stageRecordables } from "@/services/bot/stage-recordables";
+import { captureForwardThread } from "@/services/bot/thread-capture";
+import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
 export const runtime = "nodejs";
+
+/**
+ * Telegram repairs (2026-11-03): ONE burst collector for the whole
+ * process - forwarded conversations arrive as many separate webhook
+ * calls and must land in the same per-chat bundle, so the collector
+ * can never be rebuilt per request.
+ */
+const telegramBurstCollector = createTelegramBurstCollector();
 
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false;
@@ -61,6 +76,51 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
       console.error("[telegram] sendMessage failed", res.status);
       throw new Error("Telegram sendMessage failed.");
     }
+  }
+}
+
+/**
+ * §3.3: sends a message carrying an inline keyboard (the photo-
+ * purpose ask). One message, no chunking - ask texts are short by
+ * construction; a failure throws and the bot falls back to the
+ * numbered text list.
+ */
+async function sendTelegramAskMessage(
+  botToken: string,
+  chatId: number,
+  text: string,
+  buttons: { text: string; callback_data: string }[][],
+): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      reply_markup: { inline_keyboard: buttons },
+    }),
+  });
+  if (!res.ok) {
+    console.error("[telegram] sendMessage (ask) failed", res.status);
+    throw new Error("Telegram sendMessage failed.");
+  }
+}
+
+/** §3.3: stops the button-tap spinner. Never throws - a failed ack must not fail the turn. */
+async function answerTelegramCallbackQuery(
+  botToken: string,
+  queryId: string,
+  text?: string,
+): Promise<void> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: queryId, ...(text ? { text } : {}) }),
+    });
+    if (!res.ok) console.error("[telegram] answerCallbackQuery failed", res.status);
+  } catch (err) {
+    console.error("[telegram] answerCallbackQuery failed", err);
   }
 }
 
@@ -120,6 +180,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     stageRecordables: brainStore
       ? (userText, items) => stageRecordables(brainStore, userText, items)
       : undefined,
+    // Phase C: every dispatch workup also reconstructs the
+    // conversation into a stored thread record (best-effort, after
+    // the reply - see dispatch-bot). Same brain store scope.
+    captureThread: brainStore
+      ? (text) => captureForwardThread(brainStore, new OpenAiProvider(), text)
+      : undefined,
+    // Phase E: voice notes - downloaded + transcribed under the
+    // voice_transcription kill switch (brain store reads the same
+    // capability rows as every other surface); the transcript then
+    // runs the normal text pipeline in dispatch-bot.
+    handleVoice: brainStore
+      ? (voice) =>
+          handleTelegramVoice(voice, {
+            botToken,
+            isEnabled: () => brainStore.isVoiceTranscriptionEnabled(),
+          })
+      : undefined,
     // Lane 1 (audit B-1): the dispatch_helper kill switch (global +
     // capability) is checked on this path too, from the same store
     // the web surfaces read - off means no workup on Telegram either.
@@ -129,19 +206,42 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // §13: photo messages store through the shared documents
     // pipeline on the same service-role client + company scope.
     // Absent in reduced mode - the bot then says so honestly.
+    // Image Intelligence (§3): the intelligent front door runs the
+    // show - with its capability off it delegates to the §13 intake
+    // untouched, so wiring it here changes nothing until the owner
+    // turns Photo understanding on.
     handlePhoto:
       brainStore && photoCompanyId
-        ? (photo, caption) =>
-            handleTelegramPhoto(
-              { client: brainStore.client, companyId: photoCompanyId, botToken },
+        ? (photo, caption, mediaGroupId) =>
+            handleTelegramPhotoIntelligent(
+              { client: brainStore.client, companyId: photoCompanyId, botToken, brainStore },
               photo,
               caption,
+              mediaGroupId,
             )
         : undefined,
+    // §3.3: inline-keyboard asks + their tap resolution.
+    sendAskMessage: (chatId, text, buttons) =>
+      sendTelegramAskMessage(botToken, chatId, text, buttons),
+    answerCallbackQuery: (queryId, text) =>
+      answerTelegramCallbackQuery(botToken, queryId, text),
+    resolvePhotoAsk:
+      brainStore && photoCompanyId
+        ? (pendingId, choice) =>
+            resolvePhotoPurposeAskById(
+              { client: brainStore.client, companyId: photoCompanyId, brainStore },
+              pendingId,
+              choice as PhotoPurposeChoice,
+            )
+        : undefined,
+    isPhotoIntelligenceEnabled: brainStore
+      ? () => brainStore.isPhotoIntelligenceEnabled()
+      : undefined,
     // Null when TELEGRAM_COMPANY_ID / service key aren't configured:
     // the bot then runs reduced (dispatch replies, no context) instead
     // of failing - see services/telegram/store.ts.
     store: createTelegramStore(config.companyId),
+    burstCollector: telegramBurstCollector,
   });
 
   // Always 200 once accepted, so Telegram doesn't retry-storm on a

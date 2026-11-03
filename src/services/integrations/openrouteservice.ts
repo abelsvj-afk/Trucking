@@ -23,6 +23,7 @@ import type { LatLng } from "@/lib/smart-path";
 import {
   FETCH_TIMEOUT_MS,
   metricRestrictions,
+  normalizeManeuvers,
   RoutingUnavailableError,
   type RouteResult,
   type RoutingProvider,
@@ -41,6 +42,21 @@ const orsResponseSchema = z.object({
             distance: z.number(), // meters
             duration: z.number(), // seconds
           }),
+          // Returned because the request sets instructions: true
+          // (Drive Mode G-6 enabler): segments carry steps with
+          // ready-made instruction text; step distance is meters.
+          segments: z
+            .array(
+              z.object({
+                steps: z.array(
+                  z.object({
+                    distance: z.number(), // meters
+                    instruction: z.string(),
+                  }),
+                ),
+              }),
+            )
+            .optional(),
         }),
         geometry: z.object({
           coordinates: z.array(z.tuple([z.number(), z.number()])), // [lng, lat]
@@ -89,6 +105,9 @@ export class OpenRouteServiceRoutingProvider implements RoutingProvider {
             [from.lng, from.lat],
             [to.lng, to.lat],
           ],
+          // Drive Mode (G-6) needs the turn prompts the engine
+          // already computes; without this flag ORS omits them.
+          instructions: true,
           options,
         }),
       });
@@ -111,13 +130,26 @@ export class OpenRouteServiceRoutingProvider implements RoutingProvider {
     }
 
     const feature = parsed.data.features[0]!;
+    const distanceMiles = feature.properties.summary.distance / METERS_PER_MILE;
+    const steps = (feature.properties.segments ?? []).flatMap((segment) => segment.steps);
     return {
-      distanceMiles: feature.properties.summary.distance / METERS_PER_MILE,
+      distanceMiles,
       durationMinutes: feature.properties.summary.duration / 60,
       geometry: feature.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
       providerName: this.name,
       truckLegal: true,
       providerNotes: [],
+      ...(steps.length > 0
+        ? {
+            maneuvers: normalizeManeuvers(
+              steps.map((step) => ({
+                instruction: step.instruction,
+                lengthMiles: step.distance / METERS_PER_MILE,
+              })),
+              distanceMiles,
+            ),
+          }
+        : {}),
     };
   }
 }

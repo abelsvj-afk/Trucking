@@ -15,7 +15,8 @@ import {
   DeletedToggleButton,
   DeletedListSection,
 } from "@/components/RecordLifecycle";
-import type { DutyLog } from "@/types/entities";
+import { buildPaperDocMap, hosPaperBanner, hosPartialLines, hosRowPaperSuffix } from "@/lib/hos-paper";
+import type { Document, DutyLog } from "@/types/entities";
 
 const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
   off_duty: "Off duty",
@@ -32,9 +33,19 @@ export default function HosPage() {
   usePageTitle("Hours of service");
   const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<DutyLog>("duty-logs", { limit: "200" });
-
+  // Paper-log provenance (Image Intelligence §7.5/§7.7): a sheet's
+  // completeness stamp lives on its document row; the clocks built
+  // on a partial day must say partial on this surface too.
+  const documents = useApiList<Document>("documents", { limit: "200" });
+  // UH-12 fix: the paper/partial computation lives in the shared
+  // helper (src/lib/hos-paper.ts) — Home consumes the same labels.
+  const paperDocs =
+    documents.state.status === "loaded" ? buildPaperDocMap(documents.state.result.data) : new Map();
   const summary =
     state.status === "loaded" ? summarizeHos(state.result.data) : null;
+  const rows = state.status === "loaded" ? state.result.data : [];
+  const paperBanner = hosPaperBanner(rows, paperDocs);
+  const partialLines = hosPartialLines(rows, paperDocs);
 
   return (
     <div>
@@ -76,6 +87,12 @@ export default function HosPage() {
               {warning}
             </p>
           ))}
+          {paperBanner && <p>{paperBanner}</p>}
+          {partialLines.map((line) => (
+            <p key={line} role="alert">
+              {line}
+            </p>
+          ))}
         </section>
       )}
 
@@ -99,6 +116,7 @@ export default function HosPage() {
                   {new Date(row.started_at).toLocaleString()}
                   {row.location ? ` — ${row.location}` : ""}
                   {row.notes ? ` — ${row.notes}` : ""}
+                  {hosRowPaperSuffix(row, paperDocs)}
                 </Link>
               </li>
             ))}

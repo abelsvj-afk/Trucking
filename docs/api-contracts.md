@@ -252,7 +252,7 @@ The `deep_research` capability — the third entry in `KNOWN_CAPABILITIES`, kill
 
 | Method | Path | Behavior |
 |---|---|---|
-| GET | `/api/v1/research-briefings` | The Research page's one read: `{ data: ResearchBriefing[] }` (excludes dismissed, newest first), `unread_count` (not dismissed, `read_at` null), `runs` (the 10 most recent `research_runs`, all statuses — the run log, caps/skips included), `watchers` (every `research_watcher_state` row — watcher health, failures visible), and `usage: { runs_today, runs_this_month, max_runs_per_day, max_runs_per_month }` (rolling 24h/30d counted statuses: queued/running/success/failure/insufficient_data) |
+| GET | `/api/v1/research-briefings` | The Research page's one read: `{ data: ResearchBriefing[] }` (excludes dismissed, newest first), `unread_count` (not dismissed, `read_at` null), `runs` (the 10 most recent `research_runs`, all statuses — the run log, caps/skips included), `watchers` (every `research_watcher_state` row — watcher health, failures visible), and `usage: { runs_today, runs_this_month, max_runs_per_day, max_runs_per_month }` (rolling 24h/30d counted statuses: queued/running/success/failure/insufficient_data), `signals` (the banner's Watching signals — unconsumed `research_signals` for the company, newest first; `[]` when the read fails), and `engine_enabled: boolean` (the fail-closed `deep_research` capability state the banner uses) |
 | POST | `/api/v1/research-briefings/{id}/read` | Sets `read_at`; `404` when the briefing isn't the caller's (RLS makes cross-tenant indistinguishable from missing) |
 | POST | `/api/v1/research-briefings/{id}/dismiss` | Sets `dismissed_at`; the "delete" analog for this resource |
 | POST | `/api/v1/research-briefings/research-now` | Body: `{ topic: string (3-200 chars) }`. The owner's manual trigger and the ONLY client-side insert into the engine's tables: queues a `research_runs` row (`trigger_kind='manual'`, `status='queued'` — the exact shape migration `00019`'s RLS policy fences this insert to), returns `201` with the queued run. It never calls the AI provider itself; the engine's scheduler tick executes queued runs under the same caps and kill switch (a queued run whose capability is off is closed out as `skipped_disabled`) |
@@ -284,7 +284,7 @@ A computed endpoint, not a resource — nothing is stored; the check is recomput
 
 | Method | Path | Behavior |
 |---|---|---|
-| POST | `/api/v1/smart-path/route-check` | Authenticated owner session. Body: `{ load_id: uuid, depart_at: ISO timestamp, pickup_window?: { start, end }, delivery_window?: { start, end }, food_mode?: "grocery" \| "fast_food" (default "grocery"), gallons_to_buy?: number }`. Returns `200` with `{ load, route: { provider, truckLegal, distanceMiles, providerDurationMinutes, geometry, originPoint, destinationPoint }, verdict: { status: on_time \| early \| late \| not_legal, assumedDriveMinutes, driveTimeBasis, legalLines, restedLines, paidLines, tradeoffLines, makeItDepartureAt }, plan: { arrivalAt, totalElapsedMinutes, breaks, rests } \| null, fuel: { assumptions, candidates (ranked by effective cost), unavailableReason }, food: { mode, groceryPlan, stops, suppressedByFast, lines, unavailableReason }, warnings }`. `truckLegal` (design §8.5) is `true` only when a truck-aware engine served the route — OpenRouteService `driving-hgv` (primary, when `ORS_API_KEY` is set) or Valhalla truck costing (keyless fallback) — with the load's truck dimensions passed in; it is `false` when the chain fell back to OSRM's car profile, in which case the v1 car-route warning returns verbatim in `warnings`. Provider skips/fallbacks are noted in `warnings`; `route.provider` names the engine that actually answered. Even `true` means checked against the restrictions recorded in OpenStreetMap data — coverage is incomplete, not a guarantee. Errors: `400 GEOCODE_MISS` (a load origin/destination couldn't be found on the map — the message says which), `502 ROUTING_UNAVAILABLE` / `GEOCODING_UNAVAILABLE` (provider down; no distance is estimated instead), `404` for another tenant's load (RLS). Food stops whose arrival falls inside the owner's 8pm–8am Eastern fast are suppressed and named in `suppressedByFast`. |
+| POST | `/api/v1/smart-path/route-check` | Authenticated owner session. Body: `{ load_id: uuid, depart_at: ISO timestamp, pickup_window?: { start, end }, delivery_window?: { start, end }, food_mode?: "grocery" \| "fast_food" (default "grocery"), gallons_to_buy?: number }`. Returns `200` with `{ load, route: { provider, truckLegal, distanceMiles, providerDurationMinutes, geometry, originPoint, destinationPoint }, verdict: { status: on_time \| early \| late \| not_legal, assumedDriveMinutes, driveTimeBasis, legalLines, restedLines, paidLines, tradeoffLines, makeItDepartureAt }, plan: { arrivalAt, totalElapsedMinutes, breaks, rests } \| null, fuel: { assumptions, candidates (ranked by effective cost), unavailableReason }, food: { mode, groceryPlan, stops, suppressedByFast, lines, unavailableReason }, warnings }`. `truckLegal` (design §8.5) is `true` only when a truck-aware engine served the route — OpenRouteService `driving-hgv` (primary, when `ORS_API_KEY` is set) or Valhalla truck costing (keyless fallback) — with the load's truck dimensions passed in; it is `false` when the chain fell back to OSRM's car profile, in which case the v1 car-route warning returns verbatim in `warnings`. Provider skips/fallbacks are noted in `warnings`; `route.provider` names the engine that actually answered. Even `true` means checked against the restrictions recorded in OpenStreetMap data — coverage is incomplete, not a guarantee. Errors: `400 GEOCODE_MISS` (a load origin/destination couldn't be found on the map — the message says which), `502 ROUTING_UNAVAILABLE` / `GEOCODING_UNAVAILABLE` (provider down; no distance is estimated instead), `404` for another tenant's load (RLS). Food stops whose arrival falls inside the owner's 8pm–8am Eastern fast are suppressed and named in `suppressedByFast`. **Drive Mode D1 (additive, optional fields):** `route.maneuvers?` and `deadhead.maneuvers?` carry normalized turn-by-turn maneuvers `[{ instruction, distanceMiles, atFraction }]` when the serving engine returns them (Valhalla's verbal instruction fields preferred; OpenRouteService requested with `instructions: true`; OSRM with `steps=true`) — an engine without steps omits the field rather than fabricating one. `clocks?` carries the duty-clock state the simulation projected from (`ClockState`), the basis for Drive Mode's projected HOS warnings — planning-grade, labeled as such; the ELD remains the legal record. |
 
 `trucks` create/update bodies additionally accept the Smart Path profile fields from `docs/schemas.md` (`height_in`, `length_in`, `weight_lbs`, `governed_speed_mph`, `tank_capacity_gallons`, `avg_mpg`, `appliances`, `appliance_notes`) — all optional; the Fleet → Truck profile page is the editor.
 
@@ -310,3 +310,62 @@ The web chat window onto the **same bot brain** as the Telegram bot — same sto
 ---
 
 *Exact UI screens consuming this API are Phase 7 (`docs/design/ui-ux.md`). This document is the boundary between frontend and backend — both must conform to it once implementation starts.*
+
+### Fresh-Eyes GAP endpoints (GAP-02…GAP-16, union wave 2 — UH-11 fix)
+
+All routes below require the standard authenticated owner session (see Auth above); tenant isolation is RLS + `company_id` scoping, as everywhere. The five register resources are standard resources (the 5-endpoint table above applies: list/get-one/create/PATCH/DELETE-soft-delete) over the tables named, with fields per `docs/schemas.md` and the entity types in `src/types/entities.ts`.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/credentials` | List credentials (GAP-11, migration 00051) |
+| POST | `/api/v1/credentials` | Create a credential |
+| GET | `/api/v1/credentials/{id}` | Get one credential |
+| PATCH | `/api/v1/credentials/{id}` | Partial update |
+| DELETE | `/api/v1/credentials/{id}` | Soft delete |
+| GET | `/api/v1/facilities` | List facilities (GAP-03, migration 00050) |
+| POST | `/api/v1/facilities` | Create a facility |
+| GET | `/api/v1/facilities/{id}` | Get one facility |
+| PATCH | `/api/v1/facilities/{id}` | Partial update |
+| DELETE | `/api/v1/facilities/{id}` | Soft delete |
+| GET | `/api/v1/load-invoices` | List load invoices (GAP-12, migration 00052) |
+| POST | `/api/v1/load-invoices` | Create a load invoice |
+| GET | `/api/v1/load-invoices/{id}` | Get one load invoice |
+| PATCH | `/api/v1/load-invoices/{id}` | Partial update |
+| DELETE | `/api/v1/load-invoices/{id}` | Soft delete |
+| GET | `/api/v1/recurring-obligations` | List recurring obligations (GAP-13, migration 00053) |
+| POST | `/api/v1/recurring-obligations` | Create a recurring obligation |
+| GET | `/api/v1/recurring-obligations/{id}` | Get one recurring obligation |
+| PATCH | `/api/v1/recurring-obligations/{id}` | Partial update |
+| DELETE | `/api/v1/recurring-obligations/{id}` | Soft delete |
+| GET | `/api/v1/broker-followups` | List broker follow-ups (GAP-14, migration 00054) |
+| POST | `/api/v1/broker-followups` | Create a broker follow-up |
+| GET | `/api/v1/broker-followups/{id}` | Get one broker follow-up |
+| PATCH | `/api/v1/broker-followups/{id}` | Partial update |
+| DELETE | `/api/v1/broker-followups/{id}` | Soft delete |
+| GET | `/api/v1/brokers/{id}/scorecard` | GAP-14: the broker's computed scorecard (loads run, days-to-pay, detention raised, outstanding); `404` when the broker isn't the caller's. Response: `{ data: BrokerScorecard }` |
+| GET | `/api/v1/detention-stamps` | List detention stamps (GAP-04, migration 00049) |
+| POST | `/api/v1/detention-stamps` | Create a detention stamp |
+| GET | `/api/v1/detention-stamps/{id}` | Get one detention stamp |
+| PATCH | `/api/v1/detention-stamps/{id}` | Partial update |
+| DELETE | `/api/v1/detention-stamps/{id}` | Soft delete |
+| GET | `/api/v1/loads/{id}/detention-stamps` | The load's stamps plus the computed detention summary (`{ data: { stamps, summary } }`); `404` for a missing/other-tenant load |
+| POST | `/api/v1/loads/{id}/detention-stamps` | Stamp the load's facility clock; body names the stamp type, `occurred_at` defaults to now |
+| GET | `/api/v1/loads/{id}/paperwork` | GAP-05: the load's paperwork state — required vs attached, computed by `src/lib/paperwork.ts`; `404` for a missing/other-tenant load |
+| GET | `/api/v1/day-wrap` | GAP-08: one reconciliation pass over a day's records. Query: `?date=YYYY-MM-DD` (America/New_York; defaults to today ET). Response: `{ data: { date, items: DayWrapItem[] } }` |
+| GET | `/api/v1/ifta` | GAP-15: the IFTA worksheet for a quarter. Query: `?quarter=YYYYQn` (defaults to the current quarter, ET). Response: `{ data: IftaWorksheet }` — gallons by state exact; interstate miles reported unallocated; odometer miles pass the sanity gate (implausible readings excluded and flagged in `anomalies`, count in `excludedOdometerReadings`) |
+| GET | `/api/v1/tax-packet` | GAP-16: the year-end tax packet. Query: `?year=YYYY` (defaults to the current year, ET). Response: `{ data: TaxPacket }` — per-diem count at the labeled rate, fuel totals, expenses by category, load revenue, and settlement income (`settlementIncomeCents`, `settlementsCount`) joined from Abel Phase D's `settlements` table (driver pay, periods ending in the year; zero when the table is absent) |
+
+**`POST /api/v1/documents` response addition (GAP-01, UH-11 fix)** — when document text extraction completes and record proposals are staged from the read, the response also carries `proposals_staged: number` (how many record proposals were staged for the owner's approval; the proposals themselves ride the standard pending-proposal flow, never a silent write).
+| GET | `/api/v1/research-briefings/{id}` | One briefing by id (Home News Banner deep-link fallback): returns the briefing INCLUDING dismissed ones through the owner's session; `404` when missing or another company's (RLS makes them indistinguishable) |
+| POST | `/api/v1/research-briefings/check-wires` | The banner's light pull: polls every watcher once (free sources only, no AI call, no run-cap spend). Refuses plainly when `deep_research` is off; 30-minute cooldown from the newest watcher poll; takes the research tick's advisory lock non-blocking (a tick mid-run answers busy, never a double poll). Every outcome is an honest state in the body, including `unavailable` (HTTP 200) when the job database URL is unset. Response: `CheckWiresResult` |
+### Vehicle defects (Image Intelligence §5.5, migration 00043 — UH-11 fix)
+
+Standard resource semantics (the 5-endpoint table above) over the `vehicle_defects` table; authenticated owner session, RLS tenant isolation.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/vehicle-defects` | List vehicle defects |
+| POST | `/api/v1/vehicle-defects` | Create a vehicle defect |
+| GET | `/api/v1/vehicle-defects/{id}` | Get one vehicle defect |
+| PATCH | `/api/v1/vehicle-defects/{id}` | Partial update |
+| DELETE | `/api/v1/vehicle-defects/{id}` | Soft delete |

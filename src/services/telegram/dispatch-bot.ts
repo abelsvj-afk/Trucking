@@ -36,8 +36,17 @@ import {
   stripCapturePrefix,
   type BotMemoryRow,
 } from "./context";
+import {
+  type TelegramBurstCollector,
+  type TelegramBurstItem,
+} from "./burst";
+import { formatPayPinLine } from "@/services/bot/pay-pin";
+import { buildLifePhaseText } from "@/services/bot/life-phase";
+import { formatOpenLoopsBlock } from "@/services/bot/threads";
 import type { TelegramStore } from "./store";
-import type { TelegramPhotoSize } from "./photo-intake";
+import type { TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
+import type { TelegramVoice, VoiceIntakeResult } from "./voice-intake";
+import { formatExemplarsBlock } from "@/services/bot/voice-corpus";
 
 export interface TelegramConfig {
   botToken: string | null;
@@ -63,10 +72,40 @@ export interface TelegramUpdate {
     text?: string;
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
     photo?: TelegramPhotoSize[];
+    /**
+     * Telegram repairs D1: a file sent uncompressed ("send as file")
+     * arrives as a document instead of a photo - drivers send
+     * paperwork this way to keep it readable, and it used to fall
+     * through to the no-text reply and be silently dropped.
+     */
+    document?: {
+      file_id: string;
+      file_name?: string;
+      mime_type?: string;
+      file_size?: number;
+    };
+    /** Phase E: a voice note (transcribed, then worked like a typed message). */
+    voice?: TelegramVoice;
+    /** UH-14 fix: Telegram album grouping id, when the photo arrived as part of an album. */
+    media_group_id?: string;
     caption?: string;
     forward_origin?: unknown;
     forward_from?: unknown;
     forward_date?: number;
+  };
+  /**
+   * Image Intelligence (§3.3): a tap on an inline-keyboard button
+   * arrives as its own update kind - the first button surface in
+   * this bot. `data` carries the photo-purpose ask's pending id +
+   * the chosen purpose ("pp:<id>:<choice>").
+   */
+  callback_query?: {
+    id?: string;
+    data?: string;
+    message?: {
+      message_id?: number;
+      chat?: { id?: number; type?: string };
+    };
   };
 }
 
@@ -107,14 +146,66 @@ export interface TelegramDeps {
    * returns the plain-words reply (what was stored, extraction
    * state). Wired only when the brain store exists; absent = the
    * bot says honestly that photo filing isn't configured and stores
-   * nothing.
+   * nothing. Image Intelligence (§3): the reply widens to a
+   * TelegramPhotoResult - when it carries a purpose ask, the text
+   * goes out with buttons (sendAskMessage) or, failing that, as a
+   * numbered list resolved by the pending-question grammar.
    */
   handlePhoto?: (
     photo: TelegramPhotoSize[],
     caption: string | undefined,
-  ) => Promise<string>;
+    mediaGroupId?: string,
+  ) => Promise<TelegramPhotoResult>;
+  /**
+   * Phase C: best-effort thread capture for a dispatch message -
+   * reconstructs the conversation into a stored thread record
+   * (services/bot/thread-capture.ts). Runs AFTER the reply and the
+   * exchange store; failures are logged and never change the reply.
+   * Wired only when the brain store exists.
+   */
+  captureThread?: (text: string) => Promise<void>;
+  /**
+   * Phase E: voice-note intake - downloads + transcribes the note
+   * (services/telegram/voice-intake.ts) under the
+   * voice_transcription kill switch. A "transcript" result flows
+   * into the normal text pipeline; a "reply" result is sent as-is.
+   * Absent = the bot says honestly that voice isn't configured.
+   */
+  handleVoice?: (voice: TelegramVoice) => Promise<VoiceIntakeResult>;
+  /**
+   * §3.3: sends a message with an inline keyboard (photo-purpose
+   * asks). Absent = asks always go out as numbered text.
+   */
+  sendAskMessage?: (
+    chatId: number,
+    text: string,
+    buttons: { text: string; callback_data: string }[][],
+  ) => Promise<void>;
+  /** §3.3: acknowledges a button tap (stops Telegram's spinner). Best-effort by contract. */
+  answerCallbackQuery?: (queryId: string, text?: string) => Promise<void>;
+  /**
+   * §3.3: resolves a photo-purpose ask from a button tap (loads
+   * the staged question, settles the purpose, returns the reply
+   * text). Wired from the brain store by the webhook.
+   */
+  resolvePhotoAsk?: (pendingId: string, choice: string) => Promise<string>;
+  /**
+   * §3.3/§3.4: the photo_intelligence gate for button taps - a tap
+   * that lands after the owner turned the capability off settles
+   * nothing. Absent = no gate (reduced mode has no asks to tap).
+   */
+  isPhotoIntelligenceEnabled?: () => Promise<boolean>;
   /** Null = reduced mode (no history/snapshot/memory). */
   store?: TelegramStore | null;
+  /**
+   * Telegram repairs (2026-11-03): the burst collector. When
+   * wired (the webhook wires one process-wide instance), text
+   * updates are collected per chat and flushed as ONE bundle
+   * turn - see services/telegram/burst.ts. Absent = every text
+   * update is worked immediately as its own turn (the pre-repair
+   * behavior, kept for reduced/test surfaces).
+   */
+  burstCollector?: TelegramBurstCollector;
 }
 
 export type TelegramHandleResult =
@@ -124,9 +215,13 @@ export type TelegramHandleResult =
   | "ignored_not_allowlisted"
   | "bootstrap_replied"
   | "duplicate_ignored"
+  | "burst_queued"
   | "dispatch_disabled"
   | "no_text_replied"
   | "photo_replied"
+  | "voice_replied"
+  | "callback_replied"
+  | "callback_ignored"
   | "replied"
   | "remembered"
   | "instruction_saved"
@@ -142,6 +237,12 @@ interface LoadedContext {
   relevantMemories: BotMemoryRow[];
   /** Lane 2: the retrieval self-report line (null on the legacy path). */
   memoryReport: string | null;
+  /** Phase D: the pay pin block (pin or NOT-PINNED instruction), loaded whenever the store supports it. */
+  payPinText: string | null;
+  /** Phase C: the life-phase framing block (pin-aware; his "Life phase" fact overrides). */
+  lifePhaseText: string | null;
+  /** Phase C: unanswered asks from recorded threads, when any exist. */
+  openLoopsText: string | null;
   snapshotText: string | null;
   /** Lane 1 (audit B-4): true when the context load failed and the turn is answering without his records - the reply must SAY so. */
   degraded: boolean;
@@ -160,6 +261,21 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
     // newest-100 load + keyword pick no longer touches context
     // assembly. Older store shapes (test doubles, the v1 store)
     // keep the legacy path below.
+    // Phase D: the pay pin rides every Telegram turn too (optional
+    // method - older store shapes simply skip the block).
+    const payPin = store.loadPayPin ? await store.loadPayPin() : null;
+    const payPinText = payPin ? formatPayPinLine(payPin) : null;
+    // Phase C: life phase (derived from the same pin; his stored
+    // override wins) + open loops from recorded threads.
+    const lifePhaseText =
+      payPin && store.loadLifePhaseOverride
+        ? buildLifePhaseText(payPin, await store.loadLifePhaseOverride())
+        : null;
+    const openLoopsText = store.listThreads
+      ? formatOpenLoopsBlock(
+          await store.listThreads({ openOnly: true, unansweredOnly: true, limit: 3 }),
+        )
+      : null;
     if (store.retrieveFacts && store.loadInstructionMemories) {
       const [instructions, retrieval] = await Promise.all([
         store.loadInstructionMemories(),
@@ -171,6 +287,9 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
         instructions: instructions as BotMemoryRow[],
         relevantMemories: retrieval.facts as BotMemoryRow[],
         memoryReport: retrieval.reportLine,
+        payPinText,
+        lifePhaseText,
+        openLoopsText,
         snapshotText,
         degraded: false,
       };
@@ -182,6 +301,9 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
       instructions: instructionMemories(memories),
       relevantMemories: pickRelevantMemories(memories, text),
       memoryReport: null,
+      payPinText,
+      lifePhaseText,
+      openLoopsText,
       snapshotText,
       degraded: false,
     };
@@ -197,6 +319,9 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
       instructions: [],
       relevantMemories: [],
       memoryReport: null,
+      payPinText: null,
+      lifePhaseText: null,
+      openLoopsText: null,
       snapshotText: null,
       degraded: true,
     };
@@ -206,6 +331,324 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
 /** Appended to any reply produced on a turn whose context failed to load (audit B-4). */
 export const CONTEXT_DEGRADED_NOTE =
   "\n\n(Heads up: I couldn't pull up your records for that one, so I answered without your history, memories, and snapshot — I may be missing context.)";
+
+// ---------------------------------------------------------------------------
+// Telegram repairs (2026-11-03): burst/bundle text turns. One code
+// path works a single message and a collected bundle: the items
+// are partitioned into capture dictations, forwarded content
+// (ONE dispatch workup over the whole bundle), and the owner's
+// own words (ONE conversation turn) - and the caller sends
+// exactly ONE consolidated reply.
+// ---------------------------------------------------------------------------
+
+/**
+ * Who a forward came from, from Telegram's structured metadata
+ * (forward_origin variants + the legacy forward_from). Display
+ * and context labeling only - never an identity assertion.
+ */
+export function forwardSourceLabel(
+  message: TelegramUpdate["message"] | undefined,
+): string | null {
+  if (!message) return null;
+  const origin = message.forward_origin as Record<string, unknown> | null | undefined;
+  if (origin && typeof origin === "object") {
+    const userName = (user: unknown): string | null => {
+      if (!user || typeof user !== "object") return null;
+      const u = user as Record<string, unknown>;
+      const parts = [u.first_name, u.last_name].filter(
+        (p): p is string => typeof p === "string" && p.length > 0,
+      );
+      if (parts.length > 0) return parts.join(" ");
+      return typeof u.username === "string" ? `@${u.username}` : null;
+    };
+    const chatTitle = (chat: unknown): string | null => {
+      if (!chat || typeof chat !== "object") return null;
+      const c = chat as Record<string, unknown>;
+      return typeof c.title === "string" ? c.title : null;
+    };
+    const signature =
+      typeof origin.author_signature === "string" ? origin.author_signature : null;
+    const label =
+      userName(origin.sender_user) ??
+      (typeof origin.sender_user_name === "string" ? origin.sender_user_name : null) ??
+      chatTitle(origin.sender_chat) ??
+      chatTitle(origin.chat);
+    if (label) return signature && signature !== label ? `${label} (${signature})` : label;
+    if (signature) return signature;
+  }
+  const from = message.forward_from as Record<string, unknown> | null | undefined;
+  if (from && typeof from === "object") {
+    const parts = [from.first_name, from.last_name].filter(
+      (p): p is string => typeof p === "string" && p.length > 0,
+    );
+    if (parts.length > 0) return parts.join(" ");
+    if (typeof from.username === "string") return `@${from.username}`;
+  }
+  return null;
+}
+
+/** The bundle as one dispatch input: every forwarded message, numbered, source-labeled where Telegram names one. */
+export function formatForwardBundle(items: TelegramBurstItem[]): string {
+  return items
+    .map(
+      (item, i) =>
+        `[Forwarded message ${i + 1} of ${items.length}${item.sourceLabel ? ` — from ${item.sourceLabel}` : ""}]\n${item.text}`,
+    )
+    .join("\n\n");
+}
+
+interface ProcessedTextTurn {
+  result: TelegramHandleResult;
+  reply: string;
+  degraded: boolean;
+  /** False only for the error turn (mirrors the pre-repair behavior: a failed turn leaves no timeline trace). */
+  persist: boolean;
+  /** Dispatch bookkeeping (exchange store + thread capture) that must run only AFTER the reply actually sent. */
+  afterSend?: () => Promise<void>;
+}
+
+const BARE_CONFIRMATION = /^(yes|no|yeah|nope|ok|okay)[.!]?$/i;
+
+/**
+ * Works one text turn - a singleton or a whole bundle - and
+ * returns the ONE reply for it. Never sends, never persists the
+ * timeline: the caller does both, once, so a bundle can never
+ * fan out into N replies. Internal failures resolve to the
+ * apology turn, exactly like the pre-repair single-message path.
+ */
+async function processTextItems(
+  items: TelegramBurstItem[],
+  chatId: number,
+  deps: TelegramDeps,
+): Promise<ProcessedTextTurn> {
+  const store = deps.store ?? null;
+  const ctx: LoadedContext = store
+    ? await loadContext(store, chatId, items.map((i) => i.text).join("\n"))
+    : {
+        history: [],
+        memories: [],
+        instructions: [],
+        relevantMemories: [],
+        memoryReport: null,
+        payPinText: null,
+        lifePhaseText: null,
+        openLoopsText: null,
+        snapshotText: null,
+        degraded: false,
+      };
+  const instructions = ctx.instructions;
+  const relevantMemories = ctx.relevantMemories;
+
+  try {
+    const captureItems = items.filter(
+      (i) => !i.isForwarded && classifyTelegramText(i.text, false, "telegram") !== "chat",
+    );
+    const forwardItems = items.filter((i) => i.isForwarded);
+    const chatItems = items.filter(
+      (i) => !i.isForwarded && classifyTelegramText(i.text, false, "telegram") === "chat",
+    );
+    const combinedForward =
+      forwardItems.length === 1
+        ? forwardItems[0]!.text
+        : forwardItems.length > 1
+          ? formatForwardBundle(forwardItems)
+          : null;
+
+    const segments: string[] = [];
+    let afterSend: (() => Promise<void>) | undefined;
+    let dispatchDisabled = false;
+
+    // --- capture dictations (remember: / instruction:) ---------
+    for (const item of captureItems) {
+      const intent = classifyTelegramText(item.text, false, "telegram");
+      const content = stripCapturePrefix(item.text);
+      const kind = intent === "instruction" ? "instruction" : memoryKindFor(content);
+      if (store) {
+        await store.saveMemory(kind, content);
+        segments.push(
+          kind === "instruction"
+            ? `Saved as a standing instruction - I'll follow it on every reply: "${content}"`
+            : kind === "expense_hint"
+              ? `Saved for review: "${content}". That's captured as a note, not added to your books - add it under Money in the app if it should count.`
+              : `Saved to memory: "${content}"`,
+        );
+      } else {
+        segments.push(
+          "I can't store that yet - memory isn't configured on the server (TELEGRAM_COMPANY_ID / migrations). Nothing was saved.",
+        );
+      }
+    }
+
+    // --- forwarded content: ONE dispatch workup over the bundle -
+    if (forwardItems.length > 0 && combinedForward) {
+      // Lane 1 (audit B-1): the dispatch_helper kill switch and
+      // the global AI switch gate this path exactly as they gate
+      // the web surfaces - off means off, stated plainly.
+      let enabled = true;
+      if (deps.isDispatchHelperEnabled) {
+        enabled = await deps.isDispatchHelperEnabled().catch(() => false);
+      }
+      if (!enabled) {
+        dispatchDisabled = true;
+        segments.push(
+          "Dispatch help is turned off right now — the Dispatch helper switch (or the master AI switch) is off, so I didn't work that message over. You can turn it on in the app: More → Settings. Send the message again once it's on.",
+        );
+      } else {
+        const dispatchContext = buildDispatchContext(ctx.snapshotText, instructions, relevantMemories);
+        // Phase E (twin): his actual sent replies from similar
+        // exchanges steer the draft when the twin is on.
+        let exemplarsBlock: string | null = null;
+        if (store?.isDriverTwinEnabled && store?.loadVoiceExemplars) {
+          try {
+            if (await store.isDriverTwinEnabled()) {
+              exemplarsBlock = formatExemplarsBlock(await store.loadVoiceExemplars(combinedForward));
+            }
+          } catch (err) {
+            console.error("[telegram] twin exemplar load failed", err);
+          }
+        }
+        const contextParts = [
+          dispatchContext ?? "",
+          ctx.memoryReport ? `CONTEXT REPORT: ${ctx.memoryReport}` : "",
+          exemplarsBlock ?? "",
+        ].filter(Boolean);
+        const suggestion = await deps.getSuggestion(
+          combinedForward,
+          contextParts.length > 0 ? contextParts.join("\n\n") : dispatchContext,
+        );
+        let reply = formatDispatchSuggestion(suggestion);
+        // §11: recordables ride the same propose->yes discipline.
+        if (deps.stageRecordables && suggestion.recordable_items.length > 0) {
+          try {
+            const outcome = await deps.stageRecordables(combinedForward, suggestion.recordable_items);
+            reply += formatRecordableOutcome(outcome);
+          } catch (err) {
+            console.error("[telegram] failed to stage dispatch recordables", err);
+          }
+        }
+        segments.push(reply);
+        const bundleText = combinedForward;
+        afterSend = async () => {
+          if (store) {
+            try {
+              await store.storeExchange(bundleText, suggestion);
+            } catch (err) {
+              console.error("[telegram] failed to store dispatch exchange", err);
+            }
+          }
+          // Phase C: the bundle becomes ONE thread record set -
+          // capture receives the same combined text the workup
+          // (and the exchange store) saw, so its exact-match
+          // exchange link holds under batching.
+          if (deps.captureThread) {
+            try {
+              await deps.captureThread(bundleText);
+            } catch (err) {
+              console.error("[telegram] thread capture failed", err);
+            }
+          }
+        };
+      }
+    }
+
+    // --- the owner's own words: ONE conversation turn ----------
+    if (chatItems.length > 0) {
+      // A bare yes/no may be answering a staged proposal - it
+      // reaches the agent EXACTLY as typed (never wrapped in
+      // bundle context), so the pending-batch grammar still
+      // parses it. Other owner items combine into one turn; the
+      // forwarded bundle rides that turn's context block.
+      const confirmations = chatItems.filter((i) => BARE_CONFIRMATION.test(i.text.trim()));
+      const rest = chatItems.filter((i) => !BARE_CONFIRMATION.test(i.text.trim()));
+      const calls: { userText: string; includeBundle: boolean }[] = [
+        ...confirmations.map((i) => ({ userText: i.text, includeBundle: false })),
+        ...(rest.length > 0
+          ? [{ userText: rest.map((i) => i.text).join("\n"), includeBundle: forwardItems.length > 0 }]
+          : []),
+      ];
+      const replies: string[] = [];
+      for (const call of calls) {
+        const snapshotText =
+          call.includeBundle && combinedForward
+            ? [ctx.snapshotText, `FORWARDED MESSAGE BUNDLE (context he just sent):\n${combinedForward}`]
+                .filter(Boolean)
+                .join("\n\n")
+            : ctx.snapshotText;
+        const chatInput: BotChatInput = {
+          userText: call.userText,
+          history: ctx.history,
+          snapshotText,
+          instructions,
+          memories: relevantMemories,
+          memoryReport: ctx.memoryReport ?? undefined,
+          payPinText: ctx.payPinText,
+          lifePhaseText: ctx.lifePhaseText,
+          openLoopsText: ctx.openLoopsText,
+        };
+        if (deps.runAgent && store) {
+          const agentOutput = await deps.runAgent(chatInput);
+          replies.push(agentOutput.reply);
+          continue;
+        }
+        const output = await deps.runChat(chatInput);
+        let reply = output.reply;
+        if (output.memory && store) {
+          try {
+            await store.saveMemory(output.memory.kind, output.memory.content);
+            reply += "\n\n(Saved that to memory.)";
+          } catch (err) {
+            console.error("[telegram] failed to save chat memory", err);
+          }
+        } else if (output.memory && !store) {
+          reply += "\n\n(I'd save that to memory, but memory isn't configured on the server yet.)";
+        }
+        replies.push(reply);
+      }
+      segments.push(...replies);
+    }
+
+    const result: TelegramHandleResult =
+      chatItems.length > 0
+        ? "chatted"
+        : forwardItems.length > 0
+          ? dispatchDisabled
+            ? "dispatch_disabled"
+            : "replied"
+          : captureItems.some(
+                (i) => classifyTelegramText(i.text, false, "telegram") === "instruction",
+              )
+            ? "instruction_saved"
+            : "remembered";
+    return { result, reply: segments.join("\n\n"), degraded: ctx.degraded, persist: true, afterSend };
+  } catch (err) {
+    console.error("[telegram] bot turn failed", err);
+    return {
+      result: "error_replied",
+      reply:
+        "Sorry - I couldn't process that one. Try again in a moment, or paste the message into the app (More → Dispatch helper).",
+      degraded: ctx.degraded,
+      persist: false,
+    };
+  }
+}
+
+/** Persists a worked text turn: each original item once as his message, the ONE reply once as Abel's. */
+async function persistTextTurn(
+  store: TelegramStore | null,
+  chatId: number,
+  items: TelegramBurstItem[],
+  assistantText: string,
+): Promise<void> {
+  if (!store) return;
+  try {
+    for (const item of items) {
+      await store.saveMessage(chatId, "user", item.voiceNote ? `[voice] ${item.text}` : item.text);
+    }
+    await store.saveMessage(chatId, "assistant", assistantText);
+  } catch (err) {
+    console.error("[telegram] failed to persist conversation turn", err);
+  }
+}
 
 /**
  * Fix round (pitfall hunt CD-6): the claim/release wrapper. Lane 1's
@@ -246,6 +689,66 @@ export async function handleTelegramUpdate(
   }
 }
 
+const CALLBACK_DATA_PATTERN = /^pp:([0-9a-fA-F-]{36}):([a-z_]+)$/;
+
+/**
+ * §3.3: resolves one inline-keyboard tap. The tap settles a
+ * photo's PURPOSE only - never a record write (any write the
+ * purpose implies is staged by the purpose's own pipeline and
+ * still needs his yes). Every failure mode answers the callback
+ * so Telegram stops spinning, and says plainly what happened.
+ */
+async function handleCallbackQuery(
+  query: NonNullable<TelegramUpdate["callback_query"]>,
+  chatId: number,
+  deps: TelegramDeps,
+  store: TelegramStore | null,
+): Promise<TelegramHandleResult> {
+  const answer = async (text?: string): Promise<void> => {
+    if (!query.id || !deps.answerCallbackQuery) return;
+    try {
+      await deps.answerCallbackQuery(query.id, text);
+    } catch (err) {
+      console.error("[telegram] answerCallbackQuery failed", err);
+    }
+  };
+
+  const match = typeof query.data === "string" ? query.data.match(CALLBACK_DATA_PATTERN) : null;
+  if (!match) {
+    await answer("That button doesn't work anymore.");
+    return "callback_ignored";
+  }
+  const [, pendingId, choice] = match as unknown as [string, string, string];
+
+  // §3.4: the capability gate applies to taps too - off means the
+  // question settles nothing (the photo stays stored-unfiled).
+  if (deps.isPhotoIntelligenceEnabled) {
+    const enabled = await deps.isPhotoIntelligenceEnabled().catch(() => false);
+    if (!enabled) {
+      await answer("Photo understanding is turned off right now.");
+      return "callback_ignored";
+    }
+  }
+
+  if (!deps.resolvePhotoAsk) {
+    await answer("Photo buttons aren't set up in this mode.");
+    return "callback_ignored";
+  }
+
+  const reply = await deps.resolvePhotoAsk(pendingId!, choice!);
+  await answer();
+  await deps.sendMessage(chatId, reply);
+  if (store) {
+    try {
+      await store.saveMessage(chatId, "user", `[photo tap] ${choice}`);
+      await store.saveMessage(chatId, "assistant", reply);
+    } catch (err) {
+      console.error("[telegram] failed to persist callback turn", err);
+    }
+  }
+  return "callback_replied";
+}
+
 async function processTelegramUpdate(
   update: TelegramUpdate,
   config: TelegramConfig,
@@ -254,7 +757,9 @@ async function processTelegramUpdate(
 ): Promise<TelegramHandleResult> {
   if (!config.botToken) return "disabled";
 
-  const chat = update.message?.chat;
+  // §3.3: a button tap carries its chat on the callback's message,
+  // not on a message of its own - the same gates apply to it below.
+  const chat = update.message?.chat ?? update.callback_query?.message?.chat;
   if (!chat || typeof chat.id !== "number") return "ignored_no_chat";
   const chatId = chat.id;
   if (chat.type !== "private") return "ignored_not_private";
@@ -300,28 +805,103 @@ async function processTelegramUpdate(
     if (!claimed) return "duplicate_ignored";
   }
 
+  // §3.3: a button tap is resolved here, after the same gates and
+  // the same dedup claim as every other update kind (acceptance
+  // A2: a double-tap or a Telegram retry of the tap hits the claim
+  // above and never settles twice).
+  if (update.callback_query) {
+    return handleCallbackQuery(update.callback_query, chatId, deps, store);
+  }
+
   // §13: a photo message is document intake, not conversation — it
   // runs before the text paths (a photo's caption is a note on the
   // document, never a message to answer). Same gating as everything
   // else: this point is only reached by the allowlisted private
   // chat, after the bootstrap check.
-  const photo = update.message?.photo;
+  //
+  // Telegram repairs D1: an IMAGE sent "as a file" (message.document)
+  // is a photo for intake purposes - route it through the same
+  // handler with its single rendition. A non-image file (a PDF)
+  // gets an honest answer instead of the old silent drop: the
+  // photo pipeline can't read it, and pretending otherwise would
+  // store it mislabeled.
+  const documentMessage = update.message?.document;
+  let photo = update.message?.photo;
+  if ((!photo || photo.length === 0) && documentMessage?.file_id) {
+    if (documentMessage.mime_type?.startsWith("image/")) {
+      photo = [{ file_id: documentMessage.file_id, file_size: documentMessage.file_size }];
+    } else {
+      const caption = update.message?.caption?.trim() || undefined;
+      const reply =
+        `I got ${documentMessage.file_name ?? "that file"}, but it came through as a file — I can only read things sent as photos right now, so I didn't store it. ` +
+        "Send it again as a photo (not \"send as file\") and I'll read it and file it; a PDF can also go in through More → Documents in the app.";
+      await deps.sendMessage(chat.id, reply);
+      if (store) {
+        try {
+          await store.saveMessage(chatId, "user", caption ? `[document] ${caption}` : "[document]");
+          await store.saveMessage(chatId, "assistant", reply);
+        } catch (err) {
+          console.error("[telegram] failed to persist document turn", err);
+        }
+      }
+      return "photo_replied";
+    }
+  }
   if (photo && photo.length > 0) {
     const caption = update.message?.caption?.trim() || undefined;
+    let result: TelegramPhotoResult | null = null;
     let reply: string;
     if (deps.handlePhoto) {
       try {
-        reply = await deps.handlePhoto(photo, caption);
+        const mediaGroupId = update.message?.media_group_id;
+        result = mediaGroupId
+          ? await deps.handlePhoto(photo, caption, mediaGroupId)
+          : await deps.handlePhoto(photo, caption);
       } catch (err) {
         console.error("[telegram] photo intake failed", err);
-        reply =
+        result =
           "I got your photo but something went wrong storing it — nothing was saved. Try sending it again.";
       }
     } else {
-      reply =
+      result =
         "I got your photo, but photo filing isn't configured on the server yet (it needs the bot's company setup), so I couldn't store it. For now, upload it from More → Documents in the app.";
     }
-    await deps.sendMessage(chat.id, reply);
+    if (typeof result === "string") {
+      reply = result;
+      await deps.sendMessage(chat.id, reply);
+    } else {
+      // §3.3: a purpose ask goes out with buttons when the surface
+      // supports them; button delivery failing (or unsupported)
+      // degrades to the SAME choices as a numbered text list -
+      // the fallback is permanent, not an error path. The text
+      // persisted to the timeline is the text he actually saw.
+      reply = result.text;
+      let sentWithButtons = false;
+      if (result.ask && deps.sendAskMessage) {
+        try {
+          const rows = result.ask.options.map((option) => ({
+            text: option.label,
+            callback_data: `pp:${result.ask!.pendingId}:${option.choice}`,
+          }));
+          // Two buttons per row - tappable with gloves, at a truck.
+          const buttons: { text: string; callback_data: string }[][] = [];
+          for (let i = 0; i < rows.length; i += 2) buttons.push(rows.slice(i, i + 2));
+          await deps.sendAskMessage(chat.id, result.text, buttons);
+          sentWithButtons = true;
+        } catch (err) {
+          console.error("[telegram] ask button send failed; falling back to numbered text", err);
+        }
+      }
+      if (!sentWithButtons) {
+        if (result.ask) {
+          const numbered = result.ask.options
+            .map((option, i) => `${i + 1}. ${option.label}`)
+            .join("\n");
+          reply = `${result.text}\n\n${numbered}\n\n(Reply with a number — or just tell me what it is.)`;
+        }
+        await deps.sendMessage(chat.id, reply);
+      }
+    }
     if (store) {
       try {
         await store.saveMessage(chatId, "user", caption ? `[photo] ${caption}` : "[photo]");
@@ -331,6 +911,46 @@ async function processTelegramUpdate(
       }
     }
     return "photo_replied";
+  }
+
+  // Phase E: a voice note is transcribed and then worked EXACTLY
+  // like a typed message (same pipeline, same brain) - the
+  // transcript becomes this turn's text, and the timeline keeps a
+  // "[voice]" marker so he can see how it arrived. Intake failures
+  // (capability off / not configured / download failed) reply
+  // plainly and store nothing beyond the marker + that reply.
+  let voiceNote = false;
+  const voice = update.message?.voice;
+  if (voice) {
+    if (!deps.handleVoice) {
+      const reply =
+        "I got your voice note, but voice transcription isn't configured on the server yet, so I couldn't turn it into text. Type it for now and I'll work it the same way.";
+      await deps.sendMessage(chat.id, reply);
+      if (store) {
+        try {
+          await store.saveMessage(chatId, "user", "[voice]");
+          await store.saveMessage(chatId, "assistant", reply);
+        } catch (err) {
+          console.error("[telegram] failed to persist voice turn", err);
+        }
+      }
+      return "voice_replied";
+    }
+    const outcome = await deps.handleVoice(voice);
+    if (outcome.kind === "reply") {
+      await deps.sendMessage(chat.id, outcome.text);
+      if (store) {
+        try {
+          await store.saveMessage(chatId, "user", "[voice]");
+          await store.saveMessage(chatId, "assistant", outcome.text);
+        } catch (err) {
+          console.error("[telegram] failed to persist voice turn", err);
+        }
+      }
+      return "voice_replied";
+    }
+    voiceNote = true;
+    update = { ...update, message: { ...update.message, text: outcome.text } };
   }
 
   const text = update.message?.text?.trim();
@@ -345,145 +965,60 @@ async function processTelegramUpdate(
   const isForwarded = Boolean(
     update.message?.forward_origin ?? update.message?.forward_from ?? update.message?.forward_date,
   );
-  const intent = classifyTelegramText(text, isForwarded, "telegram");
-  const ctx: LoadedContext = store
-    ? await loadContext(store, chat.id, text)
-    : {
-        history: [],
-        memories: [],
-        instructions: [],
-        relevantMemories: [],
-        memoryReport: null,
-        snapshotText: null,
-        degraded: false,
-      };
-  const instructions = ctx.instructions;
-  const relevantMemories = ctx.relevantMemories;
-  // Lane 1 (audit B-4): a degraded turn's reply carries the note -
-  // applied at send time in every branch below.
-  const withDegradedNote = (reply: string): string =>
-    ctx.degraded ? reply + CONTEXT_DEGRADED_NOTE : reply;
-
-  const persistTurn = async (assistantText: string) => {
-    if (!store) return;
-    try {
-      await store.saveMessage(chatId, "user", text);
-      await store.saveMessage(chatId, "assistant", assistantText);
-    } catch (err) {
-      console.error("[telegram] failed to persist conversation turn", err);
-    }
+  const item: TelegramBurstItem = {
+    updateId: typeof update.update_id === "number" ? update.update_id : undefined,
+    text,
+    isForwarded,
+    sourceLabel: forwardSourceLabel(update.message),
+    voiceNote,
   };
 
-  try {
-    if (intent === "remember" || intent === "instruction") {
-      const content = stripCapturePrefix(text);
-      const kind = intent === "instruction" ? "instruction" : memoryKindFor(content);
-      let reply: string;
-      if (store) {
-        await store.saveMemory(kind, content);
-        reply =
-          kind === "instruction"
-            ? `Saved as a standing instruction - I'll follow it on every reply: "${content}"`
-            : kind === "expense_hint"
-              ? `Saved for review: "${content}". That's captured as a note, not added to your books - add it under Money in the app if it should count.`
-              : `Saved to memory: "${content}"`;
-      } else {
-        reply =
-          "I can't store that yet - memory isn't configured on the server (TELEGRAM_COMPANY_ID / migrations). Nothing was saved.";
-      }
-      await deps.sendMessage(chat.id, withDegradedNote(reply));
-      await persistTurn(reply);
-      return intent === "instruction" ? "instruction_saved" : "remembered";
-    }
-
-    if (intent === "dispatch") {
-      // Lane 1 (audit B-1): the dispatch_helper kill switch and the
-      // global AI switch gate this path exactly as they gate the
-      // web surfaces - off means off, stated plainly, no workup.
-      if (deps.isDispatchHelperEnabled) {
-        const enabled = await deps.isDispatchHelperEnabled().catch(() => false);
-        if (!enabled) {
-          const reply =
-            "Dispatch help is turned off right now — the Dispatch helper switch (or the master AI switch) is off, so I didn't work that message over. You can turn it on in the app: More → Settings. Send the message again once it's on.";
-          await deps.sendMessage(chat.id, withDegradedNote(reply));
-          await persistTurn(reply);
-          return "dispatch_disabled";
+  // Telegram repairs (2026-11-03): with the burst collector wired,
+  // this text update joins the chat's pending bundle and the ONE
+  // consolidated turn runs when the bundle flushes. The claim made
+  // above stays in force across the wait (dedup is unaffected);
+  // if the flush itself fails, every claim in the bundle is
+  // released (CD-6 widened to the bundle) so Telegram's redelivery
+  // reprocesses instead of being swallowed as duplicates.
+  if (deps.burstCollector) {
+    deps.burstCollector.enqueue(
+      String(chatId),
+      item,
+      async (bundleItems) => {
+        const outcome = await processTextItems(bundleItems, chatId, deps);
+        await deps.sendMessage(
+          chatId,
+          outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply,
+        );
+        if (outcome.afterSend) await outcome.afterSend();
+        if (outcome.persist) await persistTextTurn(store, chatId, bundleItems, outcome.reply);
+      },
+      async (bundleItems) => {
+        if (store?.releaseTelegramUpdate) {
+          for (const bundleItem of bundleItems) {
+            if (bundleItem.updateId === undefined) continue;
+            try {
+              await store.releaseTelegramUpdate(bundleItem.updateId);
+            } catch (err) {
+              console.error(
+                "[telegram] FAILED to release a burst update claim after a failed bundle flush - " +
+                  "Telegram's redelivery of that update will be ignored as a duplicate",
+                err,
+              );
+            }
+          }
         }
-      }
-      const dispatchContext = buildDispatchContext(ctx.snapshotText, instructions, relevantMemories);
-      const suggestion = await deps.getSuggestion(
-        text,
-        ctx.memoryReport
-          ? `${dispatchContext ?? ""}\n\nCONTEXT REPORT: ${ctx.memoryReport}`.trim()
-          : dispatchContext,
-      );
-      let reply = formatDispatchSuggestion(suggestion);
-      // §11: recordables the helper spotted ride the same
-      // propose->yes discipline as dump intake - staged in code,
-      // approved (or corrected/dropped) by his reply, resolved by
-      // the agent turn's pending-batch grammar on the chat path.
-      if (deps.stageRecordables && suggestion.recordable_items.length > 0) {
-        try {
-          const outcome = await deps.stageRecordables(text, suggestion.recordable_items);
-          reply += formatRecordableOutcome(outcome);
-        } catch (err) {
-          console.error("[telegram] failed to stage dispatch recordables", err);
-        }
-      }
-      await deps.sendMessage(chat.id, withDegradedNote(reply));
-      if (store) {
-        try {
-          await store.storeExchange(text, suggestion);
-        } catch (err) {
-          console.error("[telegram] failed to store dispatch exchange", err);
-        }
-      }
-      await persistTurn(reply);
-      return "replied";
-    }
-
-    // Conversation: questions about his business, how-do-I-handle-this,
-    // dictated facts the model spots (returned in its memory field).
-    // v2 (§8): with the agent wired and a store present, the agent
-    // loop answers - memories go through its save_memory tool then,
-    // so the v1 memory field below is simply never set on this path.
-    const chatInput: BotChatInput = {
-      userText: text,
-      history: ctx.history,
-      snapshotText: ctx.snapshotText,
-      instructions,
-      memories: relevantMemories,
-      memoryReport: ctx.memoryReport ?? undefined,
-    };
-    if (deps.runAgent && store) {
-      const agentOutput = await deps.runAgent(chatInput);
-      await deps.sendMessage(chat.id, withDegradedNote(agentOutput.reply));
-      await persistTurn(agentOutput.reply);
-      return "chatted";
-    }
-
-    const output = await deps.runChat(chatInput);
-
-    let reply = output.reply;
-    if (output.memory && store) {
-      try {
-        await store.saveMemory(output.memory.kind, output.memory.content);
-        reply += "\n\n(Saved that to memory.)";
-      } catch (err) {
-        console.error("[telegram] failed to save chat memory", err);
-      }
-    } else if (output.memory && !store) {
-      reply += "\n\n(I'd save that to memory, but memory isn't configured on the server yet.)";
-    }
-    await deps.sendMessage(chat.id, withDegradedNote(reply));
-    await persistTurn(reply);
-    return "chatted";
-  } catch (err) {
-    console.error("[telegram] bot turn failed", err);
-    await deps.sendMessage(
-      chat.id,
-      "Sorry - I couldn't process that one. Try again in a moment, or paste the message into the app (More → Dispatch helper).",
+      },
     );
-    return "error_replied";
+    return "burst_queued";
   }
+
+  const outcome = await processTextItems([item], chatId, deps);
+  await deps.sendMessage(
+    chatId,
+    outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply,
+  );
+  if (outcome.afterSend) await outcome.afterSend();
+  if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
+  return outcome.result;
 }

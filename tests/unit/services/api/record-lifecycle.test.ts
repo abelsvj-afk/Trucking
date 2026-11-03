@@ -462,7 +462,7 @@ describe("safeguarded restore (A.4 / A.8.5)", () => {
       ],
       duty_logs: [
         {
-          id: "log1",
+          id: "123e4567-e89b-42d3-a456-426614174011",
           company_id: "company-1",
           driver_id: DRIVER_ID,
           load_id: null,
@@ -484,8 +484,8 @@ describe("safeguarded restore (A.4 / A.8.5)", () => {
     });
 
     const refused = await logRoutes.restore(
-      jsonReq("http://x/api/v1/duty-logs/log1/restore", "POST"),
-      ctxFor("log1"),
+      jsonReq("http://x/api/v1/duty-logs/123e4567-e89b-42d3-a456-426614174011/restore", "POST"),
+      ctxFor("123e4567-e89b-42d3-a456-426614174011"),
     );
     expect(refused.status).toBe(422);
     expect((await refused.json()).error.message).toContain("driver");
@@ -498,8 +498,8 @@ describe("safeguarded restore (A.4 / A.8.5)", () => {
     expect(parentRestored.status).toBe(200);
 
     const nowOk = await logRoutes.restore(
-      jsonReq("http://x/api/v1/duty-logs/log1/restore", "POST"),
-      ctxFor("log1"),
+      jsonReq("http://x/api/v1/duty-logs/123e4567-e89b-42d3-a456-426614174011/restore", "POST"),
+      ctxFor("123e4567-e89b-42d3-a456-426614174011"),
     );
     expect(nowOk.status).toBe(200);
     expect((await nowOk.json()).deleted_at).toBeNull();

@@ -7,6 +7,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -35,19 +36,27 @@ export default function NewFuelPurchasePage() {
     setError(null);
     setSubmitting(true);
 
+    const body = {
+      submission_id: submissionId,
+      truck_id: truckId,
+      location: location || undefined,
+      gallons: parseFloat(gallons || "0"),
+      price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
+      total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
+      purchased_at: purchasedAt,
+    };
     try {
-      await apiClient.create<FuelPurchase>("fuel-purchases", {
-        submission_id: submissionId,
-        truck_id: truckId,
-        location: location || undefined,
-        gallons: parseFloat(gallons || "0"),
-        price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
-        total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
-        purchased_at: purchasedAt,
-      });
+      await apiClient.create<FuelPurchase>("fuel-purchases", body);
       router.push("/money/fuel-purchases");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        // GAP-07: no signal is not a lost fuel stop — queue it on
+        // the device; it sends itself when signal returns.
+        offlineOutbox.enqueue("fuel-purchases", body);
+        router.push("/money/fuel-purchases");
+      }
     } finally {
       setSubmitting(false);
     }

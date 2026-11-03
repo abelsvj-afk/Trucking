@@ -46,6 +46,7 @@ import {
   type PlacesProvider,
 } from "@/services/integrations/places";
 import { getDieselPriceEstimate } from "@/services/smart-path/fuel-price-estimate";
+import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import type { RouteCheckRequest } from "@/data/schemas/smart-path";
 import type { DutyLog, FuelPurchase, Load, Truck } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -81,6 +82,11 @@ const CORRIDOR_MILES = 25; // history locations further than this from the route
 const PLACES_RADIUS_METERS = 5000;
 const DEFAULT_GALLONS_TO_BUY = 100;
 const DEFAULT_AVG_MPG = 6.5;
+
+/** GAP-02: a load's stored appointment window as a TimeWindow (both ends or neither). */
+function loadWindow(start: string | null, end: string | null) {
+  return start && end ? { start, end } : null;
+}
 
 function samplePoints(geometry: LatLng[], count: number): LatLng[] {
   const points: LatLng[] = [];
@@ -227,18 +233,37 @@ export async function runRouteCheck(
   }
 
   // --- his clocks -------------------------------------------------------
-  let dutyQuery = supabase
-    .from("duty_logs")
-    .select("duty_status, started_at")
-    .is("deleted_at", null)
-    .gte("started_at", new Date(now.getTime() - EIGHT_DAYS_MS).toISOString());
-  if (companyId) dutyQuery = dutyQuery.eq("company_id", companyId);
-  const { data: dutyData, error: dutyError } = await dutyQuery.order("started_at", {
-    ascending: true,
-  });
+  // Provenance rides along when migration 00044 has landed (§7.7:
+  // the math never changes - only the labeling). Pre-00044 the
+  // wide select errors and the narrow one runs, unlabeled.
+  const dutySince = new Date(now.getTime() - EIGHT_DAYS_MS).toISOString();
+  const buildDutyQuery = (columns: string) => {
+    let query = supabase
+      .from("duty_logs")
+      .select(columns)
+      .is("deleted_at", null)
+      .gte("started_at", dutySince);
+    if (companyId) query = query.eq("company_id", companyId);
+    return query.order("started_at", { ascending: true });
+  };
+  let { data: dutyData, error: dutyError } = await buildDutyQuery(
+    "duty_status, started_at, source, source_document_id",
+  );
+  if (dutyError) {
+    ({ data: dutyData, error: dutyError } = await buildDutyQuery("duty_status, started_at"));
+  }
   if (dutyError) throw new Error(dutyError.message);
-  const hos = summarizeHos((dutyData ?? []) as DutySegmentInput[], now);
+  const dutyRows = (dutyData ?? []) as unknown as (DutySegmentInput & {
+    source?: string | null;
+    source_document_id?: string | null;
+  })[];
+  const hos = summarizeHos(dutyRows, now);
   const clocks = clocksFromHos(hos);
+  // Trust labeling (§7.7.1): clocks built on paper rows say so,
+  // and a partial paper day says partial - a route check that
+  // would be illegal on the readable portion says illegal, never
+  // "probably fine", and the label is how he knows which it is.
+  warnings.push(...(await hosProvenanceLines(supabase, companyId ?? "", dutyRows)));
 
   const departAt = new Date(request.depart_at);
 
@@ -376,8 +401,12 @@ export async function runRouteCheck(
     providerDurationMinutes: route.durationMinutes,
     clocks,
     governedSpeedMph: truck?.governed_speed_mph ?? null,
-    pickupWindow: request.pickup_window ?? null,
-    deliveryWindow: request.delivery_window ?? null,
+    // GAP-02: windows captured on the load (from the rate con at
+    // intake) pre-fill the check — a window typed into the request
+    // still wins, but he never re-types what the load already knows.
+    pickupWindow: request.pickup_window ?? loadWindow(load.pickup_window_start, load.pickup_window_end),
+    deliveryWindow:
+      request.delivery_window ?? loadWindow(load.delivery_window_start, load.delivery_window_end),
     rateCents: load.rate_cents,
     loadMiles: load.miles,
     ...(deadheadRoute && startPoint
@@ -458,7 +487,9 @@ export async function runRouteCheck(
       geometry: route.geometry,
       originPoint,
       destinationPoint,
+      ...(route.maneuvers ? { maneuvers: route.maneuvers } : {}),
     },
+    clocks,
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),
@@ -493,6 +524,7 @@ export async function runRouteCheck(
             leaveByAt: verdict.preLeg.startAt,
             pickupArrivalAt: verdict.preLeg.pickupArrivalAt,
             waitMinutesAtPickup: verdict.preLeg.waitMinutesAtPickup,
+            ...(deadheadRoute.maneuvers ? { maneuvers: deadheadRoute.maneuvers } : {}),
           }
         : null,
     fuel: {

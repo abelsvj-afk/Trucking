@@ -5,7 +5,12 @@
 // fleet detail (trucks incl. profile, trailers, drivers),
 // inspections, checklist items, maintenance events + schedules,
 // document CONTENT (extracted text, graceful absence until the
-// scan branch's column lands), and industry briefings.
+// scan branch's column lands), and BOTH briefing engines - the
+// industry-intelligence engine's briefings and (R-6, Research
+// Intelligence design D-7) the Deep Research engine's briefings
+// plus its pending pre-trip photo requests. The two engines are
+// labeled distinctly in every result: they are different products
+// until the R-7 door merge, and an answer must never blur them.
 //
 // Every result is grounding text built from the actual query -
 // the loop's grounding guard holds replies to figures that appear
@@ -13,9 +18,18 @@
 
 import { computeDueStatus } from "@/lib/maintenance-schedule";
 import type { AgentTool } from "@/services/ai/agent-loop";
+import {
+  listPendingResearchRequests,
+  requestPhotoItems,
+  requestReason,
+} from "@/services/research/requests";
 import type { BotBrainStore } from "./store";
 import { dollars, isMissingColumnError } from "./tool-helpers";
 import type { MaintenanceSchedule } from "@/types/entities";
+import {
+  computeMaintenanceOutlook,
+  formatMaintenanceOutlook,
+} from "@/services/fleet/maintenance-outlook";
 
 type Row = Record<string, unknown>;
 
@@ -295,6 +309,40 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
       },
     },
     {
+      name: "list_facilities",
+      description:
+        "List the facilities/places he runs to, with what's remembered about each: check-in, docks, parking, detention behavior, hours, visit count. Use when he's booking or heading somewhere he's been before — the third visit should start smarter than the first.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      async run() {
+        const { data, error } = await client
+          .from("facilities")
+          .select("id, name, city, state, kind, checkin_notes, dock_notes, parking_notes, detention_notes, hours_notes, visit_count")
+          .eq("company_id", companyId)
+          .is("deleted_at", null)
+          .order("name", { ascending: true })
+          .limit(30);
+        if (error) throw new Error(error.message);
+        const rows = (data ?? []) as Row[];
+        if (rows.length === 0) return "No facilities remembered yet — they get created from rate cons and his after-visit reports.";
+        return rows
+          .map((r) => {
+            const facts = [
+              str(r.checkin_notes) && `check-in: ${r.checkin_notes}`,
+              str(r.dock_notes) && `docks: ${r.dock_notes}`,
+              str(r.parking_notes) && `parking: ${r.parking_notes}`,
+              str(r.detention_notes) && `detention: ${r.detention_notes}`,
+              str(r.hours_notes) && `hours: ${r.hours_notes}`,
+            ].filter(Boolean);
+            return (
+              `- [${r.id}] ${r.name}${str(r.city) ? ` (${r.city}${str(r.state) ? `, ${r.state}` : ""})` : ""} — ${r.visit_count} visit(s)` +
+              (facts.length > 0 ? `\n  ${facts.join("\n  ")}` : "")
+            );
+          })
+          .join("\n");
+      },
+    },
+    {
       name: "list_inspections",
       description: "List recent pre-trip inspections with their results: when, which vehicle, passed or failed, and any defects found.",
       parameters: {
@@ -439,6 +487,17 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
       },
     },
     {
+      name: "maintenance_outlook",
+      description:
+        "THE maintenance answer (§5.7): every schedule's due state (overdue / due soon / unknown / on track / paused) with next-due points, each truck's mileage with where it came from and how old it is, and the open tracked defects. Use this whenever he asks what's due, what needs doing, or how the truck's maintenance looks - don't assemble the answer from list tools when this one call holds it.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      async run() {
+        const outlook = await computeMaintenanceOutlook(client, companyId);
+        return formatMaintenanceOutlook(outlook);
+      },
+    },
+    {
       name: "get_document",
       description:
         "Read one document in full: what it is, what it's attached to, and its extracted text content when the document has been scanned/extracted (BOLs, rate cons, paperwork). Get the document id from list_documents or search_documents. Use this whenever he asks what a document actually says.",
@@ -554,7 +613,8 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "list_industry_briefings",
-      description: "List his recent industry-intelligence briefings (the scheduled research engine's output): summary, confidence, when generated. Use when he asks what the research found.",
+      description:
+        "List recent briefings from the INDUSTRY-INTELLIGENCE engine (the older daily-summary engine - NOT Deep Research): summary, confidence, when generated. One of his two briefing engines; name it as the industry-intelligence engine when you report from it.",
       parameters: {
         type: "object",
         properties: { limit: { type: "number", description: "How many, 1-10. Default 5." } },
@@ -571,10 +631,112 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
           .limit(limit);
         if (error) throw new Error(error.message);
         const rows = (data ?? []) as Row[];
-        if (rows.length === 0) return "No industry briefings on file yet.";
-        return rows
-          .map((r) => `- [${r.id}] (${String(r.generated_at).slice(0, 10)}, confidence ${r.confidence}) ${r.summary}`)
-          .join("\n");
+        if (rows.length === 0)
+          return "From the industry-intelligence engine: no briefings on file yet.";
+        return [
+          "From the industry-intelligence engine (daily summaries - not Deep Research):",
+          ...rows.map(
+            (r) => `- [${r.id}] (${String(r.generated_at).slice(0, 10)}, confidence ${r.confidence}) ${r.summary}`,
+          ),
+        ].join("\n");
+      },
+    },
+    {
+      name: "list_research_briefings",
+      description:
+        "List recent briefings from the DEEP RESEARCH engine (the pressure-triggered research engine - NOT the industry-intelligence engine): title, headline, takeaway, counter-move, topic, confidence. Use when he asks what the research found, and check BOTH engines before answering - label which engine each briefing came from.",
+      parameters: {
+        type: "object",
+        properties: { limit: { type: "number", description: "How many, 1-10. Default 5." } },
+      },
+      access: "read",
+      async run(args) {
+        const limit = Math.min(10, Math.max(1, typeof args.limit === "number" ? args.limit : 5));
+        const { data, error } = await client
+          .from("research_briefings")
+          .select("id, topic, title, headline, takeaway, counter_move, confidence, created_at")
+          .eq("company_id", companyId)
+          .is("dismissed_at", null)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (error) throw new Error(error.message);
+        const rows = (data ?? []) as Row[];
+        if (rows.length === 0)
+          return "From the Deep Research engine: no briefings on file yet.";
+        return [
+          "From the Deep Research engine (full research reports - not the industry-intelligence summaries):",
+          ...rows.map(
+            (r) =>
+              `- [${r.id}] (${String(r.created_at).slice(0, 10)}, ${r.topic}, confidence ${r.confidence}) ${r.title}\n  ${r.headline}\n  Takeaway: ${r.takeaway}\n  Counter-move: ${r.counter_move}`,
+          ),
+        ].join("\n");
+      },
+    },
+    {
+      name: "get_research_briefing",
+      description:
+        "Read one Deep Research briefing in full (from list_research_briefings' ids): findings with their sources, what changed, counter-move, takeaway, and anything the engine flagged as unverified. Use when he wants the detail behind a Deep Research headline.",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string", description: "The briefing id from list_research_briefings." } },
+        required: ["id"],
+      },
+      access: "read",
+      async run(args) {
+        const id = String(args.id ?? "").trim();
+        if (!id) return "Give me the briefing id from list_research_briefings.";
+        const { data, error } = await client
+          .from("research_briefings")
+          .select(
+            "id, topic, title, headline, findings, what_changed, counter_move, takeaway, unverified, sources, confidence, created_at",
+          )
+          .eq("company_id", companyId)
+          .eq("id", id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) return `No Deep Research briefing with id ${id} on file.`;
+        const r = data as Row;
+        const lines = [
+          `Deep Research briefing [${r.id}] - ${r.title}`,
+          `Topic: ${r.topic} · confidence ${r.confidence} · ${String(r.created_at).slice(0, 10)}`,
+          String(r.headline),
+          "Findings:",
+        ];
+        const findings = Array.isArray(r.findings) ? (r.findings as Row[]) : [];
+        if (findings.length === 0) lines.push("- (none recorded)");
+        for (const f of findings) {
+          lines.push(`- ${f.claim} (${f.source_title}: ${f.source_url})`);
+        }
+        lines.push(`What changed: ${r.what_changed}`);
+        lines.push(`Counter-move: ${r.counter_move}`);
+        lines.push(`Takeaway: ${r.takeaway}`);
+        const unverified = Array.isArray(r.unverified) ? (r.unverified as unknown[]) : [];
+        if (unverified.length > 0) {
+          lines.push(
+            `Flagged unverified by the engine: ${unverified.map((u) => (typeof u === "string" ? u : JSON.stringify(u))).join("; ")}`,
+          );
+        }
+        return lines.join("\n");
+      },
+    },
+    {
+      name: "list_research_requests",
+      description:
+        "List the Deep Research engine's pending pre-trip photo asks (research_requests still waiting on him): what to photograph, why, and the load they're for when there is one. Use when he asks what photos are wanted, or before a pre-trip when an ask may be outstanding.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      async run() {
+        const pending = await listPendingResearchRequests(client, companyId);
+        if (pending.length === 0) return "No pre-trip photo asks are waiting on him.";
+        const lines = ["Pending pre-trip photo asks from the Deep Research engine:"];
+        for (const request of pending) {
+          const items = requestPhotoItems(request).join(", ");
+          const reason = requestReason(request);
+          lines.push(
+            `- [${request.id}] photograph: ${items}${request.load_id ? ` (load ${request.load_id})` : ""}${reason ? ` - why: ${reason}` : ""}`,
+          );
+        }
+        return lines.join("\n");
       },
     },
   ];

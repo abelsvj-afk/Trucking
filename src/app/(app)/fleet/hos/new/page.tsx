@@ -7,6 +7,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { useSubmissionId } from "@/lib/use-submission-id";
@@ -35,20 +36,28 @@ export default function NewDutyLogPage() {
     setError(null);
     setSubmitting(true);
 
+    const body = {
+      submission_id: submissionId,
+      driver_id: driverId || null,
+      load_id: loadId || null,
+      duty_status: dutyStatus,
+      started_at: new Date(startedAt).toISOString(),
+      location: location || null,
+      odometer: odometer ? Number(odometer) : null,
+      notes: notes || null,
+    };
     try {
-      await apiClient.create<DutyLog>("duty-logs", {
-        driver_id: driverId || null,
-        load_id: loadId || null,
-        duty_status: dutyStatus,
-        started_at: new Date(startedAt).toISOString(),
-        location: location || null,
-        odometer: odometer ? Number(odometer) : null,
-        notes: notes || null,
-        submission_id: submissionId,
-      });
+      await apiClient.create<DutyLog>("duty-logs", body);
       router.push("/fleet/hos");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        // GAP-07: a duty change in a dead zone still gets logged —
+        // queued on the device with its real start time.
+        offlineOutbox.enqueue("duty-logs", body);
+        router.push("/fleet/hos");
+      }
     } finally {
       setSubmitting(false);
     }

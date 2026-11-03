@@ -35,6 +35,16 @@ export interface Truck extends BaseRow {
   year: number | null;
   status: EntityStatus;
   current_mileage: number | null;
+  // Mileage provenance (migration 00042, Image Intelligence §5.3):
+  // where the current reading came from and when it was observed.
+  current_mileage_source:
+    | "odometer_photo"
+    | "duty_log"
+    | "maintenance_event"
+    | "fuel_entry"
+    | "owner_said"
+    | null;
+  current_mileage_at: string | null;
   // UI/UX upgrade (migration 00027): what kind of truck this is (UI
   // picklist slug or the owner's own words) and the documents row
   // holding its photo. Both null until captured.
@@ -88,6 +98,65 @@ export interface Broker extends BaseRow {
   contact_email: string | null;
   contact_phone: string | null;
   notes: string | null;
+  /** GAP-14 (migration 00054): the broker's payment terms (days) and setup requirements — the scorecard's inputs. */
+  payment_terms_days: number | null;
+  setup_notes: string | null;
+}
+
+/** GAP-11 (migration 00051): a document with an expiry, watched. */
+export type CredentialKind =
+  | "cdl"
+  | "medical_card"
+  | "annual_inspection"
+  | "registration_irp"
+  | "insurance"
+  | "other";
+
+export interface Credential extends BaseRow {
+  kind: CredentialKind;
+  label: string;
+  driver_id: string | null;
+  truck_id: string | null;
+  expires_on: string;
+  document_id: string | null;
+  notes: string | null;
+}
+
+/** GAP-12 (migration 00052): a load's receivable lifecycle. Status is derived (lib/invoices.ts), never stored. */
+export interface LoadInvoice extends BaseRow {
+  load_id: string;
+  broker_id: string | null;
+  invoice_date: string;
+  due_date: string;
+  amount_cents: number;
+  paid_amount_cents: number;
+  paid_on: string | null;
+  factored: boolean;
+  factor_fee_cents: number | null;
+  factor_reserve_cents: number | null;
+  notes: string | null;
+}
+
+/** GAP-13 (migration 00053): a recurring business obligation. */
+export type ObligationCadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
+
+export interface RecurringObligation extends BaseRow {
+  name: string;
+  amount_cents: number;
+  cadence: ObligationCadence;
+  day_of_month: number | null;
+  weekday: number | null;
+  anchor_date: string | null;
+  active: boolean;
+  notes: string | null;
+}
+
+/** GAP-14 (migration 00054): a dated follow-up owed to a broker. */
+export interface BrokerFollowup extends BaseRow {
+  broker_id: string;
+  note: string;
+  due_on: string;
+  done_at: string | null;
 }
 
 export type LoadStatus = "draft" | "confirmed" | "completed" | "cancelled";
@@ -104,6 +173,52 @@ export interface Load extends BaseRow {
   rate_cents: number | null;
   miles: number | null;
   status: LoadStatus;
+  notes: string | null;
+  // GAP-02/04/05 (migration 00049): appointment windows, detention
+  // terms, scale-ticket weight. Null until captured.
+  pickup_window_start: string | null;
+  pickup_window_end: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+  detention_free_minutes: number | null;
+  detention_rate_cents_per_hour: number | null;
+  weight_lbs: number | null;
+  // GAP-03/15 (migration 00050): facility links + structured lane states.
+  pickup_facility_id: string | null;
+  delivery_facility_id: string | null;
+  origin_state: string | null;
+  destination_state: string | null;
+}
+
+export type FacilityKind = "shipper" | "receiver" | "both";
+
+/** GAP-03: a place he actually goes, remembered (migration 00050). */
+export interface Facility extends BaseRow {
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  kind: FacilityKind;
+  checkin_notes: string | null;
+  dock_notes: string | null;
+  parking_notes: string | null;
+  detention_notes: string | null;
+  hours_notes: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  visit_count: number;
+  last_visited_at: string | null;
+}
+
+export type DetentionStampType = "arrival" | "door" | "loading_done" | "departure";
+export type DetentionStopKind = "pickup" | "delivery";
+
+/** GAP-04: one stamp on a load's facility clock (migration 00049). */
+export interface DetentionStamp extends BaseRow {
+  load_id: string;
+  stamp_type: DetentionStampType;
+  stop_kind: DetentionStopKind;
+  occurred_at: string;
   notes: string | null;
 }
 
@@ -122,10 +237,14 @@ export interface Expense extends BaseRow {
 export interface FuelPurchase extends BaseRow {
   truck_id: string;
   location: string | null;
+  /** GAP-15 (migration 00050): purchase state, for the IFTA worksheet. */
+  state: string | null;
   gallons: number;
   price_per_gallon_cents: number;
   total_cost_cents: number;
   purchased_at: string;
+  /** Dash reading at this stop (migration 00042, §5.3). */
+  odometer: number | null;
 }
 
 export interface MaintenanceEvent extends BaseRow {
@@ -147,6 +266,30 @@ export interface MaintenanceSchedule extends BaseRow {
   last_done_date: string | null;
   last_done_mileage: number | null;
   status: MaintenanceScheduleStatus;
+  // The maintenance brain (migration 00043, Image Intelligence
+  // §5.1/§5.6): the interval-library key this schedule came from,
+  // where the row originated, and the watcher's reminder state.
+  template_key: string | null;
+  origin: "template" | "owner" | "abel";
+  last_reminded_at: string | null;
+  last_reminder_key: string | null;
+}
+
+export type VehicleDefectSource = "pretrip" | "photo" | "conversation";
+export type VehicleDefectStatus = "open" | "acknowledged" | "closed" | "dismissed";
+
+/** A tracked observed problem (migration 00043, §5.5) - not work done (event) and not future work (schedule). */
+export interface VehicleDefect extends BaseRow {
+  truck_id: string | null;
+  trailer_id: string | null;
+  description: string;
+  source: VehicleDefectSource;
+  source_inspection_id: string | null;
+  source_document_id: string | null;
+  status: VehicleDefectStatus;
+  maintenance_event_id: string | null;
+  last_follow_up_at: string | null;
+  follow_up_count: number;
 }
 
 export interface EquipmentChecklistItem extends BaseRow {
@@ -179,6 +322,14 @@ export interface DutyLog extends BaseRow {
   location: string | null;
   odometer: number | null;
   notes: string | null;
+  /**
+   * Provenance (Image Intelligence §7, migration 00044). Optional:
+   * rows read from a database where 00044 hasn't landed simply
+   * don't carry it - 'app' is the honest default assumption.
+   */
+  source?: "app" | "paper_photo" | "conversation";
+  /** For paper_photo rows: the documents row of the sheet photograph. */
+  source_document_id?: string | null;
 }
 
 export type DispatchExchangeSource = "web" | "telegram";
@@ -193,6 +344,9 @@ export interface DispatchExchange extends BaseRow {
   ai_suggested_reply_es: string | null;
   actual_reply_sent: string | null;
   source: DispatchExchangeSource;
+  /** GAP-14 (migration 00054): the working-relationship links the scorecard computes from. */
+  broker_id: string | null;
+  load_id: string | null;
 }
 
 export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
@@ -242,6 +396,21 @@ export interface Document {
   retention_status: DocumentRetentionStatus | null;
   retention_error: string | null;
   purged_at: string | null;
+  // Photo intelligence (Image Intelligence design §3, migration
+  // 00042): the photo's settled purpose, who settled it, and the
+  // read's confidence. All null on legacy documents and on photos
+  // whose purpose question is still open.
+  photo_purpose:
+    | "paperwork"
+    | "paper_log"
+    | "truck_exterior"
+    | "trailer"
+    | "odometer_dash"
+    | "pretrip"
+    | "other"
+    | null;
+  photo_purpose_source: "vision" | "caption" | "owner" | null;
+  photo_purpose_confidence: number | null;
 }
 
 // The retention lifecycle of a deleted document (design A.7):
@@ -368,6 +537,9 @@ export interface ResearchSourceRef {
   url: string;
 }
 
+/** Delivery timing class (migration 00040): how the Telegram buzz was handled. */
+export type ResearchDeliveryClass = "urgent" | "trip" | "routine";
+
 export interface ResearchBriefing {
   id: string;
   company_id: string;
@@ -386,6 +558,38 @@ export interface ResearchBriefing {
   read_at: string | null;
   dismissed_at: string | null;
   created_at: string;
+  /**
+   * Delivery bookkeeping (migration 00040). Null on rows/databases
+   * from before the delivery-timing upgrade - the banner and tab
+   * treat null as "no hold information", never as a hold.
+   */
+  delivery_class: ResearchDeliveryClass | null;
+  delivery_held_until: string | null;
+}
+
+/** One source item inside a research signal (mirrors ResearchSourceItem in services/research/watchers/types.ts). */
+export interface ResearchSignalItem {
+  title: string;
+  url: string;
+  publishedAt: string | null;
+  summary: string | null;
+}
+
+/**
+ * A stored pressure signal (research_signals, migration 00019) as the
+ * Home banner / Research tab consume it: raw watcher pressure that no
+ * executed run has consumed yet - a "Watching" item, never a briefing.
+ */
+export interface ResearchSignal {
+  id: string;
+  watcher_key: string;
+  kind: string;
+  topic: string;
+  magnitude: number;
+  summary: string;
+  items: ResearchSignalItem[];
+  observed_at: string;
+  dedupe_key: string;
 }
 
 export type ResearchRunStatus =
@@ -529,4 +733,33 @@ export interface ResearchPageData {
     last_source: string | null;
     stale: boolean;
   } | null;
+  /**
+   * Banner-eligible "Watching" signals (Home News Banner design §5):
+   * unconsumed, observed within 72h, magnitude >= 0.5. Server-filtered
+   * so the banner stays dumb; empty when the signal read degrades.
+   */
+  signals: ResearchSignal[];
+  /**
+   * Server-side deep_research capability verdict (global kill switch
+   * + per-capability row; no row = off). The banner hides entirely
+   * when false - off is the owner's choice, not an error.
+   */
+  engine_enabled: boolean;
+}
+
+/**
+ * POST /api/v1/research-briefings/check-wires response (Home News
+ * Banner design §4): the light pull's honest states. `available:
+ * false` (HTTP 200) means the pull cannot run in this deployment yet
+ * (job DB URL unset) - never a 500 on Home.
+ */
+export interface CheckWiresResult {
+  state: "fresh" | "quiet" | "cooldown" | "busy" | "unavailable";
+  available: boolean;
+  new_signals: number;
+  /** When the wires were last actually polled (this pull, or the stored poll a cooldown reports). */
+  checked_at: string | null;
+  /** Cooldown only: minutes until another pull is allowed. */
+  next_check_in_minutes: number | null;
+  reason: string | null;
 }

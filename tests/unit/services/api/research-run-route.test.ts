@@ -5,6 +5,15 @@ vi.mock("@/services/research/scheduler", () => ({
   runResearchTick: vi.fn(),
 }));
 
+// FLAKE CURE (union fix round): the route dynamically imports the
+// REAL consolidation scheduler, whose module graph (bot store, AI
+// providers, DB pools) is slow enough under load to blow the 5s test
+// timeout. Mock it like the tick above — test-only change, no route
+// code touched.
+vi.mock("@/services/bot/consolidation-scheduler", () => ({
+  runConsolidationIfDue: vi.fn(async () => {}),
+}));
+
 import { runResearchTick } from "@/services/research/scheduler";
 import { POST } from "@/app/api/internal/research/run/route";
 
