@@ -30,7 +30,7 @@ describe("fetchGdeltArticles", () => {
   it("sends the identifying User-Agent and parses the article list", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, ARTICLES_BODY));
 
-    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, 0);
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0);
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const [, init] = fetchFn.mock.calls[0] as [URL, RequestInit];
@@ -51,7 +51,7 @@ describe("fetchGdeltArticles", () => {
       .mockResolvedValueOnce(jsonResponse(429, null))
       .mockResolvedValueOnce(jsonResponse(200, ARTICLES_BODY));
 
-    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, 0);
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0);
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
     expect(articles).toHaveLength(1);
@@ -60,7 +60,7 @@ describe("fetchGdeltArticles", () => {
   it("gives up into a visible error after a second 429", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(429, null));
 
-    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, 0)).rejects.toThrow(
+    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0)).rejects.toThrow(
       "GDELT request failed: 429 Too Many Requests",
     );
     expect(fetchFn).toHaveBeenCalledTimes(2);
@@ -69,7 +69,7 @@ describe("fetchGdeltArticles", () => {
   it("does not retry non-429 failures", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(500, null));
 
-    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, 0)).rejects.toThrow("GDELT request failed: 500");
+    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0)).rejects.toThrow("GDELT request failed: 500");
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });
