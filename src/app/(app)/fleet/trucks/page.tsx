@@ -11,7 +11,7 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { EntityPhoto } from "@/components/EntityPhoto";
 import { usePageTitle } from "@/lib/use-page-title";
-import { truckTypeLabel, formatMileage } from "@/lib/fleet-display";
+import { truckTypeLabel, formatMileage, mileageProvenance } from "@/lib/fleet-display";
 import type { Truck } from "@/types/entities";
 
 const STATUS_BADGES: Record<Truck["status"], string> = {
@@ -51,6 +51,9 @@ export default function TrucksListPage() {
             const type = truckTypeLabel(truck.truck_type);
             const identity = [truck.year, truck.make, truck.model].filter(Boolean).join(" ");
             const mileage = formatMileage(truck.current_mileage);
+            const provenance = mileage
+              ? mileageProvenance(truck.current_mileage_source, truck.current_mileage_at)
+              : null;
             return (
               <li key={truck.id}>
                 <Link href={`/fleet/trucks/${truck.id}`} className="row-with-photo">
@@ -69,6 +72,7 @@ export default function TrucksListPage() {
                     </span>
                     <span className="row-sub">
                       {[identity, mileage].filter(Boolean).join(" · ") || "Tap to complete this truck's profile"}
+                      {provenance ? ` (${provenance})` : ""}
                     </span>
                   </span>
                 </Link>

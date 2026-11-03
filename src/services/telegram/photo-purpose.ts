@@ -31,6 +31,12 @@ import {
 import { isMissingColumnError } from "@/services/bot/tool-helpers";
 import type { BotBrainStore, PendingAction } from "@/services/bot/store";
 import { extractionLines, type TelegramPhotoAskOption } from "./photo-intake";
+import {
+  stageOdometerPhoto,
+  stageTrailerPhoto,
+  stageTruckPhoto,
+  type VehicleStageOutcome,
+} from "./vehicle-photos";
 
 /** Sentinel tool_name for a photo-purpose question in bot_pending_actions (design §6). */
 export const PHOTO_PURPOSE_TOOL = "photo_purpose";
@@ -63,6 +69,8 @@ export interface PhotoPurposeAskArgs {
   document_id: string;
   headline: string;
   fields: PhotoClassificationFields;
+  /** Per-field confidences from the read (Phase 2 pipelines stage fields on their own numbers). */
+  field_confidences?: Record<string, number>;
   candidates: PhotoPurposeCandidate[];
   classifier_confidence: number;
 }
@@ -303,6 +311,8 @@ export interface SettlePhotoPurposeInput {
   confidence?: number | null;
   headline?: string;
   fields?: PhotoClassificationFields;
+  /** Per-field confidences from the classifier read (Phase 2 staging bars read these). */
+  fieldConfidences?: Record<string, number>;
   /** The photo bytes, when the caller still holds them (intake act path) - saves a storage re-download. */
   knownBytes?: Buffer;
 }
@@ -397,14 +407,155 @@ async function settlePaperwork(
   return lines.join("\n");
 }
 
+const DAMAGE_WORDS = /\b(damage|damaged|bent|crack|cut|leak|broken|flat|dent|torn|missing|scrape|gouge)\b/i;
+
+/**
+ * The pre-trip photo's follow-ups (§4.5 + §5.5 + the R-6 hook),
+ * each best-effort and none allowed to fail the settle:
+ * - name the inspection it pairs with, when one exists today for
+ *   the vehicle in the photo (the documents table's related-entity
+ *   enum has no inspection value, so the pairing is spoken and
+ *   rides the defect links below rather than a row rewrite);
+ * - a damage read stages ONE defect proposal (source: this photo);
+ * - a pending research pretrip_photo request (R-6's ask) is
+ *   marked fulfilled - the arrival half of that feature; when
+ *   Abel ASKS is R-6's own business.
+ */
+async function pretripPhotoFollowUps(
+  deps: SettlePhotoPurposeDeps,
+  documentId: string,
+  fields: PhotoClassificationFields | undefined,
+): Promise<string[]> {
+  const store = deps.brainStore!;
+  const lines: string[] = [];
+  try {
+    // Pairing: the newest inspection in the last 36 hours.
+    const since = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+    const { data: inspections } = await store.client
+      .from("pretrip_inspections")
+      .select("id, truck_id, trailer_id, passed, inspected_at")
+      .eq("company_id", deps.companyId)
+      .is("deleted_at", null)
+      .gte("inspected_at", since)
+      .order("inspected_at", { ascending: false })
+      .limit(5);
+    const rows = (inspections ?? []) as {
+      id: string;
+      truck_id: string | null;
+      trailer_id: string | null;
+      passed: boolean;
+    }[];
+    if (rows.length > 0) {
+      lines.push(
+        "It goes with the pre-trip already logged in the last day and a half - the photo and the inspection stay linked through your documents and any defects that come out of it.",
+      );
+    }
+  } catch (err) {
+    console.error("[telegram] pretrip photo pairing failed", err);
+  }
+
+  try {
+    const description = fields?.description?.trim();
+    if (description && DAMAGE_WORDS.test(description)) {
+      // Resolve the vehicle: a read unit number, else the only truck.
+      let truckId: string | null = null;
+      let trailerId: string | null = null;
+      if (fields?.trailer_unit_number) {
+        const { data } = await store.client
+          .from("trailers")
+          .select("id")
+          .eq("company_id", deps.companyId)
+          .eq("unit_number", fields.trailer_unit_number)
+          .is("deleted_at", null)
+          .maybeSingle();
+        trailerId = (data as { id: string } | null)?.id ?? null;
+      }
+      if (!trailerId) {
+        const { data } = await store.client
+          .from("trucks")
+          .select("id, unit_number")
+          .eq("company_id", deps.companyId)
+          .is("deleted_at", null)
+          .limit(5);
+        const trucks = (data ?? []) as { id: string; unit_number: string }[];
+        const matched = fields?.unit_number
+          ? trucks.find((t) => t.unit_number === fields.unit_number)
+          : trucks.length === 1
+            ? trucks[0]
+            : undefined;
+        truckId = matched?.id ?? null;
+      }
+      if (truckId || trailerId) {
+        const { stageDefectProposals } = await import("@/services/fleet/defects");
+        const staged = await stageDefectProposals(
+          store,
+          [{ truckId, trailerId, description, source: "photo", sourceDocumentId: documentId }],
+          "from the pre-trip photo you just sent",
+        );
+        if (staged > 0) {
+          lines.push(
+            `That reads like damage, so I staged a defect to track: "${description}" - say yes to track it, or no and it's just the photo.`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[telegram] pretrip damage staging failed", err);
+  }
+
+  try {
+    // R-6 fulfilment hook (built inert, §5.5): a queued
+    // pretrip_photo request is fulfilled by this photo's arrival.
+    const { data: requests } = await store.client
+      .from("research_requests")
+      .select("id")
+      .eq("company_id", deps.companyId)
+      .eq("kind", "pretrip_photo")
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const request = ((requests ?? []) as { id: string }[])[0];
+    if (request) {
+      await store.client
+        .from("research_requests")
+        .update({ status: "fulfilled", fulfilled_at: new Date().toISOString() })
+        .eq("id", request.id)
+        .eq("company_id", deps.companyId);
+    }
+  } catch (err) {
+    console.error("[telegram] pretrip research-request fulfilment failed", err);
+  }
+
+  return lines;
+}
+
+/**
+ * Runs a Phase 2 vehicle pipeline when the surface wired a brain
+ * store. A pipeline failure never fails the settle - the purpose
+ * is already stamped and the photo stored; the reply falls back
+ * to plain narration and says nothing was staged.
+ */
+async function runVehiclePipeline(
+  deps: SettlePhotoPurposeDeps,
+  run: (store: BotBrainStore) => Promise<VehicleStageOutcome>,
+): Promise<VehicleStageOutcome | null> {
+  if (!deps.brainStore) return null;
+  try {
+    return await run(deps.brainStore);
+  } catch (err) {
+    console.error("[telegram] vehicle photo pipeline failed", err);
+    return null;
+  }
+}
+
 /**
  * Settles a photo's purpose: stamps the document (unless the
  * choice was "store" - his explicit "just file it" leaves the
- * purpose unmarked, per §3.2) and runs the purpose's Phase 1
- * pipeline. Vehicle/odometer pipelines that WRITE (profile fields,
- * mileage) arrive in Phase 2; here those purposes narrate the read
- * and mark the photo, and paperwork hands off to the existing
- * extraction pipeline untouched.
+ * purpose unmarked, per §3.2) and runs the purpose's pipeline:
+ * paperwork hands off to the existing extraction pipeline
+ * untouched; truck / trailer / dash run the Phase 2 staging
+ * pipelines (§4.2-4.4) when a brain store is wired, and narrate
+ * only when one isn't.
  */
 export async function settlePhotoPurpose(
   deps: SettlePhotoPurposeDeps,
@@ -430,7 +581,17 @@ export async function settlePhotoPurpose(
   switch (choice) {
     case "paperwork":
       return { reply: await settlePaperwork(deps, documentId, input.knownBytes) };
-    case "truck_exterior":
+    case "truck_exterior": {
+      const outcome = await runVehiclePipeline(deps, (store) =>
+        stageTruckPhoto(store, {
+          documentId,
+          fields: fields ?? {},
+          fieldConfidences: input.fieldConfidences,
+        }),
+      );
+      if (outcome) {
+        return { reply: [headline ?? "That's the truck.", ...outcome.lines].join("\n") };
+      }
       return {
         reply: [
           headline ?? "That's the truck.",
@@ -438,7 +599,18 @@ export async function settlePhotoPurpose(
           "Saved in your documents, marked as the truck.",
         ].join("\n"),
       };
-    case "trailer":
+    }
+    case "trailer": {
+      const outcome = await runVehiclePipeline(deps, (store) =>
+        stageTrailerPhoto(store, {
+          documentId,
+          fields: fields ?? {},
+          fieldConfidences: input.fieldConfidences,
+        }),
+      );
+      if (outcome) {
+        return { reply: [headline ?? "That's the trailer.", ...outcome.lines].join("\n") };
+      }
       return {
         reply: [
           headline ?? "That's the trailer.",
@@ -446,11 +618,23 @@ export async function settlePhotoPurpose(
           "Saved in your documents, marked as the trailer — it doesn't touch the truck's profile.",
         ].join("\n"),
       };
+    }
     case "odometer_dash": {
+      const outcome = await runVehiclePipeline(deps, (store) =>
+        stageOdometerPhoto(store, {
+          documentId,
+          fields: fields ?? {},
+          fieldConfidences: input.fieldConfidences,
+        }),
+      );
       const lines = [headline ?? "That's the dash."];
-      if (fields?.odometer_miles !== undefined) {
+      if (outcome) {
+        lines.push(...outcome.lines);
+      } else if (fields?.odometer_miles !== undefined) {
         lines.push(`Odometer reads ${formatMiles(fields.odometer_miles)} miles — that reading is saved with the photo.`);
       }
+      // §4.4: warning lights are conversation starters only -
+      // named as candidates, never filed as defects, either way.
       if (fields?.warning_lights && fields.warning_lights.length > 0) {
         lines.push(
           `Also looks lit: ${fields.warning_lights.join(", ")}. That's only what I could make out — I haven't filed anything about it.`,
@@ -459,14 +643,19 @@ export async function settlePhotoPurpose(
       lines.push("Saved in your documents, marked as a dash photo.");
       return { reply: lines.join("\n") };
     }
-    case "pretrip":
-      return {
-        reply: [
-          headline ?? "That's a pre-trip photo.",
-          ...readLines(fields),
-          "Saved in your documents, marked as a pre-trip photo.",
-        ].join("\n"),
-      };
+    case "pretrip": {
+      const lines = [headline ?? "That's a pre-trip photo.", ...readLines(fields)];
+      if (deps.brainStore) {
+        lines.push(...(await pretripPhotoFollowUps(deps, documentId, fields)));
+      }
+      lines.push("Saved in your documents, marked as a pre-trip photo.");
+      // §4.5: skip is first-class, forever - a photo never becomes
+      // a toll booth on the inspection itself.
+      lines.push(
+        "The photo doesn't pass or fail anything: if the walk-around was clean, just say \"pre-trip passed\" and it completes exactly like always - or tell me what you found and I'll log it.",
+      );
+      return { reply: lines.join("\n") };
+    }
     case "paper_log":
       return {
         reply: [
@@ -524,6 +713,7 @@ export async function resolvePhotoPurposeAskById(
     confidence: typeof classifierConfidence === "number" ? classifierConfidence : null,
     headline: ask.args.headline,
     fields: ask.args.fields,
+    fieldConfidences: ask.args.field_confidences,
   });
   return result.reply;
 }
@@ -560,6 +750,7 @@ export async function tryResolvePhotoPurposeAsk(
       confidence: typeof classifierConfidence === "number" ? classifierConfidence : null,
       headline: args.headline,
       fields: args.fields,
+      fieldConfidences: args.field_confidences,
     },
   );
   return { reply: result.reply };

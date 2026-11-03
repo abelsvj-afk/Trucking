@@ -45,14 +45,38 @@ import {
 import { createPretripInspectionSchema } from "@/data/schemas/pretrip-inspections";
 import { createTrailerSchema, updateTrailerSchema } from "@/data/schemas/trailers";
 import { createTruckSchema, updateTruckSchema } from "@/data/schemas/trucks";
+import {
+  propagateMileage,
+  MILEAGE_SOURCES,
+  MILEAGE_SOURCE_LABELS,
+  type MileageSource,
+} from "@/services/fleet/mileage";
+import {
+  createVehicleDefectSchema,
+  updateVehicleDefectSchema,
+} from "@/data/schemas/vehicle-defects";
+import {
+  defectMatchesWork,
+  listActiveDefects,
+  splitDefectTexts,
+  stageDefectProposals,
+} from "@/services/fleet/defects";
+import { stageMaintenancePack } from "@/services/fleet/maintenance-seeding";
+import { guessTemplateKey } from "@/lib/maintenance-templates";
 
 type Row = Record<string, unknown>;
 
 const uuid = z.string().uuid();
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD");
 
-function changedFields(args: Record<string, unknown>, idKey: string): string {
-  const fields = Object.keys(args).filter((k) => k !== idKey && args[k] !== undefined);
+function changedFields(
+  args: Record<string, unknown>,
+  idKey: string,
+  exclude: string[] = [],
+): string {
+  const fields = Object.keys(args).filter(
+    (k) => k !== idKey && !exclude.includes(k) && args[k] !== undefined,
+  );
   return fields.length > 0 ? fields.join(", ") : "nothing";
 }
 
@@ -70,6 +94,8 @@ function makeCreateTool(
     rowSchema: z.ZodType;
     summarize: (args: Row) => string;
     confirm: (args: Row, id: string) => string;
+    /** Optional post-insert hook (mileage propagation, schedule completion): returns a sentence appended to the confirmation, or void. Runs after the row exists; its own failures must be reported in its sentence, never thrown over the landed write. */
+    afterCreate?: (args: Row, id: string) => Promise<string | void>;
   },
 ): AgentTool {
   const { client, companyId } = store;
@@ -84,7 +110,16 @@ function makeCreateTool(
       const parsed = spec.botSchema.parse(args) as Row;
       const row = spec.rowSchema.parse(spec.toRow(parsed)) as Row;
       const id = await insertRow(client, spec.table, companyId, row);
-      return `${spec.confirm(args as Row, id)} Record id ${id}.`;
+      let note = "";
+      if (spec.afterCreate) {
+        try {
+          note = (await spec.afterCreate(parsed, id)) ?? "";
+        } catch (err) {
+          console.error(`[tools-write] ${spec.name} afterCreate failed:`, err);
+          note = " (One follow-on update didn't go through - the record itself is saved.)";
+        }
+      }
+      return `${spec.confirm(args as Row, id)} Record id ${id}.${note}`;
     },
   };
 }
@@ -457,6 +492,14 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     year: { type: "number" },
     status: { type: "string", enum: ["active", "maintenance", "inactive"] },
     current_mileage: { type: "number" },
+    truck_type: { type: "string", description: "What kind of truck it is (sleeper, day cab, box truck...) in his words or the app's picklist values." },
+    photo_document_id: { type: "string", description: "Documents row id of this truck's profile photo (from a photo he sent)." },
+    mileage_source: {
+      type: "string",
+      enum: MILEAGE_SOURCES,
+      description:
+        "Where a current_mileage value came from (Image Intelligence §5.3 provenance): odometer_photo when read off a dash photo, owner_said when he states it. Omit when not setting mileage.",
+    },
   };
   const truckProfileFields = {
     height_in: z.number().positive().optional(),
@@ -500,7 +543,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     {
       name: "update_truck",
       description:
-        "Update a truck - base details (unit number, status, mileage) and/or its Smart Path profile: dimensions, governed speed, tank, MPG, and the APPLIANCE INVENTORY (fridge, microwave, hot plate, inverter...). Profile fields live in the Smart Path part of the database; if that hasn't landed yet the tool says so instead of pretending to save them.",
+        "Update a truck - base details (unit number, status, mileage, type, profile photo) and/or its Smart Path profile: dimensions, governed speed, tank, MPG, and the APPLIANCE INVENTORY (fridge, microwave, hot plate, inverter...). Profile fields live in the Smart Path part of the database; if that hasn't landed yet the tool says so instead of pretending to save them. Mileage moves through the §5.3 propagation rule: it never goes backwards - a lower value is refused and reported, and every accepted value is stamped with its source.",
       parameters: {
         type: "object",
         properties: {
@@ -512,19 +555,31 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       },
       access: "write",
       validateArgs: validateWith(
-        updateTruckSchema.extend({ truck_id: uuid }).extend(truckProfileFields),
+        updateTruckSchema
+          .extend({ truck_id: uuid })
+          .extend(truckProfileFields)
+          .extend({ mileage_source: z.enum(MILEAGE_SOURCES as [MileageSource, ...MileageSource[]]).optional() }),
       ),
       summarize: (args) =>
-        `Update truck ${args.truck_id}: ${changedFields(args as Row, "truck_id")}` +
+        `Update truck ${args.truck_id}: ${changedFields(args as Row, "truck_id", ["mileage_source"])}` +
         `${Array.isArray((args as Row).appliances) ? ` — appliances: ${((args as Row).appliances as string[]).join(", ")}` : ""}`,
       async run(args) {
-        const schema = updateTruckSchema.extend({ truck_id: uuid }).extend(truckProfileFields);
+        const schema = updateTruckSchema
+          .extend({ truck_id: uuid })
+          .extend(truckProfileFields)
+          .extend({ mileage_source: z.enum(MILEAGE_SOURCES as [MileageSource, ...MileageSource[]]).optional() });
         const parsed = schema.parse(args) as Row;
         const { client, companyId } = store;
         const id = String(parsed.truck_id);
         await fetchLiveRow(client, "trucks", companyId, id, "truck");
         const all = definedOnly(parsed);
         delete all.truck_id;
+        // §5.3: mileage leaves the plain patch and goes through
+        // the propagation helper (provenance + never-backwards).
+        const mileageSource = all.mileage_source as MileageSource | undefined;
+        delete all.mileage_source;
+        const mileageValue = typeof all.current_mileage === "number" ? all.current_mileage : undefined;
+        delete all.current_mileage;
         const profilePatch: Row = {};
         const basePatch: Row = {};
         for (const [key, value] of Object.entries(all)) {
@@ -554,7 +609,20 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           updateTruckSchema.parse(basePatch);
           await patchLiveRow(client, "trucks", companyId, id, basePatch);
         }
-        return `Updated truck ${id} (${changedFields(parsed, "truck_id")}).`;
+        let mileageNote = "";
+        if (mileageValue !== undefined) {
+          const source = mileageSource ?? "owner_said";
+          const outcome = await propagateMileage(client, companyId, {
+            truckId: id,
+            miles: mileageValue,
+            source,
+          });
+          mileageNote = outcome.applied
+            ? ` Mileage now ${Math.round(mileageValue).toLocaleString("en-US")} (from ${MILEAGE_SOURCE_LABELS[source]}${outcome.provenanceRecorded ? "" : "; provenance stamp pending the mileage migration"}).`
+            : ` Mileage NOT changed: ${Math.round(mileageValue).toLocaleString("en-US")} would move the truck backwards from ${outcome.previousMiles?.toLocaleString("en-US") ?? "its recorded mileage"} - if the recorded number is wrong, say so and it gets corrected openly.`;
+        }
+        const changed = changedFields(parsed, "truck_id", ["mileage_source"]);
+        return `Updated truck ${id} (${changed}).${mileageNote}`;
       },
     },
     makeCreateTool(store, {
@@ -580,7 +648,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     }),
     makeUpdateTool(store, {
       name: "update_trailer",
-      description: "Update a trailer (unit number, type, status).",
+      description: "Update a trailer (unit number, type, status, profile photo).",
       parameters: {
         type: "object",
         properties: {
@@ -589,6 +657,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           vin: { type: "string" },
           trailer_type: { type: "string" },
           status: { type: "string", enum: ["active", "maintenance", "inactive"] },
+          photo_document_id: { type: "string", description: "Documents row id of this trailer's picture (from a photo he sent)." },
         },
         required: ["trailer_id"],
       },
@@ -608,7 +677,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   tools.push(
     makeCreateTool(store, {
       name: "create_maintenance_event",
-      description: "Record maintenance/repair work that was done on a truck (Maintenance tab): what, when, what it cost.",
+      description: "Record maintenance/repair work that was done on a truck (Maintenance tab): what, when, what it cost. Pass template_key when the work matches the standard library (engine_oil, fuel_filters, chassis_lube, brake_inspection, air_filter, tire_inspection, coolant_test, belt_hose_inspect, dot_annual, dpf_service, trans_diff_fluid) - it pairs the event with its schedule so the schedule advances in the same approval (§5.4).",
       parameters: {
         type: "object",
         properties: {
@@ -617,6 +686,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           cost_dollars: { type: "number" },
           service_date: { type: "string", description: "YYYY-MM-DD" },
           mileage_at_service: { type: "number" },
+          template_key: { type: "string", description: "Standard-library key for this work, when it matches one (see the list in the description)." },
         },
         required: ["truck_id", "description", "service_date"],
       },
@@ -626,11 +696,13 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         cost_dollars: z.number().nonnegative().nullable().optional(),
         service_date: dateString,
         mileage_at_service: z.number().int().nonnegative().nullable().optional(),
+        template_key: z.string().min(1).max(60).optional(),
       }),
       table: "maintenance_events",
       label: "maintenance event",
       toRow: (args) => {
-        const { cost_dollars, ...rest } = definedOnly(args);
+        // template_key is pairing metadata (§5.4), not an events column.
+        const { cost_dollars, template_key: _templateKey, ...rest } = definedOnly(args);
         const row: Row = { ...rest };
         if (cost_dollars !== undefined) {
           row.cost_cents = cost_dollars === null ? null : Math.round(Number(cost_dollars) * 100);
@@ -642,6 +714,67 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         `Maintenance: ${args.description} on ${args.service_date}` +
         `${typeof args.cost_dollars === "number" ? ` — ${dollars(Math.round(args.cost_dollars * 100))}` : ""}`,
       confirm: (args) => `Recorded maintenance: ${args.description}.`,
+      // §5.3: a service mileage is an observation of the truck's
+      // odometer - it flows into current_mileage through the one
+      // propagation door (never backwards, provenance stamped).
+      // §5.5: the same landing SUGGESTS defect closures it sounds
+      // like - the closure itself is always a separate proposal.
+      afterCreate: async (args, eventId) => {
+        let note = "";
+        const miles = args.mileage_at_service;
+        if (typeof miles === "number") {
+          const outcome = await propagateMileage(store.client, store.companyId, {
+            truckId: String(args.truck_id),
+            miles,
+            source: "maintenance_event",
+          });
+          if (outcome.applied) {
+            note += ` Truck mileage now ${Math.round(miles).toLocaleString("en-US")} (from this service record).`;
+          } else if (outcome.reason === "not_forward") {
+            note += ` The truck's recorded mileage (${outcome.previousMiles?.toLocaleString("en-US")}) is already past this service mileage, so it stays.`;
+          }
+        }
+        try {
+          const { defects, available } = await listActiveDefects(store.client, store.companyId);
+          if (available) {
+            const matches = defects.filter(
+              (d) => d.truck_id === String(args.truck_id) && defectMatchesWork(d, String(args.description)),
+            );
+            for (const match of matches) {
+              note += ` That sounds like the fix for the open defect "${match.description}" (defect ${match.id}, event ${eventId}) - if it is, stage its closure with resolve_vehicle_defect and let him approve it; don't close it silently.`;
+            }
+          }
+        } catch (err) {
+          console.error("[tools-write] defect closure suggestion failed:", err);
+        }
+        // §5.4, executed path: proposal pairing doesn't run when
+        // the event was ordered directly, so if its schedule is
+        // still behind, say so - the completion stays a proposal
+        // he approves, never a silent side effect.
+        try {
+          const key =
+            (typeof args.template_key === "string" ? args.template_key : null) ??
+            guessTemplateKey(String(args.description));
+          if (key) {
+            const { data } = await store.client
+              .from("maintenance_schedules")
+              .select("description, last_done_date")
+              .eq("company_id", store.companyId)
+              .eq("truck_id", String(args.truck_id))
+              .eq("template_key", key)
+              .eq("status", "active")
+              .is("deleted_at", null)
+              .limit(1);
+            const schedule = ((data ?? []) as { description: string; last_done_date: string | null }[])[0];
+            if (schedule && (schedule.last_done_date == null || schedule.last_done_date < String(args.service_date))) {
+              note += ` The "${schedule.description}" schedule still shows ${schedule.last_done_date ? `last done ${schedule.last_done_date}` : "no last-done"} - tell me to mark it done and I'll stage that completion for your yes.`;
+            }
+          }
+        } catch (err) {
+          console.error("[tools-write] schedule advance note failed:", err);
+        }
+        return note || undefined;
+      },
     }),
     makeUpdateTool(store, {
       name: "update_maintenance_event",
@@ -682,7 +815,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     makeCreateTool(store, {
       name: "create_maintenance_schedule",
       description:
-        "Set up a preventative-maintenance schedule (e.g. oil change every 10,000 miles, pigtail inspection every 30 days) for exactly one truck or trailer, with at least one interval.",
+        "Set up a preventative-maintenance schedule (e.g. oil change every 10,000 miles, pigtail inspection every 30 days) for exactly one truck or trailer, with at least one interval. template_key + origin='template' are for the standard-pack staging (§5.2) - schedules you set up from his words take origin 'abel' unless he dictated it as his own standing setup.",
       parameters: {
         type: "object",
         properties: {
@@ -694,6 +827,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           last_done_date: { type: "string", description: "YYYY-MM-DD" },
           last_done_mileage: { type: "number" },
           status: { type: "string", enum: ["active", "paused"] },
+          template_key: { type: "string", description: "Standard-library key when this schedule comes from the pack." },
+          origin: { type: "string", enum: ["template", "owner", "abel"] },
         },
         required: ["description"],
       },
@@ -775,6 +910,94 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         updateMaintenanceScheduleSchema.parse(patch);
         await patchLiveRow(client, "maintenance_schedules", companyId, String(parsed.schedule_id), patch);
         return `Marked "${schedule.description}" done (last done ${patch.last_done_date}${patch.last_done_mileage != null ? ` at ${patch.last_done_mileage} mi` : ""}).`;
+      },
+    },
+  );
+
+  // --- Vehicle defects + the standard pack (§5.5 / §5.2) -------------
+
+  tools.push(
+    makeCreateTool(store, {
+      name: "create_vehicle_defect",
+      description:
+        "Track an observed problem on exactly one truck or trailer (a defect - not work done, not future work): from a failed pre-trip, a damage photo, or his words. It stays open until a matching maintenance event closes it (via resolve_vehicle_defect) or he dismisses it - dismissal is permanent, the watcher never asks about it again.",
+      parameters: {
+        type: "object",
+        properties: {
+          truck_id: { type: "string" },
+          trailer_id: { type: "string" },
+          description: { type: "string", description: "The problem, in his words where possible." },
+          source: { type: "string", enum: ["pretrip", "photo", "conversation"] },
+          source_inspection_id: { type: "string", description: "The failed pre-trip's id, when that's where it came from." },
+          source_document_id: { type: "string", description: "The damage photo's documents id, when that's where it came from." },
+        },
+        required: ["description", "source"],
+      },
+      botSchema: createVehicleDefectSchema,
+      table: "vehicle_defects",
+      label: "vehicle defect",
+      toRow: (args) => definedOnly(args),
+      rowSchema: createVehicleDefectSchema,
+      summarize: (args) => `Defect (${args.source}): ${args.description}`,
+      confirm: (args) => `Tracking the defect: ${args.description}.`,
+    }),
+    {
+      name: "resolve_vehicle_defect",
+      description:
+        "Move a tracked defect forward: 'acknowledged' (he's seen it), 'closed' (fixed - pass maintenance_event_id when a recorded event is the fix), or 'dismissed' (not his problem / not worth tracking - permanent, never re-asked).",
+      parameters: {
+        type: "object",
+        properties: {
+          defect_id: idParam("defect_id", "vehicle defect"),
+          status: { type: "string", enum: ["acknowledged", "closed", "dismissed"] },
+          maintenance_event_id: { type: "string", description: "The maintenance event that fixed it, when closing." },
+        },
+        required: ["defect_id", "status"],
+      },
+      access: "write",
+      validateArgs: validateWith(
+        z.object({
+          defect_id: uuid,
+          status: z.enum(["acknowledged", "closed", "dismissed"]),
+          maintenance_event_id: uuid.optional(),
+        }),
+      ),
+      summarize: (args) => `Defect ${args.defect_id}: mark ${args.status}`,
+      async run(args) {
+        const parsed = z
+          .object({
+            defect_id: uuid,
+            status: z.enum(["acknowledged", "closed", "dismissed"]),
+            maintenance_event_id: uuid.optional(),
+          })
+          .parse(args) as Row;
+        const { client, companyId } = store;
+        const defect = await fetchLiveRow(client, "vehicle_defects", companyId, String(parsed.defect_id), "vehicle defect");
+        const patch: Row = { status: parsed.status, updated_at: new Date().toISOString() };
+        if (typeof parsed.maintenance_event_id === "string") {
+          patch.maintenance_event_id = parsed.maintenance_event_id;
+        }
+        updateVehicleDefectSchema.parse(patch);
+        await patchLiveRow(client, "vehicle_defects", companyId, String(parsed.defect_id), patch);
+        return `Defect "${defect.description}" marked ${String(parsed.status)}${parsed.status === "dismissed" ? " - it won't be raised again" : ""}.`;
+      },
+    },
+    {
+      name: "propose_maintenance_pack",
+      description:
+        "Stage the standard maintenance-schedule pack for a truck (§5.2): the interval library (oil, filters, brakes, DOT annual...) as one approval batch. Call it when a truck is new to the app or he asks what maintenance he should be tracking. It stages proposals only - nothing is recorded until he says yes - and the tool itself reports when the pack was already proposed or fully tracked.",
+      parameters: {
+        type: "object",
+        properties: { truck_id: idParam("truck_id", "truck") },
+        required: ["truck_id"],
+      },
+      access: "write",
+      validateArgs: validateWith(z.object({ truck_id: uuid })),
+      summarize: (args) => `Propose the standard maintenance pack for truck ${args.truck_id}`,
+      async run(args) {
+        const parsed = z.object({ truck_id: uuid }).parse(args);
+        const outcome = await stageMaintenancePack(store, parsed.truck_id);
+        return outcome.text;
       },
     },
   );
@@ -877,6 +1100,27 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       summarize: (args) =>
         `Pre-trip inspection: ${args.passed ? "PASSED" : "FAILED"}${args.defects_found ? ` — defects: ${args.defects_found}` : ""}`,
       confirm: (args) => `Recorded the pre-trip inspection (${args.passed ? "passed" : "FAILED"}).`,
+      // §5.5 (closes GAP-10's orphaned signal): a FAILED pre-trip's
+      // defects don't just sit in a text column - each distinct
+      // problem is staged as a tracked defect for his yes. A
+      // passed inspection stages nothing, exactly as before (C3).
+      afterCreate: async (args, inspectionId) => {
+        if (args.passed !== false) return;
+        const texts = splitDefectTexts(typeof args.defects_found === "string" ? args.defects_found : "");
+        if (texts.length === 0) {
+          return " It failed with no defect details written down - tell me what you found and I'll track each problem.";
+        }
+        const drafts = texts.map((description) => ({
+          truckId: typeof args.truck_id === "string" ? args.truck_id : null,
+          trailerId: typeof args.trailer_id === "string" ? args.trailer_id : null,
+          description,
+          source: "pretrip" as const,
+          sourceInspectionId: inspectionId,
+        }));
+        const staged = await stageDefectProposals(store, drafts, "from the failed pre-trip you just logged");
+        if (staged === 0) return;
+        return ` I also staged ${staged} defect${staged === 1 ? "" : "s"} to track from that pre-trip (${texts.join("; ")}) - say yes to track ${staged === 1 ? "it" : "them"}, name the numbers to pick, or no to let ${staged === 1 ? "it" : "them"} go. Nothing is tracked until you say so.`;
+      },
     }),
   );
 

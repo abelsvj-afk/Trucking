@@ -28,6 +28,8 @@ import { buildExtendedWriteTools } from "./tools-write";
 import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
 import { buildRouteCheckTool } from "./route-check-tool";
+import { propagateMileage } from "@/services/fleet/mileage";
+import { isMissingColumnError } from "./tool-helpers";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -337,7 +339,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "create_fuel_purchase",
-      description: "Record a fuel purchase in his books. Needs the total paid and gallons; pass truck_id when he names the truck (from list_trucks) - otherwise, if he has exactly one truck on file, that truck is used.",
+      description: "Record a fuel purchase in his books. Needs the total paid and gallons; pass truck_id when he names the truck (from list_trucks) - otherwise, if he has exactly one truck on file, that truck is used. ODOMETER (§5.3): when he gives the dash reading at the pump, pass it - it updates the truck's mileage with provenance. When he doesn't give one, you may ask once; a fuel entry WITHOUT an odometer is always fine and must never be blocked or nagged about.",
       parameters: {
         type: "object",
         properties: {
@@ -346,6 +348,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           location: { type: "string", description: "Station / city, if he said." },
           truck_id: { type: "string", description: "Truck id (uuid), if he named the truck." },
           purchased_at: { type: "string", description: "ISO timestamp of the purchase. Defaults to now." },
+          odometer: { type: "number", description: "Dash odometer reading at this fuel stop, if he gave one." },
         },
         required: ["total_dollars", "gallons"],
       },
@@ -376,21 +379,46 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           );
         }
         const totalCents = Math.round(parsed.total_dollars * 100);
-        const { data, error } = await client
+        const baseRow: Record<string, unknown> = {
+          company_id: companyId,
+          truck_id: truck.id,
+          location: parsed.location ?? null,
+          gallons: parsed.gallons,
+          price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
+          total_cost_cents: totalCents,
+          purchased_at: parsed.purchased_at ?? new Date().toISOString(),
+        };
+        // The odometer column arrives with migration 00041 - only
+        // send it when he actually gave a reading, and if the
+        // column isn't live yet, land the fuel entry anyway and
+        // say the reading itself wasn't saved (§5.3 honesty).
+        let odometerUnsaved = false;
+        if (parsed.odometer !== undefined) baseRow.odometer = parsed.odometer;
+        let { data, error } = await client
           .from("fuel_purchases")
-          .insert({
-            company_id: companyId,
-            truck_id: truck.id,
-            location: parsed.location ?? null,
-            gallons: parsed.gallons,
-            price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
-            total_cost_cents: totalCents,
-            purchased_at: parsed.purchased_at ?? new Date().toISOString(),
-          })
+          .insert(baseRow)
           .select("id")
           .single();
+        if (error && parsed.odometer !== undefined && isMissingColumnError(error)) {
+          delete baseRow.odometer;
+          odometerUnsaved = true;
+          ({ data, error } = await client.from("fuel_purchases").insert(baseRow).select("id").single());
+        }
         if (error) throw new Error(error.message);
-        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}. Record id ${(data as { id: string }).id}.`;
+        let mileageNote = "";
+        if (parsed.odometer !== undefined && !odometerUnsaved) {
+          const outcome = await propagateMileage(client, companyId, {
+            truckId: truck.id,
+            miles: parsed.odometer,
+            source: "fuel_entry",
+          });
+          mileageNote = outcome.applied
+            ? ` Truck mileage now ${Math.round(parsed.odometer).toLocaleString("en-US")} (from this fuel stop).`
+            : ` The pump reading (${Math.round(parsed.odometer).toLocaleString("en-US")}) is below the truck's recorded ${outcome.previousMiles?.toLocaleString("en-US") ?? "mileage"}, so the recorded mileage stays.`;
+        } else if (odometerUnsaved) {
+          mileageNote = " The odometer reading wasn't saved - the mileage column hasn't landed in the database yet; the fuel entry itself is recorded.";
+        }
+        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}. Record id ${(data as { id: string }).id}.${mileageNote}`;
       },
     },
     {
@@ -426,6 +454,35 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           load_id: parsed.load_id ?? null,
         });
         if (error) throw new Error(error.message);
+        // §5.3: a duty-log odometer is an observation of the
+        // truck's mileage - through the load's truck, via the one
+        // propagation door. Without a load there's no truck to
+        // attribute it to, and that is said out loud.
+        let mileageNote = "";
+        if (parsed.odometer !== undefined) {
+          if (parsed.load_id) {
+            const { data: load } = await client
+              .from("loads")
+              .select("truck_id")
+              .eq("id", parsed.load_id)
+              .eq("company_id", companyId)
+              .is("deleted_at", null)
+              .maybeSingle();
+            const truckId = (load as { truck_id: string | null } | null)?.truck_id;
+            if (truckId) {
+              const outcome = await propagateMileage(client, companyId, {
+                truckId,
+                miles: parsed.odometer,
+                source: "duty_log",
+              });
+              mileageNote = outcome.applied
+                ? ` Truck mileage now ${parsed.odometer.toLocaleString("en-US")} (from this log entry).`
+                : ` The log's odometer (${parsed.odometer.toLocaleString("en-US")}) is below the truck's recorded ${outcome.previousMiles?.toLocaleString("en-US") ?? "mileage"}, so the recorded mileage stays.`;
+            }
+          } else {
+            mileageNote = " That entry isn't tied to a load, so the truck's mileage didn't move from it.";
+          }
+        }
         const { data } = await client
           .from("duty_logs")
           .select("*")
@@ -439,7 +496,8 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           `Logged duty status ${parsed.duty_status} starting now in the paper-log helper.` +
           (hos
             ? ` Helper now shows: driving in window ${formatMinutes(hos.drivingMinutesInWindow)} of 11h; on duty in 8 days ${formatMinutes(hos.onDutyMinutesLast8Days)} of 70h.`
-            : "")
+            : "") +
+          mileageNote
         );
       },
     },
@@ -657,6 +715,7 @@ const createFuelArgs = z.object({
   location: z.string().min(1).optional(),
   truck_id: z.string().uuid().optional(),
   purchased_at: z.string().min(1).optional(),
+  odometer: z.number().int().nonnegative().optional(),
 });
 
 const logDutyArgs = z.object({

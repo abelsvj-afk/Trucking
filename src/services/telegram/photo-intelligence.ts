@@ -145,6 +145,7 @@ export async function handleTelegramPhotoIntelligent(
       confidence: classification.confidence,
       headline: classification.headline,
       fields: classification.fields,
+      fieldConfidences: classification.field_confidences,
       knownBytes: bytes,
     });
     return caption ? `${result.reply}\nYour note on it: "${caption}"` : result.reply;
@@ -155,6 +156,7 @@ export async function handleTelegramPhotoIntelligent(
     document_id: documentId,
     headline: classification.headline,
     fields: classification.fields,
+    field_confidences: classification.field_confidences,
     candidates,
     classifier_confidence: classification.confidence,
   };
