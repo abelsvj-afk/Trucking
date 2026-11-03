@@ -19,6 +19,7 @@ import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { isMissingColumnError } from "./tool-helpers";
 import { MEMORY_CONSOLIDATION_CAPABILITY } from "./consolidation";
 import { PHOTO_INTELLIGENCE_CAPABILITY } from "@/services/ai/photo-classification";
+import { MAINTENANCE_WATCH_CAPABILITY } from "@/services/fleet/maintenance-watch";
 import { getEmbeddingProvider, toVectorLiteral, tryEmbed } from "./embeddings";
 import { applySupersession } from "./memory-lifecycle";
 import {
@@ -107,6 +108,8 @@ export interface BotBrainStore extends TelegramStore {
   isMemoryConsolidationEnabled(): Promise<boolean>;
   /** The photo_intelligence kill switch (Image Intelligence design §3.4): off = photos behave exactly as the pre-feature intake. */
   isPhotoIntelligenceEnabled(): Promise<boolean>;
+  /** The maintenance_watch kill switch (Image Intelligence design §5.6): off = the background watcher never runs and never messages; maintenance answers still work (they don't come through the watch). */
+  isMaintenanceWatchEnabled(): Promise<boolean>;
   /** "What Abel remembers" surface: current memories, plus superseded history when asked. */
   listMemories(options?: { includeHistory?: boolean; limit?: number }): Promise<(RetrievedFact & { valid_to: string | null; superseded_by: string | null })[]>;
   /** Owner edit = supersede-with-correction (design §3.4: rows are never edited in place). Resolves the NEW row's id. */
@@ -553,6 +556,10 @@ export function createBotStore(
 
     async isPhotoIntelligenceEnabled() {
       return capabilityEnabled(PHOTO_INTELLIGENCE_CAPABILITY);
+    },
+
+    async isMaintenanceWatchEnabled() {
+      return capabilityEnabled(MAINTENANCE_WATCH_CAPABILITY);
     },
 
     async listMemories(options?: { includeHistory?: boolean; limit?: number }) {

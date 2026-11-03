@@ -7,6 +7,7 @@ import { DOCUMENT_EXTRACTION_CAPABILITY } from "@/services/ai/document-extractio
 import { GAME_PLAN_CAPABILITY } from "@/services/game/run-game-plan";
 import { MEMORY_CONSOLIDATION_CAPABILITY } from "@/services/bot/consolidation";
 import { PHOTO_INTELLIGENCE_CAPABILITY } from "@/services/ai/photo-classification";
+import { MAINTENANCE_WATCH_CAPABILITY } from "@/services/fleet/maintenance-watch";
 
 // Every capability that has a kill switch (docs/governance.md). Extend
 // this as each new capability is built - an unknown capability name in a
@@ -21,6 +22,7 @@ export const KNOWN_CAPABILITIES = [
   GAME_PLAN_CAPABILITY,
   MEMORY_CONSOLIDATION_CAPABILITY,
   PHOTO_INTELLIGENCE_CAPABILITY,
+  MAINTENANCE_WATCH_CAPABILITY,
 ] as const;
 
 export const aiSettingsPatchSchema = z.object({

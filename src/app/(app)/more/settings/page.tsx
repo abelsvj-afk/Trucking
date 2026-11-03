@@ -33,6 +33,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   game_plan: "Game Plan (your target + strategy planner — games your real numbers into a path to the target; projections, never promises)",
   memory_consolidation: "Memory night shift (nightly pass that organizes Abel's memory and stages things he noticed in your chats as proposals for your yes/no — never saves anything on its own)",
   photo_intelligence: "Photo understanding (when you send Abel a photo, he figures out what it's for — paperwork, the truck, a trailer, the dash, a pre-trip — and asks you with one tap when he isn't sure; off means photos are just filed as documents, like before)",
+  maintenance_watch: "Maintenance reminders (Abel watches your maintenance schedules and open defects in the background and messages you when something is due, overdue, or going stale — one digest a day at most, urgent safety/legal items right away; off means he only answers when you ask)",
 };
 
 type SettingsState =
