@@ -33,6 +33,7 @@ import { JOB_KNOWLEDGE_BRIEF } from "@/services/ai/job-knowledge";
 import { formatCompanySnapshot } from "@/services/telegram/context";
 import type { BotBrainStore, PendingAction } from "./store";
 import { buildBotTools, executeWriteTool } from "./tools";
+import { expandMaintenancePairings } from "./maintenance-pairing";
 import {
   PHOTO_PURPOSE_TOOL,
   tryResolvePhotoPurposeAsk,
@@ -65,6 +66,8 @@ DUMPS: When one message carries several recordable facts at once (a forwarded di
 CORRECTIONS: When a numbered dump batch is pending (the context block lists it) and he corrects an item ("3 is wrong, it's 4417"), call revise_pending_item with confirmation "execute" - that edits the stored proposal only; it still is not recorded until he approves. Never re-stage a whole dump for a correction, and never execute a batch item yourself - approvals are resolved outside you, in code.
 
 HOS: The duty-log tool data is the paper-log helper, never the ELD and never legal advice - keep the §6 framing when HOS comes up: helper numbers are a cross-check against the ELD, and the ELD governs.
+
+MAINTENANCE: Three different things - do not blur them. An EVENT is work already done (create_maintenance_event); a SCHEDULE is recurring future work (create_maintenance_schedule / complete_maintenance_schedule); a DEFECT is an observed problem being tracked (create_vehicle_defect / resolve_vehicle_defect). When he reports work done, pass template_key on the event when it matches the standard library (engine_oil, fuel_filters, chassis_lube, brake_inspection, air_filter, tire_inspection, coolant_test, belt_hose_inspect, dot_annual, dpf_service, trans_diff_fluid) - code pairs the schedule's completion into the same proposal, so his one yes records the work AND advances the schedule; never stage the completion yourself alongside the event. For "what's due / how's the truck looking", call maintenance_outlook - one answer, including open defects - instead of assembling lists. When a truck is new or he asks what he should be tracking, call propose_maintenance_pack. A FAILED pre-trip's defects get staged as defect proposals in code after the inspection records - tell him they're staged for his yes, don't stage duplicates yourself. A defect closes only when he approves its closure (resolve_vehicle_defect); "the carrier's problem, stop asking" means propose status dismissed - dismissal is permanent. The library's intervals are typical manufacturer/fleet starting points - say so when you present them; they are not the carrier's figures and not the truck manual's.
 
 MEMORY: If he dictates a durable fact in conversation (not a standing instruction - those come through his "instruction:" messages), save it with the save_memory tool. If the turn's JSON-free chat ends and you proposed nothing, just answer. The REMEMBERED FACTS block is a budget-limited slice of a much bigger store (the CONTEXT REPORT says how big) - when he refers to something that isn't in the block, use search_memory to look it up across all memories, past messages, and documents before saying you don't have it. Never claim a fact is gone just because it isn't in this turn's block.
 
@@ -344,14 +347,26 @@ export async function runAgentTurn(
   });
 
   let reply = result.reply;
-  if (result.proposals.length > 0) {
+  // §5.4 pairing (Image Intelligence): a staged maintenance event
+  // pulls its schedule completion into the same batch, in code -
+  // recording the work and advancing the schedule take ONE yes.
+  // Pairing failure never costs him the event proposal itself.
+  let proposals = result.proposals;
+  if (proposals.some((p) => p.tool === "create_maintenance_event")) {
+    try {
+      proposals = await expandMaintenancePairings(store, proposals);
+    } catch (err) {
+      console.error("[bot] maintenance pairing failed:", err);
+    }
+  }
+  if (proposals.length > 0) {
     // §9: dump items arrive as proposals sharing a batch id - they
     // are stored with stable item numbers and shown as ONE
     // consolidated numbered list; plain §8 proposals keep their
     // existing single-proposal path.
-    const singles = result.proposals.filter((p) => !p.batchId);
-    const batches = new Map<string, typeof result.proposals>();
-    for (const proposal of result.proposals) {
+    const singles = proposals.filter((p) => !p.batchId);
+    const batches = new Map<string, typeof proposals>();
+    for (const proposal of proposals) {
       if (!proposal.batchId) continue;
       const group = batches.get(proposal.batchId) ?? [];
       group.push(proposal);
