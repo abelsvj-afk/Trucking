@@ -40,6 +40,14 @@ export interface TelegramStore {
   loadInstructionMemories?(): Promise<RetrievedFact[]>;
   /** Phase D: the current pay pin (from the brain store). Optional here; dispatch-bot skips the pin block when absent. */
   loadPayPin?(): Promise<import("@/services/bot/pay-pin").PayPin>;
+  /** Phase C: the owner's "Life phase" override text (from the brain store). Optional, same pattern. */
+  loadLifePhaseOverride?(): Promise<string | null>;
+  /** Phase C: thread reads for the open-loops context block (from the brain store). Optional, same pattern. */
+  listThreads?(options?: { openOnly?: boolean; unansweredOnly?: boolean; limit?: number }): Promise<import("@/services/bot/store").StoredThread[]>;
+  /** Phase E: the driver_twin kill switch (from the brain store). Optional; absent = twin off on this surface. */
+  isDriverTwinEnabled?(): Promise<boolean>;
+  /** Phase E: draft-time voice exemplars (from the brain store). Optional, same pattern. */
+  loadVoiceExemplars?(incomingText: string): Promise<import("@/services/bot/voice-corpus").VoiceExemplar[]>;
 }
 
 function serviceRoleClient(): SupabaseClient | null {

@@ -32,6 +32,22 @@ import type { TelegramStore } from "@/services/telegram/store";
 import type { BotMemoryRow, CompanySnapshot } from "@/services/telegram/context";
 import type { DutyLog } from "@/types/entities";
 import { findPayPin, type PayPin } from "./pay-pin";
+import { parseBusinessFact, parsePersonProfile } from "./people";
+import { LIFE_PHASE_SUBJECT } from "./life-phase";
+import {
+  matchThreadForAppend,
+  mergeParticipants,
+  normalizeName,
+  threadLanguageFromMessages,
+  type PersonEvidence,
+  type ThreadParticipant,
+} from "./threads";
+import { VOICE_TRANSCRIPTION_CAPABILITY } from "@/services/ai/transcription";
+import {
+  DRIVER_TWIN_CAPABILITY,
+  editDistanceRatio,
+  rankExemplars,
+} from "./voice-corpus";
 import {
   checkSettlementAgainstPin,
   computeTruePay,
@@ -66,6 +82,59 @@ export interface RecordedSettlement {
   pinCheckDetail: string | null;
   /** The code-computed true-pay lines (pay-truth.ts) - the only figures a reply may quote. */
   truePayLines: string[];
+}
+
+// --- Phase C types (threads) ---
+
+export interface ThreadMessageInput {
+  senderName: string;
+  body: string;
+  /** en | es | unknown - the message's own language. */
+  language: string;
+  sentAt?: string | null;
+}
+
+export interface ThreadRecordInput {
+  title?: string | null;
+  participants: import("./threads").ThreadParticipant[];
+  messages: ThreadMessageInput[];
+  theAsk?: string | null;
+  askOf?: string | null;
+  deadlineText?: string | null;
+  unanswered: boolean;
+  source: "forward" | "paste" | "photo" | "chat";
+  exchangeId?: string | null;
+}
+
+export interface StoredThread {
+  id: string;
+  title: string | null;
+  status: string;
+  language: string | null;
+  theAsk: string | null;
+  askOf: string | null;
+  deadlineText: string | null;
+  participants: import("./threads").ThreadParticipant[];
+  unanswered: boolean;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface StoredThreadMessage {
+  id: string;
+  senderName: string;
+  senderRole: string | null;
+  body: string;
+  language: string | null;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+export interface RecordedThread {
+  threadId: string;
+  /** True when the segment appended to an existing open thread (code-matched), false when it started a new one. */
+  appended: boolean;
+  messageCount: number;
 }
 
 export type BotChannel = "telegram" | "web";
@@ -149,18 +218,52 @@ export interface BotBrainStore extends TelegramStore {
   // --- Abel Intelligence Upgrade, Phase D (pay truth) ---
   /** The pay pin: the current "Pay structure" business_fact, parsed. UNKNOWN_PIN when none exists - never a guess. */
   loadPayPin(): Promise<PayPin>;
-  /** Records a settlement (header + lines + load links) with its code-computed true-pay figures and pin-check verdict (migration 00044). Throws a plain error when the migration hasn't landed. */
+  /** Records a settlement (header + lines + load links) with its code-computed true-pay figures and pin-check verdict (migration 00045). Throws a plain error when the migration hasn't landed. */
   recordSettlement(input: SettlementRecordInput): Promise<RecordedSettlement>;
-  /** Recent settlements, newest period first. Empty before migration 00044 lands (reads degrade; writes fail loudly). */
+  /** Recent settlements, newest period first. Empty before migration 00045 lands (reads degrade; writes fail loudly). */
   listSettlements(limit?: number): Promise<StoredSettlement[]>;
   /** Settlements whose period overlaps [startDate, endDate] (YYYY-MM-DD), for the weekly report. */
   listSettlementsInRange(startDate: string, endDate: string): Promise<StoredSettlement[]>;
   /** Completed loads delivered inside [startDate, endDate] - the weekly report's own-authority comparison reads these grosses. */
   listCompletedLoadsInRange(startDate: string, endDate: string): Promise<WeekLoad[]>;
-  /** The weekly-pay-report run marker for one week (migration 00044); null before the migration / before that week's run. closedEmpty = the week was closed silently with no settlements (figures flag) - distinct from a failed send. */
+  /** The weekly-pay-report run marker for one week (migration 00045); null before the migration / before that week's run. closedEmpty = the week was closed silently with no settlements (figures flag) - distinct from a failed send. */
   payReportRunForWeek(weekStart: string): Promise<{ weekStart: string; sent: boolean; closedEmpty: boolean; createdAt: string } | null>;
   /** Records a weekly-pay-report run (sent = the notifier actually delivered it). */
   recordPayReportRun(weekStart: string, sent: boolean, figures: Record<string, unknown>): Promise<void>;
+  // --- Abel Intelligence Upgrade, Phase C (threads + people) ---
+  /** Records a reconstructed forward thread (migration 00046): appends to the matching open thread when code finds one (participant overlap), else creates it. Throws a plain error when the migration hasn't landed. */
+  recordForwardThread(input: ThreadRecordInput): Promise<RecordedThread>;
+  /** Threads (newest activity first), optionally only open ones / only open loops. Empty before migration 00046 (reads degrade; writes fail loudly). */
+  listThreads(options?: { openOnly?: boolean; unansweredOnly?: boolean; limit?: number }): Promise<StoredThread[]>;
+  /** One thread + its verbatim timeline; null when absent (or before 00046). */
+  getThread(threadId: string): Promise<{ thread: StoredThread; messages: StoredThreadMessage[] } | null>;
+  /** Marks a thread's ask answered (the loop closes; the thread stays open for follow-ups). */
+  markThreadAnswered(threadId: string): Promise<void>;
+  /** Closes a thread outright (no more appends; follow-ups start a new thread). */
+  closeThread(threadId: string): Promise<void>;
+  /** The newest dispatch exchange whose incoming text matches - the thread<->exchange voice-corpus link. */
+  findExchangeIdByIncoming(incoming: string): Promise<string | null>;
+  /** Everything the per-person model may be built from for one name: confirmed profile, thread appearances, their message bodies, exchange mentions. */
+  loadPersonEvidence(name: string): Promise<import("./threads").PersonEvidence>;
+  /** The owner's "Life phase" business_fact override text, when he has set one (Phase C life-phase block). */
+  loadLifePhaseOverride(): Promise<string | null>;
+  // --- Abel Intelligence Upgrade, Phase E (voice + twin) ---
+  /** The voice_transcription kill switch (Settings), same convention as every capability: no row = off. */
+  isVoiceTranscriptionEnabled(): Promise<boolean>;
+  /** The driver_twin kill switch (Settings) - DEFAULT OFF by the owner's ruling (design §9 decision 4): no row = off. */
+  isDriverTwinEnabled(): Promise<boolean>;
+  /** Draft-time exemplars: his actual sent replies from exchanges resembling this incoming message (ranked in code). Empty when the corpus has nothing similar - or nothing at all. */
+  loadVoiceExemplars(incomingText: string): Promise<import("./voice-corpus").VoiceExemplar[]>;
+  /** Captures what he ACTUALLY sent for one exchange and computes the draft edit distance in code (migration 00047). Throws a plain error before 00047 lands. */
+  recordSentReply(exchangeId: string, actualReply: string): Promise<{ editDistanceRatio: number | null }>;
+  /** Recent dispatch exchanges (for targeting recordSentReply). */
+  listRecentExchanges(limit?: number): Promise<{ id: string; incoming: string; hasDraft: boolean; actualReplySent: string | null; editDistanceRatio: number | null; createdAt: string }[]>;
+  /** Logs one of HIS load decisions (taken/passed + outcome) - the decision-log pattern source. */
+  recordLoadDecision(input: { loadId?: string | null; description: string; decision: "taken" | "passed"; outcomeNote?: string | null }): Promise<void>;
+  /** His logged load decisions, newest first (bounded). */
+  listLoadDecisions(limit?: number): Promise<{ id: string; loadId: string | null; description: string; decision: string; outcomeNote: string | null; createdAt: string }[]>;
+  /** Twin measurement over a window: captured replies + their mean edit distance (null avg when none/unmeasured). */
+  twinEditStats(fromIso: string, toIso: string): Promise<{ count: number; avgDistance: number | null }>;
   /**
    * Wider save (Lane 2): resolves the new row's id (null when the
    * insert couldn't return it) and accepts lifecycle options. The
@@ -176,9 +279,13 @@ export interface BotBrainStore extends TelegramStore {
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Phase D: the settlements columns every read selects (migration 00044). */
+/** Phase D: the settlements columns every read selects (migration 00045). */
 const SETTLEMENT_COLUMNS =
   "id, issuer_name, period_start, period_end, gross_cents, carrier_cut_cents, net_to_truck_cents, driver_pay_cents, miles_total, miles_loaded, duty_minutes, pin_check, pin_check_detail, created_at";
+
+/** Phase C: the forward_threads columns every read selects (migration 00046). */
+const THREAD_COLUMNS =
+  "id, title, status, language, the_ask, ask_of, deadline_text, participants, unanswered, updated_at, created_at";
 
 /** CD-9: dedup claims older than this are pruned opportunistically on claim (a redelivery never arrives this late; the row is pure history by then). */
 const PROCESSED_UPDATE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -729,7 +836,7 @@ export function createBotStore(
       if (error) {
         if (/settlements/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
           throw new Error(
-            "Settlements aren't available yet - migration 00044 hasn't been applied to the database, so nothing was recorded.",
+            "Settlements aren't available yet - migration 00045 hasn't been applied to the database, so nothing was recorded.",
           );
         }
         throw new Error(error.message);
@@ -825,7 +932,7 @@ export function createBotStore(
         .is("deleted_at", null)
         .limit(1);
       if (error) {
-        // Graceful absence: migration 00044 not applied yet - the
+        // Graceful absence: migration 00045 not applied yet - the
         // report job simply has no state and stays quiet.
         if (/pay_report_runs/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
           return null;
@@ -860,9 +967,455 @@ export function createBotStore(
       );
       if (error) throw new Error(error.message);
     },
+
+    // --- Phase C (threads + people) ---
+
+    async recordForwardThread(input: ThreadRecordInput) {
+      const missing = (message: string) => /forward_thread/.test(message) && /does not exist|could not find/i.test(message);
+      // Append matching is CODE (threads.ts): an open thread sharing
+      // a counterparty takes the segment; otherwise a new thread.
+      const { data: openRows, error: openError } = await supabase
+        .from("forward_threads")
+        .select("id, participants, language, updated_at")
+        .eq("company_id", company)
+        .eq("status", "open")
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false })
+        .limit(50);
+      if (openError) {
+        if (missing(openError.message)) {
+          throw new Error(
+            "Thread recording isn't available yet - migration 00046 hasn't been applied to the database. The conversation itself is still in his timeline and dispatch history; only the thread record is missing.",
+          );
+        }
+        throw new Error(openError.message);
+      }
+      const candidates = ((openRows ?? []) as { id: string; participants: unknown; updated_at: string }[]).map((row) => ({
+        id: row.id,
+        participants: threadParticipantsOf(row.participants),
+        updatedAt: row.updated_at,
+      }));
+      const matchedId = matchThreadForAppend(candidates, input.participants);
+      const language = threadLanguageFromMessages(input.messages);
+      const roleByName = new Map(
+        mergeParticipants([], input.participants).map((p) => [normalizeName(p.name), p.role]),
+      );
+      const messageRows = (threadId: string) =>
+        input.messages.map((m) => ({
+          company_id: company,
+          thread_id: threadId,
+          sender_name: m.senderName,
+          sender_role: roleByName.get(normalizeName(m.senderName)) ?? null,
+          body: m.body,
+          language: m.language,
+          sent_at: m.sentAt ?? null,
+        }));
+
+      if (matchedId) {
+        const existing = candidates.find((c) => c.id === matchedId)!;
+        const { error: msgError } = await supabase.from("forward_thread_messages").insert(messageRows(matchedId));
+        if (msgError) throw new Error(msgError.message);
+        const { error: updError } = await supabase
+          .from("forward_threads")
+          .update({
+            participants: mergeParticipants(existing.participants, input.participants),
+            the_ask: input.theAsk ?? undefined,
+            ask_of: input.askOf ?? undefined,
+            deadline_text: input.deadlineText ?? undefined,
+            unanswered: input.unanswered,
+            language: language ?? undefined,
+            last_exchange_id: input.exchangeId ?? undefined,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", matchedId)
+          .eq("company_id", company);
+        if (updError) throw new Error(updError.message);
+        return { threadId: matchedId, appended: true, messageCount: input.messages.length };
+      }
+
+      const { data: created, error: createError } = await supabase
+        .from("forward_threads")
+        .insert({
+          company_id: company,
+          title: input.title ?? null,
+          status: "open",
+          language,
+          the_ask: input.theAsk ?? null,
+          ask_of: input.askOf ?? null,
+          deadline_text: input.deadlineText ?? null,
+          participants: input.participants,
+          unanswered: input.unanswered,
+          last_exchange_id: input.exchangeId ?? null,
+          source: input.source,
+        })
+        .select("id")
+        .single();
+      if (createError) throw new Error(createError.message);
+      const threadId = (created as { id: string }).id;
+      const { error: msgError } = await supabase.from("forward_thread_messages").insert(messageRows(threadId));
+      if (msgError) throw new Error(msgError.message);
+      return { threadId, appended: false, messageCount: input.messages.length };
+    },
+
+    async listThreads(options?: { openOnly?: boolean; unansweredOnly?: boolean; limit?: number }) {
+      let query = supabase
+        .from("forward_threads")
+        .select(THREAD_COLUMNS)
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false })
+        .limit(options?.limit ?? 20);
+      if (options?.openOnly) query = query.eq("status", "open");
+      if (options?.unansweredOnly) query = query.eq("unanswered", true);
+      const { data, error } = await query;
+      if (error) return threadsOrThrow(error);
+      return mapThreadRows(data);
+    },
+
+    async getThread(threadId: string) {
+      const { data, error } = await supabase
+        .from("forward_threads")
+        .select(THREAD_COLUMNS)
+        .eq("id", threadId)
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .limit(1);
+      if (error) {
+        if (/forward_thread/.test(error.message) && /does not exist|could not find/i.test(error.message)) return null;
+        throw new Error(error.message);
+      }
+      const thread = mapThreadRows(data)[0];
+      if (!thread) return null;
+      const { data: msgData, error: msgError } = await supabase
+        .from("forward_thread_messages")
+        .select("id, sender_name, sender_role, body, language, sent_at, created_at")
+        .eq("company_id", company)
+        .eq("thread_id", threadId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: true })
+        .limit(500);
+      if (msgError) throw new Error(msgError.message);
+      const messages = ((msgData ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        senderName: String(row.sender_name),
+        senderRole: (row.sender_role as string | null) ?? null,
+        body: String(row.body),
+        language: (row.language as string | null) ?? null,
+        sentAt: (row.sent_at as string | null) ?? null,
+        createdAt: String(row.created_at),
+      }));
+      return { thread, messages };
+    },
+
+    async markThreadAnswered(threadId: string) {
+      const { error } = await supabase
+        .from("forward_threads")
+        .update({ unanswered: false, updated_at: new Date().toISOString() })
+        .eq("id", threadId)
+        .eq("company_id", company);
+      if (error) throw new Error(error.message);
+    },
+
+    async closeThread(threadId: string) {
+      const { error } = await supabase
+        .from("forward_threads")
+        .update({ status: "closed", unanswered: false, updated_at: new Date().toISOString() })
+        .eq("id", threadId)
+        .eq("company_id", company);
+      if (error) throw new Error(error.message);
+    },
+
+    async findExchangeIdByIncoming(incoming: string) {
+      const { data, error } = await supabase
+        .from("dispatch_exchanges")
+        .select("id")
+        .eq("company_id", company)
+        .eq("incoming_message", incoming)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message);
+      const row = (data ?? [])[0] as { id: string } | undefined;
+      return row?.id ?? null;
+    },
+
+    async loadPersonEvidence(name: string) {
+      const key = normalizeName(name);
+      // Confirmed profile (his approved words) from current person_profile rows.
+      const { data: profileRows } = await supabase
+        .from("bot_memories")
+        .select("content")
+        .eq("company_id", company)
+        .eq("kind", "person_profile")
+        .is("valid_to", null)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      const confirmedProfile =
+        ((profileRows ?? []) as { content: string }[])
+          .map((r) => parsePersonProfile(r.content))
+          .find((p) => p !== null && normalizeName(p.name) === key) ?? null;
+
+      // Thread appearances: participant match over recent threads.
+      const threads = await this.listThreads({ limit: 100 });
+      const appearances: PersonEvidence["threads"] = [];
+      const bodies: string[] = [];
+      for (const thread of threads) {
+        const participant = thread.participants.find((p) => normalizeName(p.name) === key);
+        if (!participant) continue;
+        const detail = await this.getThread(thread.id);
+        const mine = (detail?.messages ?? []).filter((m) => normalizeName(m.senderName) === key);
+        appearances.push({
+          title: thread.title,
+          role: participant.role,
+          messagesFromThem: mine.length,
+          lastActiveAt: thread.updatedAt,
+        });
+        for (const m of mine) bodies.push(m.body);
+      }
+
+      // Dispatch exchanges naming them (bounded read; a mention count, honestly labeled).
+      const { data: exchangeRows } = await supabase
+        .from("dispatch_exchanges")
+        .select("id")
+        .eq("company_id", company)
+        .ilike("incoming_message", `%${name}%`)
+        .is("deleted_at", null)
+        .limit(200);
+      return {
+        confirmedProfile,
+        threads: appearances,
+        messageBodies: bodies,
+        exchangeMentions: (exchangeRows ?? []).length,
+      };
+    },
+
+    async loadLifePhaseOverride() {
+      const { data, error } = await supabase
+        .from("bot_memories")
+        .select("content")
+        .eq("company_id", company)
+        .eq("kind", "business_fact")
+        .is("valid_to", null)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) {
+        // Pre-00029 the lifecycle columns don't exist - no override
+        // can be current; the default phase text stands.
+        if (/valid_to/.test(error.message)) return null;
+        throw new Error(error.message);
+      }
+      for (const row of (data ?? []) as { content: string }[]) {
+        const parsed = parseBusinessFact(row.content);
+        if (parsed && parsed.subject === LIFE_PHASE_SUBJECT) return parsed.fact || null;
+      }
+      return null;
+    },
+
+    // --- Phase E (voice + twin) ---
+
+    async isVoiceTranscriptionEnabled() {
+      return capabilityEnabled(VOICE_TRANSCRIPTION_CAPABILITY);
+    },
+
+    async isDriverTwinEnabled() {
+      return capabilityEnabled(DRIVER_TWIN_CAPABILITY);
+    },
+
+    async loadVoiceExemplars(incomingText: string) {
+      const { data, error } = await supabase
+        .from("dispatch_exchanges")
+        .select("id, incoming_message, actual_reply_sent")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .not("actual_reply_sent", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) throw new Error(error.message);
+      const candidates = ((data ?? []) as { id: string; incoming_message: string; actual_reply_sent: string | null }[]).map(
+        (row) => ({ id: row.id, incoming: row.incoming_message, actualReply: row.actual_reply_sent }),
+      );
+      return rankExemplars(incomingText, candidates, 3);
+    },
+
+    async recordSentReply(exchangeId: string, actualReply: string) {
+      const { data, error } = await supabase
+        .from("dispatch_exchanges")
+        .select("id, ai_suggested_reply_en, ai_suggested_reply_es")
+        .eq("id", exchangeId)
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      const row = data as { ai_suggested_reply_en: string | null; ai_suggested_reply_es: string | null } | null;
+      if (!row) throw new Error(`No dispatch exchange with id ${exchangeId} in his records.`);
+      const draft = row.ai_suggested_reply_es ?? row.ai_suggested_reply_en ?? null;
+      const ratio = draft ? editDistanceRatio(draft, actualReply) : null;
+      const { error: updateError } = await supabase
+        .from("dispatch_exchanges")
+        .update({
+          actual_reply_sent: actualReply,
+          edit_distance_ratio: ratio,
+          reply_captured_at: new Date().toISOString(),
+        })
+        .eq("id", exchangeId)
+        .eq("company_id", company);
+      if (updateError) {
+        if (/edit_distance_ratio|reply_captured_at/.test(updateError.message)) {
+          throw new Error(
+            "Sent-reply capture isn't available yet - migration 00047 hasn't been applied to the database, so the edit-distance columns don't exist. The reply itself wasn't recorded.",
+          );
+        }
+        throw new Error(updateError.message);
+      }
+      return { editDistanceRatio: ratio };
+    },
+
+    async listRecentExchanges(limit = 10) {
+      const { data, error } = await supabase
+        .from("dispatch_exchanges")
+        .select("id, incoming_message, ai_suggested_reply_en, ai_suggested_reply_es, actual_reply_sent, edit_distance_ratio, created_at")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) {
+        // Before 00047 the edit_distance column doesn't exist - fall
+        // back to the pre-E column set rather than failing the read.
+        if (/edit_distance_ratio/.test(error.message)) {
+          const fallback = await supabase
+            .from("dispatch_exchanges")
+            .select("id, incoming_message, ai_suggested_reply_en, ai_suggested_reply_es, actual_reply_sent, created_at")
+            .eq("company_id", company)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false })
+            .limit(limit);
+          if (fallback.error) throw new Error(fallback.error.message);
+          return ((fallback.data ?? []) as Record<string, unknown>[]).map((row) => ({
+            id: String(row.id),
+            incoming: String(row.incoming_message),
+            hasDraft: Boolean(row.ai_suggested_reply_en ?? row.ai_suggested_reply_es),
+            actualReplySent: (row.actual_reply_sent as string | null) ?? null,
+            editDistanceRatio: null,
+            createdAt: String(row.created_at),
+          }));
+        }
+        throw new Error(error.message);
+      }
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        incoming: String(row.incoming_message),
+        hasDraft: Boolean(row.ai_suggested_reply_en ?? row.ai_suggested_reply_es),
+        actualReplySent: (row.actual_reply_sent as string | null) ?? null,
+        editDistanceRatio: typeof row.edit_distance_ratio === "number" ? row.edit_distance_ratio : null,
+        createdAt: String(row.created_at),
+      }));
+    },
+
+    async recordLoadDecision(input) {
+      const { error } = await supabase.from("load_decisions").insert({
+        company_id: company,
+        load_id: input.loadId ?? null,
+        description: input.description,
+        decision: input.decision,
+        outcome_note: input.outcomeNote ?? null,
+      });
+      if (error) {
+        if (/load_decisions/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+          throw new Error(
+            "The decision log isn't available yet - migration 00047 hasn't been applied to the database. Nothing was logged.",
+          );
+        }
+        throw new Error(error.message);
+      }
+    },
+
+    async listLoadDecisions(limit = 100) {
+      const { data, error } = await supabase
+        .from("load_decisions")
+        .select("id, load_id, description, decision, outcome_note, created_at")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) {
+        if (/load_decisions/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+          return [];
+        }
+        throw new Error(error.message);
+      }
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        loadId: (row.load_id as string | null) ?? null,
+        description: String(row.description),
+        decision: String(row.decision),
+        outcomeNote: (row.outcome_note as string | null) ?? null,
+        createdAt: String(row.created_at),
+      }));
+    },
+
+    async twinEditStats(fromIso: string, toIso: string) {
+      const { data, error } = await supabase
+        .from("dispatch_exchanges")
+        .select("edit_distance_ratio")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .not("reply_captured_at", "is", null)
+        .gte("reply_captured_at", fromIso)
+        .lte("reply_captured_at", toIso)
+        .limit(500);
+      if (error) {
+        if (/edit_distance_ratio|reply_captured_at/.test(error.message)) return { count: 0, avgDistance: null };
+        throw new Error(error.message);
+      }
+      const ratios = ((data ?? []) as { edit_distance_ratio: number | null }[])
+        .map((r) => r.edit_distance_ratio)
+        .filter((r): r is number => typeof r === "number");
+      return {
+        count: ratios.length,
+        avgDistance: ratios.length > 0 ? ratios.reduce((t, r) => t + r, 0) / ratios.length : null,
+      };
+    },
   };
 
-  /** Settlement reads degrade gracefully before migration 00044 (empty, like every other not-yet-landed read); writes fail loudly instead - see recordSettlement. */
+  /** Thread reads degrade gracefully before migration 00046 (empty); writes fail loudly instead - see recordForwardThread. */
+  function threadsOrThrow(error: { message: string }): StoredThread[] {
+    if (/forward_thread/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+      return [];
+    }
+    throw new Error(error.message);
+  }
+
+  function threadParticipantsOf(value: unknown): ThreadParticipant[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter(
+        (p): p is ThreadParticipant =>
+          typeof p === "object" && p !== null &&
+          typeof (p as { name?: unknown }).name === "string" &&
+          typeof (p as { role?: unknown }).role === "string",
+      )
+      .map((p) => ({ name: p.name, role: p.role }));
+  }
+
+  function mapThreadRows(data: unknown): StoredThread[] {
+    return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      title: (row.title as string | null) ?? null,
+      status: String(row.status),
+      language: (row.language as string | null) ?? null,
+      theAsk: (row.the_ask as string | null) ?? null,
+      askOf: (row.ask_of as string | null) ?? null,
+      deadlineText: (row.deadline_text as string | null) ?? null,
+      participants: threadParticipantsOf(row.participants),
+      unanswered: row.unanswered === true,
+      updatedAt: String(row.updated_at),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  /** Settlement reads degrade gracefully before migration 00045 (empty, like every other not-yet-landed read); writes fail loudly instead - see recordSettlement. */
   function settlementsOrThrow(error: { message: string }): StoredSettlement[] {
     if (/settlements/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
       return [];
