@@ -216,7 +216,7 @@ engines stay distinct in his answers until the R-7 door merge:
   and can queue (`request_pretrip_photos`) or dismiss
   (`dismiss_research_request`) an ask. Marking a request fulfilled
   belongs to photo intake (the img-maint lane's pipeline), never to
-  Abel. Migration `00048` adds the owner-session INSERT/UPDATE RLS
+  Abel. Migration `00051` adds the owner-session INSERT/UPDATE RLS
   policies (mirroring §6's fence) so the web surface's session client
   can queue/dismiss exactly like the Telegram surface's service-role
   client already could.
