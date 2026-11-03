@@ -15,6 +15,7 @@ import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatDollars } from "@/lib/truck-fund";
+import { formatDate } from "@/lib/time";
 import type { FuelPurchase, Truck } from "@/types/entities";
 
 export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -55,7 +56,7 @@ export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ i
     );
   }
 
-  const purchaseDate = new Date(purchase.purchased_at).toLocaleDateString();
+  const purchaseDate = formatDate(purchase.purchased_at);
 
   return (
     <div>

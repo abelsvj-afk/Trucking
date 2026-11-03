@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
 import { validationError } from "@/services/api/errors";
 import { createClient } from "@/services/db/server";
+import { resolveViewerTimeZone } from "@/lib/time";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -45,6 +46,15 @@ export const GET = createApiHandler(async (req) => {
   const url = new URL(req.url);
   const fromParam = url.searchParams.get("from");
   const toParam = url.searchParams.get("to");
+  // Reliability Unit B (B.2.1): the client carries the viewer's
+  // timezone; an absent or invalid value falls back to
+  // America/New_York, and the zone in force is REPORTED in the
+  // response either way - never silently assumed. NOTE: the period
+  // bounds themselves are still derived in UTC below; converting the
+  // shared month definition to the viewer's zone is Unit C's C1 work
+  // (the design assigns the shared month helper there), and this
+  // plumbing is what that change will consume.
+  const { timeZone } = resolveViewerTimeZone(url.searchParams.get("tz"));
 
   let from: string;
   let to: string;
@@ -114,6 +124,7 @@ export const GET = createApiHandler(async (req) => {
 
   return NextResponse.json({
     range: { from, to },
+    timeZone,
     revenue_cents,
     expenses_cents,
     fuel_cents,

@@ -19,6 +19,10 @@ The tenant table — one row per business using the system. Exists from day one 
 | id | uuid | no | primary key |
 | name | text | no | |
 | created_at | timestamptz | no | |
+| hos_cycle | text | no | Reliability Unit B (migration `00042`): `70/8` or `60/7` (CHECK-enforced). The carrier-specified HOS cycle — see `docs/time-and-hos.md` |
+| hos_period_anchor | text | no | migration `00042`: `HH:MM` 24-hour wall time (CHECK regex) at which each carrier HOS period starts, read in `hos_carrier_timezone` |
+| hos_restart_enabled | boolean | no | migration `00042`: whether the carrier's 34-hour restart resets the cycle |
+| hos_carrier_timezone | text | no | migration `00042`: IANA timezone the anchor is interpreted in. The four `hos_*` defaults (`70/8`, `00:00`, `true`, `America/New_York`) are PROVISIONAL configuration, labeled as such in the UI — not verified carrier facts |
 
 ## user_profiles
 

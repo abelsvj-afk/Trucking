@@ -14,6 +14,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { formatDate, formatDateTime, localDateTimeInputValue } from "@/lib/time";
 import type { PretripInspection, Truck, Trailer, Driver } from "@/types/entities";
 
 export default function PretripInspectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -54,7 +55,7 @@ export default function PretripInspectionDetailPage({ params }: { params: Promis
     );
   }
 
-  const recordName = `${record.passed ? "Passed" : "Failed"} inspection — ${new Date(record.inspected_at).toLocaleDateString()}`;
+  const recordName = `${record.passed ? "Passed" : "Failed"} inspection — ${formatDate(record.inspected_at)}`;
 
   return (
     <div>
@@ -66,7 +67,7 @@ export default function PretripInspectionDetailPage({ params }: { params: Promis
           <dt>Result</dt>
           <dd>{record.passed ? "Passed" : "Failed"}</dd>
           <dt>Inspected at</dt>
-          <dd>{new Date(record.inspected_at).toLocaleString()}</dd>
+          <dd>{formatDateTime(record.inspected_at)}</dd>
           <dt>Defects found</dt>
           <dd>{record.defects_found ?? "None"}</dd>
         </dl>
@@ -105,7 +106,7 @@ function PretripInspectionEditForm({
   const [vehicleId, setVehicleId] = useState(record.truck_id ?? record.trailer_id ?? "");
   const [driverId, setDriverId] = useState(record.driver_id ?? "");
   const [inspectedAt, setInspectedAt] = useState(() =>
-    new Date(record.inspected_at).toISOString().slice(0, 16),
+    localDateTimeInputValue(new Date(record.inspected_at)),
   );
   const [passed, setPassed] = useState(record.passed);
   const [defectsFound, setDefectsFound] = useState(record.defects_found ?? "");
