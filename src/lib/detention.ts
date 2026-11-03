@@ -3,7 +3,7 @@
 // The app's own job knowledge teaches "times written down are how
 // detention gets paid"; this module is where those times finally
 // live and turn into money. Pure functions over detention_stamps
-// rows (migration 00044) plus the load's detention terms:
+// rows (migration 00046) plus the load's detention terms:
 //
 // - The clock starts at the ARRIVAL stamp (per stop: pickup and
 //   delivery clocks are computed separately).
