@@ -28,7 +28,7 @@ export async function getDayWrap(
   const windowTo = new Date(dayStartUtc + 3 * DAY_MS).toISOString();
   const onDate = (iso: string) => easternDate(new Date(iso)) === date;
 
-  const [logsResult, fuelResult, loadsResult, pendingResult] = await Promise.all([
+  const [logsResult, fuelResult, loadsResult, pendingResult, credentialsResult, invoicesResult, followupsResult] = await Promise.all([
     supabase
       .from("duty_logs")
       .select("*")
@@ -56,6 +56,29 @@ export async function getDayWrap(
       .select("id", { count: "exact", head: true })
       .eq("company_id", companyId)
       .is("deleted_at", null),
+    // GAP-11/12/14 inputs. These tables arrive with migrations
+    // 00048/00049/00051 — a missing table must never break the
+    // wrap, so their errors are tolerated (treated as empty).
+    supabase
+      .from("credentials")
+      .select("label, kind, expires_on")
+      .eq("company_id", companyId)
+      .is("deleted_at", null),
+    supabase
+      .from("load_invoices")
+      .select("load_id, amount_cents, paid_amount_cents, due_date")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .lt("due_date", date),
+    supabase
+      .from("broker_followups")
+      .select("broker_id, note, due_on")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .is("done_at", null)
+      .lte("due_on", date)
+      .order("due_on", { ascending: true })
+      .limit(5),
   ]);
   if (logsResult.error) throw new Error(logsResult.error.message);
   if (fuelResult.error) throw new Error(fuelResult.error.message);
@@ -122,6 +145,57 @@ export async function getDayWrap(
     }
   }
 
+  // GAP-11: credential alerts on the 60/30/7 ladder.
+  const { credentialAlerts: computeCredentialAlerts, describeCredentialAlert } = await import(
+    "@/lib/credentials"
+  );
+  const credentialAlerts = credentialsResult.error
+    ? []
+    : computeCredentialAlerts(
+        (credentialsResult.data ?? []) as { label: string; kind: string; expires_on: string }[],
+        date,
+      ).map(describeCredentialAlert);
+
+  // GAP-12: overdue invoices, labeled by their load's lane.
+  const loadById = new Map(loads.map((l) => [l.id, l]));
+  const overdueInvoices = invoicesResult.error
+    ? []
+    : ((invoicesResult.data ?? []) as {
+        load_id: string;
+        amount_cents: number;
+        paid_amount_cents: number;
+        due_date: string;
+      }[])
+        .filter((i) => i.paid_amount_cents < i.amount_cents)
+        .map((i) => {
+          const load = loadById.get(i.load_id);
+          return {
+            loadLabel: load ? `${load.origin} → ${load.destination}` : "A load",
+            daysLate: Math.floor(
+              (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${i.due_date}T00:00:00Z`)) / 86_400_000,
+            ),
+            outstandingCents: i.amount_cents - i.paid_amount_cents,
+          };
+        });
+
+  // GAP-14: due follow-ups, named by broker.
+  let dueFollowups: { brokerName: string; note: string; dueOn: string }[] = [];
+  if (!followupsResult.error && (followupsResult.data ?? []).length > 0) {
+    const rows = (followupsResult.data ?? []) as { broker_id: string; note: string; due_on: string }[];
+    const brokerIds = [...new Set(rows.map((r) => r.broker_id))];
+    const { data: brokerRows } = await supabase
+      .from("brokers")
+      .select("id, name")
+      .eq("company_id", companyId)
+      .in("id", brokerIds);
+    const brokerName = new Map(((brokerRows ?? []) as { id: string; name: string }[]).map((b) => [b.id, b.name]));
+    dueFollowups = rows.map((r) => ({
+      brokerName: brokerName.get(r.broker_id) ?? "A broker",
+      note: r.note,
+      dueOn: r.due_on,
+    }));
+  }
+
   const items = buildDayWrap({
     date,
     dutyLogs,
@@ -131,6 +205,9 @@ export async function getDayWrap(
     paperwork,
     detention,
     pendingProposals: pendingResult.count ?? 0,
+    credentialAlerts,
+    overdueInvoices,
+    dueFollowups,
     now,
   });
   return { date, items };

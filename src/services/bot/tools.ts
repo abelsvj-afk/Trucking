@@ -588,6 +588,201 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         return `Day-wrap for ${result.date}:\n${lines.join("\n")}`;
       },
     },
+    // GAP-11: the credential watch.
+    {
+      name: "get_credential_watch",
+      description:
+        "Check expiring credentials (CDL, medical card, inspection, registration, insurance): what's inside 60 days or already expired. Use when he asks what's expiring or before a renewal deadline matters.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      validateArgs: validateWith(z.object({})),
+      async run() {
+        const { credentialAlerts, describeCredentialAlert } = await import("@/lib/credentials");
+        const { easternDate } = await import("@/lib/day-wrap");
+        const { data, error } = await client
+          .from("credentials")
+          .select("label, kind, expires_on")
+          .eq("company_id", companyId)
+          .is("deleted_at", null);
+        if (error) throw new Error(error.message);
+        const alerts = credentialAlerts(
+          (data ?? []) as { label: string; kind: string; expires_on: string }[],
+          easternDate(new Date()),
+        );
+        if (alerts.length === 0) {
+          return "Every registered credential is more than 60 days from expiry — nothing on the watch list.";
+        }
+        return `Credential watch:\n${alerts.map((a) => `- ${describeCredentialAlert(a)}`).join("\n")}`;
+      },
+    },
+    // GAP-12: who owes him, aged.
+    {
+      name: "get_receivables",
+      description:
+        "The receivables picture: invoices outstanding, aged against their due dates, late ones named. Dormant while he's lease-on (no invoices exist until he's invoicing brokers himself). Use when he asks who owes him or what's late.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      validateArgs: validateWith(z.object({})),
+      async run() {
+        const { summarizeAging } = await import("@/lib/invoices");
+        const { easternDate } = await import("@/lib/day-wrap");
+        const { data, error } = await client
+          .from("load_invoices")
+          .select("amount_cents, paid_amount_cents, due_date")
+          .eq("company_id", companyId)
+          .is("deleted_at", null);
+        if (error) throw new Error(error.message);
+        const rows = (data ?? []) as { amount_cents: number; paid_amount_cents: number; due_date: string }[];
+        if (rows.length === 0) {
+          return "No invoices on the books — receivables wake up when he's invoicing brokers under his own authority.";
+        }
+        const aging = summarizeAging(rows, easternDate(new Date()));
+        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        return [
+          `Outstanding: ${dollars(aging.totalOutstandingCents)}.`,
+          `Current: ${dollars(aging.buckets.current.outstandingCents)} · 1–30 late: ${dollars(aging.buckets["1-30"].outstandingCents)} · 31–60: ${dollars(aging.buckets["31-60"].outstandingCents)} · 60+: ${dollars(aging.buckets["60+"].outstandingCents)}.`,
+          aging.lateCount > 0
+            ? `${aging.lateCount} invoice(s) are past due, ${dollars(aging.lateOutstandingCents)} at stake.`
+            : "Nothing past due.",
+        ].join("\n");
+      },
+    },
+    // GAP-13: the cash calendar.
+    {
+      name: "get_cash_calendar",
+      description:
+        "Project the next 30 days of recurring obligations by week: what's going out, and which week is tightest. Use when he asks what's coming out of the account or plans around settlement timing.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      validateArgs: validateWith(z.object({})),
+      async run() {
+        const { projectObligations } = await import("@/lib/obligations");
+        const { easternDate } = await import("@/lib/day-wrap");
+        const { data, error } = await client
+          .from("recurring_obligations")
+          .select("*")
+          .eq("company_id", companyId)
+          .is("deleted_at", null);
+        if (error) throw new Error(error.message);
+        const rows = (data ?? []) as import("@/types/entities").RecurringObligation[];
+        if (rows.length === 0) {
+          return "No recurring obligations registered yet — tell me a bill ('phone, $95, on the 12th') and I'll keep its calendar.";
+        }
+        const projection = projectObligations(rows, easternDate(new Date()), 30);
+        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const lines = projection.weeks.map(
+          (w) => `- Week of ${w.weekStart}: ${dollars(w.totalCents)} out (${w.occurrences.map((o) => `${o.name} ${dollars(o.amountCents)} on ${o.date}`).join("; ")})`,
+        );
+        return [
+          `Next 30 days: ${dollars(projection.totalCents)} in fixed obligations.`,
+          ...lines,
+          projection.heaviestWeek
+            ? `The tight week is the week of ${projection.heaviestWeek.weekStart} (${dollars(projection.heaviestWeek.totalCents)}).`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      },
+    },
+    // GAP-14: a broker's working scorecard.
+    {
+      name: "get_broker_scorecard",
+      description:
+        "A broker's working record: loads run, average days-to-pay from real invoices, detention raised, money outstanding. Use when he's weighing a new offer from a broker he's run with before.",
+      parameters: {
+        type: "object",
+        properties: {
+          broker_id: { type: "string", description: "Broker id (uuid) — from list_brokers." },
+        },
+        required: ["broker_id"],
+      },
+      access: "read",
+      validateArgs: validateWith(brokerIdArgs),
+      async run(args) {
+        const { broker_id: brokerId } = brokerIdArgs.parse(args);
+        const { getBrokerScorecard } = await import("@/services/broker-scorecard");
+        const { describeScorecard } = await import("@/lib/broker-scorecard");
+        const { data: broker } = await client
+          .from("brokers")
+          .select("name")
+          .eq("company_id", companyId)
+          .eq("id", brokerId)
+          .maybeSingle();
+        const card = await getBrokerScorecard(client, companyId, brokerId);
+        if (!card) return "That broker isn't in his records.";
+        return describeScorecard((broker as { name?: string } | null)?.name ?? "That broker", card);
+      },
+    },
+    // GAP-15: the IFTA worksheet.
+    {
+      name: "get_ifta_worksheet",
+      description:
+        "The IFTA worksheet for a quarter: gallons by state (exact from his fuel records), attributed intrastate miles, interstate miles honestly unallocated, the quarter's MPG, and anomalies. Use at quarter end or when he asks about fuel tax. Dormant-but-accumulating while lease-on — the carrier files on the truck today; this is his own record and rehearsal.",
+      parameters: {
+        type: "object",
+        properties: {
+          quarter: { type: "string", description: "Like 2026Q4. Omit for the current quarter." },
+        },
+      },
+      access: "read",
+      validateArgs: validateWith(iftaArgs),
+      async run(args) {
+        const parsed = iftaArgs.parse(args);
+        const { getIftaWorksheet } = await import("@/services/tax-filings");
+        const { quarterOf } = await import("@/lib/ifta");
+        const { easternDate } = await import("@/lib/day-wrap");
+        const quarter = parsed.quarter ?? quarterOf(easternDate(new Date()));
+        const sheet = await getIftaWorksheet(client, companyId, quarter);
+        const gallons = Object.entries(sheet.gallonsByState)
+          .map(([s, g]) => `${s}: ${Math.round(g * 10) / 10} gal`)
+          .join(" · ");
+        const miles = Object.entries(sheet.milesByState)
+          .map(([s, m]) => `${s}: ${m} mi`)
+          .join(" · ");
+        return [
+          `IFTA worksheet ${sheet.quarter}:`,
+          `Fuel by state — ${gallons || "none recorded with a state"} (total ${Math.round(sheet.totalGallons * 10) / 10} gal).`,
+          `Attributed miles — ${miles || "none yet"}${sheet.unallocatedMiles > 0 ? `; ${sheet.unallocatedMiles} interstate miles can't be honestly split by state yet.` : ""}`,
+          sheet.fleetMpg != null
+            ? `Odometer miles ${sheet.odometerMiles} → ${sheet.fleetMpg} MPG for the quarter.`
+            : "Not enough odometer readings this quarter for an MPG check.",
+          ...sheet.anomalies.map((a) => `- ${a}`),
+        ].join("\n");
+      },
+    },
+    // GAP-16: per-diem count + tax packet.
+    {
+      name: "get_tax_packet",
+      description:
+        "The tax picture for a year: per-diem away days at the labeled IRS transportation rate, fuel totals, expenses by category, and load revenue — assembled for his preparer. Use when he asks about per-diem days, his deduction, or tax time.",
+      parameters: {
+        type: "object",
+        properties: {
+          year: { type: "number", description: "Four-digit year. Omit for this year." },
+        },
+      },
+      access: "read",
+      validateArgs: validateWith(taxPacketArgs),
+      async run(args) {
+        const parsed = taxPacketArgs.parse(args);
+        const { getTaxPacket } = await import("@/services/tax-filings");
+        const { easternDate } = await import("@/lib/day-wrap");
+        const year = parsed.year ?? Number(easternDate(new Date()).slice(0, 4));
+        const packet = await getTaxPacket(client, companyId, year);
+        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const categories = Object.entries(packet.expensesByCategory)
+          .map(([k, v]) => `${k} ${dollars(v)}`)
+          .join(" · ");
+        return [
+          `Tax packet ${packet.year}:`,
+          `Per-diem: ${packet.perDiem.awayDays} days away from home ≈ ${dollars(packet.perDiem.estimatedDeductionCents)} at ${packet.perDiem.rateLabel}.`,
+          `Fuel: ${packet.fuel.purchases} purchases, ${packet.fuel.gallons} gal, ${dollars(packet.fuel.totalCostCents)}.`,
+          `Expenses: ${dollars(packet.expensesTotalCents)}${categories ? ` (${categories})` : ""}.`,
+          `Loads: ${packet.completedLoads} completed, ${dollars(packet.loadRevenueCents)} booked revenue.`,
+          packet.note,
+        ].join("\n");
+      },
+    },
     {
       name: "evaluate_pay_offer",
       description:
@@ -821,6 +1016,21 @@ const stampDetentionArgs = z.object({
   stamp_type: z.enum(["arrival", "door", "loading_done", "departure"]),
   stop_kind: z.enum(["pickup", "delivery"]).optional(),
   occurred_at: z.string().min(1).optional(),
+});
+
+const iftaArgs = z.object({
+  quarter: z
+    .string()
+    .regex(/^\d{4}Q[1-4]$/, "quarter must look like 2026Q4.")
+    .optional(),
+});
+
+const taxPacketArgs = z.object({
+  year: z.number().int().min(2000).max(2100).optional(),
+});
+
+const brokerIdArgs = z.object({
+  broker_id: z.string().uuid(),
 });
 
 const dayWrapArgs = z.object({

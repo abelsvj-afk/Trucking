@@ -13,7 +13,15 @@ import type { PaperworkState } from "./paperwork";
 import type { DutyLog } from "@/types/entities";
 
 export interface DayWrapItem {
-  kind: "duty" | "fuel" | "paperwork" | "detention" | "proposals";
+  kind:
+    | "duty"
+    | "fuel"
+    | "paperwork"
+    | "detention"
+    | "proposals"
+    | "credentials"
+    | "receivables"
+    | "followups";
   severity: "gap" | "info" | "ok";
   text: string;
 }
@@ -31,6 +39,12 @@ export interface DayWrapInput {
   /** Detention summaries for loads whose clock closed today, with lane labels. */
   detention: { loadLabel: string; summary: DetentionSummary }[];
   pendingProposals: number;
+  /** GAP-11: pre-formatted credential alert lines (60-day ladder; empty when all is well). */
+  credentialAlerts: string[];
+  /** GAP-12: invoices past due (dormant while lease-on — empty until invoices exist). */
+  overdueInvoices: { loadLabel: string; daysLate: number; outstandingCents: number }[];
+  /** GAP-14: broker follow-ups due today or earlier and not done. */
+  dueFollowups: { brokerName: string; note: string; dueOn: string }[];
   now: Date;
 }
 
@@ -98,6 +112,29 @@ export function buildDayWrap(input: DayWrapInput): DayWrapItem[] {
         text: `${entry.loadLabel}: ${entry.summary.totalBillableHours} billable detention hour(s) today — add the rate from the rate con to price the claim.`,
       });
     }
+  }
+
+  // --- credentials (GAP-11) ------------------------------------------------
+  for (const line of input.credentialAlerts) {
+    items.push({ kind: "credentials", severity: "gap", text: line });
+  }
+
+  // --- receivables (GAP-12) --------------------------------------------------
+  for (const invoice of input.overdueInvoices) {
+    items.push({
+      kind: "receivables",
+      severity: "gap",
+      text: `${invoice.loadLabel}: invoice is ${invoice.daysLate} day(s) past due — $${(invoice.outstandingCents / 100).toFixed(2)} still owed.`,
+    });
+  }
+
+  // --- broker follow-ups (GAP-14) --------------------------------------------
+  for (const followup of input.dueFollowups) {
+    items.push({
+      kind: "followups",
+      severity: "info",
+      text: `Follow-up owed to ${followup.brokerName} (due ${followup.dueOn}): ${followup.note}`,
+    });
   }
 
   // --- proposals waiting ---------------------------------------------------

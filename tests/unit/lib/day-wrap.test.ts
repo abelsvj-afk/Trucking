@@ -32,6 +32,9 @@ function input(overrides: Partial<DayWrapInput> = {}): DayWrapInput {
     paperwork: [],
     detention: [],
     pendingProposals: 0,
+    credentialAlerts: [],
+    overdueInvoices: [],
+    dueFollowups: [],
     now: new Date("2026-11-03T02:00:00Z"),
     ...overrides,
   };
