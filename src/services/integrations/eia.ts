@@ -3,20 +3,20 @@
 // Information Administration) Open Data API v2, free, official government
 // data, matching the project's "free/near-free to start" budget.
 //
-// VERIFICATION NOTE (be honest about this, don't overclaim): this
-// implementation was written from documented knowledge of the EIA v2 API's
-// general shape (route/facets/response envelope), not confirmed against a
-// live call. This sandbox's network egress blocks outbound HTTPS to
-// arbitrary external domains entirely - confirmed by testing api.eia.gov
-// directly (curl: "CONNECT tunnel failed, response 403"), the same
-// restriction already documented for *.supabase.co. The response is
-// validated strictly with Zod below specifically so a wrong assumption
-// fails loudly and explicitly (triggering the existing "source
-// unreachable, no partial briefing" failure path from docs/automation.md)
-// rather than silently producing wrong fuel-price data. Verify against a
-// real call - e.g. via the manual-trigger debug route (task 4.3) - once
-// this runs somewhere with real internet access (Fly.io); update this
-// note once that's actually been done.
+// VERIFICATION NOTE (updated 2026-11-03): the request shape below is
+// now LIVE-VERIFIED - the exact request this module builds returned
+// HTTP 200 with real weekly diesel data when sent with the API key
+// EIA emailed at registration. The 403s the watchers showed in
+// production on 2026-11-03 were traced to the EIA_API_KEY value set
+// on Fly not matching that emailed key: with no key EIA answers 403
+// API_KEY_MISSING, with any wrong value 403 API_KEY_INVALID, and the
+// production error carried no code because this module used to throw
+// the body away - it now surfaces EIA's error code/message so the
+// Research page names the actual failure (see fetchFuelMarketHistory).
+// The response is still validated strictly with Zod so a wrong
+// assumption fails loudly and explicitly (triggering the existing
+// "source unreachable, no partial briefing" failure path from
+// docs/automation.md) rather than silently producing wrong data.
 
 import { z } from "zod";
 
@@ -66,7 +66,7 @@ export async function fetchFuelMarketHistory(limit: number, duoarea: string = "N
 
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
-    throw new Error(`EIA API request failed: ${res.status} ${res.statusText}`);
+    throw new Error(`EIA API request failed: ${res.status} ${res.statusText}${await eiaErrorDetail(res)}`);
   }
 
   const json: unknown = await res.json();
@@ -80,6 +80,31 @@ export async function fetchFuelMarketHistory(limit: number, duoarea: string = "N
     pricePerGallon: point.value,
     units: point.units,
   }));
+}
+
+const eiaErrorSchema = z.object({
+  error: z.object({
+    code: z.string(),
+    message: z.string().optional(),
+  }),
+});
+
+/**
+ * EIA explains its own failures in the error body (e.g. 403 with code
+ * API_KEY_INVALID vs API_KEY_MISSING - the difference between "the
+ * configured key is wrong" and "no key reached EIA"). Surface that
+ * code in the watcher's visible error; any unreadable body degrades
+ * to the plain status line.
+ */
+async function eiaErrorDetail(res: Response): Promise<string> {
+  try {
+    const parsed = eiaErrorSchema.safeParse(JSON.parse(await res.text()));
+    if (!parsed.success) return "";
+    const { code, message } = parsed.data.error;
+    return message ? ` (${code}: ${message})` : ` (${code})`;
+  } catch {
+    return "";
+  }
 }
 
 const eiaResponseSchema = z.object({

@@ -1,7 +1,7 @@
-// Tests the parsing/validation logic against a fixture matching this
-// implementation's best-confidence understanding of the EIA v2 response
-// shape - NOT a live-verified shape (see eia.ts's top comment: this
-// sandbox's network egress blocks api.eia.gov, confirmed via curl).
+// Tests the parsing/validation logic against fixtures matching the
+// EIA v2 response shape - live-verified 2026-11-03 (see eia.ts's top
+// comment: the exact request this module builds returned 200 with the
+// registered key; the error-body fixtures match EIA's real 403s).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchFuelMarketSnapshot } from "@/services/integrations/eia";
@@ -63,5 +63,28 @@ describe("fetchFuelMarketSnapshot", () => {
       json: async () => ({ response: { data: [] } }),
     }) as never;
     await expect(fetchFuelMarketSnapshot()).rejects.toThrow();
+  });
+
+  it("surfaces EIA's own error code on failure (API_KEY_INVALID vs API_KEY_MISSING is the diagnosis)", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      text: async () =>
+        JSON.stringify({ error: { code: "API_KEY_INVALID", message: "An invalid api_key was supplied." } }),
+    }) as never;
+    await expect(fetchFuelMarketSnapshot()).rejects.toThrow("EIA API request failed: 403 Forbidden (API_KEY_INVALID");
+  });
+
+  it("falls back to the plain status line when the error body is unreadable", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: async () => {
+        throw new Error("stream already consumed");
+      },
+    }) as never;
+    await expect(fetchFuelMarketSnapshot()).rejects.toThrow("EIA API request failed: 500 Internal Server Error");
   });
 });
