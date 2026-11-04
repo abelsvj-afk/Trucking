@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { buildBannerItems, formatRelativeAge } from "@/lib/news-banner";
 import { topicEmoji } from "@/lib/research-topics";
+import WordReveal from "@/components/WordReveal";
 import { useLiveVersion } from "@/lib/use-live";
 import type { ResearchPageData } from "@/types/entities";
 
@@ -274,7 +275,9 @@ export default function NewsBanner() {
                       <span className="news-banner-new">● new</span>
                     ) : null}
                   </span>
-                  <span className="news-banner-headline">{current.headline}</span>
+                  <span className="news-banner-headline">
+                    <WordReveal text={current.headline} />
+                  </span>
                   {current.sub && <span className="news-banner-sub">{current.sub}</span>}
                 </Link>
               </div>

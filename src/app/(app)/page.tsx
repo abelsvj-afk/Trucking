@@ -11,14 +11,17 @@
 import Link from "next/link";
 import { useFinancialSummary } from "@/lib/use-financial-summary";
 import { useApiList } from "@/lib/use-api-list";
+import { useHosWindow } from "@/lib/use-hos-window";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import DutyHud from "@/components/hud/DutyHud";
 import NewsBanner from "@/components/NewsBanner";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
+import ActiveLoadCard from "@/components/ActiveLoadCard";
 import DayWrapCard from "@/components/DayWrapCard";
 import Reveal from "@/components/Reveal";
+import NumberTicker from "@/components/NumberTicker";
 import { Bot, ClipboardCheck, Fuel, PackagePlus } from "lucide-react";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -81,21 +84,31 @@ function homeHosPaperLabel(logs: DutyLog[], documents: PaperDocLike[]): string |
 export default function HomePage() {
   usePageTitle("Home");
   const { state, retry } = useFinancialSummary();
-  const duty = useApiList<DutyLog>("duty-logs", { limit: "200" });
+  // The full carrier-anchored window (never a newest-200 page that could
+  // truncate the history the cycle depends on) - the same read as the HUD
+  // and the Hours page; live via the live layer.
+  const hosWindow = useHosWindow();
   // UH-12 fix: documents feed the paper/partial label under the hours.
   const documents = useApiList<PaperDocLike & Record<string, unknown>>("documents", { limit: "200" });
 
   const nowMs = useNowTick(60_000);
-  const logs = duty.state.status === "loaded" ? duty.state.result.data : [];
+  const logs = hosWindow.state.status === "loaded" ? hosWindow.state.data : [];
   const paperLabel =
     documents.state.status === "loaded" ? homeHosPaperLabel(logs, documents.state.result.data) : null;
-  const summaryRaw = duty.state.status === "loaded" ? summarizeHos(logs) : null;
+  const summaryRaw = hosWindow.state.status === "loaded" ? summarizeHos(logs) : null;
   // hos.ts's rolling 8-day warning is superseded by the carrier-anchored
-  // cycle (HUD + Hours page); showing it would state a second, naive
-  // weekly total.
-  const summary = summaryRaw
-    ? { ...summaryRaw, warnings: summaryRaw.warnings.filter((w) => !w.includes("8-day on-duty limit")) }
-    : null;
+  // cycle (its own warning comes from the window endpoint); showing both
+  // would state two different weekly totals.
+  const summary =
+    summaryRaw && hosWindow.state.status === "loaded"
+      ? {
+          ...summaryRaw,
+          warnings: [
+            ...summaryRaw.warnings.filter((w) => !w.includes("8-day on-duty limit")),
+            ...hosWindow.state.hos.warnings,
+          ],
+        }
+      : null;
   const latest = [...logs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null;
   const onTheClock = latest != null && (latest.duty_status === "driving" || latest.duty_status === "on_duty");
 
@@ -112,14 +125,14 @@ export default function HomePage() {
 
       <Reveal aria-label="Your next step" className="next-step" index={0}>
         <h2>Your next step</h2>
-        {duty.state.status === "loading" && <p>Checking your hours…</p>}
-        {duty.state.status === "error" && (
+        {hosWindow.state.status === "loading" && <p>Checking your hours…</p>}
+        {hosWindow.state.status === "error" && (
           <p>
             Couldn&apos;t load your hours just now. <Link href="/fleet/hos">Open Hours of service</Link> to
             see where you stand.
           </p>
         )}
-        {duty.state.status === "loaded" && logs.length === 0 && (
+        {hosWindow.state.status === "loaded" && logs.length === 0 && (
           <>
             <p>
               Start your day on the books: log your first duty status so your hours are tracked from the
@@ -130,7 +143,7 @@ export default function HomePage() {
             </Link>
           </>
         )}
-        {duty.state.status === "loaded" && logs.length > 0 && summary != null && latest != null && (
+        {hosWindow.state.status === "loaded" && logs.length > 0 && summary != null && latest != null && (
           <>
             {summary.warnings.length > 0 ? (
               <p role="alert">{summary.warnings[0]}</p>
@@ -152,6 +165,8 @@ export default function HomePage() {
           </>
         )}
       </Reveal>
+
+      <ActiveLoadCard />
 
       <ActivePlanCard />
 
@@ -193,17 +208,20 @@ export default function HomePage() {
                 never worded as cash received or settled. The label
                 renders from the API's revenueConvention field. */}
             <dt>{revenueConventionLabel(state.summary.revenueConvention)}</dt>
-            <dd>{formatDollars(state.summary.revenue_cents)}</dd>
+            <dd>
+              <NumberTicker value={state.summary.revenue_cents} format={(v) => formatDollars(Math.round(v))} />
+            </dd>
             <dt>Expenses</dt>
             <dd>
-              {formatDollars(
-                state.summary.expenses_cents +
-                  state.summary.fuel_cents +
-                  state.summary.maintenance_cents,
-              )}
+              <NumberTicker
+                value={state.summary.expenses_cents + state.summary.fuel_cents + state.summary.maintenance_cents}
+                format={(v) => formatDollars(Math.round(v))}
+              />
             </dd>
             <dt>Operating result</dt>
-            <dd>{formatDollars(state.summary.net_cents)}</dd>
+            <dd>
+              <NumberTicker value={state.summary.net_cents} format={(v) => formatDollars(Math.round(v))} />
+            </dd>
           </dl>
         )}
         <Link href="/money/summary">View full summary</Link>

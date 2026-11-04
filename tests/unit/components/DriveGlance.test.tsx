@@ -7,6 +7,7 @@ import DriveGlance from "@/components/drive/DriveGlance";
 afterEach(() => cleanup());
 
 const base = {
+  clocks: <div data-testid="clocks">clocks</div>,
   map: <div data-testid="map">map</div>,
   nextStop: { name: "Pilot, Dothan AL", milesAway: 42.3, badge: "Fuel" },
   upcoming: { arrow: "↱", instruction: "Turn right onto US-231", milesAway: 1.2 },

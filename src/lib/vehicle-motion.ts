@@ -22,7 +22,20 @@ export function classifyMotion(
   return speedMph > MOVING_MPH ? "moving" : "stopped";
 }
 
+/**
+ * A stop must hold this long before anything unlocks: a lull at 3 mph in
+ * traffic, or creeping between 4 and 6 mph, must not flip the screen
+ * back and forth or hand over the fuller controls.
+ */
+export const STOP_SETTLE_MS = 10_000;
+
 /** Fail closed: only a positive "stopped" unlocks the fuller screen. */
 export function isRestricted(state: MotionState): boolean {
   return state !== "stopped";
+}
+
+/** "stopped" counts only once it has held for STOP_SETTLE_MS; before that it is still restricted. */
+export function settleMotion(state: MotionState, stoppedForMs: number | null): MotionState {
+  if (state !== "stopped") return state;
+  return stoppedForMs !== null && stoppedForMs >= STOP_SETTLE_MS ? "stopped" : "moving";
 }

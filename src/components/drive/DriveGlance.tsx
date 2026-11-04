@@ -25,6 +25,8 @@ export interface GlanceManeuver {
 
 interface Props {
   map: ReactNode;
+  /** HOS clocks riding with the route (read-only strip). */
+  clocks: ReactNode;
   nextStop: GlanceStop | null;
   upcoming: GlanceManeuver | null;
   driveLeftText: string | null;
@@ -37,6 +39,7 @@ interface Props {
 
 export default function DriveGlance({
   map,
+  clocks,
   nextStop,
   upcoming,
   driveLeftText,
@@ -75,6 +78,7 @@ export default function DriveGlance({
           </p>
         )}
         <div aria-label="Live map">{map}</div>
+        {clocks}
         {nextStop ? (
           <>
             <p style={{ fontSize: "1.1rem", opacity: 0.85, margin: 0 }}>Next stop</p>

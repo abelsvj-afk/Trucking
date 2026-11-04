@@ -31,7 +31,11 @@ export default function WordReveal({
   const words = text.split(/\s+/).filter(Boolean);
 
   return (
-    <span className={className} aria-label={text}>
+    <span className={className}>
+      {/* The whole text stays readable to assistive tech; the animated
+          words are decoration (an aria-label on a plain span is ignored
+          by many screen readers, which would have read nothing). */}
+      <span className="visually-hidden">{text}</span>
       {words.map((word, i) => (
         <motion.span
           key={`${i}-${word}`}

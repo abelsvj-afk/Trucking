@@ -47,8 +47,10 @@ import {
   type DriveSession,
 } from "@/lib/drive";
 import { browserSpeaker, type Speaker } from "@/lib/drive-speech";
-import { classifyMotion, isRestricted } from "@/lib/vehicle-motion";
+import { classifyMotion, isRestricted, settleMotion } from "@/lib/vehicle-motion";
 import DriveGlance from "@/components/drive/DriveGlance";
+import DriveClocks from "@/components/drive/DriveClocks";
+import DriveStatusPrompt from "@/components/drive/DriveStatusPrompt";
 import { easternHour, formatMinutes } from "@/lib/smart-path";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -402,7 +404,13 @@ export default function DrivePage() {
   // Fail closed (lib/vehicle-motion.ts): the fuller screen needs a
   // POSITIVE "stopped" from a fresh fix. Moving, no speed, a stale fix -
   // all stay on the moving surface.
-  const motion = classifyMotion(speedMph, lastFix ? (nowMs || lastFix.atMs) - lastFix.atMs : null);
+  // A stop must also have HELD for a few seconds (settleMotion) before the
+  // fuller screen is allowed - a lull in traffic is not "parked".
+  const nowForMotion = nowMs || lastFix?.atMs || 0;
+  const motion = settleMotion(
+    classifyMotion(speedMph, lastFix ? nowForMotion - lastFix.atMs : null),
+    session?.stoppedSinceMs != null ? nowForMotion - session.stoppedSinceMs : null,
+  );
   const rolling = mode === "rolling" && isRestricted(motion) && DRIVE_SETTINGS.rollingSurface === "glance";
   const nextStop =
     plan && session && session.nextStopIndex < plan.stops.length
@@ -565,6 +573,8 @@ export default function DrivePage() {
               GO
             </button>
           )}
+          <DriveClocks />
+          <DriveStatusPrompt offer={["driving"]} />
         </section>
       )}
 
@@ -636,6 +646,7 @@ export default function DrivePage() {
                   {upcoming.maneuver.instruction} — {upcoming.milesAway.toFixed(1)} mi
                 </p>
               )}
+              <DriveClocks />
               {projection ? (
                 <p>
                   Drive time left: {formatMinutes(Math.max(0, Math.round(projection.driveLeftMin)))} (projection
@@ -687,6 +698,8 @@ export default function DrivePage() {
           {mode === "parked" && (
             <section aria-label="Parked">
               <h2>Parked</h2>
+              <DriveClocks />
+              <DriveStatusPrompt offer={["off_duty", "on_duty"]} />
               {(
                 <>
                   <ol>
@@ -728,6 +741,7 @@ export default function DrivePage() {
 
           {rolling && (
             <DriveGlance
+              clocks={<DriveClocks dark />}
               map={
                 <DriveMap
                   geometry={mapGeometry}
@@ -777,6 +791,7 @@ export default function DrivePage() {
         <section aria-label="Run ended">
           <h2>Run ended</h2>
           <p>The run is closed and its checkpoint cleared.</p>
+          <DriveStatusPrompt offer={["off_duty", "on_duty"]} />
           {finalReview.length > 0 && (
             <>
               <h3>How the day went</h3>

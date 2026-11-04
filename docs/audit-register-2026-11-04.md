@@ -16,14 +16,15 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] A4 UX-01 Home status buttons / Day log / Paper log locked while moving; unknown speed asks "I'm parked" (`StoppedGate`).
 - [ ] A5 **OWNER/KING:** delete public branch `visual-audit-2026-11-04` and have GitHub purge commit `cf356393` (14 real-data screenshots were downloadable without login). Claude's delete was blocked by the sandbox.
 - [ ] A6 Motion gate on the remaining forms/pages (HUD + Drive covered; the rest of the app is not).
+- [x] A7 Self-audit find: a lull at 3 mph unlocked the fuller screen instantly — a stop must now HOLD 10 s (`settleMotion`, Drive + Home hook), tests prove a lull/creep doesn't unlock.
 
 ## B. Correctness
 - [x] B1 One server-side HOS read (carrier cycle) for Abel, context, paper-log line, Smart Path (King D-1).
 - [x] B2 Migration 00052 byte-identical to main (King D-3).
 - [x] B3 Telegram paper-log approval prompt names flagged stretches (owner naming condition).
-- [ ] B4 UX-02 Home's "Your next step" HOS summary uses the full carrier window, not 200 rows + the old summary.
+- [x] B4 UX-02 — Home reads `useHosWindow` (full carrier window) + the cycle warning; test `HomeNextStep.test.tsx` proves no 200-row duty-logs request Home's "Your next step" HOS summary uses the full carrier window, not 200 rows + the old summary.
 - [x] B5 UX-06 Day Wrap failure is visible, with retry.
-- [ ] B6 Duty-status location: use GPS position when granted (typed fallback).
+- [x] B6 Duty-status location — `StatusSheet` "Use my GPS position" (coordinates + accuracy; typed fallback) — `PositionAndGps.test.tsx`: use GPS position when granted (typed fallback).
 - [ ] B7 Telegram paper-log: a dropped/missing mid-day span is still covered by the previous status on approval — **needs owner/King ruling** (by-word fill vs stop-at-gap).
 - [ ] B8 Day graph positions on 23/25-hour DST days (known limit; edit-panel times are exact).
 - [ ] B9 Live two-company proof (NV-3) against the real Supabase project — **King**.
@@ -33,15 +34,15 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] C1 HUD first on Home: status, time-in-status, four live rings, status buttons.
 - [x] C2 Live Home: Day Wrap and news banner follow the live layer.
 - [x] C3 UX-07 Home order: HUD → banner → next step → active plan → day wrap.
-- [ ] C4 Active-load card on Home (route, dates, rate as operational revenue, miles, status).
-- [ ] C5 UX-04 Live GPS position card on Home (only when a recent fix exists; honest about accuracy/age).
-- [ ] C6 UX-08 Number animation on Home money figures (reduced-motion safe).
-- [ ] C7 UX-09 News headline word-reveal transition (reduced-motion safe).
-- [ ] C8 UX-05 Image-led news: **design written; build needs the owner's OK on the image source + a safe image proxy** (see `docs/design/news-banner-images.md`).
+- [x] C4 Active-load card — `ActiveLoadCard` + `lib/active-load.ts`; rate worded as operational revenue; overdue asks, never assumes on Home (route, dates, rate as operational revenue, miles, status).
+- [x] C5 UX-04 Live GPS position card — `HomePositionCard`, only with a fresh fix (<60 s), says phone GPS ± accuracy/age on Home (only when a recent fix exists; honest about accuracy/age).
+- [x] C6 UX-08 — `NumberTicker` on Home money figures Number animation on Home money figures (reduced-motion safe).
+- [x] C7 UX-09 — `WordReveal` on the banner headline; also fixed WordReveal's screen-reader bug (aria-label on a span) News headline word-reveal transition (reduced-motion safe).
+- [ ] C8 UX-05 Image-led news: **design written (`news-banner-images.md`); build needs the owner's OK on the image source + a safe image proxy** (see `docs/design/news-banner-images.md`).
 
 ## D. Drive Mode
-- [ ] D1 UX-03 HOS clocks alongside the route (compact strip on the moving surface and the full screen).
-- [ ] D2 Status prompt (never automatic): offer "Log Driving" at GO, "Off/On duty" when parked/ended.
+- [x] D1 UX-03 — `DriveClocks` on the moving surface, full Drive screen and preview HOS clocks alongside the route (compact strip on the moving surface and the full screen).
+- [x] D2 Status prompt — `DriveStatusPrompt` offers, never books; behind the motion gate (never automatic): offer "Log Driving" at GO, "Off/On duty" when parked/ended.
 - [ ] D3 Background GPS (Drive is foreground-only) — product decision; documented.
 - [ ] D4 Rerouting (Drive follows a checked plan, never replans) — product decision; documented.
 - [ ] D5 Spoken maneuver instructions — unverified; investigate.
@@ -49,7 +50,7 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 ## E. Process and records
 - [x] E1 PROJECT_STATE.md reconciled with main's actual history.
 - [x] E2 HUD spec status updated (was DRAFT).
-- [ ] E3 `docs/design/driver-usability.md` (the missing consolidated design).
+- [x] E3 — `docs/design/driver-usability.md` `docs/design/driver-usability.md` (the missing consolidated design).
 - [ ] E4 UX-10 Visual audit covers 14 of 62 pages — **King** captures the rest after deploy (Drive, forms, details, HUD/day view/paper-log, banner states).
 - [ ] E5 Maintainability: decompose `drive.ts` (1018), Drive page, `photo-purpose.ts` (1031), `globals.css` (~2,200).
 - [ ] E6 Self-audit of this cycle's work (pitfall hunt, regression tests proven to fail on the bug).

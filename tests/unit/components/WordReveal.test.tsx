@@ -33,16 +33,21 @@ beforeEach(() => {
 });
 
 describe("WordReveal", () => {
-  it("renders every word of the headline", () => {
+  it("renders every word of the headline as an animated word", () => {
     const { container } = render(<WordReveal text={HEADLINE} />);
-    const spans = container.querySelectorAll(".word-reveal-word");
+    const spans = Array.from(container.querySelectorAll(".word-reveal-word"));
     expect(spans.length).toBe(HEADLINE.split(" ").length);
-    expect(container.textContent?.replace(/\s+/g, " ").trim()).toBe(HEADLINE);
+    expect(spans.map((s) => s.textContent?.trim()).join(" ")).toBe(HEADLINE);
   });
 
-  it("exposes the whole headline as one accessible label", () => {
+  it("keeps the whole headline readable to assistive tech; the animated words are decoration", () => {
     const { container } = render(<WordReveal text={HEADLINE} />);
-    expect(container.querySelector("[aria-label]")?.getAttribute("aria-label")).toBe(HEADLINE);
+    // A real text node holds the full headline (an aria-label on a plain
+    // span is ignored by many screen readers - the old structure read nothing).
+    expect(container.querySelector(".visually-hidden")?.textContent).toBe(HEADLINE);
+    for (const word of Array.from(container.querySelectorAll(".word-reveal-word"))) {
+      expect(word.getAttribute("aria-hidden")).toBe("true");
+    }
   });
 
   it("under reduced motion renders the plain headline with no word spans", () => {

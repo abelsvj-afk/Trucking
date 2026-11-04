@@ -13,7 +13,8 @@ import Link from "next/link";
 import { computeHudClocks, formatClock } from "@/lib/hud-clocks";
 import Sheet from "@/components/Sheet";
 import StoppedGate from "./StoppedGate";
-import { useVehicleMotion } from "@/lib/use-vehicle-motion";
+import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
+import HomePositionCard from "./HomePositionCard";
 import DayLog from "./DayLog";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useNowTick } from "@/lib/use-now-tick";
@@ -31,7 +32,7 @@ export default function DutyHud() {
   const nowMs = useNowTick();
   // Driving safety (docs/design/driver-hud.md §5): changing or editing
   // needs a positive "stopped"; unknown speed asks first, never assumes.
-  const motion = useVehicleMotion();
+  const { state: motion, position } = useVehicleMotionDetail();
   const [picked, setPicked] = useState<DutyStatus | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState(false);
@@ -136,6 +137,7 @@ export default function DutyHud() {
             <StatusSheet
               key={picked}
               status={picked}
+              gps={position}
               onCancel={() => setPicked(null)}
               onSaved={(queued) => {
                 setPicked(null);
@@ -150,6 +152,8 @@ export default function DutyHud() {
           </StoppedGate>
         </Sheet>
       )}
+
+      <HomePositionCard position={position} />
 
       <p className="hud-links">
         <button

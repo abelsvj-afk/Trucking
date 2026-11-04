@@ -2283,3 +2283,30 @@ nav[aria-label="Primary"] a span {
   min-height: 56px;
   font-weight: 700;
 }
+
+/* --- Home owner-operator cards (docs/design/driver-usability.md §2) --- */
+.active-load-route {
+  margin: 0.25rem 0;
+  font-size: 1.15rem;
+  line-height: 1.35;
+}
+
+.active-load .page-action {
+  margin-top: 0.5rem;
+}
+
+.home-position {
+  margin: 0.75rem 0;
+}
+
+.home-position .row-sub {
+  margin-top: 0.35rem;
+}
+
+.drive-status-prompt {
+  margin: 0.75rem 0;
+}
+
+.drive-status-prompt button {
+  min-height: 56px;
+}

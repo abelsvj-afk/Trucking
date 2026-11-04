@@ -30,12 +30,14 @@ export function isAfterTheFact(startedAtMs: number, nowMs: number): boolean {
 }
 
 interface Props {
+  /** The phone's latest GPS fix, if any: offers "Use my GPS position" (typed location stays the fallback). */
+  gps?: { lat: number; lng: number; accuracyM: number; atMs: number } | null;
   status: DutyStatus;
   onCancel: () => void;
   onSaved: (queuedOffline: boolean) => void;
 }
 
-export default function StatusSheet({ status, onCancel, onSaved }: Props) {
+export default function StatusSheet({ status, gps = null, onCancel, onSaved }: Props) {
   // Fresh id per opened sheet: one tap-and-save = one idempotent write.
   const [submissionId] = useState(() => crypto.randomUUID());
   const nowMs = useNowTick(1000);
@@ -101,6 +103,14 @@ export default function StatusSheet({ status, onCancel, onSaved }: Props) {
       )}
       <label htmlFor="hud-location">Where (city, state, or mile marker)</label>
       <input id="hud-location" value={location} onChange={(event) => setLocation(event.target.value)} />
+      {gps && nowMs - gps.atMs <= 60_000 && (
+        <button
+          type="button"
+          onClick={() => setLocation(`GPS ${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)} (±${Math.round(gps.accuracyM)} m)`)}
+        >
+          Use my GPS position
+        </button>
+      )}
       <label htmlFor="hud-notes">Note (optional)</label>
       <input id="hud-notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
       {error && <p role="alert">{error}</p>}

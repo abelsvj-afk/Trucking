@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyMotion, isRestricted, FIX_STALE_MS, MOVING_MPH } from "@/lib/vehicle-motion";
+import { classifyMotion, isRestricted, settleMotion, FIX_STALE_MS, MOVING_MPH, STOP_SETTLE_MS } from "@/lib/vehicle-motion";
 
 describe("classifyMotion - unknown never unlocks anything", () => {
   it("a fresh reading above the threshold is moving; at or below is stopped", () => {
@@ -25,5 +25,21 @@ describe("classifyMotion - unknown never unlocks anything", () => {
     expect(isRestricted("stopped")).toBe(false);
     expect(isRestricted("moving")).toBe(true);
     expect(isRestricted("unknown")).toBe(true);
+  });
+});
+
+describe("settleMotion - a lull in traffic is not 'parked'", () => {
+  it("a stop counts only after it has held for the settle time; until then it is still restricted", () => {
+    expect(settleMotion("stopped", 0)).toBe("moving");
+    expect(settleMotion("stopped", STOP_SETTLE_MS - 1)).toBe("moving");
+    expect(settleMotion("stopped", STOP_SETTLE_MS)).toBe("stopped");
+    expect(isRestricted(settleMotion("stopped", 3_000))).toBe(true);
+  });
+  it("no stop timer at all keeps it restricted", () => {
+    expect(settleMotion("stopped", null)).toBe("moving");
+  });
+  it("moving and unknown pass through unchanged - settling can only ever make it stricter", () => {
+    expect(settleMotion("moving", 99_999)).toBe("moving");
+    expect(settleMotion("unknown", 99_999)).toBe("unknown");
   });
 });
