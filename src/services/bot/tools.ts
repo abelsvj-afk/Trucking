@@ -14,6 +14,7 @@
 // result - the loop's grounding guard holds the final reply to
 // figures that appear here or in the code-assembled context.
 
+import { fuelFieldsFromReceipt } from "./fuel-receipt";
 import { z } from "zod";
 import { summarizeHos } from "@/lib/hos";
 import type { AgentTool } from "@/services/ai/agent-loop";
@@ -389,14 +390,15 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           );
         }
         const totalCents = Math.round(parsed.total_dollars * 100);
+        // Unit C: the receipt total is kept exactly and the stored row
+        // satisfies the derived-total invariant (services/bot/fuel-receipt.ts).
+        const money = fuelFieldsFromReceipt(parsed.gallons, totalCents);
         const baseRow: Record<string, unknown> = {
           company_id: companyId,
           truck_id: truck.id,
           location: parsed.location ?? null,
           state: parsed.state?.toUpperCase() ?? null,
-          gallons: parsed.gallons,
-          price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
-          total_cost_cents: totalCents,
+          ...money,
           purchased_at: parsed.purchased_at ?? new Date().toISOString(),
         };
         // The odometer column arrives with migration 00045 - only

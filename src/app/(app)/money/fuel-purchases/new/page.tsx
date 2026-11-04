@@ -1,8 +1,16 @@
 "use client";
 
 // Task 3.8 (TASKS.md). Same dollar/gallon-to-cents UX pattern as
-// money/expenses/new/page.tsx - gallons and price-per-gallon are entered
-// directly, total cost in dollars and converted to cents on submit.
+// money/expenses/new/page.tsx - gallons and price-per-gallon are
+// entered directly.
+//
+// Reliability Unit C (design C.4, ruling D-04): there is no total
+// field to type into anymore. The total is DERIVED - gallons x price
+// per gallon, computed live below with the same integer math the API
+// and the database use (lib/fuel-math.ts) - plus an optional
+// adjustment with a reason for genuine receipt differences (taxes,
+// discounts, rebates). The form submits gallons/price/adjustment
+// only; the server derives and stores the total.
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -12,7 +20,12 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import { deriveFuelTotal } from "@/lib/fuel-math";
 import type { FuelPurchase, Truck } from "@/types/entities";
+
+function formatDollars(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 export default function NewFuelPurchasePage() {
   usePageTitle("Add fuel purchase");
@@ -21,7 +34,8 @@ export default function NewFuelPurchasePage() {
   const [location, setLocation] = useState("");
   const [gallons, setGallons] = useState("");
   const [pricePerGallonDollars, setPricePerGallonDollars] = useState("");
-  const [totalCostDollars, setTotalCostDollars] = useState("");
+  const [adjustmentDollars, setAdjustmentDollars] = useState("");
+  const [adjustmentReason, setAdjustmentReason] = useState("");
   const [purchasedAt, setPurchasedAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -30,6 +44,16 @@ export default function NewFuelPurchasePage() {
   const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
+
+  const gallonsValue = parseFloat(gallons || "0");
+  const priceCents = Math.round(parseFloat(pricePerGallonDollars || "0") * 100);
+  const adjustmentCents = Math.round(parseFloat(adjustmentDollars || "0") * 100);
+  let derived: ReturnType<typeof deriveFuelTotal> | null = null;
+  try {
+    if (gallonsValue > 0) derived = deriveFuelTotal(gallonsValue, priceCents, adjustmentCents);
+  } catch {
+    derived = null; // precision the contract refuses - the API will say so
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,9 +64,11 @@ export default function NewFuelPurchasePage() {
       submission_id: submissionId,
       truck_id: truckId,
       location: location || undefined,
-      gallons: parseFloat(gallons || "0"),
-      price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
-      total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
+      gallons: gallonsValue,
+      price_per_gallon_cents: priceCents,
+      ...(adjustmentCents !== 0
+        ? { adjustment_cents: adjustmentCents, adjustment_reason: adjustmentReason || undefined }
+        : {}),
       purchased_at: purchasedAt,
     };
     try {
@@ -64,7 +90,7 @@ export default function NewFuelPurchasePage() {
 
   return (
     <div>
-      <PageHeader title="Add fuel purchase" purpose="Gallons, total, and where — thirty seconds now is your cost per mile later." />
+      <PageHeader title="Add fuel purchase" purpose="Gallons, price, and where — the total figures itself out. Thirty seconds now is your cost per mile later." />
       <form onSubmit={handleSubmit}>
         <label htmlFor="truck_id">Truck</label>
         <select
@@ -106,16 +132,34 @@ export default function NewFuelPurchasePage() {
           required
         />
 
-        <label htmlFor="total_cost">Total cost ($)</label>
+        <label htmlFor="adjustment">Adjustment ($) — only if the receipt total differs</label>
         <input
-          id="total_cost"
+          id="adjustment"
           type="number"
           step="0.01"
-          min="0"
-          value={totalCostDollars}
-          onChange={(event) => setTotalCostDollars(event.target.value)}
-          required
+          value={adjustmentDollars}
+          onChange={(event) => setAdjustmentDollars(event.target.value)}
         />
+
+        {adjustmentCents !== 0 && (
+          <>
+            <label htmlFor="adjustment_reason">Adjustment reason (required)</label>
+            <input
+              id="adjustment_reason"
+              value={adjustmentReason}
+              onChange={(event) => setAdjustmentReason(event.target.value)}
+              required
+            />
+          </>
+        )}
+
+        <p aria-live="polite">
+          {derived
+            ? `Base ${formatDollars(derived.baseCents)}${
+                adjustmentCents !== 0 ? ` · adjustment ${formatDollars(adjustmentCents)}` : ""
+              } · Total ${formatDollars(derived.totalCents)}`
+            : "Total is calculated from gallons and price."}
+        </p>
 
         <label htmlFor="purchased_at">Date</label>
         <input

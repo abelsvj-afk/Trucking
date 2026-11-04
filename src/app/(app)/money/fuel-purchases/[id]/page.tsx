@@ -16,6 +16,7 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatDollars } from "@/lib/truck-fund";
 import { formatDate } from "@/lib/time";
+import { deriveFuelTotal } from "@/lib/fuel-math";
 import type { FuelPurchase, Truck } from "@/types/entities";
 
 export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -74,6 +75,21 @@ export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ i
           <dd>{purchase.gallons}</dd>
           <dt>Price per gallon</dt>
           <dd>{formatDollars(purchase.price_per_gallon_cents)}/gal</dd>
+          <dt>Computed base</dt>
+          <dd>
+            {formatDollars(
+              deriveFuelTotal(purchase.gallons, purchase.price_per_gallon_cents).baseCents,
+            )}
+          </dd>
+          {purchase.adjustment_cents !== 0 && (
+            <>
+              <dt>Adjustment</dt>
+              <dd>
+                {formatDollars(purchase.adjustment_cents)}
+                {purchase.adjustment_reason ? ` — ${purchase.adjustment_reason}` : ""}
+              </dd>
+            </>
+          )}
           <dt>Total cost</dt>
           <dd>{formatDollars(purchase.total_cost_cents)}</dd>
           <dt>Date</dt>
@@ -118,7 +134,13 @@ function FuelPurchaseEditForm({
   const [pricePerGallonDollars, setPricePerGallonDollars] = useState(
     (purchase.price_per_gallon_cents / 100).toString(),
   );
-  const [totalCostDollars, setTotalCostDollars] = useState((purchase.total_cost_cents / 100).toString());
+  // Unit C (D-04): no free total field - the total re-derives from
+  // gallons/price/adjustment on save; the adjustment is the only
+  // editable part of the difference.
+  const [adjustmentDollars, setAdjustmentDollars] = useState(
+    (purchase.adjustment_cents / 100).toString(),
+  );
+  const [adjustmentReason, setAdjustmentReason] = useState(purchase.adjustment_reason ?? "");
   const [purchasedAt, setPurchasedAt] = useState(purchase.purchased_at.slice(0, 10));
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
@@ -126,6 +148,18 @@ function FuelPurchaseEditForm({
   const [submitting, setSubmitting] = useState(false);
 
   const trucks = usePickerList<Truck>("trucks");
+
+  const editGallonsValue = parseFloat(gallons || "0");
+  const editPriceCents = Math.round(parseFloat(pricePerGallonDollars || "0") * 100);
+  const editAdjustmentCents = Math.round(parseFloat(adjustmentDollars || "0") * 100);
+  let editDerived: ReturnType<typeof deriveFuelTotal> | null = null;
+  try {
+    if (editGallonsValue > 0) {
+      editDerived = deriveFuelTotal(editGallonsValue, editPriceCents, editAdjustmentCents);
+    }
+  } catch {
+    editDerived = null;
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,7 +173,8 @@ function FuelPurchaseEditForm({
         location: location || null,
         gallons: parseFloat(gallons || "0"),
         price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
-        total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
+        adjustment_cents: Math.round(parseFloat(adjustmentDollars || "0") * 100),
+        adjustment_reason: adjustmentReason || null,
         purchased_at: purchasedAt,
       });
       onSaved(updated);
@@ -200,16 +235,32 @@ function FuelPurchaseEditForm({
           required
         />
 
-        <label htmlFor="edit-total_cost">Total cost ($)</label>
+        <label htmlFor="edit-adjustment">Adjustment ($) — only if the receipt total differs</label>
         <input
-          id="edit-total_cost"
+          id="edit-adjustment"
           type="number"
           step="0.01"
-          min="0"
-          value={totalCostDollars}
-          onChange={(event) => setTotalCostDollars(event.target.value)}
-          required
+          value={adjustmentDollars}
+          onChange={(event) => setAdjustmentDollars(event.target.value)}
         />
+
+        {editAdjustmentCents !== 0 && (
+          <>
+            <label htmlFor="edit-adjustment_reason">Adjustment reason (required)</label>
+            <input
+              id="edit-adjustment_reason"
+              value={adjustmentReason}
+              onChange={(event) => setAdjustmentReason(event.target.value)}
+              required
+            />
+          </>
+        )}
+
+        <p aria-live="polite">
+          {editDerived
+            ? `Base ${formatDollars(editDerived.baseCents)} · Total ${formatDollars(editDerived.totalCents)} (calculated)`
+            : "Total is calculated from gallons and price."}
+        </p>
 
         <label htmlFor="edit-purchased_at">Date</label>
         <input

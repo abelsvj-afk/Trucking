@@ -11,6 +11,7 @@
 // and the built database row against the SAME Zod schemas the
 // UI/API use (src/data/schemas/*) before it is written.
 
+import { fuelFieldsFromReceipt } from "./fuel-receipt";
 import { z } from "zod";
 import type { AgentTool } from "@/services/ai/agent-loop";
 import type { BotBrainStore } from "./store";
@@ -399,17 +400,18 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       const { client, companyId } = store;
       const existing = await fetchLiveRow(client, "fuel_purchases", companyId, String(parsed.fuel_purchase_id), "fuel purchase");
       const patch: Row = {};
-      const totalCents =
-        parsed.total_dollars !== undefined
-          ? Math.round(Number(parsed.total_dollars) * 100)
-          : (existing.total_cost_cents as number);
-      const gallons = parsed.gallons !== undefined ? Number(parsed.gallons) : (existing.gallons as number);
-      if (parsed.total_dollars !== undefined) patch.total_cost_cents = totalCents;
-      if (parsed.gallons !== undefined) patch.gallons = gallons;
       if (parsed.total_dollars !== undefined || parsed.gallons !== undefined) {
-        patch.price_per_gallon_cents = Math.round(totalCents / gallons);
+        // Unit C: re-derive price + reasoned rounding adjustment so the
+        // row keeps the receipt total AND the 00043 invariant.
+        const totalCents =
+          parsed.total_dollars !== undefined
+            ? Math.round(Number(parsed.total_dollars) * 100)
+            : Number(existing.total_cost_cents);
+        const gallons = parsed.gallons !== undefined ? Number(parsed.gallons) : Number(existing.gallons);
+        Object.assign(patch, fuelFieldsFromReceipt(gallons, totalCents));
       }
       if (parsed.location !== undefined) patch.location = parsed.location;
+      if (parsed.state !== undefined) patch.state = String(parsed.state).toUpperCase();
       if (parsed.purchased_at !== undefined) patch.purchased_at = parsed.purchased_at;
       updateFuelPurchaseSchema.parse(patch);
       await patchLiveRow(client, "fuel_purchases", companyId, String(parsed.fuel_purchase_id), patch);

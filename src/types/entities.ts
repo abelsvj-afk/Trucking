@@ -242,6 +242,11 @@ export interface FuelPurchase extends BaseRow {
   gallons: number;
   price_per_gallon_cents: number;
   total_cost_cents: number;
+  // Unit C (D-04): the total is derived - base (gallons x price) plus
+  // this adjustment. A nonzero adjustment always carries its reason;
+  // rows backfilled by migration 00043 carry the legacy reason.
+  adjustment_cents: number;
+  adjustment_reason: string | null;
   purchased_at: string;
   /** Dash reading at this stop (migration 00045, §5.3). */
   odometer: number | null;

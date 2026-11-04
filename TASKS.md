@@ -216,4 +216,6 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [ ] Telegram-path paper-log defect: dropped/unreadable stretches absorbed into the previous status on approval; naive 8-day figure in its reply (see driver-hud.md §6). Needs King's ruling.
 - [x] Day-graph editing (b) built 2026-11-04 (branch `m3-hud-b`): day view on Hours, step through days, tap a stretch to change status / move start / add a change / delete (soft), carrier-clock times, paper re-mark reminder, entered-after-the-fact label.
 - [ ] Not yet built (spec §10): Telegram logging reminders (e), driving-speed input lockout and GPS map card (§5/§8).
-- [ ] Re-anchor the HUD/wave stack on main (main gained KR-1, KR-2 and Reliability Unit C on 2026-11-04 after this stack was cut from ff63fb5d).
+- [x] Re-anchored the HUD/wave stack on main `24391719` (KR-1, KR-2, Unit C, CLAUDE.md capability inventory) — branch `m4-reanchor`. Abel's two fuel write paths reconciled with Unit C's derived-total invariant (`services/bot/fuel-receipt.ts`).
+- [ ] **Owner request 2026-11-04:** HOS logging live and animated everywhere it appears (day view and list, not only the Home rings).
+- [ ] **Owner request 2026-11-04:** when he starts a route (Smart Path → Drive Mode), the HOS clocks and duty status run alongside the route, like an ELD's driving screen: glanceable rings on the Drive surface, automatic prompt (never automatic booking) to go Driving when GO is pressed and Off/On duty when the trip ends. Spec addition to driver-hud.md first.
