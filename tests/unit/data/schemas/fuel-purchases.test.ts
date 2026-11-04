@@ -48,6 +48,30 @@ describe("createFuelPurchaseSchema", () => {
   });
 });
 
+describe("createFuelPurchaseSchema - Unit C derived-total shape", () => {
+  it("accepts a purchase with no total at all (the server derives it)", () => {
+    const { total_cost_cents: _total, ...rest } = VALID;
+    expect(createFuelPurchaseSchema.safeParse(rest).success).toBe(true);
+  });
+
+  it("accepts an adjustment with its reason", () => {
+    expect(
+      createFuelPurchaseSchema.safeParse({
+        ...VALID,
+        total_cost_cents: 61393,
+        adjustment_cents: 15000,
+        adjustment_reason: "Receipt included taxes",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a fractional adjustment_cents", () => {
+    expect(
+      createFuelPurchaseSchema.safeParse({ ...VALID, adjustment_cents: 10.5 }).success,
+    ).toBe(false);
+  });
+});
+
 describe("updateFuelPurchaseSchema", () => {
   it("allows a partial update", () => {
     expect(updateFuelPurchaseSchema.safeParse({ gallons: 50 }).success).toBe(true);
