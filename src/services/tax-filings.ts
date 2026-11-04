@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildIftaWorksheet, quarterRange, type IftaWorksheet } from "@/lib/ifta";
 import { countPerDiemDays, type PerDiemCount } from "@/lib/per-diem";
+import { easternDate } from "@/lib/day-wrap";
 import type { DutyLog, Expense, FuelPurchase, Load } from "@/types/entities";
 
 export async function getIftaWorksheet(
@@ -17,13 +18,19 @@ export async function getIftaWorksheet(
   const windowFrom = new Date(Date.parse(`${from}T00:00:00Z`) - 2 * 86_400_000).toISOString();
   const windowTo = new Date(Date.parse(`${to}T00:00:00Z`) + 3 * 86_400_000).toISOString();
   const [fuelResult, loadsResult, logsResult] = await Promise.all([
+    // KR-2 (King review): fuel is fetched on the SAME generous
+    // window as the duty logs below — lib/ifta buckets every
+    // purchase by its America/New_York date, so exact UTC quarter
+    // bounds here silently dropped an ET-evening purchase on the
+    // quarter's last day (its UTC timestamp already sits in the
+    // next quarter) from a tax-facing worksheet.
     supabase
       .from("fuel_purchases")
       .select("*")
       .eq("company_id", companyId)
       .is("deleted_at", null)
-      .gte("purchased_at", `${from}T00:00:00Z`)
-      .lte("purchased_at", `${to}T23:59:59Z`),
+      .gte("purchased_at", windowFrom)
+      .lt("purchased_at", windowTo),
     supabase
       .from("loads")
       .select("*")
@@ -77,13 +84,18 @@ export async function getTaxPacket(
       .is("deleted_at", null)
       .gte("started_at", `${year - 1}-12-30T00:00:00Z`)
       .lt("started_at", `${year + 1}-01-03T00:00:00Z`),
+    // KR-2 (King review): generous window like the duty logs above;
+    // the year is decided in code by each purchase's ET date (the
+    // filter after the fetch), so an ET-evening Dec 31 purchase
+    // counts in the year it happened on his clock — the same rule
+    // the packet's per-diem count already uses.
     supabase
       .from("fuel_purchases")
       .select("*")
       .eq("company_id", companyId)
       .is("deleted_at", null)
-      .gte("purchased_at", `${from}T00:00:00Z`)
-      .lte("purchased_at", `${to}T23:59:59Z`),
+      .gte("purchased_at", `${year - 1}-12-30T00:00:00Z`)
+      .lt("purchased_at", `${year + 1}-01-03T00:00:00Z`),
     supabase
       .from("expenses")
       .select("*")
@@ -125,7 +137,9 @@ export async function getTaxPacket(
     // Table absent on this database — packet proceeds without it.
   }
 
-  const fuel = (fuelResult.data ?? []) as FuelPurchase[];
+  const fuel = ((fuelResult.data ?? []) as FuelPurchase[]).filter((f) =>
+    easternDate(new Date(f.purchased_at)).startsWith(`${year}-`),
+  );
   const expenses = (expensesResult.data ?? []) as Expense[];
   const loads = ((loadsResult.data ?? []) as Load[]).filter((l) => {
     const anchor = l.delivery_date ?? l.pickup_date;
