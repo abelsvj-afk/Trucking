@@ -1,134 +1,108 @@
-// Computed, read-only endpoint per docs/api-contracts.md - not backed by
-// a table, so this doesn't use createCrudRoutes. Revenue draws from
-// confirmed/completed, non-deleted loads; expenses/fuel/maintenance are
-// summed separately so the client can show a breakdown, not just a net
-// figure.
+// GET /api/v1/financial-summary (Reliability Unit C - design C.2/C.3,
+// findings F-008/F-010/F-033, ruling D-01).
 //
-// All four source tables are fetched (date-filtered where the column is a
-// plain `date`) and summed in application code rather than with a SQL
-// aggregate - reasonable at this project's single-company MVP scale,
-// matching the "no caching yet, revisit only if it's actually slow" stance
-// docs/schemas.md already takes for this same endpoint.
+// Revenue is OPERATIONAL LOAD REVENUE RECOGNIZED ON DELIVERY: a load
+// counts when it is completed AND has a delivery_date, in the
+// viewer-local month of that date. It is not cash received, not
+// settled revenue, and not a tax figure - this system holds no invoice
+// or settlement records, and no surface may word it as any of those
+// (the C.3 labeling rule). Draft/confirmed loads are pipeline, shown
+// separately and never added to revenue or net; completed loads with
+// no delivery date are a surfaced exception, never silently dropped;
+// cancelled loads are in neither figure.
+//
+// Every number comes from ONE database snapshot: the reads run inside
+// a dedicated direct-connection transaction whose first statement is
+// BEGIN ISOLATION LEVEL REPEATABLE READ, with the caller's RLS context
+// re-established from the verified session (services/financial-
+// summary/snapshot.ts). Totals are computed by SQL inside the
+// snapshot and carry their row counts and record IDs; the in-snapshot
+// count assertion must hold, or the answer is the visible
+// SUMMARY_UNVERIFIED state - never a partial or blended total.
+//
+// Superseded here (kept honest in the design record): the previous
+// implementation fetched the four tables through PostgREST and summed
+// in application code with a pickup-date fallback - no snapshot, no
+// counts, silent truncation exposure (F-033) and revenue attributed
+// to the wrong month and the wrong event (F-008).
 
 import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
-import { validationError } from "@/services/api/errors";
-import { createClient } from "@/services/db/server";
+import { ApiError, validationError } from "@/services/api/errors";
 import { resolveViewerTimeZone } from "@/lib/time";
+import {
+  componentWindow,
+  isDateString,
+  monthRangeInZone,
+  type SummaryRange,
+} from "@/services/financial-summary/filter";
+import {
+  readSummarySnapshot,
+  runSummarySnapshot,
+  SummaryUnverifiedError,
+} from "@/services/financial-summary/snapshot";
+import { computeSummaryMeasures } from "@/services/financial-summary/summary";
+import { REVENUE_CONVENTION } from "@/types/financial-summary";
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function currentMonthRange(): { from: string; to: string } {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
-  return {
-    from: new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10),
-    to: new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10),
-  };
-}
-
-// purchased_at is a timestamptz, not a plain date - comparing it with
-// lte(to) would mean "midnight on `to`", silently excluding purchases made
-// later that day. Using an exclusive upper bound of the day after `to`
-// includes the whole day regardless of time-of-day.
-function dayAfter(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function sumCents<K extends string>(rows: Record<K, number | null>[], field: K): number {
-  return rows.reduce((total, row) => total + (row[field] ?? 0), 0);
-}
-
-export const GET = createApiHandler(async (req) => {
+export const GET = createApiHandler(async (req, ctx) => {
   const url = new URL(req.url);
   const fromParam = url.searchParams.get("from");
   const toParam = url.searchParams.get("to");
-  // Reliability Unit B (B.2.1): the client carries the viewer's
-  // timezone; an absent or invalid value falls back to
-  // America/New_York, and the zone in force is REPORTED in the
-  // response either way - never silently assumed. NOTE: the period
-  // bounds themselves are still derived in UTC below; converting the
-  // shared month definition to the viewer's zone is Unit C's C1 work
-  // (the design assigns the shared month helper there), and this
-  // plumbing is what that change will consume.
+  // Unit B's plumbing, now consumed: the client carries the viewer's
+  // zone; absent/invalid falls back to America/New_York, reported in
+  // the response; the period bounds are computed in this zone (C1).
   const { timeZone } = resolveViewerTimeZone(url.searchParams.get("tz"));
 
-  let from: string;
-  let to: string;
+  let range: SummaryRange;
   if (fromParam && toParam) {
-    if (!DATE_RE.test(fromParam) || !DATE_RE.test(toParam)) {
+    if (!isDateString(fromParam) || !isDateString(toParam)) {
       throw validationError("from and to must be dates in YYYY-MM-DD format.");
     }
     if (fromParam > toParam) throw validationError("from must not be after to.");
-    from = fromParam;
-    to = toParam;
+    range = { from: fromParam, to: toParam };
+  } else if (fromParam || toParam) {
+    throw validationError("from and to must be provided together.");
   } else {
-    ({ from, to } = currentMonthRange());
+    range = monthRangeInZone(timeZone, Date.now());
   }
 
-  const supabase = await createClient();
+  const window = componentWindow(range, timeZone);
 
-  const [loadsResult, expensesResult, fuelResult, maintenanceResult] = await Promise.all([
-    supabase
-      .from("loads")
-      .select("rate_cents, pickup_date, delivery_date")
-      .in("status", ["confirmed", "completed"])
-      .is("deleted_at", null),
-    supabase
-      .from("expenses")
-      .select("amount_cents")
-      .is("deleted_at", null)
-      .gte("expense_date", from)
-      .lte("expense_date", to),
-    supabase
-      .from("fuel_purchases")
-      .select("total_cost_cents")
-      .is("deleted_at", null)
-      .gte("purchased_at", from)
-      .lt("purchased_at", dayAfter(to)),
-    supabase
-      .from("maintenance_events")
-      .select("cost_cents")
-      .is("deleted_at", null)
-      .gte("service_date", from)
-      .lte("service_date", to),
-  ]);
-
-  for (const result of [loadsResult, expensesResult, fuelResult, maintenanceResult]) {
-    if (result.error) throw new Error(result.error.message);
+  let data;
+  try {
+    data = await runSummarySnapshot(ctx.auth, (q) => readSummarySnapshot(q, window));
+  } catch (err) {
+    if (err instanceof SummaryUnverifiedError) {
+      throw new ApiError(
+        503,
+        "SUMMARY_UNVERIFIED",
+        "Summary couldn't be verified — the totals did not check out inside a single snapshot, so nothing is shown rather than a wrong number. Try again.",
+      );
+    }
+    throw err;
   }
 
-  const loadsInRange = (
-    (loadsResult.data ?? []) as { rate_cents: number | null; pickup_date: string | null; delivery_date: string | null }[]
-  ).filter((load) => {
-    const effectiveDate = load.delivery_date ?? load.pickup_date;
-    return effectiveDate != null && effectiveDate >= from && effectiveDate <= to;
-  });
-
-  const revenue_cents = sumCents(loadsInRange, "rate_cents");
-  const expenses_cents = sumCents(
-    (expensesResult.data ?? []) as { amount_cents: number | null }[],
-    "amount_cents",
-  );
-  const fuel_cents = sumCents(
-    (fuelResult.data ?? []) as { total_cost_cents: number | null }[],
-    "total_cost_cents",
-  );
-  const maintenance_cents = sumCents(
-    (maintenanceResult.data ?? []) as { cost_cents: number | null }[],
-    "cost_cents",
-  );
+  const measures = computeSummaryMeasures(data, range);
+  const { revenue, expenses, fuel, maintenance } = data.components;
 
   return NextResponse.json({
-    range: { from, to },
+    range,
     timeZone,
-    revenue_cents,
-    expenses_cents,
-    fuel_cents,
-    maintenance_cents,
-    net_cents: revenue_cents - expenses_cents - fuel_cents - maintenance_cents,
+    revenueConvention: REVENUE_CONVENTION,
+    revenue_cents: revenue.total_cents,
+    expenses_cents: expenses.total_cents,
+    fuel_cents: fuel.total_cents,
+    maintenance_cents: maintenance.total_cents,
+    net_cents: measures.periodOperatingResultCents,
+    components: data.components,
+    pipeline: data.pipeline,
+    exceptions: {
+      completedMissingDeliveryDate: data.completedMissingDeliveryDate,
+    },
+    measures: {
+      recognizedRevenue: measures.recognizedRevenueCents,
+      periodOperatingResult: measures.periodOperatingResultCents,
+      aggregateContributionMargin: measures.aggregateContributionMarginCents,
+    },
   });
 });
