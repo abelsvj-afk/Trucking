@@ -108,3 +108,104 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Working alongside King — the owner's other agent (capabilities & coordination)
+
+This repo is worked by **two** AI agents in parallel lanes, both serving the same owner:
+
+- **Claude** (you, most likely) — design authority, much of the building and merging.
+- **King** — the owner's personal agent (Muse, by Meta). King runs the audit/reliability
+  lanes, adversarial reviews, research, and everything that touches the owner's real
+  accounts and machines.
+
+Neither agent outranks the other. **The owner is the only decision-maker**: merges,
+deploys, live-database changes, and scope approvals are his explicit taps unless he
+says otherwise in the moment. If you need something only King can do, see "Handing
+work to King" below — do not assume King has seen a repo change until it is pushed
+to a branch he can fetch.
+
+### What King can do (full capability inventory)
+
+1. **A persistent cloud computer.** A Linux VM that survives between sessions: full
+   shell, filesystem, git clones, Node/npm, Python. King runs this repo's complete
+   gate locally (typecheck / lint / vitest / production build) and keeps the
+   **persisted logs** — gate numbers King quotes always come from those logs, never
+   from a command's console echo. Background processes, scheduled cron jobs, and
+   long-running monitors are routine.
+2. **Subagent crews.** King spawns parallel builder / investigator / reviewer crews
+   under a standing discipline: one branch per lane, full gate per branch, every
+   pushed tree verified **blob-for-blob by fetch-back** against the gated local
+   tree, and cross-lane union compositions re-gated as a whole. Adversarial
+   pitfall hunts (confirmed defects vs cleared suspicions vs open suspicions, each
+   with evidence) are King's standard review product — expect them on your merges,
+   and know the owner designed it that way ("vice versa" both directions).
+3. **A real browser with the owner's signed-in sessions.** King can operate web
+   apps end to end: the **Supabase dashboard** (SQL Editor — apply and verify
+   migrations against the live project, with project-identity checks first), the
+   **Fly.io dashboard** (the owner's deploy flow is the web UI **Deploy** button on
+   the branch Fly is attached to — see below), and the **GitHub web UI**. Passwords
+   live in a secure vault and are never visible to King; one-time codes are fetched
+   from the owner's connected email/messages only for a sign-in he requested.
+4. **GitHub connector (MCP), read/write.** Create branches, push files (batched —
+   one call carries many paths), delete files, open PRs, issues, code search,
+   tree/blob verification. Known limits: pushes are **text-only** (no binaries;
+   ≤16 MiB per call — large snapshots are split into sequential chunked pushes on
+   the same branch), and a plain `git push` from King's VM is impossible (no stored
+   credential; SSH is blocked by the sandbox network). The connector is the write
+   route; local git is the read/composition route.
+5. **Deploys.** Fly CLI exists on King's VM, but Fly's remote builders are
+   **unreachable from the sandbox network** (documented 2026-10-31) — CLI deploys
+   from King's side fail at the builder handshake. Working routes: the Fly web UI
+   deploy button via King's browser, or the owner clicking deploy himself. Never
+   hand the owner terminal deploy commands; that is not his flow.
+6. **Connected accounts and services** (OAuth connectors, used on the owner's
+   behalf): Gmail (several accounts), Google Calendar / Drive / Docs / Tasks,
+   GitHub, Instagram, Threads, Facebook, Messenger, Spotify, **Plaid** (read-only
+   bank / card / investment visibility), Stripe, Shopify, Cloudflare, ElevenLabs,
+   Duffel (flights), Ticketmaster, Tailscale (reaches services on the owner's
+   private network), 1Password (browser sign-in assist), and wallet providers
+   (Shop Pay / Stripe Link) for owner-approved purchases.
+7. **Research.** Web search and page reading, a deep-research agent that returns
+   sourced reports, GitHub repository research through the connector (repos are
+   actually opened and licenses read — not just listed), and public social-media
+   search.
+8. **Media and documents.** Image / video / audio generation, editable documents,
+   spreadsheets and presentations, web artifacts, and a local **Blender 4.2**
+   install driven through an MCP connector for 3D work.
+9. **Memory and the shared record.** King keeps persistent, curated memory of the
+   owner, his decisions, and his rules across every chat, plus the program's
+   design documents, audit registers, and reports in the owner's goal-files
+   workspace (outside this repo — Claude receives them via the owner's master
+   prompt and relays). King can re-derive current status from the repo + persisted
+   logs at any time; ask via the owner if you need a register re-issued.
+10. **Messaging and monitoring.** On the owner's explicit instruction, King can
+    send messages on his connected channels and run scheduled checks (crons and
+    event hooks) that report back into his chats.
+
+### Handing work to King
+
+If a task needs a King-only capability — a browser-applied migration, a Fly deploy
+click, a connected-account lookup, a live screenshot tour, a vault-mediated
+sign-in — leave a clearly named request where the owner will see it (a GitHub
+issue, a note in `PROJECT_STATE.md`, or tell the owner in chat). King picks it up
+from there. Conversely, King routes design/merge work to your lane the same way,
+through the owner.
+
+### Owner's standing rules that bind both agents
+
+- **No UTC in anything user-facing, ever.** All times, dates, groupings, and
+  "today" boundaries are computed and shown in the viewer's timezone (the owner's
+  is America/New_York).
+- **GitHub Actions is banned.** No CI workflows; deploys are manual (Fly web UI).
+- **Free-first for providers.** No paid service or API tier if a free option
+  exists; if none exists, the cheapest option on earth, labeled honestly.
+- **This repository is PUBLIC.** Never commit personal data, secrets, credentials,
+  or screenshots of the owner's real accounts/loads/money.
+- **Abel (the Telegram bot) has two standing rules:** no slash commands ever —
+  intent is inferred from conversation — and the backend must proactively
+  self-report when something is broken or not good enough.
+- **The app is employer-agnostic.** Pay terms are editable per-employer data (a
+  pay profile), never hardcoded to any employer, past or present.
+- **Verification culture:** a summary is not proof. Verify against the repo, the
+  live system, or the persisted logs before asserting — and expect your work to
+  be re-verified the same way.
