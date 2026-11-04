@@ -107,7 +107,17 @@ export const openStatesWatcher: Watcher = {
       const jurisdiction = PRIORITY_STATES[(rotation + i) % PRIORITY_STATES.length];
       if (jurisdiction) covered.push(jurisdiction);
     }
-    const updatedSince = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    // The API documents updated_since as "a given date" - send a
+    // plain YYYY-MM-DD date. The full ISO timestamp with milliseconds
+    // this used to send is the prime suspect for the production 400s
+    // (2026-11-04 round-2 investigation: the API's OpenAPI spec
+    // clears every other param we send, and its auth runs before
+    // param validation, so the bad param can't be isolated without
+    // the key; the client now surfaces the API's error detail, so if
+    // a 400 ever recurs the Research page names the exact cause).
+    // Date-only widens the 3-day window by under a day; signals
+    // dedupe on bill id, so nothing double-counts.
+    const updatedSince = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const observedAt = new Date().toISOString();
     const signals: PressureSignal[] = [];
     const failures: string[] = [];
