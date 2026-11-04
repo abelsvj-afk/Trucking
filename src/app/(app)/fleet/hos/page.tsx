@@ -85,7 +85,10 @@ export default function HosPage() {
         official paper logs) is the legal record - if the two ever
         disagree, the ELD/official log wins.
       </p>
-      <Link href="/fleet/hos/new">Log duty status</Link>
+      <p>
+        <Link href="/fleet/hos/new">Log duty status</Link> ·{" "}
+        <Link href="/fleet/hos/paper">Paper logs — photograph a sheet</Link>
+      </p>
 
       <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="duty logs" />
 

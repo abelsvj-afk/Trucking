@@ -82,6 +82,26 @@ segment, low-confidence segments flagged in red, every segment editable, one
 "Save to my log" action; nothing is booked until then. After saving, the HUD
 continues from the last status with no invented gap or overlap.
 
+**As built (2026-11-04, branch `m3-hud-d`):** `/fleet/hos/paper` (photograph a
+sheet; Telegram-read sheets listed too) and `/fleet/hos/paper/[id]` (review).
+The grid read is stored on the document (`extracted_fields.paper_log_read`) by
+both the app and the Telegram path, so the screen shows everything the reader
+returned. `lib/paper-day.ts` builds the editable day with every hole explicit
+and validates that 00:00–24:00 is fully covered by statuses he confirmed;
+saving goes through `save_paper_log_day` (migration 00059), one transaction,
+SECURITY INVOKER (RLS), conflicts acknowledged or refused, Telegram batch for
+the same sheet retired. If reading is off or fails, the same screen is a
+by-hand entry form for the day (a whole "missing" day he fills in). Times are
+placed in the carrier time zone from HOS settings (FMCSA: home-terminal time).
+
+**Known defect in the Telegram path (found 2026-11-04, not fixed here):**
+`stagePaperLogDay` stages only the segments that cleared the bar; because a
+duty row runs until the next row, a dropped or unreadable stretch mid-day is
+silently absorbed into the previous status when that batch is approved. Its
+"70-hour picture" line also uses the naive rolling 8-day sum from the newest
+200 rows. Both need a ruling; the app review screen avoids the first by
+refusing to save an unresolved day.
+
 ## 7. Telegram as the logging companion
 
 Photos, voice, and text all become *proposals* (BOL, seal, fuel receipt, paper

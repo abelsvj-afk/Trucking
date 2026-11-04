@@ -43,12 +43,9 @@ import {
   stageTruckPhoto,
   type VehicleStageOutcome,
 } from "./vehicle-photos";
-import {
-  extractPaperLog,
-  type PaperLogExtraction,
-} from "@/services/ai/paper-log-extraction";
-import { OpenAiProvider } from "@/services/ai/providers/openai";
+import type { PaperLogExtraction } from "@/services/ai/paper-log-extraction";
 import { stagePaperLogDay } from "@/services/fleet/paper-logs";
+import { persistPaperLogRead, readPaperLogFromDocument } from "@/services/fleet/paper-log-review";
 
 /** Sentinel tool_name for a photo-purpose question in bot_pending_actions (design §6). */
 export const PHOTO_PURPOSE_TOOL = "photo_purpose";
@@ -639,32 +636,9 @@ async function settlePaperwork(
 function defaultReadPaperLog(
   deps: SettlePhotoPurposeDeps,
 ): (documentId: string, knownBytes?: Buffer) => Promise<PaperLogExtraction> {
-  return async (documentId, knownBytes) => {
-    const { data: row, error } = await deps.client
-      .from("documents")
-      .select("storage_path, scan_storage_path, content_type")
-      .eq("id", documentId)
-      .eq("company_id", deps.companyId)
-      .maybeSingle();
-    if (error || !row) throw new Error("The stored sheet couldn't be loaded back.");
-    const doc = row as { storage_path: string; scan_storage_path: string | null; content_type: string | null };
-
-    let buffer = knownBytes;
-    let mediaType = doc.content_type ?? "image/jpeg";
-    if (!buffer) {
-      const path = doc.scan_storage_path ?? doc.storage_path;
-      const { data: blob, error: downloadError } = await deps.client.storage
-        .from("documents")
-        .download(path);
-      if (downloadError || !blob) throw new Error("The stored sheet couldn't be downloaded.");
-      buffer = Buffer.from(await blob.arrayBuffer());
-      if (doc.scan_storage_path) mediaType = "image/png";
-    }
-    return extractPaperLog(new OpenAiProvider(), {
-      imageBase64: buffer.toString("base64"),
-      mediaType,
-    });
-  };
+  // One grid-reader entry point for Telegram and the app
+  // (services/fleet/paper-log-review.ts).
+  return (documentId, knownBytes) => readPaperLogFromDocument(deps.client, deps.companyId, documentId, knownBytes);
 }
 
 const DAMAGE_WORDS = /\b(damage|damaged|bent|crack|cut|leak|broken|flat|dent|torn|missing|scrape|gouge)\b/i;
@@ -934,6 +908,11 @@ export async function settlePhotoPurpose(
         try {
           const readPaperLog = deps.readPaperLog ?? defaultReadPaperLog(deps);
           const extraction = await readPaperLog(documentId, input.knownBytes);
+          // Store the full read so the app's review screen shows every
+          // segment, including any under the floor that isn't staged here.
+          await persistPaperLogRead(deps.client, deps.companyId, documentId, extraction).catch((err) =>
+            console.error("[telegram] paper log read not stored for review", err),
+          );
           const staged = await stagePaperLogDay({ store: deps.brainStore, documentId, extraction });
           lines.push(...staged.lines);
         } catch (err) {

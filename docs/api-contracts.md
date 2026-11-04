@@ -403,3 +403,14 @@ Standard resource semantics (the 5-endpoint table above) over the `vehicle_defec
 | GET | `/api/v1/vehicle-defects/{id}` | Get one vehicle defect |
 | PATCH | `/api/v1/vehicle-defects/{id}` | Partial update |
 | DELETE | `/api/v1/vehicle-defects/{id}` | Soft delete |
+
+### Paper-log review (docs/design/driver-hud.md §6) — added 2026-11-04
+
+Authenticated owner session; company-scoped; reading never writes a duty row.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/paper-logs` | The photographed sheets (documents with `photo_purpose = 'paper_log'`): `{ data: PaperLogListItem[] }` — `log_date`, `read` (a stored read exists), `saved` (rows from this sheet are in the log) |
+| POST | `/api/v1/paper-logs` | Body `{ document_id }`. Reads the stored sheet's grid now (gated by the `photo_intelligence` capability: `403 CAPABILITY_OFF` when off; `502 READ_FAILED` when the photo can't be read — the sheet stays stored), stores the read on the document (`extracted_fields.paper_log_read`, re-validated on every load), returns `{ data: PaperLogReview }` |
+| GET | `/api/v1/paper-logs/{documentId}` | `{ data: PaperLogReview }`: signed photo URLs, the editable day (`draft` — every minute 00:00–24:00 present; unreadable spans have `status: null`, under-floor reads are `origin: "low"`), the reader's cross-check `problems`, the sheet's `written_totals`, `conflicts` (rows from other sources starting inside the day) and `saved_rows` (from this sheet). `404` for a missing/other-company sheet |
+| POST | `/api/v1/paper-logs/{documentId}/save` | Body `{ log_date, segments: [{ status, start_min, end_min }], replace_ids }`. Re-validates that the segments tile 00:00–24:00 with a status each (`422` otherwise), then calls `save_paper_log_day` (migration 00059) in one transaction: refuses with `409 PAPER_LOG_CONFLICT` if any entry inside the day isn't in `replace_ids`; soft-deletes this sheet's earlier rows and the acknowledged entries; inserts the rows (`source = 'paper_photo'`, times placed in the carrier time zone); retires any Telegram proposal batch for the sheet. Response `{ data: { inserted } }` |

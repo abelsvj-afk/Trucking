@@ -35,5 +35,8 @@ export function tableForResource(resource: string): LiveTable | null {
 /** "/api/v1/fuel-purchases/abc/restore" -> "fuel_purchases"; null when not a live table. */
 export function tableForApiPath(path: string): LiveTable | null {
   const match = /^\/api\/v1\/([a-z-]+)/.exec(path.split("?")[0] ?? "");
-  return match ? tableForResource(match[1]!) : null;
+  if (!match) return null;
+  // A paper-log save writes duty rows.
+  if (match[1] === "paper-logs") return "duty_logs";
+  return tableForResource(match[1]!);
 }

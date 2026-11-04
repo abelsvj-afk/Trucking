@@ -2,6 +2,7 @@
 // screen state (loading/empty/populated/error, per docs/design/ui-ux.md)
 // is driven off what this returns, not ad hoc per-screen fetch logic.
 
+import type { PaperLogListItem, PaperLogReview, PaperLogSaveBody } from "@/types/paper-logs";
 import type { FinancialSummary } from "@/types/financial-summary";
 import type { AiSettings } from "@/types/ai-settings";
 import type { DutyLogWindowSummary, HosSettings } from "@/types/hos-settings";
@@ -213,6 +214,19 @@ export const apiClient = {
   updateHosSettings: (body: Partial<HosSettings>) =>
     request<HosSettings>("/api/v1/hos-settings", {
       method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  // Paper-log review (docs/design/driver-hud.md §6).
+  paperLogs: () => request<{ data: PaperLogListItem[] }>("/api/v1/paper-logs"),
+  readPaperLog: (documentId: string) =>
+    request<{ data: PaperLogReview }>("/api/v1/paper-logs", {
+      method: "POST",
+      body: JSON.stringify({ document_id: documentId }),
+    }),
+  paperLogReview: (documentId: string) => request<{ data: PaperLogReview }>(`/api/v1/paper-logs/${documentId}`),
+  savePaperLog: (documentId: string, body: PaperLogSaveBody) =>
+    request<{ data: { inserted: number } }>(`/api/v1/paper-logs/${documentId}/save`, {
+      method: "POST",
       body: JSON.stringify(body),
     }),
   dutyLogWindow: () =>
