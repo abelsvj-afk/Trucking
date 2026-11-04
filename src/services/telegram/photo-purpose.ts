@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  PHOTO_PURPOSE_THRESHOLDS,
   type PhotoClassification,
   type PhotoClassificationFields,
   type PhotoPurpose,
@@ -30,7 +31,12 @@ import {
 } from "@/services/documents/process-document";
 import { isMissingColumnError } from "@/services/bot/tool-helpers";
 import type { BotBrainStore, PendingAction } from "@/services/bot/store";
-import { extractionLines, type TelegramPhotoAskOption } from "./photo-intake";
+import {
+  extractionLines,
+  type ExtractedDocumentRead,
+  type TelegramPhotoAskOption,
+} from "./photo-intake";
+import { formatExtractedFieldsForReply } from "@/services/ai/document-extraction";
 import {
   stageOdometerPhoto,
   stageTrailerPhoto,
@@ -307,6 +313,8 @@ export interface SettlePhotoPurposeDeps {
   processDocument?: (documentId: string, fileBuffer: Buffer) => Promise<"ran" | "off">;
   /** Injectable for tests; defaults to the §13 extraction seam reader. */
   extractionStatus?: (documentId: string) => Promise<DocumentExtractionStatus>;
+  /** Injectable for tests; defaults to reading the stored document's structured extraction fields for the BOL read-back. */
+  extractedDocument?: (documentId: string) => Promise<ExtractedDocumentRead | null>;
   /** Injectable for tests; defaults to downloading the sheet and running the §7 paper-log reader. */
   readPaperLog?: (documentId: string, knownBytes?: Buffer) => Promise<PaperLogExtraction>;
   /** UH-02 fix (injectable for tests): stage GAP-01 document proposals for a settled paperwork photo, exactly like the legacy intake does. Resolves the outcome line to append, or null. */
@@ -337,17 +345,42 @@ function formatMiles(miles: number): string {
   return miles.toLocaleString("en-US");
 }
 
-function readLines(fields: PhotoClassificationFields | undefined): string[] {
+function readLines(
+  fields: PhotoClassificationFields | undefined,
+  fieldConfidences?: Record<string, number>,
+): string[] {
   if (!fields) return [];
+  // Telegram repairs D8: a field whose own confidence is recorded
+  // BELOW the ask bar is a candidate, not a read - it is not
+  // narrated as fact here (the staging pipelines apply their own
+  // bars separately). Fields with no recorded confidence (the
+  // caption path carries none) narrate as before.
+  const readable = (key: string): boolean => {
+    const conf = fieldConfidences?.[key];
+    return conf === undefined || conf >= PHOTO_PURPOSE_THRESHOLDS.ask;
+  };
   const parts: string[] = [];
-  if (fields.unit_number) parts.push(`unit ${fields.unit_number}`);
-  if (fields.make) parts.push(fields.model ? `${fields.make} ${fields.model}` : fields.make);
-  if (fields.truck_type) parts.push(fields.truck_type.replace(/_/g, " "));
-  if (fields.trailer_unit_number) parts.push(`trailer ${fields.trailer_unit_number}`);
-  if (fields.trailer_type) parts.push(fields.trailer_type.replace(/_/g, " "));
+  if (fields.unit_number && readable("unit_number")) parts.push(`unit ${fields.unit_number}`);
+  if (fields.make && readable("make")) {
+    parts.push(fields.model && readable("model") ? `${fields.make} ${fields.model}` : fields.make);
+  }
+  if (fields.truck_type && readable("truck_type")) parts.push(fields.truck_type.replace(/_/g, " "));
+  if (fields.trailer_unit_number && readable("trailer_unit_number")) {
+    parts.push(`trailer ${fields.trailer_unit_number}`);
+  }
+  if (fields.trailer_type && readable("trailer_type")) parts.push(fields.trailer_type.replace(/_/g, " "));
   const lines: string[] = [];
   if (parts.length > 0) lines.push(`What I could read: ${parts.join(" · ")}.`);
-  if (fields.door_company_name) lines.push(`The door says: ${fields.door_company_name}.`);
+  if (fields.seal_number && readable("seal_number")) {
+    lines.push(
+      `Seal #: ${fields.seal_number}${fields.seal_condition ? ` (${fields.seal_condition})` : ""}.`,
+    );
+  } else if (fields.seal_condition && readable("seal_condition")) {
+    lines.push(`Seal condition: ${fields.seal_condition}.`);
+  }
+  if (fields.door_company_name && readable("door_company_name")) {
+    lines.push(`The door says: ${fields.door_company_name}.`);
+  }
   if (fields.description) lines.push(fields.description);
   return lines;
 }
@@ -495,6 +528,31 @@ async function settlePaperwork(
   try {
     status = await getStatus(documentId);
     lines.push(...extractionLines(status));
+    if (status.state === "done" && status.docType === "bol") {
+      try {
+        const extracted =
+          (await (deps.extractedDocument ??
+            (async (id: string): Promise<ExtractedDocumentRead | null> => {
+              const { data, error } = await deps.client
+                .from("documents")
+                .select("doc_type, extracted_fields")
+                .eq("id", id)
+                .eq("company_id", deps.companyId)
+                .maybeSingle();
+              if (error || !data) return null;
+              const row = data as {
+                doc_type: string | null;
+                extracted_fields: Record<string, string | number | null> | null;
+              };
+              return { docType: row.doc_type, fields: row.extracted_fields ?? {} };
+            }))(documentId)) ?? null;
+        if (extracted) {
+          lines.push(...formatExtractedFieldsForReply(extracted.docType ?? status.docType, extracted.fields));
+        }
+      } catch (err) {
+        console.error("[telegram] photo extracted-field read-back failed", err);
+      }
+    }
   } catch (err) {
     console.error("[telegram] photo extraction status failed", err);
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
@@ -803,7 +861,7 @@ export async function settlePhotoPurpose(
       return {
         reply: [
           headline ?? "That's the truck.",
-          ...readLines(fields),
+          ...readLines(fields, input.fieldConfidences),
           "Saved in your documents, marked as the truck.",
         ].join("\n"),
       };
@@ -817,12 +875,14 @@ export async function settlePhotoPurpose(
         }),
       );
       if (outcome) {
-        return { reply: [headline ?? "That's the trailer.", ...outcome.lines].join("\n") };
+        return {
+          reply: [headline ?? "That's the trailer.", ...readLines(fields, input.fieldConfidences), ...outcome.lines].join("\n"),
+        };
       }
       return {
         reply: [
           headline ?? "That's the trailer.",
-          ...readLines(fields),
+          ...readLines(fields, input.fieldConfidences),
           "Saved in your documents, marked as the trailer — it doesn't touch the truck's profile.",
         ].join("\n"),
       };
@@ -852,7 +912,7 @@ export async function settlePhotoPurpose(
       return { reply: lines.join("\n") };
     }
     case "pretrip": {
-      const lines = [headline ?? "That's a pre-trip photo.", ...readLines(fields)];
+      const lines = [headline ?? "That's a pre-trip photo.", ...readLines(fields, input.fieldConfidences)];
       if (deps.brainStore) {
         lines.push(...(await pretripPhotoFollowUps(deps, documentId, fields, input.headline)));
       }
@@ -893,7 +953,7 @@ export async function settlePhotoPurpose(
       return {
         reply: [
           headline ?? "Got it.",
-          ...readLines(fields),
+          ...readLines(fields, input.fieldConfidences),
           "Saved in your documents, marked as a general photo. Tell me what it's for any time and I'll re-file it.",
         ].join("\n"),
       };
@@ -957,6 +1017,14 @@ export async function tryResolvePhotoPurposeAsk(
   pending: PendingAction,
   userText: string,
 ): Promise<{ reply: string } | null> {
+  // Telegram repairs D6 (§3.4): the capability gate applies to
+  // text answers too, not only button taps - with photo
+  // understanding OFF the question settles nothing and stays
+  // open, exactly as a tap is refused in handleCallbackQuery.
+  if (typeof store.isPhotoIntelligenceEnabled === "function") {
+    const enabled = await store.isPhotoIntelligenceEnabled().catch(() => false);
+    if (!enabled) return null;
+  }
   const args = pending.arguments as unknown as PhotoPurposeAskArgs;
   if (Date.now() - new Date(pending.created_at).getTime() > PHOTO_ASK_EXPIRY_MS) {
     await store.clearPendingAction(pending.id);

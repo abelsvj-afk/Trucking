@@ -9,6 +9,9 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBotStore, type BotBrainStore, type ThreadRecordInput } from "@/services/bot/store";
+import { buildPersonModel } from "@/services/bot/threads";
+import { captureForwardThread } from "@/services/bot/thread-capture";
+import type { AiProvider } from "@/services/ai/provider";
 
 type Row = Record<string, unknown>;
 type Filter = { op: string; col: string; val: unknown };
@@ -210,6 +213,127 @@ describe("thread records", () => {
     await expect(store.recordForwardThread(SEGMENT_1)).rejects.toThrow(/migration 00049/);
     expect(await store.listThreads({})).toEqual([]);
     expect(await store.getThread("anything")).toBeNull();
+  });
+});
+
+describe("Telegram repairs: two forwarded bundles accumulate one person's evidence", () => {
+  it("the second bundle appends to the same thread and the person model grows, not restarts", async () => {
+    const db: Record<string, Row[]> = {};
+    const store = fakeStore(db);
+
+    // Bundle 1 (as captureForwardThread records a batched bundle):
+    // Maria the dispatcher appears twice.
+    const first = await store.recordForwardThread({
+      title: "Dispatch — Dallas load",
+      participants: [
+        { name: "Maria", role: "carrier_dispatch" },
+        { name: "Sajacous", role: "owner" },
+      ],
+      messages: [
+        { senderName: "Maria", body: "Load 4417 pickup tomorrow 08:00", language: "en", sentAt: null },
+        { senderName: "Maria", body: "Dock 4 when you get in", language: "en", sentAt: null },
+      ],
+      theAsk: "Confirm the pickup",
+      askOf: "Sajacous",
+      deadlineText: "tomorrow 08:00",
+      unanswered: true,
+      source: "forward",
+      exchangeId: null,
+    });
+    const before = buildPersonModel("Maria", await store.loadPersonEvidence("Maria"));
+
+    // Bundle 2, a day later, same counterparty: appends, and her
+    // evidence count grows by the new messages - one accumulating
+    // record, never two isolated ones.
+    const second = await store.recordForwardThread({
+      title: "Dispatch — Dallas load follow-up",
+      participants: [
+        { name: "Maria", role: "carrier_dispatch" },
+        { name: "Sajacous", role: "owner" },
+      ],
+      messages: [
+        { senderName: "Maria", body: "BOL is at the guard shack", language: "en", sentAt: null },
+        { senderName: "Maria", body: "Seal number goes on the paperwork", language: "en", sentAt: null },
+        { senderName: "Maria", body: "Call me when you're loaded", language: "en", sentAt: null },
+      ],
+      theAsk: "Call when loaded",
+      askOf: "Sajacous",
+      deadlineText: null,
+      unanswered: true,
+      source: "forward",
+      exchangeId: null,
+    });
+
+    expect(second.threadId).toBe(first.threadId);
+    expect(second.appended).toBe(true);
+    const evidence = await store.loadPersonEvidence("Maria");
+    const after = buildPersonModel("Maria", evidence);
+    expect(evidence.threads).toHaveLength(1);
+    expect(after.evidenceCount).toBe(before.evidenceCount + 3);
+    const detail = await store.getThread(first.threadId);
+    expect(detail?.messages).toHaveLength(5);
+  });
+});
+
+describe("Telegram repairs: bundle capture through captureForwardThread itself", () => {
+  it("two bundles captured through the real capture path land in ONE thread and pool Maria's evidence", async () => {
+    const db: Record<string, Row[]> = {};
+    const store = fakeStore(db);
+
+    // The governed extraction, faked at the provider seam: bundle
+    // A's combined text reconstructs to two Maria messages,
+    // bundle B's to three more from the same counterparty.
+    const extractions = [
+      {
+        title: "Dispatch — Dallas load",
+        language: "en",
+        participants: [
+          { name: "Maria", role: "carrier_dispatch" },
+          { name: "Sajacous", role: "owner" },
+        ],
+        messages: [
+          { sender: "Maria", body: "Load 4417 pickup tomorrow 08:00", language: "en", sent_at: null },
+          { sender: "Maria", body: "Dock 4 when you get in", language: "en", sent_at: null },
+        ],
+        the_ask: "Confirm the pickup",
+        ask_of: "Sajacous",
+        deadline_text: "tomorrow 08:00",
+        unanswered: true,
+      },
+      {
+        title: "Dispatch — Dallas load follow-up",
+        language: "en",
+        participants: [
+          { name: "Maria", role: "carrier_dispatch" },
+          { name: "Sajacous", role: "owner" },
+        ],
+        messages: [
+          { sender: "Maria", body: "BOL is at the guard shack", language: "en", sent_at: null },
+          { sender: "Maria", body: "Seal number goes on the paperwork", language: "en", sent_at: null },
+          { sender: "Maria", body: "Call me when you're loaded", language: "en", sent_at: null },
+        ],
+        the_ask: "Call when loaded",
+        ask_of: "Sajacous",
+        deadline_text: null,
+        unanswered: true,
+      },
+    ];
+    const provider = {
+      complete: async () => JSON.stringify(extractions.shift()),
+    } as unknown as AiProvider;
+
+    await captureForwardThread(store, provider, "BUNDLE A combined text");
+    const before = buildPersonModel("Maria", await store.loadPersonEvidence("Maria"));
+    await captureForwardThread(store, provider, "BUNDLE B combined text");
+    const evidence = await store.loadPersonEvidence("Maria");
+    const after = buildPersonModel("Maria", evidence);
+
+    expect(evidence.threads).toHaveLength(1);
+    expect(after.evidenceCount).toBe(before.evidenceCount + 3);
+    const threads = await store.listThreads({});
+    expect(threads).toHaveLength(1);
+    const detail = await store.getThread(threads[0]!.id);
+    expect(detail?.messages).toHaveLength(5);
   });
 });
 

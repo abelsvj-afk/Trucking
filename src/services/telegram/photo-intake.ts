@@ -44,6 +44,12 @@ import {
   isExtractionEnabled,
   processUploadedDocument,
 } from "@/services/documents/process-document";
+import { formatExtractedFieldsForReply } from "@/services/ai/document-extraction";
+
+export interface ExtractedDocumentRead {
+  docType: string | null;
+  fields: Record<string, string | number | null>;
+}
 
 export interface TelegramPhotoSize {
   file_id: string;
@@ -83,6 +89,8 @@ export interface TelegramPhotoIntakeDeps {
   storeFile?: typeof storeDocumentFile;
   /** Injectable for tests; defaults to the §13 extraction seam reader. */
   extractionStatus?: (documentId: string) => Promise<DocumentExtractionStatus>;
+  /** Injectable for tests; defaults to reading the stored document's structured extraction fields for the BOL read-back. */
+  extractedDocument?: (documentId: string) => Promise<ExtractedDocumentRead | null>;
   /**
    * Injectable for tests; defaults to the real post-store processing
    * (the extraction gate + document-scan's processor, §13). Resolves
@@ -121,11 +129,22 @@ const DOWNLOAD_FAILED_REPLY =
 const STORE_FAILED_REPLY =
   "I got the photo but couldn't save it into your documents — nothing was stored. Try again in a moment.";
 
-/** Telegram sends several renditions; the largest (by declared size, else pixel area) is the readable one. */
+/**
+ * Telegram sends several renditions; the readable one is the
+ * highest-RESOLUTION one. (Repairs D7: byte size and pixel area
+ * used to be compared per-rendition in mixed units, so a
+ * higher-resolution but better-compressed rendition could lose
+ * to a smaller, denser file - the worse choice for extraction.
+ * Pixel area decides when dimensions are known; declared byte
+ * size breaks ties and is the fallback when they aren't.)
+ */
 export function pickLargestPhoto(photos: TelegramPhotoSize[]): TelegramPhotoSize {
+  const area = (p: TelegramPhotoSize) =>
+    p.width && p.height ? p.width * p.height : 0;
   return photos.reduce((best, candidate) => {
-    const score = (p: TelegramPhotoSize) => p.file_size ?? (p.width ?? 0) * (p.height ?? 0);
-    return score(candidate) > score(best) ? candidate : best;
+    const areaDiff = area(candidate) - area(best);
+    if (areaDiff !== 0) return areaDiff > 0 ? candidate : best;
+    return (candidate.file_size ?? 0) > (best.file_size ?? 0) ? candidate : best;
   }, photos[0]!);
 }
 
@@ -346,8 +365,35 @@ export async function handleTelegramPhoto(
       gateClosed
         ? { state: "off" }
         : getDocumentExtractionStatus(deps.client, deps.companyId, id));
+  let status: DocumentExtractionStatus | null = null;
   try {
-    lines.push(...extractionLines(await getStatus(documentId)));
+    status = await getStatus(documentId);
+    lines.push(...extractionLines(status));
+    if (status.state === "done" && status.docType === "bol") {
+      try {
+        const extracted =
+          (await (deps.extractedDocument ??
+            (async (id: string): Promise<ExtractedDocumentRead | null> => {
+              const { data, error } = await deps.client
+                .from("documents")
+                .select("doc_type, extracted_fields")
+                .eq("id", id)
+                .eq("company_id", deps.companyId)
+                .maybeSingle();
+              if (error || !data) return null;
+              const row = data as {
+                doc_type: string | null;
+                extracted_fields: Record<string, string | number | null> | null;
+              };
+              return { docType: row.doc_type, fields: row.extracted_fields ?? {} };
+            }))(documentId)) ?? null;
+        if (extracted) {
+          lines.push(...formatExtractedFieldsForReply(extracted.docType ?? status.docType, extracted.fields));
+        }
+      } catch (err) {
+        console.error("[telegram] photo extracted-field read-back failed", err);
+      }
+    }
   } catch (err) {
     console.error("[telegram] photo extraction status failed", err);
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
@@ -371,7 +417,6 @@ export async function handleTelegramPhoto(
   } catch (err) {
     console.error("[telegram] document proposal staging failed", err);
   }
-
   // UH-03 fix: the legacy path also fulfils MATCHING pretrip_photo
   // asks (it never fired before). Evidence = the read doc type plus
   // his caption; the matcher requires load + full item coverage.
@@ -384,7 +429,7 @@ export async function handleTelegramPhoto(
         const { fulfilMatchingPretripAsk } = await import("./photo-purpose");
         await fulfilMatchingPretripAsk(client, deps.companyId, input);
       });
-    const statusForEvidence = await getStatus(documentId).catch(() => null);
+    const statusForEvidence = status ?? (await getStatus(documentId).catch(() => null));
     const evidenceText = [
       statusForEvidence?.state === "done" ? (statusForEvidence.docType ?? "") : "",
       caption ?? "",

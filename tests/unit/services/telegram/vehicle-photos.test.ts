@@ -275,6 +275,30 @@ describe("stageOdometerPhoto — §4.4", () => {
     expect(text).toContain("didn't stage anything");
   });
 
+  // Telegram repairs D5: the module's own rule - nothing stages
+  // below the act bar - was enforced for make/model/type but not
+  // for the odometer, the most consequential field of all.
+  it("a low-confidence odometer read stages NOTHING and asks for his word", async () => {
+    const { db, store } = fakeWorld({ trucks: [TRUCK_214] });
+    const out = await stageOdometerPhoto(store, {
+      documentId: DOC_ID,
+      fields: { odometer_miles: 514_400 },
+      fieldConfidences: { odometer_miles: 0.5 },
+    });
+    expect(staged(db)).toHaveLength(0);
+    expect(out.lines.join("\n")).toContain("tell me the number");
+  });
+
+  it("an odometer read with no recorded confidence stages NOTHING either", async () => {
+    const { db, store } = fakeWorld({ trucks: [TRUCK_214] });
+    const out = await stageOdometerPhoto(store, {
+      documentId: DOC_ID,
+      fields: { odometer_miles: 514_400 },
+    });
+    expect(staged(db)).toHaveLength(0);
+    expect(out.lines.join("\n")).toContain("tell me the number");
+  });
+
   it("a big jump stages flagged, not waved through", async () => {
     const { db, store } = fakeWorld({
       trucks: [{ ...TRUCK_214, current_mileage_at: new Date().toISOString() }],

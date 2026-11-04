@@ -29,6 +29,21 @@ describe("parsePhotoClassification", () => {
     expect(parsed.alternates).toHaveLength(1);
   });
 
+  it("accepts the named trailer-seal read: exact number plus visible condition", () => {
+    const parsed = parsePhotoClassification(
+      JSON.stringify({
+        purpose: "trailer",
+        confidence: 0.94,
+        headline: "The trailer doors are sealed.",
+        fields: { trailer_unit_number: "5831", seal_number: "SL-004417", seal_condition: "intact" },
+        field_confidences: { seal_number: 0.98 },
+        alternates: [],
+      }),
+    );
+    expect(parsed.fields.seal_number).toBe("SL-004417");
+    expect(parsed.fields.seal_condition).toBe("intact");
+  });
+
   it("defaults the optional blocks when the model omits them", () => {
     const parsed = parsePhotoClassification(
       JSON.stringify({ purpose: "other", confidence: 0.4, headline: "A blurry shot." }),
@@ -65,6 +80,8 @@ describe("purposeFromCaption — the free first beat (§3.1)", () => {
     expect(purposeFromCaption("odometer")).toBe("odometer_dash");
     expect(purposeFromCaption("dash this morning")).toBe("odometer_dash");
     expect(purposeFromCaption("new trailer 5831")).toBe("trailer");
+    expect(purposeFromCaption("seal number on the trailer")).toBe("trailer");
+    expect(purposeFromCaption("broken seal on the trailer")).toBe("pretrip");
     expect(purposeFromCaption("BOL for Georgia")).toBe("paperwork");
     expect(purposeFromCaption("fuel receipt")).toBe("paperwork");
     expect(purposeFromCaption("the truck")).toBe("truck_exterior");

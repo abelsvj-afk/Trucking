@@ -156,7 +156,7 @@ async function loadTrucks(store: BotBrainStore): Promise<TruckRow[]> {
     .is("deleted_at", null)
     .order("unit_number", { ascending: true });
   if (error) {
-    // Pre-00045 the provenance column is absent - read without it.
+    // Pre-00042 the provenance column is absent - read without it.
     if (/current_mileage_at/.test(error.message)) {
       const retry = await store.client
         .from("trucks")
@@ -430,6 +430,18 @@ export async function stageOdometerPhoto(
   if (miles == null) {
     lines.push(
       "I couldn't read the odometer digits off that dash photo. Tell me the number and I'll record it from your word.",
+    );
+    return { lines, items: [] };
+  }
+
+  // Telegram repairs D5: the module rule - nothing stages below
+  // the act bar - was enforced for make/model/type but not for
+  // mileage. A read with no recorded confidence, or one below
+  // the bar, stages nothing: his word outranks a fuzzy digit.
+  const milesConf = fieldConf(fieldConfidences, "odometer_miles");
+  if (milesConf == null || milesConf < STAGE_BAR) {
+    lines.push(
+      "I could make out an odometer reading, but not clearly enough to record it - tell me the number and I'll record it from your word.",
     );
     return { lines, items: [] };
   }

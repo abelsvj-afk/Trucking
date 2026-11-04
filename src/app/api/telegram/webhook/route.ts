@@ -23,6 +23,7 @@ import {
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
+import { createTelegramBurstCollector } from "@/services/telegram/burst";
 import { handleTelegramPhotoIntelligent } from "@/services/telegram/photo-intelligence";
 import {
   resolvePhotoPurposeAskById,
@@ -34,6 +35,14 @@ import { captureForwardThread } from "@/services/bot/thread-capture";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
 export const runtime = "nodejs";
+
+/**
+ * Telegram repairs (2026-11-03): ONE burst collector for the whole
+ * process - forwarded conversations arrive as many separate webhook
+ * calls and must land in the same per-chat bundle, so the collector
+ * can never be rebuilt per request.
+ */
+const telegramBurstCollector = createTelegramBurstCollector();
 
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false;
@@ -232,6 +241,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // the bot then runs reduced (dispatch replies, no context) instead
     // of failing - see services/telegram/store.ts.
     store: createTelegramStore(config.companyId),
+    burstCollector: telegramBurstCollector,
   });
 
   // Always 200 once accepted, so Telegram doesn't retry-storm on a

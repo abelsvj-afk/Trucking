@@ -11,6 +11,7 @@ import type { BotBrainStore, PendingAction } from "@/services/bot/store";
 import {
   parsePhotoPurposeAnswer,
   resolvePhotoPurposeAskById,
+  settlePhotoPurpose,
   PHOTO_ASK_EXPIRED_REPLY,
 } from "@/services/telegram/photo-purpose";
 import type { PhotoPurposeCandidate } from "@/services/telegram/photo-purpose";
@@ -149,6 +150,21 @@ describe("runAgentTurn — photo-purpose interception (§3.3)", () => {
     expect(world.docUpdates).toHaveLength(0);
   });
 
+  // Telegram repairs D6: the button path re-checks the
+  // photo_intelligence kill switch before settling (§3.4); the
+  // text-reply path must honor the same switch - off means the
+  // question settles nothing, whichever surface answers it.
+  it("with photo understanding OFF, a number reply settles nothing and the ask stays open", async () => {
+    const world = fakeClient();
+    const { store, cleared } = fakeStore(world, askRow(new Date()));
+    (store as unknown as { isPhotoIntelligenceEnabled: unknown }).isPhotoIntelligenceEnabled =
+      vi.fn().mockResolvedValue(false);
+    const out = await runAgentTurn(PROVIDER, store, { ...INPUT, userText: "2" });
+    expect(out.reply).toBe(BOT_DISABLED_REPLY);
+    expect(cleared).toEqual([]);
+    expect(world.docUpdates).toHaveLength(0);
+  });
+
   it("an unrelated message leaves the question open and the turn proceeds", async () => {
     const world = fakeClient();
     const { store, cleared } = fakeStore(world, askRow(new Date()));
@@ -161,6 +177,26 @@ describe("runAgentTurn — photo-purpose interception (§3.3)", () => {
     expect(out.reply).toBe(BOT_DISABLED_REPLY);
     expect(cleared).toEqual([]);
     expect(world.docUpdates).toHaveLength(0);
+  });
+});
+
+describe("settlePhotoPurpose narration (Telegram repairs D8)", () => {
+  it("a field read below the ask bar is not narrated as read", async () => {
+    const world = fakeClient();
+    const result = await settlePhotoPurpose(
+      { client: world.client, companyId: COMPANY },
+      {
+        documentId: DOC_ID,
+        choice: "truck_exterior",
+        source: "vision",
+        confidence: 0.9,
+        headline: "That's the truck.",
+        fields: { unit_number: "214", make: "Freightliner" },
+        fieldConfidences: { unit_number: 0.95, make: 0.4 },
+      },
+    );
+    expect(result.reply).toContain("unit 214");
+    expect(result.reply).not.toContain("Freightliner");
   });
 });
 

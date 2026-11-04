@@ -69,6 +69,10 @@ export const photoClassificationFieldsSchema = z.object({
   door_company_name: z.string().max(120).optional(),
   trailer_unit_number: z.string().max(60).optional(),
   trailer_type: z.string().max(60).optional(),
+  /** The physical door seal's number, transcribed exactly as stamped/printed on the seal (named seal case). */
+  seal_number: z.string().max(60).optional(),
+  /** The seal's visible condition: intact / broken / missing / unclear - appearance only, never inferred from paperwork. */
+  seal_condition: z.string().max(60).optional(),
   /** Odometer digits, exactly as displayed. */
   odometer_miles: z.number().int().nonnegative().optional(),
   /** Lit dashboard warning indicators the read can identify - candidates only. */
@@ -99,9 +103,9 @@ Purposes - pick exactly one as "purpose", and up to two runner-ups as "alternate
 - "paperwork": a document - bill of lading, rate confirmation, scale ticket, fuel receipt, settlement, permit, any printed or handwritten paper being photographed as a document.
 - "paper_log": a paper driver log sheet - the grid page with duty-status lines drawn across 24 hours. (A printed ELD summary page is paperwork, not paper_log.)
 - "truck_exterior": the tractor itself - cab, door, side, front, whole truck.
-- "trailer": a trailer - its side, rear doors, or the trailer as the subject.
+- "trailer": a trailer - its side, rear doors, or the trailer as the subject. A close-up of the rear-door SEAL or lock is a trailer photo (the named seal case) when the seal itself is the subject and nothing looks wrong with it.
 - "odometer_dash": a dashboard / instrument cluster shot, usually aimed at the odometer.
-- "pretrip": a walk-around or inspection shot - a tire close-up, lights, a hose, visible damage or wear, something under the truck. The subject is a PART or a PROBLEM, not the whole vehicle.
+- "pretrip": a walk-around or inspection shot - a tire close-up, lights, a hose, visible damage or wear, something under the truck. The subject is a PART or a PROBLEM, not the whole vehicle. A BROKEN, missing, or mismatched seal is a problem - that is pretrip, not trailer.
 - "other": none of the above, or too unclear to place.
 
 Fields - fill only what is truly visible, using these keys:
@@ -110,6 +114,7 @@ Fields - fill only what is truly visible, using these keys:
 - truck_type: "sleeper", "day_cab", "box", or "other" from the visible cab shape.
 - door_company_name: the company name lettered on the door, exactly as printed.
 - trailer_unit_number / trailer_type: the trailer's unit number as printed; its type (dry_van, reefer, flatbed, tanker, other) from its shape.
+- seal_number / seal_condition: when the photo shows the physical seal on the trailer doors (or a lock with the seal), copy the seal's number EXACTLY as stamped or printed on it - never take it from paperwork in the same photo, and leave it out if any character is uncertain. seal_condition is what the photo shows: "intact", "broken", "missing", or "unclear".
 - odometer_miles: the odometer reading as digits only. Copy the digits exactly; if the last digit is a tenths wheel, drop the tenths. If you cannot read every digit with certainty, leave the field out - a partial odometer is worse than none.
 - warning_lights: dashboard indicators that appear LIT, named plainly ("check engine", "ABS"). Candidates only - say only ones you can actually identify.
 - description: one or two plain sentences on what the photo shows - for pretrip shots, what part and what looks wrong, if anything; for "other", what the thing is.
@@ -134,9 +139,10 @@ Respond with ONLY a JSON object, no other text:
  * the spirit of the fixed looksSpanish token matching.
  */
 const CAPTION_PURPOSE_RULES: { purpose: PhotoPurpose; pattern: RegExp }[] = [
-  { purpose: "pretrip", pattern: /\bpre[-\s]?trip\b|\bwalk[-\s]?around\b|\binspection photos?\b/i },
+  { purpose: "pretrip", pattern: /\bpre[-\s]?trip\b|\bwalk[-\s]?around\b|\binspection photos?\b|\b(broken|damaged|missing|mismatched)\s+seal\b/i },
   { purpose: "paper_log", pattern: /\bpaper[-\s]?logs?\b|\blog[-\s]?sheet\b|\blogs\b/i },
   { purpose: "odometer_dash", pattern: /\bodometer\b|\bdashboard\b|\bdash\b|\bmileage\b/i },
+  { purpose: "trailer", pattern: /\bseal\b|\bdoor\s+lock\b|\btrailer\s+lock\b/i },
   { purpose: "trailer", pattern: /\btrailer\b/i },
   {
     purpose: "paperwork",
