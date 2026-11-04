@@ -71,7 +71,7 @@ export function buildDayWrap(input: DayWrapInput): DayWrapItem[] {
         items.push({
           kind: "duty",
           severity: "gap",
-          text: `Your last duty change was 'driving' at ${new Date(last.started_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} — still driving, or did the day end without the change getting logged?`,
+          text: `Your last duty change was 'driving' at ${new Date(last.started_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} — still driving, or did the day end without the change getting logged?`,
         });
       }
     }
