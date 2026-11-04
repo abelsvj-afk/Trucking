@@ -62,6 +62,14 @@ export interface AiVisionRequest {
   imageBase64: string;
   /** IANA media type of the image, e.g. "image/png". */
   mediaType: string;
+  /**
+   * Vision detail level, when the provider supports one. Absent =
+   * the provider's existing default ("high" for document reads -
+   * transcription needs every digit). The photo classifier passes
+   * "low": purpose classification is the cheapest call shape, not a
+   * transcription (design §3.1).
+   */
+  detail?: "low" | "high";
 }
 
 /**

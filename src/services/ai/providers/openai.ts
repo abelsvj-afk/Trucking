@@ -108,7 +108,7 @@ export class OpenAiProvider implements AgentCapableProvider, AiVisionProvider {
 
     return { text: message.content ?? null, toolCalls };
   }
-  async completeWithImage({ system, user, imageBase64, mediaType }: AiVisionRequest): Promise<string> {
+  async completeWithImage({ system, user, imageBase64, mediaType, detail }: AiVisionRequest): Promise<string> {
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages: [
@@ -119,7 +119,7 @@ export class OpenAiProvider implements AgentCapableProvider, AiVisionProvider {
             { type: "text", text: user },
             {
               type: "image_url",
-              image_url: { url: `data:${mediaType};base64,${imageBase64}`, detail: "high" },
+              image_url: { url: `data:${mediaType};base64,${imageBase64}`, detail: detail ?? "high" },
             },
           ],
         },

@@ -26,6 +26,10 @@ import {
 import type { BotBrainStore } from "./store";
 import { dollars, isMissingColumnError } from "./tool-helpers";
 import type { MaintenanceSchedule } from "@/types/entities";
+import {
+  computeMaintenanceOutlook,
+  formatMaintenanceOutlook,
+} from "@/services/fleet/maintenance-outlook";
 
 type Row = Record<string, unknown>;
 
@@ -480,6 +484,17 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
             );
           })
           .join("\n");
+      },
+    },
+    {
+      name: "maintenance_outlook",
+      description:
+        "THE maintenance answer (§5.7): every schedule's due state (overdue / due soon / unknown / on track / paused) with next-due points, each truck's mileage with where it came from and how old it is, and the open tracked defects. Use this whenever he asks what's due, what needs doing, or how the truck's maintenance looks - don't assemble the answer from list tools when this one call holds it.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      async run() {
+        const outlook = await computeMaintenanceOutlook(client, companyId);
+        return formatMaintenanceOutlook(outlook);
       },
     },
     {

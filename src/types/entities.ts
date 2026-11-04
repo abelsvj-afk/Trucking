@@ -35,6 +35,16 @@ export interface Truck extends BaseRow {
   year: number | null;
   status: EntityStatus;
   current_mileage: number | null;
+  // Mileage provenance (migration 00045, Image Intelligence §5.3):
+  // where the current reading came from and when it was observed.
+  current_mileage_source:
+    | "odometer_photo"
+    | "duty_log"
+    | "maintenance_event"
+    | "fuel_entry"
+    | "owner_said"
+    | null;
+  current_mileage_at: string | null;
   // UI/UX upgrade (migration 00027): what kind of truck this is (UI
   // picklist slug or the owner's own words) and the documents row
   // holding its photo. Both null until captured.
@@ -233,6 +243,8 @@ export interface FuelPurchase extends BaseRow {
   price_per_gallon_cents: number;
   total_cost_cents: number;
   purchased_at: string;
+  /** Dash reading at this stop (migration 00045, §5.3). */
+  odometer: number | null;
 }
 
 export interface MaintenanceEvent extends BaseRow {
@@ -254,6 +266,30 @@ export interface MaintenanceSchedule extends BaseRow {
   last_done_date: string | null;
   last_done_mileage: number | null;
   status: MaintenanceScheduleStatus;
+  // The maintenance brain (migration 00046, Image Intelligence
+  // §5.1/§5.6): the interval-library key this schedule came from,
+  // where the row originated, and the watcher's reminder state.
+  template_key: string | null;
+  origin: "template" | "owner" | "abel";
+  last_reminded_at: string | null;
+  last_reminder_key: string | null;
+}
+
+export type VehicleDefectSource = "pretrip" | "photo" | "conversation";
+export type VehicleDefectStatus = "open" | "acknowledged" | "closed" | "dismissed";
+
+/** A tracked observed problem (migration 00046, §5.5) - not work done (event) and not future work (schedule). */
+export interface VehicleDefect extends BaseRow {
+  truck_id: string | null;
+  trailer_id: string | null;
+  description: string;
+  source: VehicleDefectSource;
+  source_inspection_id: string | null;
+  source_document_id: string | null;
+  status: VehicleDefectStatus;
+  maintenance_event_id: string | null;
+  last_follow_up_at: string | null;
+  follow_up_count: number;
 }
 
 export interface EquipmentChecklistItem extends BaseRow {
@@ -286,6 +322,14 @@ export interface DutyLog extends BaseRow {
   location: string | null;
   odometer: number | null;
   notes: string | null;
+  /**
+   * Provenance (Image Intelligence §7, migration 00047). Optional:
+   * rows read from a database where 00047 hasn't landed simply
+   * don't carry it - 'app' is the honest default assumption.
+   */
+  source?: "app" | "paper_photo" | "conversation";
+  /** For paper_photo rows: the documents row of the sheet photograph. */
+  source_document_id?: string | null;
 }
 
 export type DispatchExchangeSource = "web" | "telegram";
@@ -344,6 +388,21 @@ export interface Document {
   extraction_status: DocumentExtractionStatus;
   extraction_error: string | null;
   extracted_at: string | null;
+  // Photo intelligence (Image Intelligence design §3, migration
+  // 00045): the photo's settled purpose, who settled it, and the
+  // read's confidence. All null on legacy documents and on photos
+  // whose purpose question is still open.
+  photo_purpose:
+    | "paperwork"
+    | "paper_log"
+    | "truck_exterior"
+    | "trailer"
+    | "odometer_dash"
+    | "pretrip"
+    | "other"
+    | null;
+  photo_purpose_source: "vision" | "caption" | "owner" | null;
+  photo_purpose_confidence: number | null;
   // Retention delete (migration 00041): set when the document is
   // deleted; the file stays in storage while retention_status is
   // 'retained'. purged_at is only ever set by a future purge process

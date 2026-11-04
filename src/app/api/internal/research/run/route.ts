@@ -55,6 +55,15 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("[research] pay-report piggyback failed", err);
     }
+    // Image Intelligence §5.6: the maintenance watcher's second
+    // door - the same hourly invoker gives it its due-check, so
+    // reminders don't depend on the app process staying awake.
+    try {
+      const { runMaintenanceWatchIfDue } = await import("@/services/fleet/maintenance-watch");
+      await runMaintenanceWatchIfDue();
+    } catch (err) {
+      console.error("[research] maintenance watch piggyback failed", err);
+    }
     // CD-7: a tick whose health carries an explicit failure (e.g. the
     // job database is not configured, so the engine never ran) must
     // not dress itself as "ok" - the HTTP contract stays 200 (the

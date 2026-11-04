@@ -53,6 +53,26 @@ export interface TelegramPhotoSize {
   file_size?: number;
 }
 
+/** One button choice on a photo-purpose ask (design §3.3). `choice` is a purpose slug or "store". */
+export interface TelegramPhotoAskOption {
+  label: string;
+  choice: string;
+}
+
+/**
+ * A photo reply that may carry a one-tap purpose ask: the text plus,
+ * when a question is staged, the pending row's id and its button
+ * choices (in display order; the numbered-text fallback numbers
+ * them in this same order). Plain-string replies stay plain strings
+ * everywhere else in the intake.
+ */
+export interface TelegramPhotoReply {
+  text: string;
+  ask?: { pendingId: string; options: TelegramPhotoAskOption[] };
+}
+
+export type TelegramPhotoResult = string | TelegramPhotoReply;
+
 export interface TelegramPhotoIntakeDeps {
   client: SupabaseClient;
   companyId: string;
@@ -79,6 +99,17 @@ export interface TelegramPhotoIntakeDeps {
    */
   stageProposals?: (documentId: string) => Promise<string | null>;
   now?: () => Date;
+  /** UH-14 fix (injectable for tests): album grouping hooks; defaults wire ./album against the client. */
+  album?: {
+    findPrimary: (mediaGroupId: string) => Promise<import("./album").AlbumPrimary | null>;
+    attachPage: (
+      primary: import("./album").AlbumPrimary,
+      bytes: ArrayBuffer,
+    ) => Promise<number | null>;
+    markPrimary: (documentId: string, mediaGroupId: string) => Promise<void>;
+  };
+  /** UH-03 fix (injectable for tests): matching pretrip-ask fulfilment for the legacy path; defaults to photo-purpose's matcher. */
+  fulfilPretripAsks?: (input: { evidenceText: string; loadId: string | null }) => Promise<void>;
 }
 
 const TOO_BIG_REPLY =
@@ -98,12 +129,12 @@ export function pickLargestPhoto(photos: TelegramPhotoSize[]): TelegramPhotoSize
   }, photos[0]!);
 }
 
-function photoFileName(now: Date): string {
+export function photoFileName(now: Date): string {
   const stamp = now.toISOString().slice(0, 19).replace(/[-:T]/g, "");
   return `telegram-photo-${stamp}.jpg`;
 }
 
-function extractionLines(status: DocumentExtractionStatus): string[] {
+export function extractionLines(status: DocumentExtractionStatus): string[] {
   switch (status.state) {
     case "off":
       return [
@@ -130,25 +161,24 @@ function extractionLines(status: DocumentExtractionStatus): string[] {
   }
 }
 
+export type TelegramPhotoDownload =
+  | { ok: true; bytes: ArrayBuffer }
+  | { ok: false; reply: string };
+
 /**
- * Handles one photo message end to end and returns the exact reply
- * text for the owner. Never throws for an expected failure (too
- * big, download failed, store failed) — those come back as honest
- * replies that say nothing was stored.
+ * Downloads one Telegram photo rendition with the pipeline's
+ * triple oversize check (declared size, getFile size, actual
+ * bytes). Shared by the legacy intake and the photo-intelligence
+ * front door (§3) - one download path, one set of honest failures.
  */
-export async function handleTelegramPhoto(
-  deps: TelegramPhotoIntakeDeps,
-  photos: TelegramPhotoSize[],
-  caption?: string,
-): Promise<string> {
+export async function downloadTelegramPhoto(
+  deps: { botToken: string; fetchFn?: typeof fetch },
+  photo: TelegramPhotoSize,
+): Promise<TelegramPhotoDownload> {
   const fetchFn = deps.fetchFn ?? fetch;
-  const storeFile = deps.storeFile ?? storeDocumentFile;
-  const now = deps.now ?? (() => new Date());
-
-  const photo = pickLargestPhoto(photos);
-  if (photo.file_size && photo.file_size > MAX_DOCUMENT_BYTES) return TOO_BIG_REPLY;
-
-  // --- download (nothing stored yet) --------------------------------
+  if (photo.file_size && photo.file_size > MAX_DOCUMENT_BYTES) {
+    return { ok: false, reply: TOO_BIG_REPLY };
+  }
   let bytes: ArrayBuffer;
   try {
     const fileRes = await fetchFn(
@@ -159,24 +189,36 @@ export async function handleTelegramPhoto(
       result?: { file_path?: string; file_size?: number };
     };
     const filePath = fileJson.ok ? fileJson.result?.file_path : undefined;
-    if (!filePath) return DOWNLOAD_FAILED_REPLY;
+    if (!filePath) return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
     if (fileJson.result?.file_size && fileJson.result.file_size > MAX_DOCUMENT_BYTES) {
-      return TOO_BIG_REPLY;
+      return { ok: false, reply: TOO_BIG_REPLY };
     }
     const downloadRes = await fetchFn(
       `https://api.telegram.org/file/bot${deps.botToken}/${filePath}`,
     );
-    if (!downloadRes.ok) return DOWNLOAD_FAILED_REPLY;
+    if (!downloadRes.ok) return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
     bytes = await downloadRes.arrayBuffer();
   } catch {
-    return DOWNLOAD_FAILED_REPLY;
+    return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
   }
-  if (bytes.byteLength === 0) return DOWNLOAD_FAILED_REPLY;
-  if (bytes.byteLength > MAX_DOCUMENT_BYTES) return TOO_BIG_REPLY;
+  if (bytes.byteLength === 0) return { ok: false, reply: DOWNLOAD_FAILED_REPLY };
+  if (bytes.byteLength > MAX_DOCUMENT_BYTES) return { ok: false, reply: TOO_BIG_REPLY };
+  return { ok: true, bytes };
+}
 
-  // --- store through the shared documents pipeline -------------------
+export type TelegramPhotoStore =
+  | { ok: true; documentId: string; fileName: string }
+  | { ok: false; reply: string };
+
+/** Stores downloaded photo bytes through the shared documents pipeline (filed under the company, caption on the row). */
+export async function storeTelegramPhoto(
+  deps: TelegramPhotoIntakeDeps,
+  bytes: ArrayBuffer,
+  caption?: string,
+): Promise<TelegramPhotoStore> {
+  const storeFile = deps.storeFile ?? storeDocumentFile;
+  const now = deps.now ?? (() => new Date());
   const fileName = photoFileName(now());
-  let documentId: string;
   try {
     const row = await storeFile(deps.client, {
       companyId: deps.companyId,
@@ -190,13 +232,83 @@ export async function handleTelegramPhoto(
       // row itself (searchable), not only echoed in this reply.
       caption,
     });
-    documentId = row.id;
+    return { ok: true, documentId: row.id, fileName };
   } catch (err) {
     if (err instanceof StoreDocumentError && err.kind === "validation") {
-      return `I couldn't store that photo: ${err.message} Nothing was saved.`;
+      return { ok: false, reply: `I couldn't store that photo: ${err.message} Nothing was saved.` };
     }
     console.error("[telegram] photo store failed", err);
-    return STORE_FAILED_REPLY;
+    return { ok: false, reply: STORE_FAILED_REPLY };
+  }
+}
+
+/**
+ * Handles one photo message end to end and returns the exact reply
+ * text for the owner. Never throws for an expected failure (too
+ * big, download failed, store failed) — those come back as honest
+ * replies that say nothing was stored.
+ */
+export async function handleTelegramPhoto(
+  deps: TelegramPhotoIntakeDeps,
+  photos: TelegramPhotoSize[],
+  caption?: string,
+  mediaGroupId?: string,
+): Promise<string> {
+  const photo = pickLargestPhoto(photos);
+  const download = await downloadTelegramPhoto(deps, photo);
+  if (!download.ok) return download.reply;
+
+  // --- UH-14 fix: album pages attach to the group's ONE document --
+  const album = deps.album ?? {
+    findPrimary: async (gid: string) => {
+      const { findAlbumPrimary } = await import("./album");
+      return findAlbumPrimary(deps.client, deps.companyId, gid);
+    },
+    attachPage: async (primary: import("./album").AlbumPrimary, b: ArrayBuffer) => {
+      const { attachAlbumPage } = await import("./album");
+      return attachAlbumPage(deps.client, deps.companyId, primary, b);
+    },
+    markPrimary: async (documentId: string, gid: string) => {
+      const { markAlbumPrimary } = await import("./album");
+      const { data: row } = await deps.client
+        .from("documents")
+        .select("storage_path, extracted_fields")
+        .eq("id", documentId)
+        .eq("company_id", deps.companyId)
+        .maybeSingle();
+      const r = row as { storage_path: string; extracted_fields: Record<string, unknown> | null } | null;
+      if (r) await markAlbumPrimary(deps.client, deps.companyId, documentId, gid, r.storage_path, r.extracted_fields);
+    },
+  };
+  if (mediaGroupId) {
+    try {
+      const primary = await album.findPrimary(mediaGroupId);
+      if (primary) {
+        const pageCount = await album.attachPage(primary, download.bytes);
+        if (pageCount != null) {
+          return `Added that as page ${pageCount} of the document you just sent — one document, pages together, so it reads as a single piece of paperwork.`;
+        }
+        // Attach failed — fall through and store it as its own
+        // document rather than losing the photo.
+        console.error("[telegram] album attach failed; storing page as its own document");
+      }
+    } catch (err) {
+      console.error("[telegram] album grouping failed; storing as single document", err);
+    }
+  }
+
+  // --- store through the shared documents pipeline -------------------
+  const stored = await storeTelegramPhoto(deps, download.bytes, caption);
+  if (!stored.ok) return stored.reply;
+  const documentId = stored.documentId;
+  const fileName = stored.fileName;
+  const bytes = download.bytes;
+  if (mediaGroupId) {
+    try {
+      await album.markPrimary(documentId, mediaGroupId);
+    } catch (err) {
+      console.error("[telegram] album primary marking failed", err);
+    }
   }
 
   // --- processing: the same pipeline a web upload runs (§13) --------
@@ -258,6 +370,30 @@ export async function handleTelegramPhoto(
     if (proposalText) lines.push(proposalText.trim());
   } catch (err) {
     console.error("[telegram] document proposal staging failed", err);
+  }
+
+  // UH-03 fix: the legacy path also fulfils MATCHING pretrip_photo
+  // asks (it never fired before). Evidence = the read doc type plus
+  // his caption; the matcher requires load + full item coverage.
+  try {
+    const fulfil =
+      deps.fulfilPretripAsks ??
+      (async (input: { evidenceText: string; loadId: string | null }) => {
+        const brain = (deps as { brainStore?: import("@/services/bot/store").BotBrainStore }).brainStore;
+        const client = brain?.client ?? deps.client;
+        const { fulfilMatchingPretripAsk } = await import("./photo-purpose");
+        await fulfilMatchingPretripAsk(client, deps.companyId, input);
+      });
+    const statusForEvidence = await getStatus(documentId).catch(() => null);
+    const evidenceText = [
+      statusForEvidence?.state === "done" ? (statusForEvidence.docType ?? "") : "",
+      caption ?? "",
+    ].join(" ");
+    if (evidenceText.trim().length > 0) {
+      await fulfil({ evidenceText, loadId: null });
+    }
+  } catch (err) {
+    console.error("[telegram] legacy pretrip fulfilment failed", err);
   }
   if (caption) lines.push(`Your note on it: "${caption}"`);
   return lines.join("\n");

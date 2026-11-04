@@ -35,6 +35,8 @@ const CAPABILITY_LABELS: Record<string, string> = {
   memory_consolidation: "Memory night shift (nightly pass that organizes Abel's memory and stages things he noticed in your chats as proposals for your yes/no — never saves anything on its own)",
   voice_transcription: "Voice transcription (Abel turns your Telegram voice notes into text and works them like typed messages — audio goes to the transcription provider; typical cost is under a cent per note, or free when a free-tier provider is configured)",
   driver_twin: "Driver twin (on Telegram, Abel drafts dispatch replies using your own past sent replies as examples, and tracks how much you edit his drafts — web dispatch drafts don't use the twin yet; off means no examples in drafts and no edit tracking)",
+  photo_intelligence: "Photo understanding (when you send Abel a photo, he figures out what it's for — paperwork, the truck, a trailer, the dash, a pre-trip — and asks you with one tap when he isn't sure; off means photos are just filed as documents, like before)",
+  maintenance_watch: "Maintenance reminders (Abel watches your maintenance schedules and open defects in the background and messages you when something is due, overdue, or going stale — one digest a day at most, urgent safety/legal items right away; off means he only answers when you ask)",
 };
 
 type SettingsState =

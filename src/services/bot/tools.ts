@@ -33,6 +33,9 @@ import { buildRouteCheckTool } from "./route-check-tool";
 import { buildPayTools } from "./pay-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
+import { propagateMileage } from "@/services/fleet/mileage";
+import { hosProvenanceLines } from "@/services/fleet/paper-logs";
+import { isMissingColumnError } from "./tool-helpers";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -113,6 +116,9 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           `On duty in last 8 days: ${formatMinutes(hos.onDutyMinutesLast8Days)} of 70h.`,
         ];
         if (hos.warnings.length > 0) lines.push(`Warnings: ${hos.warnings.join("; ")}`);
+        // §7.7 trust labeling: paper-sourced clocks say so, and a
+        // partial paper day says partial - in this surface too.
+        lines.push(...(await hosProvenanceLines(client, companyId, rows)));
         return lines.join("\n");
       },
     },
@@ -342,7 +348,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "create_fuel_purchase",
-      description: "Record a fuel purchase in his books. Needs the total paid and gallons; pass truck_id when he names the truck (from list_trucks) - otherwise, if he has exactly one truck on file, that truck is used.",
+      description: "Record a fuel purchase in his books. Needs the total paid and gallons; pass truck_id when he names the truck (from list_trucks) - otherwise, if he has exactly one truck on file, that truck is used. ODOMETER (§5.3): when he gives the dash reading at the pump, pass it - it updates the truck's mileage with provenance. When he doesn't give one, you may ask once; a fuel entry WITHOUT an odometer is always fine and must never be blocked or nagged about.",
       parameters: {
         type: "object",
         properties: {
@@ -352,6 +358,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           state: { type: "string", description: "Two-letter state where the fuel was bought (IFTA), if known." },
           truck_id: { type: "string", description: "Truck id (uuid), if he named the truck." },
           purchased_at: { type: "string", description: "ISO timestamp of the purchase. Defaults to now." },
+          odometer: { type: "number", description: "Dash odometer reading at this fuel stop, if he gave one." },
         },
         required: ["total_dollars", "gallons"],
       },
@@ -382,27 +389,52 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           );
         }
         const totalCents = Math.round(parsed.total_dollars * 100);
-        const { data, error } = await client
+        const baseRow: Record<string, unknown> = {
+          company_id: companyId,
+          truck_id: truck.id,
+          location: parsed.location ?? null,
+          state: parsed.state?.toUpperCase() ?? null,
+          gallons: parsed.gallons,
+          price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
+          total_cost_cents: totalCents,
+          purchased_at: parsed.purchased_at ?? new Date().toISOString(),
+        };
+        // The odometer column arrives with migration 00045 - only
+        // send it when he actually gave a reading, and if the
+        // column isn't live yet, land the fuel entry anyway and
+        // say the reading itself wasn't saved (§5.3 honesty).
+        let odometerUnsaved = false;
+        if (parsed.odometer !== undefined) baseRow.odometer = parsed.odometer;
+        let { data, error } = await client
           .from("fuel_purchases")
-          .insert({
-            company_id: companyId,
-            truck_id: truck.id,
-            location: parsed.location ?? null,
-            state: parsed.state?.toUpperCase() ?? null,
-            gallons: parsed.gallons,
-            price_per_gallon_cents: Math.round(totalCents / parsed.gallons),
-            total_cost_cents: totalCents,
-            purchased_at: parsed.purchased_at ?? new Date().toISOString(),
-          })
+          .insert(baseRow)
           .select("id")
           .single();
+        if (error && parsed.odometer !== undefined && isMissingColumnError(error)) {
+          delete baseRow.odometer;
+          odometerUnsaved = true;
+          ({ data, error } = await client.from("fuel_purchases").insert(baseRow).select("id").single());
+        }
         if (error) throw new Error(error.message);
-        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}. Record id ${(data as { id: string }).id}.`;
+        let mileageNote = "";
+        if (parsed.odometer !== undefined && !odometerUnsaved) {
+          const outcome = await propagateMileage(client, companyId, {
+            truckId: truck.id,
+            miles: parsed.odometer,
+            source: "fuel_entry",
+          });
+          mileageNote = outcome.applied
+            ? ` Truck mileage now ${Math.round(parsed.odometer).toLocaleString("en-US")} (from this fuel stop).`
+            : ` The pump reading (${Math.round(parsed.odometer).toLocaleString("en-US")}) is below the truck's recorded ${outcome.previousMiles?.toLocaleString("en-US") ?? "mileage"}, so the recorded mileage stays.`;
+        } else if (odometerUnsaved) {
+          mileageNote = " The odometer reading wasn't saved - the mileage column hasn't landed in the database yet; the fuel entry itself is recorded.";
+        }
+        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}. Record id ${(data as { id: string }).id}.${mileageNote}`;
       },
     },
     {
       name: "log_duty_status",
-      description: "Log a duty-status change in his paper-log helper (NOT the ELD - the helper never replaces the legal record): off_duty, sleeper, driving, or on_duty. Starts now unless he names a start time.",
+      description: "Log a duty-status change in his paper-log helper (NOT the ELD - the helper never replaces the legal record): off_duty, sleeper, driving, or on_duty. Starts now unless he names a start time. Provenance: omit source for ordinary entries; when he dictates hours in words to fill a gap a paper sheet read couldn't resolve, pass source 'conversation' (his word, not a read); 'paper_photo' rows are staged by the sheet pipeline itself, never invented in conversation. Correcting an entry that came from a paper sheet changes only the app's mirror - his paper still says the old time until he re-marks it, and any proposal to change one must say so.",
       parameters: {
         type: "object",
         properties: {
@@ -423,7 +455,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
       async run(args) {
         const parsed = logDutyArgs.parse(args);
-        const { error } = await client.from("duty_logs").insert({
+        const baseRow: Record<string, unknown> = {
           company_id: companyId,
           duty_status: parsed.duty_status,
           started_at: parsed.started_at ?? new Date().toISOString(),
@@ -431,8 +463,51 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           notes: parsed.notes ?? null,
           odometer: parsed.odometer ?? null,
           load_id: parsed.load_id ?? null,
-        });
+        };
+        if (parsed.source !== undefined) baseRow.source = parsed.source;
+        if (parsed.source_document_id !== undefined) {
+          baseRow.source_document_id = parsed.source_document_id;
+        }
+        let { error } = await client.from("duty_logs").insert(baseRow);
+        if (error && parsed.source !== undefined && isMissingColumnError(error)) {
+          // Pre-00047 database: the entry still lands; provenance
+          // is restated in the note so the mirror stays honest
+          // about where the row came from.
+          delete baseRow.source;
+          delete baseRow.source_document_id;
+          baseRow.notes = `${baseRow.notes ? `${baseRow.notes} ` : ""}(Provenance: ${parsed.source} - the source columns haven't landed in the database yet.)`;
+          ({ error } = await client.from("duty_logs").insert(baseRow));
+        }
         if (error) throw new Error(error.message);
+        // §5.3: a duty-log odometer is an observation of the
+        // truck's mileage - through the load's truck, via the one
+        // propagation door. Without a load there's no truck to
+        // attribute it to, and that is said out loud.
+        let mileageNote = "";
+        if (parsed.odometer !== undefined) {
+          if (parsed.load_id) {
+            const { data: load } = await client
+              .from("loads")
+              .select("truck_id")
+              .eq("id", parsed.load_id)
+              .eq("company_id", companyId)
+              .is("deleted_at", null)
+              .maybeSingle();
+            const truckId = (load as { truck_id: string | null } | null)?.truck_id;
+            if (truckId) {
+              const outcome = await propagateMileage(client, companyId, {
+                truckId,
+                miles: parsed.odometer,
+                source: "duty_log",
+              });
+              mileageNote = outcome.applied
+                ? ` Truck mileage now ${parsed.odometer.toLocaleString("en-US")} (from this log entry).`
+                : ` The log's odometer (${parsed.odometer.toLocaleString("en-US")}) is below the truck's recorded ${outcome.previousMiles?.toLocaleString("en-US") ?? "mileage"}, so the recorded mileage stays.`;
+            }
+          } else {
+            mileageNote = " That entry isn't tied to a load, so the truck's mileage didn't move from it.";
+          }
+        }
         const { data } = await client
           .from("duty_logs")
           .select("*")
@@ -446,7 +521,8 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           `Logged duty status ${parsed.duty_status} starting now in the paper-log helper.` +
           (hos
             ? ` Helper now shows: driving in window ${formatMinutes(hos.drivingMinutesInWindow)} of 11h; on duty in 8 days ${formatMinutes(hos.onDutyMinutesLast8Days)} of 70h.`
-            : "")
+            : "") +
+          mileageNote
         );
       },
     },
@@ -1016,6 +1092,7 @@ const createFuelArgs = z.object({
   state: z.string().length(2).optional(),
   truck_id: z.string().uuid().optional(),
   purchased_at: z.string().min(1).optional(),
+  odometer: z.number().int().nonnegative().optional(),
 });
 
 const logDutyArgs = z.object({
@@ -1025,6 +1102,13 @@ const logDutyArgs = z.object({
   started_at: z.string().min(1).optional(),
   odometer: z.number().int().nonnegative().optional(),
   load_id: z.string().uuid().optional(),
+  // Provenance (Image Intelligence §7, migration 00047): code
+  // stages 'paper_photo' rows from sheet reads with the sheet's
+  // document id; when HE types hours in words - e.g. filling a
+  // span a sheet read couldn't resolve - they are his word, so
+  // pass source 'conversation'. Ordinary app logging omits both.
+  source: z.enum(["app", "paper_photo", "conversation"]).optional(),
+  source_document_id: z.string().uuid().optional(),
 });
 
 // GAP-04/05 (Fresh-Eyes Register 2026-11-02).

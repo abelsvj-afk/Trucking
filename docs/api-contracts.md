@@ -391,3 +391,15 @@ All routes below require the standard authenticated owner session (see Auth abov
 | GET | `/api/v1/tax-packet` | GAP-16: the year-end tax packet. Query: `?year=YYYY` (defaults to the current year, ET). Response: `{ data: TaxPacket }` — per-diem count at the labeled rate, fuel totals, expenses by category, load revenue, and settlement income (`settlementIncomeCents`, `settlementsCount`) joined from Abel Phase D's `settlements` table (driver pay, periods ending in the year; zero when the table is absent) |
 
 **`POST /api/v1/documents` response addition (GAP-01, UH-11 fix)** — when document text extraction completes and record proposals are staged from the read, the response also carries `proposals_staged: number` (how many record proposals were staged for the owner's approval; the proposals themselves ride the standard pending-proposal flow, never a silent write).
+
+### Vehicle defects (Image Intelligence §5.5, migration 00046 — UH-11 fix)
+
+Standard resource semantics (the 5-endpoint table above) over the `vehicle_defects` table; authenticated owner session, RLS tenant isolation.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/vehicle-defects` | List vehicle defects |
+| POST | `/api/v1/vehicle-defects` | Create a vehicle defect |
+| GET | `/api/v1/vehicle-defects/{id}` | Get one vehicle defect |
+| PATCH | `/api/v1/vehicle-defects/{id}` | Partial update |
+| DELETE | `/api/v1/vehicle-defects/{id}` | Soft delete |

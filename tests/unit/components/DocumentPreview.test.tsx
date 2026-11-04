@@ -29,6 +29,9 @@ const BASE_DOC: DocumentWithSignedUrl = {
   retention_status: null,
   retention_error: null,
   purged_at: null,
+  photo_purpose: null,
+  photo_purpose_source: null,
+  photo_purpose_confidence: null,
   signed_url: "https://example.test/original",
   scan_signed_url: "https://example.test/scan",
 };
