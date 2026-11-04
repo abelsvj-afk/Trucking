@@ -205,3 +205,10 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [ ] Visual logging (duty-status graph) that is quick to edit and read.
 - [ ] Phone-first pass: tap targets, one-handed reach, no interaction while
       moving, readable in a cab.
+
+### Stage 9 progress — HUD (a) built 2026-11-04 (branch `m3-hud-a`, off the step-10 tip; NOT merged)
+
+- [x] `src/lib/hud-clocks.ts` — pure clock engine (drive / 14-hour window / break / carrier-anchored cycle), ms-exact; `hos.ts` gained exported ms helpers (behaviour unchanged, existing tests pass).
+- [x] Home HUD (`components/hud/DutyHud.tsx`): live rings ticking each second with no network, four duty-status buttons, status sheet (now by default; past times flagged "entered after the fact"; future refused; offline queue), provisional-settings label, disclaimer verbatim.
+- [x] Replaced Home's old hours panel (naive rolling 8-day "70h" from the latest 200 logs) and removed the rolling 8-day warning from the next-step card — both violated the carrier-anchored cycle rule.
+- [ ] Not yet built (spec §10): day-graph editing (b), live layer / Realtime (c), paper-log review screen (d), Telegram logging reminders (e), driving-speed input lockout and GPS map card (§5/§8).

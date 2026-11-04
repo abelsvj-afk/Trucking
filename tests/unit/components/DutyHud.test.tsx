@@ -1,0 +1,162 @@
+// @vitest-environment jsdom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+const enqueue = vi.fn();
+vi.mock("@/lib/offline-outbox", () => ({ offlineOutbox: { enqueue: (...a: unknown[]) => enqueue(...a) } }));
+
+class MockApiClientError extends Error {}
+vi.mock("@/lib/api-client", () => ({
+  apiClient: { dutyLogWindow: vi.fn(), create: vi.fn() },
+  ApiClientError: class extends Error {},
+}));
+
+import { apiClient } from "@/lib/api-client";
+import DutyHud from "@/components/hud/DutyHud";
+
+const H = 3_600_000;
+
+function windowResult(rows: { duty_status: string; started_at: string }[], overrides = {}) {
+  const now = Date.now();
+  return {
+    data: rows.map((r, i) => ({ id: `r${i}`, ...r })),
+    hos: {
+      cycle: "70/8",
+      cycleLimitMinutes: 4200,
+      periodAnchor: "00:00",
+      restartEnabled: true,
+      carrierTimeZone: "America/New_York",
+      windowStart: new Date(now - 8 * 24 * H).toISOString(),
+      windowEnd: new Date(now).toISOString(),
+      currentPeriodStart: new Date(now - 6 * H).toISOString(),
+      onDutyMinutesInCycle: 600,
+      restartApplied: null,
+      restartUnverified: false,
+      warnings: [],
+      ...overrides,
+    },
+  };
+}
+
+async function renderHud(result: unknown) {
+  vi.mocked(apiClient.dutyLogWindow).mockResolvedValue(result as never);
+  render(<DutyHud />);
+  await act(async () => {});
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-04T15:00:00Z"));
+  vi.clearAllMocks();
+});
+
+describe("DutyHud", () => {
+  it("with no logs says clocks start when he goes on duty - no running clock", async () => {
+    await renderHud(windowResult([]));
+    expect(screen.getByText(/Clocks start when you go on duty/)).toBeTruthy();
+    expect(screen.queryByRole("group", { name: /Drive:/ })).toBeNull();
+  });
+
+  it("shows the four rings and the not-an-ELD disclaimer verbatim", async () => {
+    const now = Date.now();
+    await renderHud(
+      windowResult([
+        { duty_status: "off_duty", started_at: new Date(now - 20 * H).toISOString() },
+        { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
+      ]),
+    );
+    expect(screen.getByRole("group", { name: /^Drive:/ })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /^14-hour window:/ })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /^Break due in:/ })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /^70\/8 cycle:/ })).toBeTruthy();
+    expect(screen.getByText(/Paper-log helper, not an ELD\./)).toBeTruthy();
+  });
+
+  it("ticks every second without any further network call", async () => {
+    const now = Date.now();
+    await renderHud(
+      windowResult([
+        { duty_status: "off_duty", started_at: new Date(now - 20 * H).toISOString() },
+        { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
+      ]),
+    );
+    const before = screen.getAllByText(/^\d+:\d\d:\d\d$/).map((n) => n.textContent);
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    const after = screen.getAllByText(/^\d+:\d\d:\d\d$/).map((n) => n.textContent);
+    expect(after).not.toEqual(before);
+    expect(vi.mocked(apiClient.dutyLogWindow)).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels the carrier settings as provisional when they are the defaults", async () => {
+    const now = Date.now();
+    await renderHud(windowResult([{ duty_status: "driving", started_at: new Date(now - H).toISOString() }]));
+    expect(screen.getByText(/provisional carrier settings/)).toBeTruthy();
+  });
+
+  it("does not claim provisional once the carrier's own rules are set", async () => {
+    const now = Date.now();
+    await renderHud(
+      windowResult([{ duty_status: "driving", started_at: new Date(now - H).toISOString() }], {
+        cycle: "60/7",
+        cycleLimitMinutes: 3600,
+        periodAnchor: "06:00",
+      }),
+    );
+    expect(screen.queryByText(/provisional carrier settings/)).toBeNull();
+  });
+
+  it("on a failed load shows no clocks and says so, with retry", async () => {
+    vi.mocked(apiClient.dutyLogWindow).mockRejectedValue(new MockApiClientError("down"));
+    render(<DutyHud />);
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toContain("none are shown");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: /Drive:/ })).toBeNull();
+  });
+
+  it("opens the status sheet on a tap, saves with a submission id, and refreshes", async () => {
+    await renderHud(windowResult([]));
+    vi.mocked(apiClient.create).mockResolvedValue({} as never);
+    fireEvent.click(screen.getByRole("button", { name: "Driving" }));
+    expect(screen.getByRole("form", { name: /Driving/ })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save status" }));
+    });
+    const [resource, body] = vi.mocked(apiClient.create).mock.calls[0]!;
+    expect(resource).toBe("duty-logs");
+    expect(body).toMatchObject({ duty_status: "driving", driver_id: null });
+    expect(typeof (body as { submission_id: string }).submission_id).toBe("string");
+    expect(screen.getByText("Status saved.")).toBeTruthy();
+    expect(vi.mocked(apiClient.dutyLogWindow)).toHaveBeenCalledTimes(2);
+  });
+
+  it("flags an earlier time as entered after the fact, and refuses the future", async () => {
+    await renderHud(windowResult([]));
+    fireEvent.click(screen.getByRole("button", { name: "Off duty" }));
+    const input = screen.getByLabelText(/Starts at/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "2026-11-04T08:00" } });
+    expect(screen.getByText(/entered after the fact/)).toBeTruthy();
+    fireEvent.change(input, { target: { value: "2026-11-05T08:00" } });
+    expect(screen.getByRole("alert").textContent).toContain("can't start in the future");
+    expect((screen.getByRole("button", { name: "Save status" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("with no signal queues the change on the device and says so", async () => {
+    await renderHud(windowResult([]));
+    vi.mocked(apiClient.create).mockRejectedValue(new TypeError("network"));
+    fireEvent.click(screen.getByRole("button", { name: "Sleeper berth" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save status" }));
+    });
+    expect(enqueue).toHaveBeenCalledWith("duty-logs", expect.objectContaining({ duty_status: "sleeper" }));
+    expect(screen.getByText(/saved on this device/)).toBeTruthy();
+  });
+});

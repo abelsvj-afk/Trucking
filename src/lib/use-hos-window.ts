@@ -41,5 +41,15 @@ export function useHosWindow() {
     fetchWindow();
   }, [fetchWindow]);
 
-  return { state, retry };
+  // Silent re-fetch (no loading flash): focus, the 5-minute safety
+  // net and after-save refreshes. A failed silent refresh keeps the
+  // last good data rather than blanking a ticking display.
+  const refresh = useCallback(() => {
+    apiClient
+      .dutyLogWindow()
+      .then((result) => setState({ status: "loaded", data: result.data, hos: result.hos }))
+      .catch(() => {});
+  }, []);
+
+  return { state, retry, refresh };
 }

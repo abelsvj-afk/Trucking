@@ -1607,3 +1607,184 @@ nav[aria-label="Primary"] a span {
     transform: none;
   }
 }
+
+/* --- Driver HUD (docs/design/driver-hud.md): live clock rings and the
+   four big duty-status buttons. Phone-first: rings 2x2, buttons >=56px.
+   Tone is also written in words (ClockRing), colour is never alone. */
+.hud {
+  margin-bottom: 1rem;
+}
+
+.hud-status {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.hud-rings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (min-width: 40rem) {
+  .hud-rings {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.hud-ring {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  --hud-tone: var(--color-success);
+}
+
+.hud-tone-warn {
+  --hud-tone: var(--color-warning);
+}
+
+.hud-tone-critical,
+.hud-tone-expired {
+  --hud-tone: var(--color-danger);
+}
+
+.hud-ring-svg {
+  width: 7rem;
+  height: 7rem;
+}
+
+.hud-ring-track {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 8;
+}
+
+.hud-ring-arc {
+  fill: none;
+  stroke: var(--hud-tone);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear, stroke 0.4s ease;
+}
+
+.hud-ring-time {
+  position: absolute;
+  top: 2.9rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-tone);
+}
+
+.hud-ring-label {
+  font-size: 0.875rem;
+  color: var(--color-text-muted-strong);
+  text-align: center;
+}
+
+.hud-ring-tone {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--hud-tone);
+}
+
+.hud-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.hud-buttons {
+  padding: 0;
+  background: none;
+}
+
+.hud-buttons .hud-status-btn {
+  min-height: 56px;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border-strong);
+  border-left-width: 8px;
+  border-radius: 0.75rem;
+}
+
+.hud-buttons .hud-btn-driving {
+  border-left-color: var(--color-danger);
+}
+
+.hud-buttons .hud-btn-on_duty {
+  border-left-color: var(--color-warning);
+}
+
+.hud-buttons .hud-btn-off_duty {
+  border-left-color: var(--color-success);
+}
+
+.hud-buttons .hud-btn-sleeper {
+  border-left-color: var(--color-primary);
+}
+
+.hud-buttons .hud-status-btn[aria-pressed="true"] {
+  background: var(--color-primary-light);
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.hud-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+  background: var(--color-surface-alt);
+}
+
+.hud-sheet .hud-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hud-sheet .hud-sheet-actions button {
+  min-height: 48px;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.hud-note,
+.hud-empty,
+.hud-sheet-note,
+.hud-disclaimer {
+  margin: 0.5rem 0;
+  color: var(--color-text-muted-strong);
+  line-height: 1.4;
+}
+
+.hud-disclaimer {
+  font-size: 0.875rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-ring-arc {
+    transition: none;
+  }
+}
+
+.hud-sheet .hud-sheet-actions button[type="button"] {
+  color: var(--color-text);
+  background: transparent;
+  border: 2px solid var(--color-border-strong);
+}

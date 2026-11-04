@@ -61,7 +61,8 @@ export function isRest(status: DutyStatus): boolean {
   return status === "off_duty" || status === "sleeper";
 }
 
-export function sumMinutes(
+/** Exact milliseconds spent in the given statuses inside [fromMs, toMs]. */
+export function sumMs(
   segments: Segment[],
   fromMs: number,
   toMs: number,
@@ -72,9 +73,18 @@ export function sumMinutes(
     if (!statuses.includes(seg.status)) continue;
     const start = Math.max(seg.startMs, fromMs);
     const end = Math.min(seg.endMs, toMs);
-    if (end > start) total += (end - start) / MINUTE_MS;
+    if (end > start) total += end - start;
   }
-  return Math.round(total);
+  return total;
+}
+
+export function sumMinutes(
+  segments: Segment[],
+  fromMs: number,
+  toMs: number,
+  statuses: DutyStatus[],
+): number {
+  return Math.round(sumMs(segments, fromMs, toMs, statuses) / MINUTE_MS);
 }
 
 /**
@@ -83,7 +93,7 @@ export function sumMinutes(
  * window is taken to start at the earliest log - honest, because the
  * helper only knows what was logged in it.
  */
-function findWindowStartMs(segments: Segment[]): number | null {
+export function findWindowStartMs(segments: Segment[]): number | null {
   if (segments.length === 0) return null;
 
   let windowStart = segments[0]!.startMs;
@@ -109,7 +119,7 @@ function findWindowStartMs(segments: Segment[]): number | null {
  * accumulated after that break ended (or since the window start if no
  * break has happened yet).
  */
-function drivingSinceBreakMinutes(segments: Segment[], windowStartMs: number, nowMs: number): number {
+export function drivingSinceBreakMs(segments: Segment[], windowStartMs: number, nowMs: number): number {
   let breakEndMs = windowStartMs;
   let nonDrivingRunStart: number | null = null;
 
@@ -124,7 +134,11 @@ function drivingSinceBreakMinutes(segments: Segment[], windowStartMs: number, no
       nonDrivingRunStart = null;
     }
   }
-  return sumMinutes(segments, breakEndMs, nowMs, ["driving"]);
+  return sumMs(segments, breakEndMs, nowMs, ["driving"]);
+}
+
+function drivingSinceBreakMinutes(segments: Segment[], windowStartMs: number, nowMs: number): number {
+  return Math.round(drivingSinceBreakMs(segments, windowStartMs, nowMs) / MINUTE_MS);
 }
 
 function formatHours(minutes: number): string {

@@ -13,6 +13,7 @@ import { useFinancialSummary } from "@/lib/use-financial-summary";
 import { useApiList } from "@/lib/use-api-list";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
+import DutyHud from "@/components/hud/DutyHud";
 import NewsBanner from "@/components/NewsBanner";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
@@ -25,10 +26,6 @@ import type { DutyLog } from "@/types/entities";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
-}
-
-function formatMinutes(minutes: number): string {
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
@@ -88,7 +85,13 @@ export default function HomePage() {
   const logs = duty.state.status === "loaded" ? duty.state.result.data : [];
   const paperLabel =
     documents.state.status === "loaded" ? homeHosPaperLabel(logs, documents.state.result.data) : null;
-  const summary = duty.state.status === "loaded" ? summarizeHos(logs) : null;
+  const summaryRaw = duty.state.status === "loaded" ? summarizeHos(logs) : null;
+  // hos.ts's rolling 8-day warning is superseded by the carrier-anchored
+  // cycle (HUD + Hours page); showing it would state a second, naive
+  // weekly total.
+  const summary = summaryRaw
+    ? { ...summaryRaw, warnings: summaryRaw.warnings.filter((w) => !w.includes("8-day on-duty limit")) }
+    : null;
   const latest = [...logs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null;
   const onTheClock = latest != null && (latest.duty_status === "driving" || latest.duty_status === "on_duty");
 
@@ -98,6 +101,8 @@ export default function HomePage() {
         title="Trucking OS"
         purpose="Your whole business at a glance — hours, money, and the one thing to do next."
       />
+
+      <DutyHud />
 
       <NewsBanner />
 
@@ -166,26 +171,11 @@ export default function HomePage() {
         </div>
       </Reveal>
 
-      {summary && logs.length > 0 && (
-        <Reveal aria-label="Your hours today" index={2}>
-          <h2>Your hours</h2>
-          <dl>
-            <dt>Driving left (11h)</dt>
-            <dd>{formatMinutes(Math.max(0, 11 * 60 - summary.drivingMinutesInWindow))}</dd>
-            <dt>Window left (14h)</dt>
-            <dd>{formatMinutes(Math.max(0, 14 * 60 - summary.windowElapsedMinutes))}</dd>
-            <dt>Before a 30-min break</dt>
-            <dd>{formatMinutes(Math.max(0, 8 * 60 - summary.drivingMinutesSinceBreak))}</dd>
-            <dt>Left in 8 days (70h)</dt>
-            <dd>{formatMinutes(Math.max(0, 70 * 60 - summary.onDutyMinutesLast8Days))}</dd>
-          </dl>
-          <p className="row-sub">
-            Paper-log helper, not an ELD — from what you&apos;ve logged here. The truck&apos;s ELD is the
-            legal record.
-          </p>
-          {paperLabel && <p className="row-sub">{paperLabel}</p>}
+      {logs.length > 0 && (
+        <p className="row-sub">
+          {paperLabel && <>{paperLabel} </>}
           <Link href="/fleet/hos">Hours of service</Link>
-        </Reveal>
+        </p>
       )}
 
       <Reveal aria-label="This month's financial summary" index={3}>
