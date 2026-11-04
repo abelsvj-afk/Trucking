@@ -33,6 +33,8 @@ const CAPABILITY_LABELS: Record<string, string> = {
   document_extraction: "Document text extraction (reads uploaded paperwork so the assistant can answer questions about it)",
   game_plan: "Game Plan (your target + strategy planner — games your real numbers into a path to the target; projections, never promises)",
   memory_consolidation: "Memory night shift (nightly pass that organizes Abel's memory and stages things he noticed in your chats as proposals for your yes/no — never saves anything on its own)",
+  voice_transcription: "Voice transcription (Abel turns your Telegram voice notes into text and works them like typed messages — audio goes to the transcription provider; typical cost is under a cent per note, or free when a free-tier provider is configured)",
+  driver_twin: "Driver twin (on Telegram, Abel drafts dispatch replies using your own past sent replies as examples, and tracks how much you edit his drafts — web dispatch drafts don't use the twin yet; off means no examples in drafts and no edit tracking)",
 };
 
 type SettingsState =

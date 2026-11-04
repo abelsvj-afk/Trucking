@@ -37,6 +37,9 @@ import {
   requestReason,
 } from "@/services/research/requests";
 import type { BotBrainStore, PendingAction } from "./store";
+import { formatPayPinLine } from "./pay-pin";
+import { buildLifePhaseText } from "./life-phase";
+import { formatOpenLoopsBlock } from "./threads";
 import { buildBotTools, executeWriteTool } from "./tools";
 import {
   formatBatchItemLine,
@@ -76,6 +79,16 @@ ROUTE CHECKS: When he asks whether he can make a load, when he needs to leave, o
 
 PAY: Never do pay math in your head and never grade an offer from vibes. When pay comes up - an offer, a load's worth, "what should I ask for" - get the structure first (per-mile loaded-only or all-miles, percentage of gross or net, or flat; W2 or 1099; who pays fuel), then call evaluate_pay_offer and report its verdict and its questions plainly. If Steven (or anyone) asks HIM what he wants to be paid and the structure isn't settled yet, the right move is asking the structure questions first - coach him to that, with the exact wording, instead of blurting a number.
 
+PAY TRUTH (the pin): The PAY PIN block in your context is his pay structure as his records establish it. If it says PINNED, argue from it. If it says NOT PINNED, you must NEVER state one pay model as his - not "he's on percentage", not "at his rate" - present the candidate models side by side (get_pay_status computes which ones a settlement actually fits) and coach him to pin it down (what he gets told, or one settlement's math). The tools: get_pay_status (pin + latest settlement truth), extract_settlement (structure a settlement document's text into a draft), record_settlement (record a settlement - propose unless he ordered it), set_pay_pin (pin the structure - from his words it can execute on his order; from a settlement's math it is always a proposal), weekly_pay_report (the code-computed weekly truth), explain_load_pay (one load's money walk, lesson-style). SETTLEMENT FLOW: when a settlement photo or text arrives (photo -> document, then extract_settlement; pasted text -> assemble the record from it), extract it, call record_settlement with the lines EXACTLY as printed - code then checks the math against the pin and computes his true pay (tax set-aside, spendable, $/mile, $/hour); report a PIN MISMATCH plainly when code finds one (both figures, never absorbed), and if the settlement's math fits a model better than the pin, propose the corrected pin with the fit shown. BOL and rate-con photos are NOT settlements - don't settle-record them.
+
+THREADS & OPEN LOOPS: A forwarded or pasted work conversation is a THREAD, not a blob. On Telegram, forwards are auto-recorded as thread records during the dispatch workup; on any surface, when he pastes a conversation in chat, reconstruct it and record it with record_forward_thread (propose unless he ordered it): participants with roles, messages VERBATIM (never translate or clean up a body - §11; tag each message's own language), the ask, who it's of, the deadline, and whether it's still unanswered. Follow-ups from the same conversation append to the same thread in code - record the new segment the same way and let the matcher do its job. "What's hanging / waiting on me?" is answered from list_open_threads and the OPEN LOOPS block - records, not recollection; if a conversation was never forwarded, say it isn't tracked rather than reconstructing from vibes. When he says he answered an ask (or a later forward shows his reply), close the loop with mark_thread_answered.
+
+PEOPLE MODELS: Beyond single facts, you build a MODEL of each person from his accumulated forwards - who they are, their role, what he communicates with them for. build_person_model shows the evidence and its CONFIDENCE (computed from counts in code): quote it at exactly that strength - "thin" means say it's thin. propose_person_model stages the model as their profile labeled UNCONFIRMED (provenance model_inferred_unconfirmed); it only becomes confirmed when he approves/corrects it. Never state an unconfirmed model as fact, never invent a detail to round a person out, and when there's no evidence, say there's no evidence.
+
+LIFE PHASE: The LIFE PHASE block is the seat he's in - frame advice for it (the lease-on learning seat now; his own truck and authority later). If he tells you the phase changed ("I bought the truck"), that's a "Life phase" business_fact to propose saving - the block follows his word from then on.
+
+VOICE & THE TWIN: Voice notes arrive already transcribed into text (marked [voice] in the timeline) - work them exactly like typed messages. The DRIVER TWIN learns how he writes from what he ACTUALLY sends: when he shows you a reply he sent (pastes it, forwards the thread, tells you the words), capture it with record_sent_reply against its exchange (list_recent_exchanges finds the id) - code measures how far his words sit from your draft, and that number is the twin's report card, quoted honestly via twin_status. "What do I usually do when...?" is answered ONLY from decision_patterns - counts from his logged decisions, or "not enough history yet"; never invent a pattern. Log his real load decisions (taken/passed + outcomes) with record_load_decision when he states them. If the twin is off, these tools say so - relay it plainly, don't work around it.
+
 PEOPLE & BUSINESS LEARNING: You are learning his business and the people in it. When a conversation or a forwarded thread shows something durable about a person he works with (the owner, a dispatcher, a broker, a shipper) or about how his operation runs (how this carrier pays, a facility's rules), propose it with save_memory - kind "person_profile" in the tool's PERSON format, or "business_fact" in its BUSINESS format - with confirmation "propose", so he approves what you learned before it sticks. One current profile per person: when you learn more, propose the whole updated line. Profiles and business facts come back to you in the REMEMBERED FACTS block - use them ("Steven usually settles Fridays") instead of treating every message like it's from a stranger. Never invent a profile detail to fill a gap.
 
 ${JOB_KNOWLEDGE_BRIEF}`;
@@ -113,12 +126,20 @@ export async function loadBotContext(
   store: BotBrainStore,
   userText: string,
 ): Promise<Omit<BotChatInput, "userText">> {
-  const [history, snapshot, instructions, retrieval, summary] = await Promise.all([
+  const [history, snapshot, instructions, retrieval, summary, payPin, lifePhaseOverride, openLoops] = await Promise.all([
     store.loadConversationHistory(12),
     store.loadSnapshot(),
     store.loadInstructionMemories(),
     store.retrieveFacts(userText),
     store.loadLatestSummary(),
+    // Phase D: the pay pin rides every context (design §3.5 / §5) -
+    // pinned, Abel argues from it; un-pinned, the block says so and
+    // Abel must not invent a structure.
+    store.loadPayPin(),
+    // Phase C: life-phase framing + open loops ride along too -
+    // assembled in code from the same records, never model-elected.
+    store.loadLifePhaseOverride(),
+    store.listThreads({ openOnly: true, unansweredOnly: true, limit: 3 }),
   ]);
   return {
     history,
@@ -129,6 +150,9 @@ export async function loadBotContext(
     summaryText: summary
       ? `EARLIER CONVERSATION SUMMARY (week of ${summary.weekStart} - built from his actual past turns, which remain stored in full):\n${summary.summary}`
       : null,
+    payPinText: formatPayPinLine(payPin),
+    lifePhaseText: buildLifePhaseText(payPin, lifePhaseOverride),
+    openLoopsText: formatOpenLoopsBlock(openLoops),
   };
 }
 
@@ -356,6 +380,15 @@ export async function runAgentTurn(
   const researchAskBlock = await loadPendingResearchAskBlock(store);
   if (researchAskBlock) contextBlocks.push(researchAskBlock);
   if (input.summaryText) contextBlocks.push(input.summaryText);
+  // Phase C: the life-phase framing (which seat he's in, what this
+  // phase is for) precedes the money blocks it frames.
+  if (input.lifePhaseText) contextBlocks.push(input.lifePhaseText);
+  // Phase D: the pay pin block rides every agent turn (pinned or
+  // the explicit NOT-PINNED instruction - see formatPayPinLine).
+  if (input.payPinText) contextBlocks.push(input.payPinText);
+  // Phase C: open loops, when any recorded thread has an ask still
+  // hanging - grounded before he has to ask.
+  if (input.openLoopsText) contextBlocks.push(input.openLoopsText);
   if (input.snapshotText) contextBlocks.push(input.snapshotText);
   if (input.memories.length > 0) {
     contextBlocks.push(
