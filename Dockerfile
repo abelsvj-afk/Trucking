@@ -27,6 +27,12 @@ RUN npm install --include=dev
 # Copy application code
 COPY . .
 
+# Stamp the app-shell service worker with a per-deploy version: public/sw.js
+# derives its shell cache name from the __BUILD_VERSION__ token, so replacing
+# it here makes each deploy rotate the cache and retire the previous shell
+# on installed clients.
+RUN sed -i "s/__BUILD_VERSION__/$(date -u +%Y%m%d%H%M%S)/g" public/sw.js
+
 # Build application
 RUN npx next build --experimental-build-mode compile
 
