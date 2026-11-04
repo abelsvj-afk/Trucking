@@ -17,6 +17,14 @@
 // assumption fails loudly and explicitly (triggering the existing
 // "source unreachable, no partial briefing" failure path from
 // docs/automation.md) rather than silently producing wrong data.
+//
+// ROUND 2 (2026-11-04): with the key fixed, production failed on the
+// response SHAPE instead - EIA sends `value` as a STRING ("6.292"),
+// and the schema demanded a number. Live-verified the same day: the
+// exact production request with the registered key returned 200 for
+// both the national (NUS) and East Coast (R10) series, every row's
+// value a JSON string. The schema below now accepts a number or a
+// strictly numeric string; a non-numeric value still fails loudly.
 
 import { z } from "zod";
 
@@ -107,13 +115,24 @@ async function eiaErrorDetail(res: Response): Promise<string> {
   }
 }
 
+// EIA's `value` arrives as a string ("6.292") - accept that or a real
+// number, nothing else: the regex keeps "N/A", "" and friends failing
+// the schema instead of coercing to 0 or NaN downstream.
+const eiaValueSchema = z.union([
+  z.number().finite(),
+  z
+    .string()
+    .regex(/^-?\d+(\.\d+)?$/, "EIA value was not a numeric string")
+    .transform((raw) => Number(raw)),
+]);
+
 const eiaResponseSchema = z.object({
   response: z.object({
     data: z
       .array(
         z.object({
           period: z.string(),
-          value: z.number(),
+          value: eiaValueSchema,
           units: z.string(),
         }),
       )

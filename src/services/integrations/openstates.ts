@@ -4,6 +4,15 @@
 // history (governor:signed / became-law = enacted) rather than
 // trusting a server-side filter whose semantics can't be verified
 // from here. Response strictly Zod-validated.
+//
+// ROUND 2 (2026-11-04): production bills polls answered 400 with the
+// key verified good, and this client used to throw the body away, so
+// the Research page showed a bare "400 Bad Request". The API
+// authenticates BEFORE validating params (keyless probing: bogus key
+// -> 401 for every param shape), so the failing param can't be
+// isolated from outside; the API's `{"detail": ...}` error body is
+// now surfaced in the thrown error (the EIA round-1 pattern) so any
+// remaining failure names its own cause on the Research page.
 
 import { z } from "zod";
 
@@ -49,12 +58,34 @@ export async function fetchOpenStatesBills(
     headers: { "X-API-Key": apiKey },
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`OpenStates request for ${jurisdictionName} failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    throw new Error(
+      `OpenStates request for ${jurisdictionName} failed: ${res.status} ${res.statusText}${await openStatesErrorDetail(res)}`,
+    );
+  }
   const parsed = responseSchema.safeParse(await res.json());
   if (!parsed.success) {
     throw new Error(`OpenStates response didn't match the expected shape: ${parsed.error.message}`);
   }
   return parsed.data.results;
+}
+
+const openStatesErrorSchema = z.object({
+  detail: z.string(),
+});
+
+/**
+ * OpenStates explains its own failures in a `{"detail": ...}` body.
+ * Surface it; an unreadable or differently-shaped body degrades to
+ * the plain status line.
+ */
+async function openStatesErrorDetail(res: Response): Promise<string> {
+  try {
+    const parsed = openStatesErrorSchema.safeParse(JSON.parse(await res.text()));
+    return parsed.success ? ` (${parsed.data.detail})` : "";
+  } catch {
+    return "";
+  }
 }
 
 /** True when any recorded action is a signing / became-law action. */

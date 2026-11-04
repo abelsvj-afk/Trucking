@@ -30,7 +30,7 @@ describe("fetchGdeltArticles", () => {
   it("sends the identifying User-Agent and parses the article list", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, ARTICLES_BODY));
 
-    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0);
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0);
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const [, init] = fetchFn.mock.calls[0] as [URL, RequestInit];
@@ -51,25 +51,80 @@ describe("fetchGdeltArticles", () => {
       .mockResolvedValueOnce(jsonResponse(429, null))
       .mockResolvedValueOnce(jsonResponse(200, ARTICLES_BODY));
 
-    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0);
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0);
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
     expect(articles).toHaveLength(1);
   });
 
-  it("gives up into a visible error after a second 429", async () => {
+  it("succeeds on the third attempt after two 429s (shared-IP throttling is erratic - live-verified 2026-11-04)", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(429, null))
+      .mockResolvedValueOnce(jsonResponse(429, null))
+      .mockResolvedValueOnce(jsonResponse(200, ARTICLES_BODY));
+
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0);
+
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(articles).toHaveLength(1);
+  });
+
+  it("gives up into a visible error after the third 429", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(429, null));
 
-    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0)).rejects.toThrow(
+    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0)).rejects.toThrow(
       "GDELT request failed: 429 Too Many Requests",
     );
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a network-level failure (the production gdelt_geo 'fetch failed') and succeeds", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(jsonResponse(200, ARTICLES_BODY));
+
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0);
+
     expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(articles).toHaveLength(1);
+  });
+
+  it("gives up into a visible error after repeated network failures, keeping the cause", async () => {
+    const fetchFn = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0)).rejects.toThrow(
+      "GDELT request failed: fetch failed",
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 
   it("does not retry non-429 failures", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(500, null));
 
-    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0)).rejects.toThrow("GDELT request failed: 500");
+    await expect(fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0)).rejects.toThrow(
+      "GDELT request failed: 500",
+    );
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("paces request starts process-wide: back-to-back calls (the gdelt_tech burst pattern) are spaced by the pace interval", async () => {
+    const starts: number[] = [];
+    const fetchFn = vi.fn().mockImplementation(async () => {
+      starts.push(Date.now());
+      return jsonResponse(200, ARTICLES_BODY);
+    });
+
+    const PACE = 200;
+    await fetchGdeltArticles("48h", 75, fetchFn as never, "query one", 0, PACE);
+    await fetchGdeltArticles("48h", 75, fetchFn as never, "query two", 0, PACE);
+    await fetchGdeltArticles("48h", 75, fetchFn as never, "query three", 0, PACE);
+    await fetchGdeltArticles("48h", 75, fetchFn as never, "query four", 0, PACE);
+
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+    for (let i = 1; i < starts.length; i++) {
+      expect(starts[i]! - starts[i - 1]!).toBeGreaterThanOrEqual(PACE - 25);
+    }
   });
 });
