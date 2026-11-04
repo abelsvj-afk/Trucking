@@ -23,6 +23,7 @@ import { BOTTOM_TABS, resolveActiveTab } from "@/lib/nav-config";
 import PageTransition from "@/components/PageTransition";
 import AbelDrop from "@/components/AbelDrop";
 import LiveDataProvider from "@/components/live/LiveDataProvider";
+import MotionLock from "@/components/MotionLock";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -32,7 +33,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <LiveDataProvider>
       <div>
         <a href="#main-content">Skip to main content</a>
-        <main id="main-content">
+        <MotionLock />
+      <main id="main-content">
           <PageTransition>{children}</PageTransition>
         </main>
         <nav aria-label="Primary">

@@ -6,6 +6,7 @@
 // unknown time stays blank, never a guessed status.
 
 import type { DutyStatus } from "@/types/entities";
+import { zonedWallMinutes } from "@/lib/zoned-day";
 
 export interface DayRow {
   id: string;
@@ -38,7 +39,19 @@ export function sortRows<T extends DayRow>(rows: T[]): T[] {
   return [...rows].sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at));
 }
 
-export function buildDayView(rows: DayRow[], dayStartMs: number, dayEndMs: number, nowMs: number): DayView {
+/**
+ * `timeZone` places stretches by the wall clock, so a 23/25-hour
+ * daylight-saving day still draws and reads true. Without it, minutes are
+ * elapsed-from-midnight (correct on every ordinary day). Totals are always
+ * real elapsed durations.
+ */
+export function buildDayView(
+  rows: DayRow[],
+  dayStartMs: number,
+  dayEndMs: number,
+  nowMs: number,
+  timeZone?: string,
+): DayView {
   const totals: Record<DutyStatus, number> = { off_duty: 0, sleeper: 0, driving: 0, on_duty: 0 };
   const stretches: DayStretch[] = [];
   const limit = Math.min(dayEndMs, nowMs);
@@ -49,7 +62,11 @@ export function buildDayView(rows: DayRow[], dayStartMs: number, dayEndMs: numbe
     const endMs = Math.min(nextMs, limit);
     const from = Math.max(startMs, dayStartMs);
     if (endMs <= from) return;
-    const toMin = (ms: number) => Math.max(0, Math.min(1440, Math.round((ms - dayStartMs) / MINUTE)));
+    const toMin = (ms: number) =>
+      timeZone
+        ? Math.round(zonedWallMinutes(ms, dayStartMs, dayEndMs, timeZone))
+        : Math.max(0, Math.min(1440, Math.round((ms - dayStartMs) / MINUTE)));
+    const elapsedMin = Math.round((endMs - from) / MINUTE);
     const stretch: DayStretch = {
       status: row.duty_status,
       startMin: toMin(from),
@@ -58,10 +75,10 @@ export function buildDayView(rows: DayRow[], dayStartMs: number, dayEndMs: numbe
       carriedIn: startMs < dayStartMs,
       ongoing: endMs === nowMs && nextMs > nowMs,
     };
-    if (stretch.endMin > stretch.startMin) {
-      stretches.push(stretch);
-      totals[row.duty_status] += stretch.endMin - stretch.startMin;
-    }
+    // The repeated hour of a fall-back day can leave a stretch with no
+    // positive span on the clock; it is dropped from the picture only.
+    if (stretch.endMin > stretch.startMin) stretches.push(stretch);
+    if (elapsedMin > 0) totals[row.duty_status] += elapsedMin;
   });
   return { stretches, totals };
 }

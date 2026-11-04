@@ -160,6 +160,22 @@ describe("NewsBanner", () => {
     expect(screen.getByRole("button", { name: /Check the wires now/ })).toBeTruthy();
   });
 
+  it("each story carries a topic tile that is decoration for screen readers (the headline stays the content)", async () => {
+    vi.useFakeTimers();
+    vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(
+      page({ data: [briefing({ id: "b1", topic: "weather", title: "Storm on I-10", created_at: iso(2 * HOUR) })] }),
+    );
+    const { container } = render(<NewsBanner />);
+    await act(async () => {});
+    const tile = container.querySelector(".news-banner-tile")!;
+    expect(tile.className).toContain("news-tile-weather");
+    expect(tile.getAttribute("aria-hidden")).toBe("true");
+    expect(tile.textContent).toBe("🌩️");
+    expect(screen.getByText("Storm on I-10")).toBeTruthy();
+    // the tag row now reads plain words: topic and age
+    expect(container.querySelector(".news-banner-tagrow")!.textContent).toMatch(/WEATHER · 2h ago/);
+  });
+
   it("rotates items every 6 seconds and links each into the in-app tab", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(

@@ -27,14 +27,13 @@ interface Props {
   rows: DayRow[];
   stretch: DayStretch;
   dayDate: string;
-  dayStartMs: number;
   timeZone: string;
   nowMs: number;
   onDone: (message: string) => void;
   onClose: () => void;
 }
 
-export default function DayEditPanel({ rows, stretch, dayDate, dayStartMs, timeZone, nowMs, onDone, onClose }: Props) {
+export default function DayEditPanel({ rows, stretch, dayDate, timeZone, nowMs, onDone, onClose }: Props) {
   const row = rows[stretch.rowIndex]!;
   const rowStartMs = Date.parse(row.started_at);
   const [status, setStatus] = useState<DutyStatus>(row.duty_status);
@@ -83,8 +82,10 @@ export default function DayEditPanel({ rows, stretch, dayDate, dayStartMs, timeZ
 
   function insertChange() {
     const target = zonedInstant(dayDate, insertClock, timeZone).getTime();
-    const from = dayStartMs + stretch.startMin * 60_000;
-    const to = dayStartMs + stretch.endMin * 60_000;
+    // Stretch minutes are WALL-clock minutes (they read as clock times and
+    // survive daylight-saving days), so bounds go back through the zone.
+    const from = zonedInstant(dayDate, formatMinutes(stretch.startMin), timeZone).getTime();
+    const to = zonedInstant(dayDate, formatMinutes(stretch.endMin), timeZone).getTime();
     if (!Number.isFinite(target) || target <= from || target >= to) {
       return setError(`Pick a time inside this stretch (${formatMinutes(stretch.startMin)}–${formatMinutes(stretch.endMin)}).`);
     }

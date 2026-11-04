@@ -264,21 +264,25 @@ export default function NewsBanner() {
                   }
                   className="news-banner-item"
                 >
-                  <span className="news-banner-tagrow">
-                    <span>
-                      {topicEmoji(current.topic)} {current.topic.toUpperCase()} ·{" "}
-                      {formatRelativeAge(current.at, now)}
+                  <span className={`news-banner-tile news-tile-${current.topic}`} aria-hidden="true">
+                    {topicEmoji(current.topic)}
+                  </span>
+                  <span className="news-banner-text">
+                    <span className="news-banner-tagrow">
+                      <span>
+                        {current.topic.toUpperCase()} · {formatRelativeAge(current.at, now)}
+                      </span>
+                      {current.kind === "signal" ? (
+                        <span className="news-banner-watching">WATCHING</span>
+                      ) : current.unread ? (
+                        <span className="news-banner-new">● new</span>
+                      ) : null}
                     </span>
-                    {current.kind === "signal" ? (
-                      <span className="news-banner-watching">WATCHING</span>
-                    ) : current.unread ? (
-                      <span className="news-banner-new">● new</span>
-                    ) : null}
+                    <span className="news-banner-headline">
+                      <WordReveal text={current.headline} />
+                    </span>
+                    {current.sub && <span className="news-banner-sub">{current.sub}</span>}
                   </span>
-                  <span className="news-banner-headline">
-                    <WordReveal text={current.headline} />
-                  </span>
-                  {current.sub && <span className="news-banner-sub">{current.sub}</span>}
                 </Link>
               </div>
             ) : (

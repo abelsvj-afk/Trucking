@@ -89,9 +89,9 @@ describe("buildBannerItems", () => {
     const items = buildBannerItems(
       {
         data: [
-          briefing({ id: "routine", delivery_class: "routine", created_at: hoursAgo(100) }),
-          briefing({ id: "trip", delivery_class: "trip", created_at: hoursAgo(100) }),
-          briefing({ id: "urgent", delivery_class: "urgent", created_at: hoursAgo(100) }),
+          briefing({ id: "routine", topic: "market", delivery_class: "routine", created_at: hoursAgo(100) }),
+          briefing({ id: "trip", topic: "weather", delivery_class: "trip", created_at: hoursAgo(100) }),
+          briefing({ id: "urgent", topic: "regulation", delivery_class: "urgent", created_at: hoursAgo(100) }),
         ],
         signals: [signal({ id: "s1", observed_at: hoursAgo(100) })],
       },
@@ -142,20 +142,32 @@ describe("buildBannerItems", () => {
     expect(items.map((i) => i.id)).toEqual(["mid-fresh", "strong-stale"]);
   });
 
-  it("caps signals at 2 and the rotation at 5", () => {
+  it("caps signals at 4, one topic at 3, and the rotation at 12", () => {
+    const topics = ["fuel", "weather", "regulation", "rates", "market"];
     const items = buildBannerItems(
       {
-        data: [1, 2, 3, 4].map((n) =>
-          briefing({ id: `b${n}`, created_at: hoursAgo(100 + n) }),
+        data: Array.from({ length: 14 }, (_, n) =>
+          briefing({ id: `b${n}`, topic: topics[n % topics.length]!, created_at: hoursAgo(100 + n) }),
         ),
-        signals: [1, 2, 3].map((n) =>
-          signal({ id: `s${n}`, magnitude: 0.9 - n * 0.1, observed_at: hoursAgo(100) }),
+        signals: Array.from({ length: 7 }, (_, n) =>
+          signal({ id: `s${n}`, topic: topics[n % topics.length]!, magnitude: 0.9 - n * 0.05, observed_at: hoursAgo(100) }),
         ),
       },
       NOW,
     );
-    expect(items).toHaveLength(5);
-    expect(items.filter((i) => i.kind === "signal")).toHaveLength(2);
+    expect(items.length).toBeLessThanOrEqual(12);
+    expect(items.filter((i) => i.kind === "signal").length).toBeLessThanOrEqual(4);
+    for (const topic of topics) expect(items.filter((i) => i.topic === topic).length).toBeLessThanOrEqual(3);
+    // five topics x three each = 15 available, so the 12 cap is what binds
+    expect(items).toHaveLength(12);
+  });
+
+  it("one topic can't take over the strip: eight fuel stories show three", () => {
+    const items = buildBannerItems(
+      { data: Array.from({ length: 8 }, (_, n) => briefing({ id: `f${n}`, topic: "fuel", created_at: hoursAgo(100 + n) })), signals: [] },
+      NOW,
+    );
+    expect(items).toHaveLength(3);
   });
 
   it("maps the item anatomy: briefing sub + unread, signal summary with no sub", () => {

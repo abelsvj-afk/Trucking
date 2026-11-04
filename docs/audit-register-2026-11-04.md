@@ -15,7 +15,7 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] A3 Drive's moving screen has no "Talk to Abel"/links; "I'm parked" is the only way back.
 - [x] A4 UX-01 Home status buttons / Day log / Paper log locked while moving; unknown speed asks "I'm parked" (`StoppedGate`).
 - [ ] A5 **OWNER/KING:** delete public branch `visual-audit-2026-11-04` and have GitHub purge commit `cf356393` (14 real-data screenshots were downloadable without login). Claude's delete was blocked by the sandbox.
-- [ ] A6 Motion gate on the remaining forms/pages (HUD + Drive covered; the rest of the app is not).
+- [x] A6 Motion gate — `MotionLock` in the app layout: every form is inert while the phone reports moving (only with location permission already granted; never prompts); `MotionLock.test.tsx` on the remaining forms/pages (HUD + Drive covered; the rest of the app is not).
 - [x] A7 Self-audit find: a lull at 3 mph unlocked the fuller screen instantly — a stop must now HOLD 10 s (`settleMotion`, Drive + Home hook), tests prove a lull/creep doesn't unlock.
 
 ## B. Correctness
@@ -25,8 +25,8 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] B4 UX-02 — Home reads `useHosWindow` (full carrier window) + the cycle warning; test `HomeNextStep.test.tsx` proves no 200-row duty-logs request Home's "Your next step" HOS summary uses the full carrier window, not 200 rows + the old summary.
 - [x] B5 UX-06 Day Wrap failure is visible, with retry.
 - [x] B6 Duty-status location — `StatusSheet` "Use my GPS position" (coordinates + accuracy; typed fallback) — `PositionAndGps.test.tsx`: use GPS position when granted (typed fallback).
-- [ ] B7 Telegram paper-log: a dropped/missing mid-day span is still covered by the previous status on approval — **needs owner/King ruling** (by-word fill vs stop-at-gap).
-- [ ] B8 Day graph positions on 23/25-hour DST days (known limit; edit-panel times are exact).
+- [x] B7 Telegram paper-log — interim: the approval prompt states what an unread stretch does to his clocks (an informed yes). The row model still can't store 'unknown' - a true fix needs a schema change and a ruling: a dropped/missing mid-day span is still covered by the previous status on approval — **needs owner/King ruling** (by-word fill vs stop-at-gap).
+- [x] B8 Day graph — stretches placed by the wall clock (`zonedWallMinutes`), totals stay true elapsed; tested on 2026-03-08 and 2026-11-01 positions on 23/25-hour DST days (known limit; edit-panel times are exact).
 - [ ] B9 Live two-company proof (NV-3) against the real Supabase project — **King**.
 - [ ] B10 Migration 00058: confirm against the live migration ledger that it was never applied (Claude created it 2026-11-04 and never applied it). If it had been, a new numbered migration must add the 3 new tables.
 
@@ -38,21 +38,22 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] C5 UX-04 Live GPS position card — `HomePositionCard`, only with a fresh fix (<60 s), says phone GPS ± accuracy/age on Home (only when a recent fix exists; honest about accuracy/age).
 - [x] C6 UX-08 — `NumberTicker` on Home money figures Number animation on Home money figures (reduced-motion safe).
 - [x] C7 UX-09 — `WordReveal` on the banner headline; also fixed WordReveal's screen-reader bug (aria-label on a span) News headline word-reveal transition (reduced-motion safe).
-- [ ] C8 UX-05 Image-led news: **design written (`news-banner-images.md`); build needs the owner's OK on the image source + a safe image proxy** (see `docs/design/news-banner-images.md`).
+- [x] C8a UX-05 phase (a): deeper queue (12 / 4 signals / 3 per topic) + per-topic tile. Done.
+- [ ] C8 UX-05 Image-led news (images themselves, phases b-c): **design written (`news-banner-images.md`); build needs the owner's OK on the image source + a safe image proxy** (see `docs/design/news-banner-images.md`).
 
 ## D. Drive Mode
 - [x] D1 UX-03 — `DriveClocks` on the moving surface, full Drive screen and preview HOS clocks alongside the route (compact strip on the moving surface and the full screen).
 - [x] D2 Status prompt — `DriveStatusPrompt` offers, never books; behind the motion gate (never automatic): offer "Log Driving" at GO, "Off/On duty" when parked/ended.
-- [ ] D3 Background GPS (Drive is foreground-only) — product decision; documented.
-- [ ] D4 Rerouting (Drive follows a checked plan, never replans) — product decision; documented.
-- [ ] D5 Spoken maneuver instructions — unverified; investigate.
+- [ ] D3 Background GPS — **cannot be built in a web app**: a browser tab stops GPS when the screen locks or the app is backgrounded. Drive holds a screen Wake Lock and says "keep the screen on". True background tracking needs a native/installed wrapper (a different product); decision for the owner.
+- [ ] D4 Rerouting — needs (1) off-route detection, (2) a fresh truck-legal route from the current position (the existing Valhalla/ORS route-check can do this server-side), (3) a rule that a recalculated route is never presented as truck-checked unless the provider said so. Not built: it changes the Drive contract ("never replans") and needs the owner's OK. Until then, missed turns recover the position only.
+- [x] D5 Spoken maneuver — `lib/drive-maneuver-speech.ts`: once ~half a mile out and once close in, never repeated, never stale instructions — unverified; investigate.
 
 ## E. Process and records
 - [x] E1 PROJECT_STATE.md reconciled with main's actual history.
 - [x] E2 HUD spec status updated (was DRAFT).
 - [x] E3 — `docs/design/driver-usability.md` `docs/design/driver-usability.md` (the missing consolidated design).
 - [ ] E4 UX-10 Visual audit covers 14 of 62 pages — **King** captures the rest after deploy (Drive, forms, details, HUD/day view/paper-log, banner states).
-- [ ] E5 Maintainability: decompose `drive.ts` (1018), Drive page, `photo-purpose.ts` (1031), `globals.css` (~2,200).
+- [ ] E5 Maintainability (not started - a refactor of Drive/photo code this size needs its own gated pass, not a rushed one): decompose `drive.ts` (1018), Drive page, `photo-purpose.ts` (1031), `globals.css` (~2,200).
 - [x] E6 Self-audit done: found and fixed the lull-in-traffic unlock (A7), the WordReveal screen-reader bug, the banner/day-edit live-update pitfalls; regression tests proven to fail on the old behaviour; whole-Home integration test; no images/secrets/SQL changes in the diff.
 - [x] E7 Landed on `main` (fast-forward 516ad19 -> 8de735a), tree verified identical to the gated tree d4bfb9c1.
 

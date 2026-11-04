@@ -353,6 +353,28 @@ describe("stagePaperLogDay", () => {
     expect(saved.filter((a) => a.toolName === "log_duty_status")).toHaveLength(4);
   });
 
+  it("the approval prompt says what an unread stretch does to his clocks - an informed yes", async () => {
+    const db = baseDb();
+    const { store } = fakeStore(db);
+    const gap: PaperLogExtraction = {
+      ...CLEAN_DAY,
+      totals: null,
+      segments: [
+        { status: "off_duty", start: "00:00", end: "06:00", confidence: 0.99 },
+        { status: "driving", start: "06:00", end: "15:00", confidence: 0.99 },
+        { status: "off_duty", start: "18:30", end: "24:00", confidence: 0.99 },
+      ],
+      unreadable: [{ description: "grid washed out", start: "15:00", end: "18:30" }],
+    };
+    const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: gap });
+    const prompt = lines.find((l) => l.startsWith("Say yes"))!;
+    expect(prompt).toContain("I did not read 3 PM–6:30 PM");
+    expect(prompt).toContain("clocks will treat the status just before that stretch as running through it");
+    // a clean day carries no such clause
+    const clean = await stagePaperLogDay({ store: fakeStore(baseDb()).store, documentId: DOC_ID, extraction: CLEAN_DAY });
+    expect(clean.lines.find((l) => l.startsWith("Say yes"))).not.toContain("I did not read");
+  });
+
   it("naming condition: sub-floor stretches stay dropped and named, never staged; the prompt names no faint ones when there are none", async () => {
     const db = baseDb();
     const { store, saved } = fakeStore(db);

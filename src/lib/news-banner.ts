@@ -32,8 +32,11 @@ export interface BannerItem {
 
 const BRIEFING_WINDOW_MS = 14 * 24 * 3600 * 1000;
 const FRESH_BRIEFING_MS = 72 * 3600 * 1000;
-const MAX_ITEMS = 5;
-const MAX_SIGNALS = 2;
+// Phase (a) of docs/design/news-banner-images.md: a deeper queue, but never
+// one story or topic taking the whole strip.
+const MAX_ITEMS = 12;
+const MAX_SIGNALS = 4;
+const MAX_PER_TOPIC = 3;
 
 /** "just now" / "25m ago" / "2h ago" / "3d ago" - the banner always shows an age. */
 export function formatRelativeAge(iso: string, now: Date = new Date()): string {
@@ -131,5 +134,12 @@ export function buildBannerItems(
     return signalCount <= MAX_SIGNALS;
   });
 
-  return capped.slice(0, MAX_ITEMS);
+  const perTopic = new Map<string, number>();
+  const spread = capped.filter((item) => {
+    const n = (perTopic.get(item.topic) ?? 0) + 1;
+    perTopic.set(item.topic, n);
+    return n <= MAX_PER_TOPIC;
+  });
+
+  return spread.slice(0, MAX_ITEMS);
 }

@@ -1,6 +1,6 @@
 # Image-led news banner — design (not built; needs the owner's decisions)
 
-Status: DESIGN ONLY, 2026-11-04. The owner wants a rotating, image-led news
+Status: phase (a) BUILT 2026-11-04 (deeper queue: 12 items, 4 signals, max 3 per topic; per-topic visual tile; headline word-reveal). Phases (b) and (c), the images themselves, are DESIGN ONLY and need the owner's decisions in §5. Original status: DESIGN ONLY, 2026-11-04. The owner wants a rotating, image-led news
 strip on Home. Today `NewsBanner` is text-only by design: its data
 (`ResearchBriefing` / `ResearchSignal`) has no image field, and the builder
 caps the rotation at five items (two signals). This document is the contract

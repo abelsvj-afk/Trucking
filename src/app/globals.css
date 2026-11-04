@@ -1172,8 +1172,9 @@ a.page-action:hover,
 
 .news-banner-item {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
   color: inherit;
   animation: bannerFade 0.45s ease both;
 }
@@ -2309,4 +2310,62 @@ nav[aria-label="Primary"] a span {
 
 .drive-status-prompt button {
   min-height: 56px;
+}
+
+/* App-wide driving lock (components/MotionLock.tsx): the banner stays in
+   view while forms are inert. */
+.motion-lock-banner {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-warning-light);
+  border-bottom: 3px solid var(--color-warning);
+}
+
+form[data-motion-locked="true"] {
+  opacity: 0.55;
+}
+
+/* News banner topic tile (phase (a) of docs/design/news-banner-images.md):
+   a visual anchor per story with no image fetched from anywhere. */
+.news-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.news-banner-tile {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  font-size: 1.75rem;
+  border-radius: 0.75rem;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-border);
+}
+
+.news-tile-fuel {
+  background: var(--color-warning-light);
+}
+
+.news-tile-weather {
+  background: var(--color-primary-light);
+}
+
+.news-tile-regulation {
+  background: var(--color-danger-light);
+}
+
+.news-tile-rates,
+.news-tile-market {
+  background: var(--color-success-light);
 }

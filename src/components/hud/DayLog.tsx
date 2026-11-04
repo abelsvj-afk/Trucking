@@ -32,7 +32,7 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
 
   const sorted = useMemo(() => sortRows(rows), [rows]);
   const { startMs, endMs } = zonedDayBounds(day, timeZone);
-  const view = buildDayView(sorted, startMs, endMs, nowMs);
+  const view = buildDayView(sorted, startMs, endMs, nowMs, timeZone);
   const segments: DraftSegment[] = view.stretches.map((s) => ({
     status: s.status,
     startMin: s.startMin,
@@ -98,7 +98,6 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
           rows={sorted}
           stretch={stretch}
           dayDate={day}
-          dayStartMs={startMs}
           timeZone={timeZone}
           nowMs={nowMs}
           onDone={(m) => {

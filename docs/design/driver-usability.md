@@ -59,9 +59,16 @@ source exists).
   when parked / after the run, "Off duty" / "On duty". It only OFFERS: a tap
   opens the confirm sheet (behind the same motion gate); nothing is ever booked
   automatically.
-- **Not built (product decisions):** background GPS (foreground-only — keep the
-  screen on), rerouting (Drive follows a checked plan, never replans), spoken
-  maneuver instructions (unverified).
+- **Spoken turns** (`lib/drive-maneuver-speech.ts`): each maneuver is spoken about
+  half a mile out and once close in, never repeated, never stale.
+- **App-wide lock** (`components/MotionLock.tsx`): while the phone reports the
+  truck moving, every form in the app is inert with a banner saying why (only
+  with location permission already granted; unknown speed does not lock the
+  whole app - the HUD and Drive ask "I'm parked" instead).
+- **Not built (product decisions):** background GPS (impossible in a web tab —
+  keep the screen on; a native wrapper would be a different product) and
+  rerouting (Drive follows a checked plan and never replans; a recalculated
+  route would need the truck-routing provider and the owner's OK).
 
 ## 5. Animation, where it earns its place
 

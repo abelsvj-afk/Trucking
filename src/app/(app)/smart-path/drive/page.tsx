@@ -48,6 +48,7 @@ import {
 } from "@/lib/drive";
 import { browserSpeaker, type Speaker } from "@/lib/drive-speech";
 import { classifyMotion, isRestricted, settleMotion } from "@/lib/vehicle-motion";
+import { maneuverAnnouncement } from "@/lib/drive-maneuver-speech";
 import DriveGlance from "@/components/drive/DriveGlance";
 import DriveClocks from "@/components/drive/DriveClocks";
 import DriveStatusPrompt from "@/components/drive/DriveStatusPrompt";
@@ -130,6 +131,8 @@ export default function DrivePage() {
   const tickIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wakeLockRef = useRef<WakeLockLike | null>(null);
   const speakerRef = useRef<Speaker | null>(null);
+  // Maneuver announcements already made this run (so none repeats).
+  const spokenManeuversRef = useRef<Set<string>>(new Set());
   const lastCheckpointWriteRef = useRef(0);
   const modeRef = useRef<Mode>("loading");
   useEffect(() => {
@@ -242,6 +245,13 @@ export default function DrivePage() {
       const line = speechForEvent(event, currentPlan, session);
       if (line) speaker().speak(line);
     }
+    // Spoken turn instructions (audit D5): once about half a mile out and
+    // once close in, per maneuver - never repeated.
+    const announcement = maneuverAnnouncement(nextManeuver(currentPlan, session.progressFraction), spokenManeuversRef.current);
+    if (announcement) {
+      for (const key of announcement.keys) spokenManeuversRef.current.add(key);
+      speaker().speak(announcement.line);
+    }
     writeCheckpoint();
     setNowMs(nowMsValue);
     setRenderTick((tick) => tick + 1);
@@ -319,6 +329,7 @@ export default function DrivePage() {
     const fresh = sessionRef.current === null;
     if (fresh) {
       syncSession(newDriveSession(currentPlan, Date.now()));
+      spokenManeuversRef.current = new Set();
     }
     setEnded(false);
     setNowMs(Date.now());

@@ -29,6 +29,37 @@ export function zonedInstant(date: string, hhmm: string, timeZone: string): Date
   return new Date(wall - offsetMs(first, timeZone));
 }
 
+/** The zone's UTC offset at an instant, in whole minutes (EST = -300). */
+export function zoneOffsetMinutes(instantMs: number, timeZone: string): number {
+  return Math.round(offsetMs(instantMs, timeZone) / 60_000);
+}
+
+/**
+ * Wall-clock minutes since the day's local midnight for an instant inside
+ * [dayStartMs, dayEndMs]. On a daylight-saving changeover day the elapsed
+ * minutes and the clock disagree after the changeover (23 or 25 hours in
+ * the day); this returns what the CLOCK showed, 0-1440, so a graph and a
+ * time field both read true. During the repeated hour of a fall-back day
+ * the clock repeats; the result is clamped so it never goes backwards.
+ */
+export function zonedWallMinutes(instantMs: number, dayStartMs: number, dayEndMs: number, timeZone: string): number {
+  const elapsed = (instantMs - dayStartMs) / 60_000;
+  const shift = zoneOffsetMinutes(dayEndMs - 1, timeZone) - zoneOffsetMinutes(dayStartMs, timeZone);
+  if (shift === 0) return Math.max(0, Math.min(1440, elapsed));
+  // find the changeover instant (the offset flips once inside the day)
+  let lo = dayStartMs;
+  let hi = dayEndMs - 1;
+  const startOff = zoneOffsetMinutes(dayStartMs, timeZone);
+  while (hi - lo > 1000) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (zoneOffsetMinutes(mid, timeZone) === startOff) lo = mid;
+    else hi = mid;
+  }
+  const changeover = hi;
+  const wall = instantMs < changeover ? elapsed : elapsed + shift;
+  return Math.max(0, Math.min(1440, wall));
+}
+
 export function zonedDayBounds(date: string, timeZone: string): { startMs: number; endMs: number } {
   return {
     startMs: zonedInstant(date, "00:00", timeZone).getTime(),

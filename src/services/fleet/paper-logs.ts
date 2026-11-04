@@ -296,11 +296,28 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
       flagged.length > 0
         ? ` Your yes includes ${flagged.length} faint stretch${flagged.length === 1 ? "" : "es"} I read below the clean bar: ${flaggedNames}. Check ${flagged.length === 1 ? "it" : "them"} against the sheet before you say yes.`
         : "";
+    // A duty row runs until the NEXT row, so an unread stretch can't be
+    // stored as "unknown": until he tells me what he did there, the app's
+    // clocks carry the status before it across that stretch. Say so in
+    // the approval prompt itself, so his yes is an informed one.
+    const gaps = [
+      ...analysis.dropped.map((segment) => ({ startMin: segment.startMin, endMin: segment.endMin })),
+      ...analysis.missingSpans.filter((span) => span.startMin >= 0),
+    ].sort((x, y) => x.startMin - y.startMin);
+    const gapClause =
+      gaps.length > 0
+        ? ` One thing to know before you say yes: I did not read ${gaps
+            .map((g) => `${formatClock(g.startMin)}–${formatClock(g.endMin)}`)
+            .join(", ")}, so until you tell me what you were doing then, your app's clocks will treat the status just before ${
+            gaps.length === 1 ? "that stretch" : "each stretch"
+          } as running through it. Tell me in words and I'll put it right.`
+        : "";
     lines.push(
       (analysis.complete
         ? "Say yes and these become your app hours, marked as read from the paper — the sheet stays your legal record, the app just mirrors it."
         : `Say yes and the readable part becomes your app hours, marked partial — from the readable part of ${label}. The missing spans stay missing until you supply them.`) +
-        flaggedClause,
+        flaggedClause +
+        gapClause,
     );
   }
   return { lines };
