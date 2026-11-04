@@ -2265,3 +2265,21 @@ nav[aria-label="Primary"] a span {
   box-shadow: none;
   text-decoration: none;
 }
+
+.hud-links .hud-link-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud-gate {
+  padding: 0.75rem;
+  border: 2px solid var(--color-warning);
+  border-radius: 0.75rem;
+  background: var(--color-warning-light);
+}
+
+.hud-gate button {
+  width: 100%;
+  min-height: 56px;
+  font-weight: 700;
+}

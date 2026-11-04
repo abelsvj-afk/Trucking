@@ -110,8 +110,6 @@ export default function HomePage() {
 
       <NewsBanner />
 
-      <DayWrapCard />
-
       <Reveal aria-label="Your next step" className="next-step" index={0}>
         <h2>Your next step</h2>
         {duty.state.status === "loading" && <p>Checking your hours…</p>}
@@ -156,6 +154,8 @@ export default function HomePage() {
       </Reveal>
 
       <ActivePlanCard />
+
+      <DayWrapCard />
 
       <Reveal aria-label="Quick actions" index={1}>
         <h2>Quick actions</h2>

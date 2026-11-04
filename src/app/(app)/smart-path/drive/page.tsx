@@ -47,6 +47,8 @@ import {
   type DriveSession,
 } from "@/lib/drive";
 import { browserSpeaker, type Speaker } from "@/lib/drive-speech";
+import { classifyMotion, isRestricted } from "@/lib/vehicle-motion";
+import DriveGlance from "@/components/drive/DriveGlance";
 import { easternHour, formatMinutes } from "@/lib/smart-path";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -397,11 +399,11 @@ export default function DrivePage() {
   // ---- derived render state (state only - refs are off-limits in render) --------
   const lastFix = session?.lastFix ?? null;
   const speedMph = lastFix?.speedMph ?? null;
-  const rolling =
-    mode === "rolling" &&
-    speedMph !== null &&
-    speedMph > 5 &&
-    DRIVE_SETTINGS.rollingSurface === "glance";
+  // Fail closed (lib/vehicle-motion.ts): the fuller screen needs a
+  // POSITIVE "stopped" from a fresh fix. Moving, no speed, a stale fix -
+  // all stay on the moving surface.
+  const motion = classifyMotion(speedMph, lastFix ? (nowMs || lastFix.atMs) - lastFix.atMs : null);
+  const rolling = mode === "rolling" && isRestricted(motion) && DRIVE_SETTINGS.rollingSurface === "glance";
   const nextStop =
     plan && session && session.nextStopIndex < plan.stops.length
       ? plan.stops[session.nextStopIndex]!
@@ -724,72 +726,49 @@ export default function DrivePage() {
             </section>
           )}
 
-          {rolling && nextStop && (
-            <div
-              role="region"
-              aria-label="Driving"
-              style={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 60,
-                background: "#0b1220",
-                color: "#f9fafb",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                padding: "20px 16px",
-              }}
-            >
-              <div>
-                {session.gpsBannerOn && (
-                  <p role="alert" style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-                    {DRIVE_COPY.gpsLostBanner}
-                  </p>
-                )}
-                <p style={{ fontSize: "1.4rem", opacity: 0.85 }}>Next stop</p>
-                <p style={{ fontSize: "2.2rem", fontWeight: 800, lineHeight: 1.15 }}>{nextStop.name}</p>
-                <p style={{ fontSize: "3rem", fontWeight: 800 }}>
-                  {Math.max(0, (nextStop.fraction - session.progressFraction) * plan.totalMiles).toFixed(1)} mi
-                </p>
-                {upcoming && (
-                  <p style={{ fontSize: "1.6rem", fontWeight: 600 }}>
-                    {MANEUVER_ARROWS[maneuverDirection(upcoming.maneuver.instruction)]}{" "}
-                    {upcoming.maneuver.instruction} · {upcoming.milesAway.toFixed(1)} mi
-                  </p>
-                )}
-                <p style={{ fontSize: "1.3rem" }}>
-                  {nextStop.lifeBadge ?? ""}
-                  {projection
-                    ? ` · Drive left ${formatMinutes(Math.max(0, Math.round(projection.driveLeftMin)))}`
-                    : ""}
-                </p>
-              </div>
-              <div style={{ display: "flex", gap: "10px" }}>
-                <button type="button" onClick={handleSkip} style={{ flex: 1, minHeight: "72px", fontSize: "1.2rem", fontWeight: 700 }}>
-                  Skip stop
-                </button>
-                <Link
-                  href="/more/assistant"
-                  style={{
-                    flex: 1,
-                    minHeight: "72px",
-                    fontSize: "1.2rem",
-                    fontWeight: 700,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    border: "1px solid #f9fafb",
-                    borderRadius: "8px",
-                    color: "#f9fafb",
-                  }}
-                >
-                  Talk to Abel
-                </Link>
-                <button type="button" onClick={handleParked} style={{ flex: 1, minHeight: "72px", fontSize: "1.2rem", fontWeight: 700 }}>
-                  I&apos;m parked
-                </button>
-              </div>
-            </div>
+          {rolling && (
+            <DriveGlance
+              map={
+                <DriveMap
+                  geometry={mapGeometry}
+                  deadheadGeometry={mapDeadhead}
+                  stops={plan.stops}
+                  stopStatus={session.stopStatus}
+                  position={lastFix?.point ?? null}
+                  headingDeg={lastFix?.headingDeg ?? null}
+                  positionQuality={positionQuality}
+                  follow
+                  onUserPan={() => {}}
+                  night={night}
+                  height="30vh"
+                />
+              }
+              nextStop={
+                nextStop
+                  ? {
+                      name: nextStop.name,
+                      milesAway: Math.max(0, (nextStop.fraction - session.progressFraction) * plan.totalMiles),
+                      badge: nextStop.lifeBadge ?? null,
+                    }
+                  : null
+              }
+              upcoming={
+                upcoming
+                  ? {
+                      arrow: MANEUVER_ARROWS[maneuverDirection(upcoming.maneuver.instruction)],
+                      instruction: upcoming.maneuver.instruction,
+                      milesAway: upcoming.milesAway,
+                    }
+                  : null
+              }
+              driveLeftText={
+                projection ? `Drive left ${formatMinutes(Math.max(0, Math.round(projection.driveLeftMin)))}` : null
+              }
+              gpsBanner={session.gpsBannerOn ? DRIVE_COPY.gpsLostBanner : null}
+              speedUnknown={motion === "unknown"}
+              onSkip={handleSkip}
+              onParked={handleParked}
+            />
           )}
         </>
       )}

@@ -228,3 +228,13 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Re-anchored the HUD/wave stack on main `24391719` (KR-1, KR-2, Unit C, CLAUDE.md capability inventory) — branch `m4-reanchor`. Abel's two fuel write paths reconciled with Unit C's derived-total invariant (`services/bot/fuel-receipt.ts`).
 - [ ] **Owner request 2026-11-04:** HOS logging live and animated everywhere it appears (day view and list, not only the Home rings).
 - [ ] **Owner request 2026-11-04:** when he starts a route (Smart Path → Drive Mode), the HOS clocks and duty status run alongside the route, like an ELD's driving screen: glanceable rings on the Drive surface, automatic prompt (never automatic booking) to go Driving when GO is pressed and Off/On duty when the trip ends. Spec addition to driver-hud.md first.
+
+### Product audit 2026-11-04 (external; verified against the repo)
+
+- [ ] **URGENT, owner/King:** delete public branch `visual-audit-2026-11-04` (14 real-data screenshots were downloadable without login), then ask GitHub support to purge the exposed commit `cf356393`. Deleting the branch alone leaves the SHA fetchable. Claude's delete attempt was blocked by the sandbox; the screenshots are only in Claude's scratchpad, never in the repo tree.
+- [x] Driving-safety lockout, fail closed on unknown speed (Home HUD + Drive Mode moving surface keeps the map, no Talk to Abel). See driver-hud.md §13.
+- [x] Home order (next step -> active plan -> day wrap); Day Wrap failure is visible.
+- [x] PROJECT_STATE.md reconciled; HUD spec status updated.
+- [ ] Design passes needed before building: owner-operator Home cockpit (active load, trip progress, money at risk), image-led news carousel (data contract + free image source + privacy), Drive tab / nav decision, rerouting + background tracking, spoken maneuvers.
+- [ ] Maintainability: decompose `drive.ts` (1018), Drive page (795), `photo-purpose.ts` (1031), `globals.css` (~2,200) toward the 300-line guideline.
+- [ ] Motion gate on the remaining forms (HUD + Drive covered).

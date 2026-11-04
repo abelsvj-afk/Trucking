@@ -12,6 +12,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { computeHudClocks, formatClock } from "@/lib/hud-clocks";
 import Sheet from "@/components/Sheet";
+import StoppedGate from "./StoppedGate";
+import { useVehicleMotion } from "@/lib/use-vehicle-motion";
 import DayLog from "./DayLog";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useNowTick } from "@/lib/use-now-tick";
@@ -27,6 +29,9 @@ const BUTTON_ORDER: DutyStatus[] = ["driving", "on_duty", "off_duty", "sleeper"]
 export default function DutyHud() {
   const { state, retry, refresh } = useHosWindow();
   const nowMs = useNowTick();
+  // Driving safety (docs/design/driver-hud.md §5): changing or editing
+  // needs a positive "stopped"; unknown speed asks first, never assumes.
+  const motion = useVehicleMotion();
   const [picked, setPicked] = useState<DutyStatus | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState(false);
@@ -51,6 +56,11 @@ export default function DutyHud() {
 
   return (
     <section aria-label="Duty status and clocks" className="hud">
+      {motion === "moving" && (
+        <p role="status" className="hud-note">
+          Moving — status changes and editing are off until you stop. Your clocks keep running.
+        </p>
+      )}
       {state.status === "loading" && <p>Loading your clocks…</p>}
       {state.status === "error" && (
         <p role="alert">
@@ -108,6 +118,7 @@ export default function DutyHud() {
             key={status}
             type="button"
             aria-pressed={picked === status}
+            disabled={motion === "moving"}
             className={`hud-status-btn hud-btn-${status}`}
             onClick={() => {
               setSavedNote(null);
@@ -121,34 +132,48 @@ export default function DutyHud() {
 
       {picked && (
         <Sheet title="Change status" onClose={() => setPicked(null)}>
-          <StatusSheet
-            key={picked}
-            status={picked}
-            onCancel={() => setPicked(null)}
-            onSaved={(queued) => {
-              setPicked(null);
-              setSavedNote(
-                queued
-                  ? "No signal — saved on this device and will sync when you're back online."
-                  : "Status saved.",
-              );
-              if (!queued) refresh();
-            }}
-          />
+          <StoppedGate motion={motion}>
+            <StatusSheet
+              key={picked}
+              status={picked}
+              onCancel={() => setPicked(null)}
+              onSaved={(queued) => {
+                setPicked(null);
+                setSavedNote(
+                  queued
+                    ? "No signal — saved on this device and will sync when you're back online."
+                    : "Status saved.",
+                );
+                if (!queued) refresh();
+              }}
+            />
+          </StoppedGate>
         </Sheet>
       )}
 
       <p className="hud-links">
-        <button type="button" onClick={() => setDayOpen(true)} disabled={!loaded || loaded.data.length === 0}>
+        <button
+          type="button"
+          onClick={() => setDayOpen(true)}
+          disabled={!loaded || loaded.data.length === 0 || motion === "moving"}
+        >
           Day log
         </button>
-        <Link href="/fleet/hos/paper" className="hud-link-btn">
-          Paper log
-        </Link>
+        {motion === "moving" ? (
+          <span className="hud-link-btn hud-link-disabled" aria-disabled="true">
+            Paper log
+          </span>
+        ) : (
+          <Link href="/fleet/hos/paper" className="hud-link-btn">
+            Paper log
+          </Link>
+        )}
       </p>
       {dayOpen && loaded && (
         <Sheet title="Your day" onClose={() => setDayOpen(false)}>
-          <DayLog rows={loaded.data} timeZone={loaded.hos.carrierTimeZone} oldestIso={loaded.hos.windowStart} />
+          <StoppedGate motion={motion}>
+            <DayLog rows={loaded.data} timeZone={loaded.hos.carrierTimeZone} oldestIso={loaded.hos.windowStart} />
+          </StoppedGate>
         </Sheet>
       )}
       {savedNote && (

@@ -17,6 +17,9 @@ vi.mock("@/lib/api-client", () => ({
   ApiClientError: class extends Error {},
 }));
 
+const motionHolder: { state: "moving" | "stopped" | "unknown" } = { state: "stopped" };
+vi.mock("@/lib/use-vehicle-motion", () => ({ useVehicleMotion: () => motionHolder.state }));
+
 import { apiClient } from "@/lib/api-client";
 import DutyHud from "@/components/hud/DutyHud";
 
@@ -51,6 +54,7 @@ async function renderHud(result: unknown) {
 }
 
 beforeEach(() => {
+  motionHolder.state = "stopped";
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-11-04T15:00:00Z"));
   vi.clearAllMocks();
@@ -202,5 +206,47 @@ describe("DutyHud", () => {
     });
     expect(enqueue).toHaveBeenCalledWith("duty-logs", expect.objectContaining({ duty_status: "sleeper" }));
     expect(screen.getByText(/saved on this device/)).toBeTruthy();
+  });
+});
+
+
+describe("DutyHud driving safety (audit 2026-11-04): unknown speed fails closed", () => {
+  const rolling = () => {
+    const now = Date.now();
+    return windowResult([
+      { duty_status: "off_duty", started_at: new Date(now - 20 * H).toISOString() },
+      { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
+    ]);
+  };
+
+  it("moving: status buttons and Day log are off, Paper log can't be opened, and it says why - the clocks keep running", async () => {
+    motionHolder.state = "moving";
+    await renderHud(rolling());
+    for (const name of ["Driving", "On duty (not driving)", "Off duty", "Sleeper berth"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect((screen.getByRole("button", { name: "Day log" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("link", { name: "Paper log" })).toBeNull();
+    expect(screen.getByText(/Moving — status changes and editing are off/)).toBeTruthy();
+    expect(screen.getByLabelText("Time in this status")).toBeTruthy();
+  });
+
+  it("unknown speed: the status sheet asks 'I'm parked' first and shows no form until he says so", async () => {
+    motionHolder.state = "unknown";
+    await renderHud(rolling());
+    fireEvent.click(screen.getByRole("button", { name: "Driving" }));
+    expect(screen.getByRole("dialog", { name: "Change status" }).querySelector("form")).toBeNull();
+    expect(screen.getByText(/can't tell whether the truck is stopped/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "I'm parked" }));
+    expect(screen.getByRole("dialog", { name: "Change status" }).querySelector("form")).not.toBeNull();
+  });
+
+  it("unknown speed: the Day log popup is gated the same way", async () => {
+    motionHolder.state = "unknown";
+    await renderHud(rolling());
+    fireEvent.click(screen.getByRole("button", { name: "Day log" }));
+    expect(screen.getByRole("dialog", { name: "Your day" }).querySelector(".day-graph")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "I'm parked" }));
+    expect(screen.getByRole("dialog", { name: "Your day" }).querySelector(".day-graph")).not.toBeNull();
   });
 });

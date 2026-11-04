@@ -143,3 +143,35 @@ describe("banner first-load failure after live events already happened (pitfall 
     expect(screen.queryByText(/Checking the wires/)).toBeNull();
   });
 });
+
+describe("Day Wrap failure is visible (audit 2026-11-04)", () => {
+  it("a failed check says so with a retry instead of vanishing; a later failure keeps the last good wrap", async () => {
+    let n = 0;
+    globalThis.fetch = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return { ok: false, json: async () => null };
+      if (n === 2) return { ok: true, json: async () => ({ data: { items: [{ kind: "x", severity: "gap", text: "A POD is missing." }] } }) };
+      return { ok: false, json: async () => null };
+    }) as never;
+    await act(async () => {
+      render(
+        <LiveDataProvider>
+          <DayWrapCard />
+        </LiveDataProvider>,
+      );
+    });
+    await act(async () => {});
+    expect(screen.getByText(/Day wrap couldn't be checked/)).toBeTruthy();
+    await act(async () => {
+      screen.getByRole("button", { name: "Retry" }).click();
+    });
+    expect(screen.getByText("A POD is missing.")).toBeTruthy();
+    act(() => fire("loads"));
+    await act(async () => {
+      vi.advanceTimersByTime(LIVE_THROTTLE_MS);
+    });
+    // the third answer failed, but the earlier good wrap stays on screen
+    expect(screen.getByText("A POD is missing.")).toBeTruthy();
+    expect(screen.queryByText(/couldn't be checked/)).toBeNull();
+  });
+});

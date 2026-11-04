@@ -1,8 +1,13 @@
 # Driver HUD, live clocks, and driver-usable pass (Stage 9)
 
-Status: DRAFT for owner/King review - 2026-11-04. Implementation waits on this
-doc (CLAUDE.md spec-first). Covers Missions 2 (paper log in-app review),
-3 (live layer) and Stage 9 (driver usability) of the handoff.
+Status: APPROVED TO BUILD by the owner (chat orders 2026-11-04: "Start the HUD
+build now", then the live layer, the paper-log review screen and the day view,
+in that order). Built so far: §2 HUD (Home), §3 day view, §4 live layer,
+§5 driving lockout (Home HUD + Drive Mode), §6 paper-log review, §12 popups.
+NOT built: §7 Telegram logging reminders, §8 map card on Home, Drive-Mode
+clocks alongside the route, image-led news, rerouting, background tracking.
+Covers Missions 2 (paper log in-app review), 3 (live layer) and Stage 9
+(driver usability) of the handoff.
 
 ## 1. Boundary (unchanged, stated first)
 
@@ -192,3 +197,47 @@ jobs, and never see a stale number. On Home:
   id, so a live change can never redirect an edit to a different entry; if the
   entry vanished, the editor closes and says so.
 - **Not yet:** clocks alongside a route in Drive Mode (next).
+
+
+## 13. Driving-safety rule as built (product audit 2026-11-04)
+
+**One rule, fail closed** (`lib/vehicle-motion.ts`): a screen that needs reading,
+typing or precise taps is fully interactive only when the phone POSITIVELY
+reports the vehicle stopped (speed <= 5 mph from a fix no older than 15 s).
+Moving, no speed value, a stale fix, no GPS permission, no geolocation: all
+count as moving.
+
+- **Home HUD:** moving -> status buttons, Day log and Paper log are off, with a
+  plain note; the clocks keep running. Unknown -> the status sheet and day log
+  first ask "I'm parked" (the driver's own word); an earlier confirmation does
+  not survive the truck being seen moving. GPS is read only while the page is
+  visible, only for this decision; nothing is stored or sent.
+- **Drive Mode:** the moving surface (`components/drive/DriveGlance.tsx`) is
+  used whenever the vehicle is not positively stopped. It keeps the live map,
+  the next stop and the next maneuver, and offers only Skip stop and "I'm
+  parked" - no "Talk to Abel" or any link out. It never renders blank (a
+  finished run still shows). Unknown speed is said in words on the screen.
+- **Not yet covered:** the other forms and pages in the app have no motion
+  gate (the rule is applied to the HUD and Drive Mode, where the driver is
+  most likely to be rolling); background GPS (Drive is foreground-only - keep
+  the screen on); rerouting (Drive follows a checked plan and never replans);
+  spoken turn instructions.
+
+### Product-audit disposition (external audit, 2026-11-04) - what was verified
+| Claim | Verified? | Disposition |
+|---|---|---|
+| Public branch holds 14 real screenshots | Yes (raw URL returned 200 without login) | Owner/King must delete the branch + purge; TASKS.md |
+| Unknown speed unlocks the fuller Drive screen | Yes | Fixed (§13) |
+| Moving screen drops the map | Yes | Fixed (§13) |
+| Moving screen has "Talk to Abel" | Yes | Removed (§13) |
+| Home status buttons have no motion check | Yes | Fixed (§13) |
+| Day Wrap before Next step | Yes | Reordered per §2 |
+| Day Wrap hides failures silently | Yes | Now says so, with retry |
+| PROJECT_STATE stale on Units A/B/C | Yes | Reconciled |
+| HUD spec still DRAFT | Yes | Status updated |
+| `m3-hud-b` is 12 behind main, no PR | Was true; superseded | Current work is `m4-reanchor`, up to date with main |
+| "Revenue"/"Net" labels regress Unit C | No on `m4-reanchor` | Unit C files kept verbatim in the re-anchor |
+| Banner is text-only, no images | Yes, by design | Needs a spec + a free image source + privacy review before building |
+| Home lacks an active-load cockpit | Yes | Needs a design pass; not built |
+| No rerouting / background tracking | Yes | Product decision; not built |
+| Spoken turn instructions missing | Not verified | Open |

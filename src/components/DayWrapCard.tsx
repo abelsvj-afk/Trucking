@@ -17,6 +17,10 @@ interface DayWrapItem {
 
 export default function DayWrapCard() {
   const [items, setItems] = useState<DayWrapItem[] | null>(null);
+  // A broken day-wrap must never read as "nothing to report": when it
+  // can't be checked and there is no earlier answer, the card says so.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // Live layer: re-derived whenever anything the wrap checks changes,
   // so the card (and its proposal count) is never a stale snapshot.
   const liveVersion = useLiveVersion(DAY_WRAP_TABLES);
@@ -26,18 +30,36 @@ export default function DayWrapCard() {
     fetch("/api/v1/day-wrap")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
+        if (cancelled) return;
         // A successful answer with nothing in it clears the card; a
         // failed one keeps the last good wrap rather than blanking it.
-        if (!cancelled && body?.data?.items) setItems(body.data.items as DayWrapItem[]);
+        if (body?.data?.items) {
+          setItems(body.data.items as DayWrapItem[]);
+          setFailed(false);
+        } else {
+          setFailed(true);
+        }
       })
       .catch(() => {
-        // The wrap is a nudge, never a blocker — stay silent offline.
+        if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [liveVersion]);
+  }, [liveVersion, attempt]);
 
+  if (!items && failed) {
+    return (
+      <section aria-label="Day wrap" className="hud-note">
+        <p role="status">
+          Day wrap couldn&apos;t be checked just now.{" "}
+          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+            Retry
+          </button>
+        </p>
+      </section>
+    );
+  }
   if (!items || items.length === 0) return null;
   const allOk = items.every((item) => item.severity === "ok");
 
