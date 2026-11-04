@@ -93,3 +93,22 @@ source (Mission 4 honesty rule).
 (a) HUD + clock rings + status sheet on Home/Hours (b) day graph editing
 (c) live layer (d) paper-log review screen (e) Telegram logging reminders.
 Each is its own branch off main with a full gate and King review.
+
+## 11. Decisions (owner delegated, 2026-11-04 - "do what's best")
+
+Chosen as an owner-operator would: fewest taps while rolling, nothing that
+creates a legal or audit problem, and numbers that protect revenue.
+
+1. **Status change time**: defaults to *now*; editable to a past time only
+   (never future). A past time is saved with a visible "entered after the fact"
+   mark and the real entry time kept in the audit trail, so a backdated log can
+   never pass as live. One tap on the status button, one tap to confirm.
+2. **Home order**: HUD first (status, rings, status buttons), then the news
+   banner, then the next-step / active-plan / day-wrap cards. The profit-relevant
+   items (detention clock running, load awaiting POD, invoice unpaid) surface in
+   "Your next step" ahead of generic tips because they are the money left on the
+   table; they are shown as contribution margin / receivable figures, never as
+   "profit".
+3. **Map**: a compact live-position card on Home only when GPS is granted and the
+   phone has a recent fix (otherwise the card is absent, not blank). The full
+   map, routing and guidance stay in Drive Mode, so Home stays fast and glanceable.
