@@ -76,6 +76,11 @@ export default function FuelPurchasesListPage() {
                 <span className="row-sub">
                   {formatDate(purchase.purchased_at)} · $
                   {(purchase.price_per_gallon_cents / 100).toFixed(2)}/gal
+                  {purchase.adjustment_cents !== 0
+                    ? ` · incl. adjustment ${formatDollars(purchase.adjustment_cents)}${
+                        purchase.adjustment_reason ? ` — ${purchase.adjustment_reason}` : ""
+                      }`
+                    : ""}
                 </span>
               </Link>
             </li>

@@ -86,6 +86,18 @@ export interface CrudRouteOptions {
     existing: Record<string, unknown>,
     patch: Record<string, unknown>,
   ) => ApiError | null;
+  // Optional per-entity write preparation (Reliability Unit C, fuel):
+  // transforms the validated create body before it is fingerprinted
+  // and written - e.g. deriving a field the client may only echo.
+  // May throw an ApiError (422) to refuse the write.
+  prepareCreate?: (body: Record<string, unknown>) => Record<string, unknown>;
+  // Same for PATCH: receives the merged record and the patch, returns
+  // the actual write payload (the patch plus any derived fields the
+  // merge implies). Runs after merged validation + validateMerged.
+  prepareUpdate?: (
+    merged: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ) => Record<string, unknown>;
 }
 
 export function createCrudRoutes<Row extends { id: string }>(
@@ -147,7 +159,7 @@ export function createCrudRoutes<Row extends { id: string }>(
     if (!parsed.success) {
       throw validationError(parsed.error.issues[0]?.message ?? "Invalid request body.");
     }
-    const body = parsed.data;
+    const body = options.prepareCreate ? options.prepareCreate(parsed.data) : parsed.data;
 
     // No token: the original create path, unchanged. Bot/API writes
     // that don't send a token get no dedup guarantee (design A.6).
@@ -228,8 +240,11 @@ export function createCrudRoutes<Row extends { id: string }>(
     }
 
     // Step 4: write ONLY the patched fields - the merge exists for
-    // validation, not for rewriting untouched columns.
-    const row = await crud.update(supabase, id, patch);
+    // validation, not for rewriting untouched columns. A prepareUpdate
+    // hook may add fields the merge itself derives (Unit C fuel: the
+    // re-derived total), which are part of this write by design.
+    const writePatch = options.prepareUpdate ? options.prepareUpdate(merged, patch) : patch;
+    const row = await crud.update(supabase, id, writePatch);
     if (!row) throw notFound();
     return NextResponse.json(row);
   });
