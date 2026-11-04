@@ -8,6 +8,7 @@
 // prefers-reduced-motion, mounted once in the root layout.
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 function randomMs(minSeconds: number, maxSeconds: number) {
   return (minSeconds + Math.random() * (maxSeconds - minSeconds)) * 1000;
@@ -41,6 +42,8 @@ function BirdGlyph({ scale }: { scale: number }) {
 }
 
 export function BirdCrossing() {
+  // Drive Mode (G-7): never on the Drive surface - see TruckCrossing.
+  const onDriveSurface = usePathname()?.startsWith("/smart-path/drive") ?? false;
   const [flight, setFlight] = useState<{
     direction: "ltr" | "rtl";
     lane: number;
@@ -73,7 +76,7 @@ export function BirdCrossing() {
     timeoutRef.current = setTimeout(startFlight, randomMs(45, 130));
   }
 
-  if (!flight) return null;
+  if (!flight || onDriveSurface) return null;
 
   return (
     <div

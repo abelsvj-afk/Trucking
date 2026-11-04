@@ -24,6 +24,7 @@ import type { LatLng } from "@/lib/smart-path";
 import {
   FETCH_TIMEOUT_MS,
   metricRestrictions,
+  normalizeManeuvers,
   RoutingUnavailableError,
   type RouteResult,
   type RoutingProvider,
@@ -43,6 +44,20 @@ const valhallaResponseSchema = z.object({
       .array(
         z.object({
           shape: z.string(), // encoded polyline, 1e6 precision
+          // Turn-by-turn maneuvers (Drive Mode G-6 enabler): kept,
+          // not dropped - the verbal fields are written for speech
+          // and are what Drive prefers; `instruction` is the plain
+          // fallback. length is in miles (units = "miles").
+          maneuvers: z
+            .array(
+              z.object({
+                instruction: z.string().optional(),
+                verbal_pre_transition_instruction: z.string().optional(),
+                verbal_post_transition_instruction: z.string().optional(),
+                length: z.number(),
+              }),
+            )
+            .optional(),
         }),
       )
       .min(1, "Valhalla returned no legs."),
@@ -156,6 +171,7 @@ export class ValhallaRoutingProvider implements RoutingProvider {
       throw new RoutingUnavailableError("Valhalla returned an empty route shape.");
     }
 
+    const segments = parsed.data.trip.legs.flatMap((leg) => leg.maneuvers ?? []);
     return {
       distanceMiles: parsed.data.trip.summary.length,
       durationMinutes: parsed.data.trip.summary.time / 60,
@@ -163,6 +179,20 @@ export class ValhallaRoutingProvider implements RoutingProvider {
       providerName: this.name,
       truckLegal: true,
       providerNotes: [],
+      ...(segments.length > 0
+        ? {
+            maneuvers: normalizeManeuvers(
+              segments.map((maneuver) => ({
+                instruction:
+                  maneuver.verbal_pre_transition_instruction ??
+                  maneuver.instruction ??
+                  "",
+                lengthMiles: maneuver.length,
+              })),
+              parsed.data.trip.summary.length,
+            ),
+          }
+        : {}),
     };
   }
 }

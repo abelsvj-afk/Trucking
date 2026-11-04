@@ -458,7 +458,9 @@ export async function runRouteCheck(
       geometry: route.geometry,
       originPoint,
       destinationPoint,
+      ...(route.maneuvers ? { maneuvers: route.maneuvers } : {}),
     },
+    clocks,
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),
@@ -493,6 +495,7 @@ export async function runRouteCheck(
             leaveByAt: verdict.preLeg.startAt,
             pickupArrivalAt: verdict.preLeg.pickupArrivalAt,
             waitMinutesAtPickup: verdict.preLeg.waitMinutesAtPickup,
+            ...(deadheadRoute.maneuvers ? { maneuvers: deadheadRoute.maneuvers } : {}),
           }
         : null,
     fuel: {

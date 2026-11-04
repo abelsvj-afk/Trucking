@@ -75,12 +75,61 @@ export function metricRestrictions(vehicle: VehicleProfile | null | undefined): 
   return restrictions;
 }
 
+/**
+ * One turn prompt, normalized across providers (Drive Mode D1,
+ * G-6 enabler): the providers already return maneuvers - Valhalla
+ * legs carry them, ORS returns them when asked, OSRM with steps -
+ * and until now the schemas dropped them on the floor. Distances
+ * are the length of the segment the instruction starts; atFraction
+ * is where that segment begins along the whole route (0-1).
+ */
+export interface RouteManeuver {
+  instruction: string;
+  distanceMiles: number;
+  atFraction: number;
+}
+
+/**
+ * Builds the normalized maneuver list from per-segment lengths:
+ * each segment's atFraction is the cumulative distance before it,
+ * over the route total. Segments with no usable instruction are
+ * dropped (an empty prompt is worse than none); a zero total
+ * yields no maneuvers rather than NaN fractions.
+ */
+export function normalizeManeuvers(
+  segments: { instruction: string; lengthMiles: number }[],
+  totalMiles: number,
+): RouteManeuver[] {
+  if (!(totalMiles > 0)) return [];
+  const maneuvers: RouteManeuver[] = [];
+  let walked = 0;
+  for (const segment of segments) {
+    const instruction = segment.instruction.trim();
+    if (instruction) {
+      maneuvers.push({
+        instruction,
+        distanceMiles: Math.round(segment.lengthMiles * 100) / 100,
+        atFraction: Math.min(1, walked / totalMiles),
+      });
+    }
+    walked += segment.lengthMiles;
+  }
+  return maneuvers;
+}
+
 export interface RouteResult {
   distanceMiles: number;
   durationMinutes: number;
   /** [lng, lat] pairs converted to LatLng, in route order. */
   geometry: LatLng[];
   providerName: string;
+  /**
+   * Turn prompts for Drive Mode (G-6), when the serving provider
+   * returned them. Optional and additive: planning ignores them,
+   * and a route without maneuvers still Drives - next-stop
+   * guidance only, and Drive says which it has.
+   */
+  maneuvers?: RouteManeuver[];
   /**
    * True only when a truck-aware engine (ORS driving-hgv or
    * Valhalla truck costing) actually served this route. A fallback
@@ -173,10 +222,71 @@ const osrmResponseSchema = z.object({
         geometry: z.object({
           coordinates: z.array(z.tuple([z.number(), z.number()])),
         }),
+        // steps=true (Drive Mode G-6 enabler): OSRM returns no
+        // ready-made instruction text, so the maneuver type +
+        // modifier + street name are formatted locally below.
+        legs: z
+          .array(
+            z.object({
+              steps: z.array(
+                z.object({
+                  distance: z.number(), // meters
+                  name: z.string().optional(),
+                  maneuver: z.object({
+                    type: z.string(),
+                    modifier: z.string().optional(),
+                  }),
+                }),
+              ),
+            }),
+          )
+          .optional(),
       }),
     )
     .min(1, "OSRM returned no routes."),
 });
+
+/**
+ * Formats one OSRM step as a spoken-style instruction from its
+ * maneuver type/modifier and street name. Deliberately plain: this
+ * text is what Drive displays and speaks, so it reads like a
+ * direction, not a data dump.
+ */
+export function formatOsrmInstruction(step: {
+  name?: string;
+  maneuver: { type: string; modifier?: string };
+}): string {
+  const name = step.name?.trim();
+  const onto = name ? ` onto ${name}` : "";
+  const on = name ? ` on ${name}` : "";
+  const { type, modifier } = step.maneuver;
+  switch (type) {
+    case "depart":
+      return name ? `Head out on ${name}` : "Head out";
+    case "arrive":
+      return "Arrive at your destination";
+    case "turn":
+      return `Turn ${modifier ?? ""}${onto}`.replace(/\s+/g, " ").trim();
+    case "new name":
+      return `Continue${onto}`;
+    case "continue":
+      return `Continue${on}`;
+    case "merge":
+      return `Merge${onto}`;
+    case "on ramp":
+    case "off ramp":
+      return `Take the ramp${onto}`;
+    case "fork":
+      return `Keep ${modifier ?? "straight"}${onto}`.replace(/\s+/g, " ").trim();
+    case "end of road":
+      return `At the end of the road, turn ${modifier ?? ""}${onto}`.replace(/\s+/g, " ").trim();
+    case "roundabout":
+    case "rotary":
+      return `At the roundabout, take the exit${onto}`;
+    default:
+      return name ? `Continue on ${name}` : "Continue";
+  }
+}
 
 const METERS_PER_MILE = 1609.344;
 export const FETCH_TIMEOUT_MS = 15_000;
@@ -192,7 +302,7 @@ export class OsrmRoutingProvider implements RoutingProvider {
     void _vehicle;
     const url =
       `https://router.project-osrm.org/route/v1/driving/` +
-      `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+      `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`;
 
     let response: Response;
     try {
@@ -215,13 +325,26 @@ export class OsrmRoutingProvider implements RoutingProvider {
     }
 
     const route = parsed.data.routes[0]!;
+    const distanceMiles = route.distance / METERS_PER_MILE;
+    const steps = (route.legs ?? []).flatMap((leg) => leg.steps);
     return {
-      distanceMiles: route.distance / METERS_PER_MILE,
+      distanceMiles,
       durationMinutes: route.duration / 60,
       geometry: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
       providerName: this.name,
       truckLegal: false,
       providerNotes: [],
+      ...(steps.length > 0
+        ? {
+            maneuvers: normalizeManeuvers(
+              steps.map((step) => ({
+                instruction: formatOsrmInstruction(step),
+                lengthMiles: step.distance / METERS_PER_MILE,
+              })),
+              distanceMiles,
+            ),
+          }
+        : {}),
     };
   }
 }
