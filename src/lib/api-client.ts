@@ -8,7 +8,9 @@ import type { DutyLogWindowSummary, HosSettings } from "@/types/hos-settings";
 import type { DutyLog } from "@/types/entities";
 import { viewerTimeZone } from "@/lib/time";
 import type { ServiceStatus } from "@/types/service-status";
-import type { ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
+import type { DetentionStamp, ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
+import type { DetentionSummary } from "@/lib/detention";
+import type { PaperworkState } from "@/lib/paperwork";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
@@ -158,6 +160,20 @@ export const apiClient = {
     });
     return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
   },
+  // GAP-04/05 (Fresh-Eyes Register 2026-11-02): the load's facility
+  // clock + paperwork state — nested under the load, computed
+  // server-side by src/lib/detention.ts / src/lib/paperwork.ts.
+  detention: (loadId: string) =>
+    request<{ data: DetentionStamp[]; summary: DetentionSummary }>(
+      `/api/v1/loads/${loadId}/detention-stamps`,
+    ),
+  stampDetention: (loadId: string, body: Record<string, unknown>) =>
+    request<{ data: DetentionStamp }>(`/api/v1/loads/${loadId}/detention-stamps`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  loadPaperwork: (loadId: string) =>
+    request<{ data: PaperworkState }>(`/api/v1/loads/${loadId}/paperwork`),
   restoreDocument: <T>(id: string) =>
     request<T>(`/api/v1/documents/${id}/restore`, { method: "POST" }),
   listCleanupIncidents: <T>() =>

@@ -88,6 +88,65 @@ export interface Broker extends BaseRow {
   contact_email: string | null;
   contact_phone: string | null;
   notes: string | null;
+  /** GAP-14 (migration 00057): the broker's payment terms (days) and setup requirements — the scorecard's inputs. */
+  payment_terms_days: number | null;
+  setup_notes: string | null;
+}
+
+/** GAP-11 (migration 00054): a document with an expiry, watched. */
+export type CredentialKind =
+  | "cdl"
+  | "medical_card"
+  | "annual_inspection"
+  | "registration_irp"
+  | "insurance"
+  | "other";
+
+export interface Credential extends BaseRow {
+  kind: CredentialKind;
+  label: string;
+  driver_id: string | null;
+  truck_id: string | null;
+  expires_on: string;
+  document_id: string | null;
+  notes: string | null;
+}
+
+/** GAP-12 (migration 00055): a load's receivable lifecycle. Status is derived (lib/invoices.ts), never stored. */
+export interface LoadInvoice extends BaseRow {
+  load_id: string;
+  broker_id: string | null;
+  invoice_date: string;
+  due_date: string;
+  amount_cents: number;
+  paid_amount_cents: number;
+  paid_on: string | null;
+  factored: boolean;
+  factor_fee_cents: number | null;
+  factor_reserve_cents: number | null;
+  notes: string | null;
+}
+
+/** GAP-13 (migration 00056): a recurring business obligation. */
+export type ObligationCadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
+
+export interface RecurringObligation extends BaseRow {
+  name: string;
+  amount_cents: number;
+  cadence: ObligationCadence;
+  day_of_month: number | null;
+  weekday: number | null;
+  anchor_date: string | null;
+  active: boolean;
+  notes: string | null;
+}
+
+/** GAP-14 (migration 00057): a dated follow-up owed to a broker. */
+export interface BrokerFollowup extends BaseRow {
+  broker_id: string;
+  note: string;
+  due_on: string;
+  done_at: string | null;
 }
 
 export type LoadStatus = "draft" | "confirmed" | "completed" | "cancelled";
@@ -104,6 +163,52 @@ export interface Load extends BaseRow {
   rate_cents: number | null;
   miles: number | null;
   status: LoadStatus;
+  notes: string | null;
+  // GAP-02/04/05 (migration 00052): appointment windows, detention
+  // terms, scale-ticket weight. Null until captured.
+  pickup_window_start: string | null;
+  pickup_window_end: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+  detention_free_minutes: number | null;
+  detention_rate_cents_per_hour: number | null;
+  weight_lbs: number | null;
+  // GAP-03/15 (migration 00053): facility links + structured lane states.
+  pickup_facility_id: string | null;
+  delivery_facility_id: string | null;
+  origin_state: string | null;
+  destination_state: string | null;
+}
+
+export type FacilityKind = "shipper" | "receiver" | "both";
+
+/** GAP-03: a place he actually goes, remembered (migration 00053). */
+export interface Facility extends BaseRow {
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  kind: FacilityKind;
+  checkin_notes: string | null;
+  dock_notes: string | null;
+  parking_notes: string | null;
+  detention_notes: string | null;
+  hours_notes: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  visit_count: number;
+  last_visited_at: string | null;
+}
+
+export type DetentionStampType = "arrival" | "door" | "loading_done" | "departure";
+export type DetentionStopKind = "pickup" | "delivery";
+
+/** GAP-04: one stamp on a load's facility clock (migration 00052). */
+export interface DetentionStamp extends BaseRow {
+  load_id: string;
+  stamp_type: DetentionStampType;
+  stop_kind: DetentionStopKind;
+  occurred_at: string;
   notes: string | null;
 }
 
@@ -122,6 +227,8 @@ export interface Expense extends BaseRow {
 export interface FuelPurchase extends BaseRow {
   truck_id: string;
   location: string | null;
+  /** GAP-15 (migration 00053): purchase state, for the IFTA worksheet. */
+  state: string | null;
   gallons: number;
   price_per_gallon_cents: number;
   total_cost_cents: number;
@@ -193,6 +300,9 @@ export interface DispatchExchange extends BaseRow {
   ai_suggested_reply_es: string | null;
   actual_reply_sent: string | null;
   source: DispatchExchangeSource;
+  /** GAP-14 (migration 00057): the working-relationship links the scorecard computes from. */
+  broker_id: string | null;
+  load_id: string | null;
 }
 
 export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";

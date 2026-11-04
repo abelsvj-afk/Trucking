@@ -15,6 +15,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
+import DayWrapCard from "@/components/DayWrapCard";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { DutyLog } from "@/types/entities";
@@ -50,6 +51,8 @@ export default function HomePage() {
         title="Trucking OS"
         purpose="Your whole business at a glance — hours, money, and the one thing to do next."
       />
+
+      <DayWrapCard />
 
       <section aria-label="Your next step" className="next-step">
         <h2>Your next step</h2>

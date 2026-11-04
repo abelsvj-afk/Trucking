@@ -7,6 +7,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -45,20 +46,27 @@ export default function NewExpensePage() {
     setError(null);
     setSubmitting(true);
 
+    const body = {
+      category,
+      amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
+      expense_date: expenseDate,
+      truck_id: truckId || null,
+      load_id: loadId || null,
+      driver_id: driverId || null,
+      description: description || undefined,
+      submission_id: submissionId,
+    };
     try {
-      await apiClient.create<Expense>("expenses", {
-        submission_id: submissionId,
-        category,
-        amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
-        expense_date: expenseDate,
-        truck_id: truckId || null,
-        load_id: loadId || null,
-        driver_id: driverId || null,
-        description: description || undefined,
-      });
+      await apiClient.create<Expense>("expenses", body);
       router.push("/money/expenses");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        // GAP-07: queue on the device when there's no signal.
+        offlineOutbox.enqueue("expenses", body);
+        router.push("/money/expenses");
+      }
     } finally {
       setSubmitting(false);
     }

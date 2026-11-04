@@ -25,7 +25,7 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
-import type { Broker, Customer, Driver, Load, LoadStatus, Truck } from "@/types/entities";
+import type { Broker, Customer, Driver, Facility, Load, LoadStatus, Truck } from "@/types/entities";
 
 const STATUS_OPTIONS: { label: string; value: LoadStatus }[] = [
   { label: "Draft", value: "draft" },
@@ -40,12 +40,23 @@ export default function NewLoadPage() {
   const [destination, setDestination] = useState("");
   const [pickupDate, setPickupDate] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  // GAP-02/04: appointment windows + detention terms, straight off
+  // the rate con when he has them — optional like everything else.
+  const [pickupWindowStart, setPickupWindowStart] = useState("");
+  const [pickupWindowEnd, setPickupWindowEnd] = useState("");
+  const [deliveryWindowStart, setDeliveryWindowStart] = useState("");
+  const [deliveryWindowEnd, setDeliveryWindowEnd] = useState("");
+  const [detentionFreeMinutes, setDetentionFreeMinutes] = useState("");
+  const [detentionRateDollars, setDetentionRateDollars] = useState("");
   const [rateDollars, setRateDollars] = useState("");
   const [status, setStatus] = useState<LoadStatus>("draft");
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [brokerId, setBrokerId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  // GAP-03: pick a remembered facility instead of re-typing the place.
+  const [pickupFacilityId, setPickupFacilityId] = useState("");
+  const [deliveryFacilityId, setDeliveryFacilityId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // One idempotency token per form opening (Unit A / F-006): retries
@@ -56,6 +67,7 @@ export default function NewLoadPage() {
   const drivers = usePickerList<Driver>("drivers");
   const brokers = usePickerList<Broker>("brokers");
   const customers = usePickerList<Customer>("customers");
+  const facilities = usePickerList<Facility>("facilities");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,12 +81,28 @@ export default function NewLoadPage() {
         destination,
         pickup_date: pickupDate || undefined,
         delivery_date: deliveryDate || undefined,
+        pickup_window_start: pickupWindowStart ? new Date(pickupWindowStart).toISOString() : undefined,
+        pickup_window_end: pickupWindowEnd ? new Date(pickupWindowEnd).toISOString() : undefined,
+        delivery_window_start: deliveryWindowStart
+          ? new Date(deliveryWindowStart).toISOString()
+          : undefined,
+        delivery_window_end: deliveryWindowEnd
+          ? new Date(deliveryWindowEnd).toISOString()
+          : undefined,
+        detention_free_minutes: detentionFreeMinutes
+          ? Number.parseInt(detentionFreeMinutes, 10)
+          : undefined,
+        detention_rate_cents_per_hour: detentionRateDollars
+          ? Math.round(parseFloat(detentionRateDollars) * 100)
+          : undefined,
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : undefined,
         status,
         truck_id: truckId || null,
         driver_id: driverId || null,
         broker_id: brokerId || null,
         customer_id: customerId || null,
+        pickup_facility_id: pickupFacilityId || null,
+        delivery_facility_id: deliveryFacilityId || null,
       });
       router.push("/loads");
     } catch (err) {
@@ -113,6 +141,58 @@ export default function NewLoadPage() {
           type="date"
           value={deliveryDate}
           onChange={(event) => setDeliveryDate(event.target.value)}
+        />
+
+        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con)</label>
+        <input
+          id="pickup_window_start"
+          type="datetime-local"
+          value={pickupWindowStart}
+          onChange={(event) => setPickupWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="pickup_window_end">Pickup window ends</label>
+        <input
+          id="pickup_window_end"
+          type="datetime-local"
+          value={pickupWindowEnd}
+          onChange={(event) => setPickupWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_start">Delivery window starts</label>
+        <input
+          id="delivery_window_start"
+          type="datetime-local"
+          value={deliveryWindowStart}
+          onChange={(event) => setDeliveryWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_end">Delivery window ends</label>
+        <input
+          id="delivery_window_end"
+          type="datetime-local"
+          value={deliveryWindowEnd}
+          onChange={(event) => setDeliveryWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills</label>
+        <input
+          id="detention_free_minutes"
+          type="number"
+          min="0"
+          step="15"
+          value={detentionFreeMinutes}
+          onChange={(event) => setDetentionFreeMinutes(event.target.value)}
+        />
+
+        <label htmlFor="detention_rate">Detention rate ($/hour after free time)</label>
+        <input
+          id="detention_rate"
+          type="number"
+          step="0.01"
+          min="0"
+          value={detentionRateDollars}
+          onChange={(event) => setDetentionRateDollars(event.target.value)}
         />
 
         <label htmlFor="rate">Rate ($)</label>
@@ -164,6 +244,36 @@ export default function NewLoadPage() {
           {brokers.map((broker) => (
             <option key={broker.id} value={broker.id}>
               {broker.name}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="pickup_facility_id">Pickup facility (remembered place)</label>
+        <select
+          id="pickup_facility_id"
+          value={pickupFacilityId}
+          onChange={(event) => setPickupFacilityId(event.target.value)}
+        >
+          <option value="">None</option>
+          {facilities.map((facility) => (
+            <option key={facility.id} value={facility.id}>
+              {facility.name}
+              {facility.city ? ` — ${facility.city}` : ""}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="delivery_facility_id">Delivery facility (remembered place)</label>
+        <select
+          id="delivery_facility_id"
+          value={deliveryFacilityId}
+          onChange={(event) => setDeliveryFacilityId(event.target.value)}
+        >
+          <option value="">None</option>
+          {facilities.map((facility) => (
+            <option key={facility.id} value={facility.id}>
+              {facility.name}
+              {facility.city ? ` — ${facility.city}` : ""}
             </option>
           ))}
         </select>

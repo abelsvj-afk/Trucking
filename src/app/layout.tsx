@@ -2,12 +2,13 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { TruckCrossing } from "@/components/TruckCrossing";
 import { BirdCrossing } from "@/components/BirdCrossing";
-import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import OfflineSupport from "@/components/OfflineSupport";
 import { readPublicConfigFromEnv, serializePublicConfig } from "@/services/config/public-config";
 
 export const metadata: Metadata = {
   title: "Trucking OS",
   description: "AI-Powered Transportation Operating System",
+  // GAP-07: installable shell + offline capture support.
   manifest: "/manifest.webmanifest",
 };
 
@@ -40,7 +41,7 @@ export default function RootLayout({
           }}
         />
         {children}
-        <ServiceWorkerRegister />
+        <OfflineSupport />
         <TruckCrossing />
         <BirdCrossing />
       </body>

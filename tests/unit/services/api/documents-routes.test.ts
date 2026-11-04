@@ -170,7 +170,10 @@ describe("POST /api/v1/documents", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual(createdRow);
+    // GAP-01: the response additionally reports how many record
+    // proposals were staged from the extraction (0 here — the mock
+    // document has no extraction result).
+    expect(await res.json()).toEqual({ ...createdRow, proposals_staged: 0 });
   });
 });
 

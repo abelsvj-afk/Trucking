@@ -70,6 +70,14 @@ export interface TelegramPhotoIntakeDeps {
    * closed for this company.
    */
   processDocument?: (documentId: string, fileBuffer: Buffer) => Promise<"ran" | "off">;
+  /**
+   * GAP-01: after processing, stage record proposals from the
+   * extracted fields (fuel receipt → fuel purchase, rate con →
+   * load, …) and return the reply text for them, or null when
+   * there's nothing to propose. Injectable for tests; defaults to
+   * the real staging through the bot store.
+   */
+  stageProposals?: (documentId: string) => Promise<string | null>;
   now?: () => Date;
 }
 
@@ -231,6 +239,25 @@ export async function handleTelegramPhoto(
   } catch (err) {
     console.error("[telegram] photo extraction status failed", err);
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
+  }
+  // GAP-01: the read document becomes the record it describes —
+  // staged as a proposal batch for his yes, never recorded silently.
+  // A staging failure never costs him the stored photo or its reply.
+  try {
+    const stageProposals =
+      deps.stageProposals ??
+      (async (id: string): Promise<string | null> => {
+        const { stageDocumentProposalsForClient } = await import(
+          "@/services/documents/document-proposals"
+        );
+        const { formatRecordableOutcome } = await import("@/services/bot/stage-recordables");
+        const result = await stageDocumentProposalsForClient(deps.client, deps.companyId, id, "telegram");
+        return result ? formatRecordableOutcome(result) || null : null;
+      });
+    const proposalText = await stageProposals(documentId);
+    if (proposalText) lines.push(proposalText.trim());
+  } catch (err) {
+    console.error("[telegram] document proposal staging failed", err);
   }
   if (caption) lines.push(`Your note on it: "${caption}"`);
   return lines.join("\n");
