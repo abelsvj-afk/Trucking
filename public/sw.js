@@ -3,11 +3,19 @@
 // VERSIONED per deployment and navigations can never serve an
 // indefinitely stale shell.
 //
-// - BUILD_VERSION is stamped at build/deploy time (the composition
-//   replaces __BUILD_VERSION__; when unstamped it falls back to a
-//   dated constant that MUST be bumped with any shell change). The
-//   cache name derives from it, and activate deletes EVERY other
-//   cache, so a new deploy reliably retires the old shell.
+// - BUILD_VERSION is stamped per deployment by the Dockerfile build
+//   step, which replaces the build-version placeholder token in this
+//   file with the build timestamp before `next build` runs. The cache
+//   name derives from it, and activate deletes EVERY other cache, so
+//   a new deploy reliably retires the old shell. If the stamp step is
+//   ever missing, the placeholder survives and BUILD_VERSION falls
+//   back to the dated constant in the expression below, which MUST
+//   then be bumped with any shell change - while the fallback governs,
+//   the cache name never rotates. Recorded plainly: before 2026-11-04
+//   no stamp step existed anywhere in the build, so the fallback
+//   governed production and deploys never retired stale shells; the
+//   constant was bumped once alongside this fix so clients stuck on
+//   the old constant rotate exactly once even if a stamp fails again.
 // - Navigations are network-first for EVERY path: any successful
 //   navigation (not just "/") refreshes the cached "/" shell entry,
 //   so a driver who habitually enters on a subpath (Drive, Smart
@@ -16,7 +24,7 @@
 //   GAP's offline-outbox intent with a bounded fallback.
 // - API traffic is NEVER intercepted; non-GET and cross-origin pass
 //   through. Location is never touched.
-const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-02-fix1" : "__BUILD_VERSION__";
+const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-04-swstamp1" : "__BUILD_VERSION__";
 const CACHE = `trucking-os-shell-${BUILD_VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg", "/icons/icon.svg"];
 
