@@ -213,7 +213,10 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Replaced Home's old hours panel (naive rolling 8-day "70h" from the latest 200 logs) and removed the rolling 8-day warning from the next-step card — both violated the carrier-anchored cycle rule.
 - [x] Live layer (c) built 2026-11-04 (branch `m3-hud-c`): one Realtime channel, silent re-fetch on change / own write / focus, "Live" only while subscribed, migration `00058` (realtime publication; NOT applied). Live NV-3 two-company check outstanding.
 - [x] Paper-log review (d) built 2026-11-04 (branch `m3-hud-d`): photograph → read → review beside the recreated day graph → atomic save (migration `00059`, NOT applied); by-hand entry when reading is off/fails. Owner acceptance (his own sheet vs his reading) outstanding.
-- [ ] Telegram-path paper-log defect: dropped/unreadable stretches absorbed into the previous status on approval; naive 8-day figure in its reply (see driver-hud.md §6). Needs King's ruling.
+- [x] King D-1 (2026-11-04): one server-side HOS read (`services/api/hos-window.ts`) — Abel's answers/context, the paper-log cycle line and Smart Path's week clock no longer use a rolling 8-day sum.
+- [x] King D-3: applied migration 00052 byte-identical to main again.
+- [x] Owner naming condition: the Telegram paper-log approval prompt names every flagged stretch; sub-0.80 stays dropped + named; partial stays labeled.
+- [ ] Open for ruling: on Telegram approval, a dropped/missing mid-day span is still covered by the previous status in the app's clocks (row model) — see driver-hud.md §6.
 - [x] Day-graph editing (b) built 2026-11-04 (branch `m3-hud-b`): day view on Hours, step through days, tap a stretch to change status / move start / add a change / delete (soft), carrier-clock times, paper re-mark reminder, entered-after-the-fact label.
 - [ ] Not yet built (spec §10): Telegram logging reminders (e), driving-speed input lockout and GPS map card (§5/§8).
 - [x] Re-anchored the HUD/wave stack on main `24391719` (KR-1, KR-2, Unit C, CLAUDE.md capability inventory) — branch `m4-reanchor`. Abel's two fuel write paths reconciled with Unit C's derived-total invariant (`services/bot/fuel-receipt.ts`).

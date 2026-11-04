@@ -4,6 +4,7 @@
 // exact clock interactions - break insertion, rest insertion, the
 // 70-hour wall, and the appointment tradeoffs in both directions.
 
+import { summarizeHosCycle, PROVISIONAL_HOS_CONFIG } from "@/lib/hos-cycle";
 import { describe, expect, it } from "vitest";
 import { summarizeHos, type DutySegmentInput } from "@/lib/hos";
 import {
@@ -44,7 +45,8 @@ function input(overrides: Partial<RouteCheckInput>): RouteCheckInput {
 
 describe("clocksFromHos", () => {
   it("assumes fresh clocks (flagged as not from logs) with no duty logs", () => {
-    const clocks = clocksFromHos(summarizeHos([], new Date("2026-11-01T20:00:00Z")));
+    // An empty window: the carrier cycle has used nothing, so its full limit is left.
+    const clocks = clocksFromHos(summarizeHos([], new Date("2026-11-01T20:00:00Z")), 4200);
     expect(clocks.fromLogs).toBe(false);
     expect(clocks.driveLeftMin).toBe(660);
     expect(clocks.windowLeftMin).toBe(840);
@@ -59,7 +61,11 @@ describe("clocksFromHos", () => {
       { duty_status: "on_duty", started_at: "2026-11-01T12:00:00Z" },
       { duty_status: "driving", started_at: "2026-11-01T13:00:00Z" },
     ];
-    const clocks = clocksFromHos(summarizeHos(logs, new Date("2026-11-01T20:00:00Z")));
+    const now = new Date("2026-11-01T20:00:00Z");
+    // The week clock comes from the carrier-anchored cycle (King D-1),
+    // never hos.ts's rolling 8-day sum.
+    const cycle = summarizeHosCycle(logs, now, PROVISIONAL_HOS_CONFIG);
+    const clocks = clocksFromHos(summarizeHos(logs, now), cycle.cycleLimitMinutes - cycle.onDutyMinutesInCycle);
     expect(clocks.fromLogs).toBe(true);
     expect(clocks.driveLeftMin).toBe(660 - 420);
     expect(clocks.windowLeftMin).toBe(840 - 480);

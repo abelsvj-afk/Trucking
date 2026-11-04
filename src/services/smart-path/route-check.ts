@@ -8,9 +8,12 @@
 // query - a provider failure surfaces as an honest error or an
 // "unavailable" section, never as an invented figure.
 
+import { HOS_WINDOW_ROW_LIMIT, loadHosWindow, snapshotFromRows, type HosWindowSnapshot } from "@/services/api/hos-window";
+import { PROVISIONAL_HOS_CONFIG } from "@/lib/hos-cycle";
+import { hosCalculationWindowStartMs } from "@/lib/hos-periods";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "@/services/api/errors";
-import { summarizeHos, type DutySegmentInput } from "@/lib/hos";
+import type { DutySegmentInput } from "@/lib/hos";
 import {
   checkRoute,
   clocksFromHos,
@@ -77,7 +80,6 @@ interface WorkoutAnchor {
   point: LatLng;
 }
 
-const EIGHT_DAYS_MS = 8 * 24 * 60 * 60_000;
 const CORRIDOR_MILES = 25; // history locations further than this from the route aren't candidates
 const PLACES_RADIUS_METERS = 5000;
 const DEFAULT_GALLONS_TO_BUY = 100;
@@ -236,29 +238,40 @@ export async function runRouteCheck(
   // Provenance rides along when migration 00047 has landed (§7.7:
   // the math never changes - only the labeling). Pre-00047 the
   // wide select errors and the narrow one runs, unlabeled.
-  const dutySince = new Date(now.getTime() - EIGHT_DAYS_MS).toISOString();
-  const buildDutyQuery = (columns: string) => {
-    let query = supabase
+  // King review D-1: the same full-window read + carrier-cycle engine
+  // as every other surface. With a company id (both real callers) the
+  // carrier's settings apply; the RLS-only path uses the labeled
+  // provisional defaults over the same window.
+  let hosSnapshot: HosWindowSnapshot;
+  if (companyId) {
+    hosSnapshot = await loadHosWindow(supabase, companyId, now);
+  } else {
+    const since = new Date(hosCalculationWindowStartMs(now.getTime(), PROVISIONAL_HOS_CONFIG)).toISOString();
+    const { data: dutyData, error: dutyError } = await supabase
       .from("duty_logs")
-      .select(columns)
+      .select("*")
       .is("deleted_at", null)
-      .gte("started_at", dutySince);
-    if (companyId) query = query.eq("company_id", companyId);
-    return query.order("started_at", { ascending: true });
-  };
-  let { data: dutyData, error: dutyError } = await buildDutyQuery(
-    "duty_status, started_at, source, source_document_id",
-  );
-  if (dutyError) {
-    ({ data: dutyData, error: dutyError } = await buildDutyQuery("duty_status, started_at"));
+      .gte("started_at", since)
+      .order("started_at", { ascending: true })
+      .limit(HOS_WINDOW_ROW_LIMIT + 1);
+    if (dutyError) throw new Error(dutyError.message);
+    if ((dutyData ?? []).length > HOS_WINDOW_ROW_LIMIT) throw new Error("HOS window too large to compute completely.");
+    hosSnapshot = snapshotFromRows((dutyData ?? []) as DutyLog[], PROVISIONAL_HOS_CONFIG, now);
   }
-  if (dutyError) throw new Error(dutyError.message);
-  const dutyRows = (dutyData ?? []) as unknown as (DutySegmentInput & {
+  const dutyRows = hosSnapshot.rows as (DutySegmentInput & {
     source?: string | null;
     source_document_id?: string | null;
   })[];
-  const hos = summarizeHos(dutyRows, now);
-  const clocks = clocksFromHos(hos);
+  const hos = hosSnapshot.short;
+  const clocks = clocksFromHos(
+    hos,
+    hosSnapshot.cycle.cycleLimitMinutes - hosSnapshot.cycle.onDutyMinutesInCycle,
+  );
+  if (hosSnapshot.provisional) {
+    warnings.push(
+      `The week clock uses the provisional carrier settings (${hosSnapshot.cycle.cycle}, period start ${hosSnapshot.cycle.periodAnchor}) - set your carrier's real rules in Settings.`,
+    );
+  }
   // Trust labeling (§7.7.1): clocks built on paper rows say so,
   // and a partial paper day says partial - a route check that
   // would be illegal on the readable portion says illegal, never

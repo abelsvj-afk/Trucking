@@ -191,6 +191,11 @@ class FakeQuery {
   private matched(): Row[] {
     return this.rows.filter((row) => this.filters.every((f) => row[f.col] === f.val));
   }
+  async single() {
+    // The HOS read loads the carrier settings with .single(); an empty
+    // companies table means the provisional defaults stand in.
+    return { data: this.rows[0] ?? null, error: null };
+  }
   async maybeSingle() {
     return { data: this.matched()[0] ?? null, error: null };
   }

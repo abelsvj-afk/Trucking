@@ -16,45 +16,15 @@
 
 import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
-import { ApiError } from "@/services/api/errors";
 import { createClient } from "@/services/db/server";
-import { loadHosConfig } from "@/services/api/hos-config";
-import { hosCalculationWindowStartMs } from "@/lib/hos-periods";
-import { summarizeHosCycle } from "@/lib/hos-cycle";
+import { loadHosWindow } from "@/services/api/hos-window";
 import type { DutyLogWindowSummary } from "@/types/hos-settings";
-
-const WINDOW_ROW_LIMIT = 5000;
 
 export const GET = createApiHandler(async (_req, ctx) => {
   const supabase = await createClient();
-  const { config } = await loadHosConfig(supabase, ctx.auth.companyId);
-
-  const now = new Date();
-  const windowStart = new Date(hosCalculationWindowStartMs(now.getTime(), config));
-
-  const { data, error } = await supabase
-    .from("duty_logs")
-    .select("*")
-    .eq("company_id", ctx.auth.companyId)
-    .is("deleted_at", null)
-    .gte("started_at", windowStart.toISOString())
-    .order("started_at", { ascending: true })
-    .limit(WINDOW_ROW_LIMIT + 1);
-
-  if (error) {
-    throw new ApiError(500, "HOS_WINDOW_UNAVAILABLE", "The HOS duty-log window could not be loaded.");
-  }
-
-  const rows = data ?? [];
-  if (rows.length > WINDOW_ROW_LIMIT) {
-    throw new ApiError(
-      500,
-      "HOS_WINDOW_TOO_LARGE",
-      `The HOS window holds more than ${WINDOW_ROW_LIMIT} duty logs; the summary cannot be computed completely, so nothing is shown rather than a partial total.`,
-    );
-  }
-
-  const cycle = summarizeHosCycle(rows, now, config);
+  // The one server-side HOS read (services/api/hos-window.ts).
+  const snapshot = await loadHosWindow(supabase, ctx.auth.companyId, new Date());
+  const { cycle, config, rows } = snapshot;
   const hos: DutyLogWindowSummary = {
     cycle: cycle.cycle,
     cycleLimitMinutes: cycle.cycleLimitMinutes,

@@ -12,8 +12,8 @@
 // documented design §§5/6 exception). The web surface constructs it
 // with the owner's session client, so RLS does the scoping there.
 
+import { cycleLine, loadHosWindow } from "@/services/api/hos-window";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { summarizeHos } from "@/lib/hos";
 import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
 import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { isMissingColumnError } from "./tool-helpers";
@@ -469,7 +469,7 @@ export function createBotStore(
 
     async loadSnapshot() {
       const sinceIso = new Date(Date.now() - SEVEN_DAYS_MS).toISOString().slice(0, 10);
-      const [loads, dutyLogs, expenses, fuel, brokers, customers, drivers] = await Promise.all([
+      const [loads, expenses, fuel, brokers, customers, drivers] = await Promise.all([
         supabase
           .from("loads")
           .select("origin, destination, status, pickup_date, delivery_date, rate_cents")
@@ -478,13 +478,6 @@ export function createBotStore(
           .in("status", ["draft", "confirmed"])
           .order("created_at", { ascending: false })
           .limit(5),
-        supabase
-          .from("duty_logs")
-          .select("*")
-          .eq("company_id", company)
-          .is("deleted_at", null)
-          .order("started_at", { ascending: false })
-          .limit(100),
         supabase
           .from("expenses")
           .select("amount_cents")
@@ -502,16 +495,26 @@ export function createBotStore(
         contacts("drivers"),
       ]);
 
-      for (const result of [loads, dutyLogs, expenses, fuel]) {
+      for (const result of [loads, expenses, fuel]) {
         if (result.error) throw new Error(result.error.message);
       }
 
-      const dutyRows = (dutyLogs.data ?? []) as DutyLog[];
-      const hos = dutyRows.length > 0 ? summarizeHos(dutyRows) : null;
-      const currentDutyStatus =
-        dutyRows.length > 0
-          ? [...dutyRows].sort((a, b) => b.started_at.localeCompare(a.started_at))[0]!.duty_status
-          : null;
+      // King review D-1: the same full-window read + carrier-cycle
+      // engine as the Hours page; a failed read is stated, not guessed.
+      let hos: CompanySnapshot["hos"] = null;
+      let hosCycleLine: string | null = null;
+      let currentDutyStatus: string | null = null;
+      let hosUnavailable = false;
+      try {
+        const window = await loadHosWindow(supabase, company);
+        if (window.rows.length > 0) {
+          hos = window.short;
+          hosCycleLine = cycleLine(window);
+          currentDutyStatus = window.rows[window.rows.length - 1]!.duty_status;
+        }
+      } catch {
+        hosUnavailable = true;
+      }
 
       const sum = (rows: Record<string, unknown>[], field: string) =>
         rows.reduce((total, row) => total + (typeof row[field] === "number" ? (row[field] as number) : 0), 0);
@@ -520,6 +523,8 @@ export function createBotStore(
         activeLoads: (loads.data ?? []) as CompanySnapshot["activeLoads"],
         currentDutyStatus,
         hos,
+        hosCycleLine,
+        hosUnavailable,
         expensesLast7DaysCents: sum((expenses.data ?? []) as Record<string, unknown>[], "amount_cents"),
         fuelLast7DaysCents: sum((fuel.data ?? []) as Record<string, unknown>[], "total_cost_cents"),
         contacts: { brokers, customers, drivers },

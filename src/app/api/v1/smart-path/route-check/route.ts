@@ -11,9 +11,11 @@ import { createClient } from "@/services/db/server";
 import { routeCheckRequestSchema } from "@/data/schemas/smart-path";
 import { runRouteCheck } from "@/services/smart-path/route-check";
 
-export const POST = createApiHandler(async (req) => {
+export const POST = createApiHandler(async (req, ctx) => {
   const body = await validateBody(req, routeCheckRequestSchema);
   const supabase = await createClient();
-  const result = await runRouteCheck(supabase, body);
+  // The company id lets the HOS read use the carrier's own cycle
+  // settings (King review D-1); RLS still scopes every read.
+  const result = await runRouteCheck(supabase, body, undefined, undefined, ctx.auth.companyId);
   return NextResponse.json(result);
 });

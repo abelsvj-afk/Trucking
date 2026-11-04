@@ -14,9 +14,9 @@
 // sheet names what it does to his 70-hour picture when it moves
 // it (§7.6 backfill).
 
+import { loadHosWindow, snapshotFromRows } from "@/services/api/hos-window";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { summarizeHos } from "@/lib/hos";
 import { zonedInstant } from "@/lib/zoned-day";
 import { PAPER_REMARK_LINE } from "@/lib/paper-day";
 import type { DutyLog, Load } from "@/types/entities";
@@ -144,17 +144,12 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
   const attachedLoad: Load | null = inferred !== null && inferred !== "ambiguous" ? inferred : null;
   const ambiguousLoads = inferred === "ambiguous";
 
-  // 70-hour backfill effect (§7.6): before vs after on the real
-  // 8-day window, computed - never asserted.
-  const { data: windowRows } = await client
-    .from("duty_logs")
-    .select("*")
-    .eq("company_id", companyId)
-    .is("deleted_at", null)
-    .order("started_at", { ascending: false })
-    .limit(200);
-  const currentRows = (windowRows ?? []) as DutyLog[];
-  const beforeMinutes = currentRows.length > 0 ? summarizeHos(currentRows).onDutyMinutesLast8Days : 0;
+  // Cycle backfill effect (§7.6): before vs after on the carrier-
+  // anchored cycle (King review D-1: the same full-window read and
+  // engine as every other surface), computed - never asserted.
+  const window = await loadHosWindow(client, companyId);
+  const currentRows = window.rows;
+  const beforeMinutes = window.cycle.onDutyMinutesInCycle;
   const conflictIds = new Set(conflicts.map((c) => c.row.id));
   const afterRows: DutyLog[] = [
     ...currentRows.filter((row) => !conflictIds.has(row.id)),
@@ -173,7 +168,10 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
       deleted_at: null,
     }) as DutyLog),
   ];
-  const afterMinutes = afterRows.length > 0 ? summarizeHos(afterRows).onDutyMinutesLast8Days : 0;
+  const afterRowsSorted = [...afterRows].sort((x, y) => x.started_at.localeCompare(y.started_at));
+  const afterMinutes = snapshotFromRows(afterRowsSorted, window.config, new Date()).cycle.onDutyMinutesInCycle;
+  const cycleLabel = `${window.cycle.cycle} cycle${window.provisional ? " (provisional carrier settings)" : ""}`;
+  const cycleLimitText = formatHours(window.cycle.cycleLimitMinutes);
 
   // ---- Stage the batch (deletes first, then the paper's rows) --
   // Pending-action confidence is a word, house convention
@@ -284,14 +282,25 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
   }
   if (afterMinutes !== beforeMinutes) {
     lines.push(
-      `Adding this day changes your 70-hour picture: on-duty in the last 8 days goes from ${formatHours(beforeMinutes)} to ${formatHours(afterMinutes)} of 70h.`,
+      `Adding this day changes your ${cycleLabel}: on duty in the cycle goes from ${formatHours(beforeMinutes)} to ${formatHours(afterMinutes)} of ${cycleLimitText}.`,
     );
   }
   if (stagedCount > 0) {
+    // Owner ruling 2026-11-04 (naming condition): flagged stretches may
+    // book on his yes, but the approval prompt itself names every one.
+    const flagged = analysis.staged.filter((segment) => segment.flagged);
+    const flaggedNames = flagged
+      .map((segment) => `${STATUS_LABELS[segment.status] ?? segment.status} ${formatClock(segment.startMin)}–${formatClock(segment.endMin)}`)
+      .join("; ");
+    const flaggedClause =
+      flagged.length > 0
+        ? ` Your yes includes ${flagged.length} faint stretch${flagged.length === 1 ? "" : "es"} I read below the clean bar: ${flaggedNames}. Check ${flagged.length === 1 ? "it" : "them"} against the sheet before you say yes.`
+        : "";
     lines.push(
-      analysis.complete
+      (analysis.complete
         ? "Say yes and these become your app hours, marked as read from the paper — the sheet stays your legal record, the app just mirrors it."
-        : `Say yes and the readable part becomes your app hours, marked partial — from the readable part of ${label}. The missing spans stay missing until you supply them.`,
+        : `Say yes and the readable part becomes your app hours, marked partial — from the readable part of ${label}. The missing spans stay missing until you supply them.`) +
+        flaggedClause,
     );
   }
   return { lines };

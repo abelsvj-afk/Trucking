@@ -14,9 +14,9 @@
 // result - the loop's grounding guard holds the final reply to
 // figures that appear here or in the code-assembled context.
 
+import { cycleLine, hosWarnings, loadHosWindow } from "@/services/api/hos-window";
 import { fuelFieldsFromReceipt } from "./fuel-receipt";
 import { z } from "zod";
-import { summarizeHos } from "@/lib/hos";
 import type { AgentTool } from "@/services/ai/agent-loop";
 import type { BotBrainStore } from "./store";
 import { searchMemoryEverywhere } from "./memory-retrieval";
@@ -93,30 +93,26 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     {
       name: "hos_summary",
       description:
-        "His current hours-of-service picture from his duty logs (the paper-log helper - not the ELD): current duty status, driving used in the 14-hour window, driving since the last 30-minute break, on-duty in the last 8 days vs 70, and warnings.",
+        "His current hours-of-service picture from his duty logs (the paper-log helper - not the ELD): current duty status, driving used in the 14-hour window, driving since the last 30-minute break, on-duty in the carrier-anchored cycle (70/8 or 60/7 per his carrier settings, labeled provisional until he confirms them), and warnings.",
       parameters: { type: "object", properties: {} },
       access: "read",
       async run() {
-        const { data, error } = await client
-          .from("duty_logs")
-          .select("*")
-          .eq("company_id", companyId)
-          .is("deleted_at", null)
-          .order("started_at", { ascending: false })
-          .limit(100);
-        if (error) throw new Error(error.message);
-        const rows = (data ?? []) as DutyLog[];
-        if (rows.length === 0) return "No duty logs on file yet.";
-        const hos = summarizeHos(rows);
-        const current = [...rows].sort((a, b) => b.started_at.localeCompare(a.started_at))[0]!;
+        // King review D-1: the same full-window read + carrier-cycle
+        // engine as the Hours page (services/api/hos-window.ts).
+        const snapshot = await loadHosWindow(client, companyId);
+        const rows = snapshot.rows;
+        if (rows.length === 0) return "No duty logs in the current HOS window.";
+        const hos = snapshot.short;
+        const current = rows[rows.length - 1]!;
         const lines = [
           `Current duty status: ${current.duty_status} (since ${current.started_at}).`,
           `Driving in current 14h window: ${formatMinutes(hos.drivingMinutesInWindow)} of 11h.`,
           `Window elapsed: ${formatMinutes(hos.windowElapsedMinutes)} of 14h.`,
           `Driving since last 30-min break: ${formatMinutes(hos.drivingMinutesSinceBreak)} of 8h.`,
-          `On duty in last 8 days: ${formatMinutes(hos.onDutyMinutesLast8Days)} of 70h.`,
+          cycleLine(snapshot),
         ];
-        if (hos.warnings.length > 0) lines.push(`Warnings: ${hos.warnings.join("; ")}`);
+        const warnings = hosWarnings(snapshot);
+        if (warnings.length > 0) lines.push(`Warnings: ${warnings.join("; ")}`);
         // §7.7 trust labeling: paper-sourced clocks say so, and a
         // partial paper day says partial - in this surface too.
         lines.push(...(await hosProvenanceLines(client, companyId, rows)));
@@ -510,22 +506,16 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
             mileageNote = " That entry isn't tied to a load, so the truck's mileage didn't move from it.";
           }
         }
-        const { data } = await client
-          .from("duty_logs")
-          .select("*")
-          .eq("company_id", companyId)
-          .is("deleted_at", null)
-          .order("started_at", { ascending: false })
-          .limit(100);
-        const rows = (data ?? []) as DutyLog[];
-        const hos = rows.length > 0 ? summarizeHos(rows) : null;
-        return (
-          `Logged duty status ${parsed.duty_status} starting now in the paper-log helper.` +
-          (hos
-            ? ` Helper now shows: driving in window ${formatMinutes(hos.drivingMinutesInWindow)} of 11h; on duty in 8 days ${formatMinutes(hos.onDutyMinutesLast8Days)} of 70h.`
-            : "") +
-          mileageNote
-        );
+        let helperNote = "";
+        try {
+          const snapshot = await loadHosWindow(client, companyId);
+          if (snapshot.rows.length > 0) {
+            helperNote = ` Helper now shows: driving in window ${formatMinutes(snapshot.short.drivingMinutesInWindow)} of 11h; ${cycleLine(snapshot)}`;
+          }
+        } catch {
+          helperNote = " (The hours summary couldn't be computed just now - the entry itself is saved.)";
+        }
+        return `Logged duty status ${parsed.duty_status} starting now in the paper-log helper.` + helperNote + mileageNote;
       },
     },
     // GAP-04: the facility clock. "I'm at the receiver, checked in"

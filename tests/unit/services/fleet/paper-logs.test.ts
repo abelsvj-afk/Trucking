@@ -267,7 +267,42 @@ describe("stagePaperLogDay", () => {
     expect(db.duty_logs![0]!.deleted_at).toBeNull();
   });
 
-  it("E5: a sheet backfilled 5 days late names the 70-hour change it makes", async () => {
+  it("E5: a sheet backfilled 5 days late names the carrier-cycle change it makes", async () => {
+    const dayMs = 86_400_000;
+    const now = Date.now();
+    const isoDaysAgo = (days: number, hourUtc: number) =>
+      new Date(now - days * dayMs).toISOString().slice(0, 10) + `T${String(hourUtc).padStart(2, "0")}:00:00.000Z`;
+    const logDate = new Date(now - 5 * dayMs).toISOString().slice(0, 10);
+    // He drove every day after the sheet's day (9h a day, ~15h breaks):
+    // no 34-hour rest anywhere, so the sheet's driving counts in the cycle.
+    const row = (id: string, duty_status: string, days: number, hourUtc: number) => ({
+      id, company_id: COMPANY, duty_status, started_at: isoDaysAgo(days, hourUtc),
+      load_id: null, location: null, notes: null, odometer: null, source: "app", source_document_id: null, deleted_at: null,
+    });
+    const db = baseDb({
+      duty_logs: [4, 3, 2, 1].flatMap((d) => [row(`d${d}`, "driving", d, 13), row(`o${d}`, "off_duty", d, 22)]),
+    });
+    const { store } = fakeStore(db);
+    const sheet: PaperLogExtraction = {
+      ...CLEAN_DAY,
+      log_date: logDate,
+      segments: [
+        { status: "off_duty", start: "00:00", end: "06:00", confidence: 0.99 },
+        { status: "driving", start: "06:00", end: "14:00", confidence: 0.99 },
+        { status: "off_duty", start: "14:00", end: "24:00", confidence: 0.99 },
+      ],
+      totals: null,
+    };
+    const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: sheet });
+    const text = lines.join("\n");
+    // Before: 4 x 9h = 36h on duty in the carrier cycle.
+    // After: + 8h of paper driving = 44h. The reply names the cycle
+    // and says the settings are the provisional defaults.
+    expect(text).toContain("70/8 cycle (provisional carrier settings)");
+    expect(text).toContain("from 36h to 44h of 70h");
+  });
+
+  it("a late sheet behind a verified 34-hour restart does not change the cycle - and says nothing it can't back", async () => {
     const dayMs = 86_400_000;
     const now = Date.now();
     const isoDaysAgo = (days: number, hourUtc: number) =>
@@ -292,11 +327,50 @@ describe("stagePaperLogDay", () => {
       totals: null,
     };
     const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: sheet });
+    // ~2.9 days off between the sheet and the next drive = a 34-hour
+    // restart the engine can verify: the sheet's hours sit before it.
+    expect(lines.join("\n")).not.toContain("changes your");
+  });
+
+  it("naming condition: the approval prompt names every flagged (faint) stretch it would book", async () => {
+    const db = baseDb();
+    const { store, saved } = fakeStore(db);
+    const faint: PaperLogExtraction = {
+      ...CLEAN_DAY,
+      totals: null,
+      segments: [
+        { status: "off_duty", start: "00:00", end: "06:00", confidence: 0.99 },
+        { status: "driving", start: "06:00", end: "10:00", confidence: 0.86 },
+        { status: "on_duty", start: "10:00", end: "10:30", confidence: 0.82 },
+        { status: "off_duty", start: "10:30", end: "24:00", confidence: 0.99 },
+      ],
+    };
+    const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: faint });
+    const prompt = lines.find((l) => l.startsWith("Say yes"))!;
+    expect(prompt).toContain("2 faint stretches");
+    expect(prompt).toContain("driving 6 AM–10 AM");
+    expect(prompt).toContain("on duty (not driving) 10 AM–10:30 AM");
+    expect(saved.filter((a) => a.toolName === "log_duty_status")).toHaveLength(4);
+  });
+
+  it("naming condition: sub-floor stretches stay dropped and named, never staged; the prompt names no faint ones when there are none", async () => {
+    const db = baseDb();
+    const { store, saved } = fakeStore(db);
+    const low: PaperLogExtraction = {
+      ...CLEAN_DAY,
+      totals: null,
+      segments: [
+        { status: "off_duty", start: "00:00", end: "06:00", confidence: 0.99 },
+        { status: "driving", start: "06:00", end: "10:00", confidence: 0.6 },
+        { status: "off_duty", start: "10:00", end: "24:00", confidence: 0.99 },
+      ],
+    };
+    const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: low });
     const text = lines.join("\n");
-    // Before: 9h on-duty in the window (the 2-days-ago drive).
-    // After: + 8h of paper driving = 17h. The reply names it.
-    expect(text).toContain("70-hour picture");
-    expect(text).toContain("from 9h to 17h");
+    expect(text).toContain("left it out rather than guess");
+    expect(saved.filter((a) => a.toolName === "log_duty_status").map((a) => a.args.duty_status)).toEqual(["off_duty", "off_duty"]);
+    expect(lines.find((l) => l.startsWith("Say yes"))).not.toContain("faint");
+    expect(text).toContain("marked partial");
   });
 
   it("an undated sheet stages nothing and asks for the date in words", async () => {

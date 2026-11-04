@@ -168,6 +168,10 @@ export interface CompanySnapshot {
   }[];
   currentDutyStatus: string | null;
   hos: HosSummary | null;
+  /** The carrier-anchored cycle in one line (services/api/hos-window.ts). */
+  hosCycleLine?: string | null;
+  /** The HOS window couldn't be read - say so, never guess. */
+  hosUnavailable?: boolean;
   expensesLast7DaysCents: number;
   fuelLast7DaysCents: number;
   contacts: {
@@ -212,9 +216,11 @@ export function formatCompanySnapshot(snapshot: CompanySnapshot): string {
       `Duty now: ${snapshot.currentDutyStatus ?? "no status logged"}. ` +
         `Paper-log helper figures (not the ELD): driving in current 14h window ${formatMinutes(snapshot.hos.drivingMinutesInWindow)} of 11h; ` +
         `window elapsed ${formatMinutes(snapshot.hos.windowElapsedMinutes)} of 14h; ` +
-        `driving since last 30-min break ${formatMinutes(snapshot.hos.drivingMinutesSinceBreak)} of 8h; ` +
-        `on duty in last 8 days ${formatMinutes(snapshot.hos.onDutyMinutesLast8Days)} of 70h.`,
+        `driving since last 30-min break ${formatMinutes(snapshot.hos.drivingMinutesSinceBreak)} of 8h. ` +
+        (snapshot.hosCycleLine ?? "Cycle: not computed."),
     );
+  } else if (snapshot.hosUnavailable) {
+    lines.push("Duty/hours: the HOS window couldn't be read just now - don't state his hours; say they couldn't be checked.");
   } else {
     lines.push("Duty/hours: no duty logs on file yet.");
   }

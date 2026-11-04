@@ -27,7 +27,7 @@ export interface ClockState {
   driveLeftMin: number; // of the 11h driving limit
   windowLeftMin: number; // of the 14h window
   breakLeftMin: number; // driving allowed before a 30-min break is due
-  weekLeftMin: number; // of the 70h / 8-day on-duty limit
+  weekLeftMin: number; // left in the carrier-anchored cycle (70/8 or 60/7)
   /** False when there were no duty logs and fresh clocks were assumed. */
   fromLogs: boolean;
 }
@@ -67,13 +67,18 @@ export function routeCaption(route: { provider: string; truckLegal: boolean }): 
     : `Route by ${route.provider} — a standard CAR route, NOT checked against truck restrictions. Don't roll on this line alone; check it against the truck's own nav/ELD.`;
 }
 
-export function clocksFromHos(hos: HosSummary | null): ClockState {
+/**
+ * `cycleLeftMin` is the carrier-anchored cycle's remaining on-duty
+ * time (services/api/hos-window.ts). hos.ts's rolling 8-day sum is
+ * never used for the week clock (King review D-1).
+ */
+export function clocksFromHos(hos: HosSummary | null, cycleLeftMin: number): ClockState {
   if (!hos || hos.windowStart === null) {
     return {
       driveLeftMin: DRIVE_LIMIT_MIN,
       windowLeftMin: WINDOW_LIMIT_MIN,
       breakLeftMin: BREAK_AFTER_MIN,
-      weekLeftMin: WEEK_LIMIT_MIN,
+      weekLeftMin: cycleLeftMin,
       fromLogs: false,
     };
   }
@@ -81,7 +86,7 @@ export function clocksFromHos(hos: HosSummary | null): ClockState {
     driveLeftMin: Math.max(0, DRIVE_LIMIT_MIN - hos.drivingMinutesInWindow),
     windowLeftMin: Math.max(0, WINDOW_LIMIT_MIN - hos.windowElapsedMinutes),
     breakLeftMin: Math.max(0, BREAK_AFTER_MIN - hos.drivingMinutesSinceBreak),
-    weekLeftMin: Math.max(0, WEEK_LIMIT_MIN - hos.onDutyMinutesLast8Days),
+    weekLeftMin: Math.max(0, cycleLeftMin),
     fromLogs: true,
   };
 }

@@ -73,6 +73,18 @@ returning a partial window. A summary that cannot be complete is
 never shown as if it were — the Hours screen shows an explicit error
 with retry instead (the totals guarantee of F-033, applied here).
 
+### One server-side HOS read for every surface (King review D-1, 2026-11-04)
+
+`src/services/api/hos-window.ts` (`loadHosWindow`) is the only server-side way
+his hours are read: the full carrier-anchored window (ascending, failing loudly
+past the 5000-row tripwire), the cycle from `lib/hos-cycle.ts`, and the
+short-term clocks from `lib/hos.ts` with its superseded rolling 8-day warning
+removed. The window endpoint, Abel's `get_hos_summary` tool and his
+after-logging summary, his conversation context snapshot, the paper-log
+batch's cycle before/after line, and Smart Path's week clock all use it. No
+surface states a rolling 8-day sum; provisional carrier settings are labeled
+wherever the cycle is stated.
+
 ## The carrier-anchored cycle (F-015)
 
 FMCSA's 60/7 and 70/8 limits run over **consecutive 24-hour periods

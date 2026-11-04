@@ -113,9 +113,19 @@ placed in the carrier time zone from HOS settings (FMCSA: home-terminal time).
 `stagePaperLogDay` stages only the segments that cleared the bar; because a
 duty row runs until the next row, a dropped or unreadable stretch mid-day is
 silently absorbed into the previous status when that batch is approved. Its
-"70-hour picture" line also uses the naive rolling 8-day sum from the newest
-200 rows. Both need a ruling; the app review screen avoids the first by
-refusing to save an unresolved day.
+"70-hour picture" line used the naive rolling 8-day sum - FIXED 2026-11-04
+(King D-1): it now states the carrier-cycle before/after from the one HOS read.
+
+**Owner ruling 2026-11-04 (naming condition):** flagged (0.80–0.95) stretches
+and partial days MAY book via Telegram; the approval prompt itself names every
+flagged stretch (status and times) - implemented in `stagePaperLogDay`.
+Sub-0.80 stretches stay dropped and named, never staged; partial days stay
+labeled partial. **Still open for a ruling:** "never filled" holds for what is
+*staged*, but because a duty row runs until the next one, approving a batch
+with a dropped or missing span mid-day still lets the previous status run
+across that span in the app's clocks. The app review screen avoids it by
+refusing to save an unresolved day; the Telegram path would need either a
+by-word fill before approval or a stop-at-the-gap rule.
 
 ## 7. Telegram as the logging companion
 
