@@ -218,24 +218,24 @@ export interface BotBrainStore extends TelegramStore {
   // --- Abel Intelligence Upgrade, Phase D (pay truth) ---
   /** The pay pin: the current "Pay structure" business_fact, parsed. UNKNOWN_PIN when none exists - never a guess. */
   loadPayPin(): Promise<PayPin>;
-  /** Records a settlement (header + lines + load links) with its code-computed true-pay figures and pin-check verdict (migration 00045). Throws a plain error when the migration hasn't landed. */
+  /** Records a settlement (header + lines + load links) with its code-computed true-pay figures and pin-check verdict (migration 00048). Throws a plain error when the migration hasn't landed. */
   recordSettlement(input: SettlementRecordInput): Promise<RecordedSettlement>;
-  /** Recent settlements, newest period first. Empty before migration 00045 lands (reads degrade; writes fail loudly). */
+  /** Recent settlements, newest period first. Empty before migration 00048 lands (reads degrade; writes fail loudly). */
   listSettlements(limit?: number): Promise<StoredSettlement[]>;
   /** Settlements whose period overlaps [startDate, endDate] (YYYY-MM-DD), for the weekly report. */
   listSettlementsInRange(startDate: string, endDate: string): Promise<StoredSettlement[]>;
   /** Completed loads delivered inside [startDate, endDate] - the weekly report's own-authority comparison reads these grosses. */
   listCompletedLoadsInRange(startDate: string, endDate: string): Promise<WeekLoad[]>;
-  /** The weekly-pay-report run marker for one week (migration 00045); null before the migration / before that week's run. closedEmpty = the week was closed silently with no settlements (figures flag) - distinct from a failed send. */
+  /** The weekly-pay-report run marker for one week (migration 00048); null before the migration / before that week's run. closedEmpty = the week was closed silently with no settlements (figures flag) - distinct from a failed send. */
   payReportRunForWeek(weekStart: string): Promise<{ weekStart: string; sent: boolean; closedEmpty: boolean; createdAt: string } | null>;
   /** Records a weekly-pay-report run (sent = the notifier actually delivered it). */
   recordPayReportRun(weekStart: string, sent: boolean, figures: Record<string, unknown>): Promise<void>;
   // --- Abel Intelligence Upgrade, Phase C (threads + people) ---
-  /** Records a reconstructed forward thread (migration 00046): appends to the matching open thread when code finds one (participant overlap), else creates it. Throws a plain error when the migration hasn't landed. */
+  /** Records a reconstructed forward thread (migration 00049): appends to the matching open thread when code finds one (participant overlap), else creates it. Throws a plain error when the migration hasn't landed. */
   recordForwardThread(input: ThreadRecordInput): Promise<RecordedThread>;
-  /** Threads (newest activity first), optionally only open ones / only open loops. Empty before migration 00046 (reads degrade; writes fail loudly). */
+  /** Threads (newest activity first), optionally only open ones / only open loops. Empty before migration 00049 (reads degrade; writes fail loudly). */
   listThreads(options?: { openOnly?: boolean; unansweredOnly?: boolean; limit?: number }): Promise<StoredThread[]>;
-  /** One thread + its verbatim timeline; null when absent (or before 00046). */
+  /** One thread + its verbatim timeline; null when absent (or before 00049). */
   getThread(threadId: string): Promise<{ thread: StoredThread; messages: StoredThreadMessage[] } | null>;
   /** Marks a thread's ask answered (the loop closes; the thread stays open for follow-ups). */
   markThreadAnswered(threadId: string): Promise<void>;
@@ -254,7 +254,7 @@ export interface BotBrainStore extends TelegramStore {
   isDriverTwinEnabled(): Promise<boolean>;
   /** Draft-time exemplars: his actual sent replies from exchanges resembling this incoming message (ranked in code). Empty when the corpus has nothing similar - or nothing at all. */
   loadVoiceExemplars(incomingText: string): Promise<import("./voice-corpus").VoiceExemplar[]>;
-  /** Captures what he ACTUALLY sent for one exchange and computes the draft edit distance in code (migration 00047). Throws a plain error before 00047 lands. */
+  /** Captures what he ACTUALLY sent for one exchange and computes the draft edit distance in code (migration 00050). Throws a plain error before 00050 lands. */
   recordSentReply(exchangeId: string, actualReply: string): Promise<{ editDistanceRatio: number | null }>;
   /** Recent dispatch exchanges (for targeting recordSentReply). */
   listRecentExchanges(limit?: number): Promise<{ id: string; incoming: string; hasDraft: boolean; actualReplySent: string | null; editDistanceRatio: number | null; createdAt: string }[]>;
@@ -279,11 +279,11 @@ export interface BotBrainStore extends TelegramStore {
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Phase D: the settlements columns every read selects (migration 00045). */
+/** Phase D: the settlements columns every read selects (migration 00048). */
 const SETTLEMENT_COLUMNS =
   "id, issuer_name, period_start, period_end, gross_cents, carrier_cut_cents, net_to_truck_cents, driver_pay_cents, miles_total, miles_loaded, duty_minutes, pin_check, pin_check_detail, created_at";
 
-/** Phase C: the forward_threads columns every read selects (migration 00046). */
+/** Phase C: the forward_threads columns every read selects (migration 00049). */
 const THREAD_COLUMNS =
   "id, title, status, language, the_ask, ask_of, deadline_text, participants, unanswered, updated_at, created_at";
 
@@ -836,7 +836,7 @@ export function createBotStore(
       if (error) {
         if (/settlements/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
           throw new Error(
-            "Settlements aren't available yet - migration 00045 hasn't been applied to the database, so nothing was recorded.",
+            "Settlements aren't available yet - migration 00048 hasn't been applied to the database, so nothing was recorded.",
           );
         }
         throw new Error(error.message);
@@ -932,7 +932,7 @@ export function createBotStore(
         .is("deleted_at", null)
         .limit(1);
       if (error) {
-        // Graceful absence: migration 00045 not applied yet - the
+        // Graceful absence: migration 00048 not applied yet - the
         // report job simply has no state and stays quiet.
         if (/pay_report_runs/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
           return null;
@@ -985,7 +985,7 @@ export function createBotStore(
       if (openError) {
         if (missing(openError.message)) {
           throw new Error(
-            "Thread recording isn't available yet - migration 00046 hasn't been applied to the database. The conversation itself is still in his timeline and dispatch history; only the thread record is missing.",
+            "Thread recording isn't available yet - migration 00049 hasn't been applied to the database. The conversation itself is still in his timeline and dispatch history; only the thread record is missing.",
           );
         }
         throw new Error(openError.message);
@@ -1264,7 +1264,7 @@ export function createBotStore(
       if (updateError) {
         if (/edit_distance_ratio|reply_captured_at/.test(updateError.message)) {
           throw new Error(
-            "Sent-reply capture isn't available yet - migration 00047 hasn't been applied to the database, so the edit-distance columns don't exist. The reply itself wasn't recorded.",
+            "Sent-reply capture isn't available yet - migration 00050 hasn't been applied to the database, so the edit-distance columns don't exist. The reply itself wasn't recorded.",
           );
         }
         throw new Error(updateError.message);
@@ -1281,7 +1281,7 @@ export function createBotStore(
         .order("created_at", { ascending: false })
         .limit(limit);
       if (error) {
-        // Before 00047 the edit_distance column doesn't exist - fall
+        // Before 00050 the edit_distance column doesn't exist - fall
         // back to the pre-E column set rather than failing the read.
         if (/edit_distance_ratio/.test(error.message)) {
           const fallback = await supabase
@@ -1324,7 +1324,7 @@ export function createBotStore(
       if (error) {
         if (/load_decisions/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
           throw new Error(
-            "The decision log isn't available yet - migration 00047 hasn't been applied to the database. Nothing was logged.",
+            "The decision log isn't available yet - migration 00050 hasn't been applied to the database. Nothing was logged.",
           );
         }
         throw new Error(error.message);
@@ -1379,7 +1379,7 @@ export function createBotStore(
     },
   };
 
-  /** Thread reads degrade gracefully before migration 00046 (empty); writes fail loudly instead - see recordForwardThread. */
+  /** Thread reads degrade gracefully before migration 00049 (empty); writes fail loudly instead - see recordForwardThread. */
   function threadsOrThrow(error: { message: string }): StoredThread[] {
     if (/forward_thread/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
       return [];
@@ -1415,7 +1415,7 @@ export function createBotStore(
     }));
   }
 
-  /** Settlement reads degrade gracefully before migration 00045 (empty, like every other not-yet-landed read); writes fail loudly instead - see recordSettlement. */
+  /** Settlement reads degrade gracefully before migration 00048 (empty, like every other not-yet-landed read); writes fail loudly instead - see recordSettlement. */
   function settlementsOrThrow(error: { message: string }): StoredSettlement[] {
     if (/settlements/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
       return [];

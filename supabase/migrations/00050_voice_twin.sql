@@ -1,8 +1,7 @@
 -- Abel Intelligence Upgrade, Phase E — voice intake + driver
 -- twin foundations (design Trucking-Abel-Intelligence-Upgrade-
--- Design-2026-11-02 §6/§7 Phase E). Numbered 00047 (renumbered in the union fix round; originally 00046): main tops at
--- 00041, the image/maintenance lane takes 00042-00044, Phase D
--- took 00045, Phase C took 00046. Independent of all of them.
+-- Design-2026-11-02 §6/§7 Phase E). Numbered 00050 in the wave renumber
+-- (2026-11-04). Independent of the other migrations.
 --
 -- Two additions:
 -- 1. dispatch_exchanges gains the twin's measurement columns:

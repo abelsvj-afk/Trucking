@@ -20,7 +20,7 @@
 //   is what lets an empty week ever reach that close window, and
 //   lets a week the job slept through still get its report.
 // Gated on the bot_chat capability (it is Abel talking) and on the
-// settlements table existing (migration 00045): without either, the
+// settlements table existing (migration 00048): without either, the
 // job stays quiet instead of erroring hourly.
 
 import { getIndustryBriefingPool } from "@/services/db/industry-briefing-pool";

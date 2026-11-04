@@ -3,7 +3,7 @@
 // (participants, roles, ask, deadline, unanswered); a follow-up
 // from the same conversation APPENDS to the same thread; open
 // loops read back from the record; message bodies stay verbatim
-// (English untouched - the F-019 shape). Before migration 00046
+// (English untouched - the F-019 shape). Before migration 00049
 // the write fails plainly and reads degrade to empty.
 
 import { describe, expect, it } from "vitest";
@@ -205,9 +205,9 @@ describe("thread records", () => {
     expect(detail?.thread.unanswered).toBe(false);
   });
 
-  it("before migration 00046 the WRITE fails plainly; reads degrade to empty", async () => {
+  it("before migration 00049 the WRITE fails plainly; reads degrade to empty", async () => {
     const store = fakeStore({}, new Set(["forward_threads", "forward_thread_messages"]));
-    await expect(store.recordForwardThread(SEGMENT_1)).rejects.toThrow(/migration 00046/);
+    await expect(store.recordForwardThread(SEGMENT_1)).rejects.toThrow(/migration 00049/);
     expect(await store.listThreads({})).toEqual([]);
     expect(await store.getThread("anything")).toBeNull();
   });

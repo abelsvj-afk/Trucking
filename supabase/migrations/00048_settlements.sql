@@ -1,10 +1,7 @@
 -- Abel Intelligence Upgrade, Phase D — pay truth (design
 -- docs: Trucking-Abel-Intelligence-Upgrade-Design-2026-11-02 §5).
--- Numbered 00045 (renumbered in the union fix round; originally 00044): main tops out at 00041 (record lifecycle),
--- 00042-00044 are taken by the parallel image/maintenance lane, and
--- this lane's phases stack after them (threads and twin take the
--- next free numbers when they land). This migration is independent
--- of all of them and may apply before or after any of them safely.
+-- Numbered 00048 in the wave renumber (2026-11-04): independent of every
+-- other migration; it may apply before or after any of them safely.
 --
 -- Settlements: the pay record Abel never had. One row per settlement
 -- statement (what the carrier actually paid, load by load in the

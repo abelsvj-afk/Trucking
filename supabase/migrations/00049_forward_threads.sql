@@ -1,8 +1,7 @@
 -- Abel Intelligence Upgrade, Phase C — forwarded-thread
 -- intelligence (design Trucking-Abel-Intelligence-Upgrade-Design-
--- 2026-11-02 §4). Numbered 00046 (renumbered in the union fix round; originally 00045): main tops at 00041, the parallel
--- image/maintenance lane takes 00042-00044, Phase D took 00045.
--- Independent of all of them; may apply before or after any safely.
+-- 2026-11-02 §4). Numbered 00049 in the wave renumber (2026-11-04).
+-- Independent of the other migrations; may apply before or after any safely.
 --
 -- A forwarded conversation stops being a blob: it becomes a stored
 -- thread record - participants with roles, a message timeline, the

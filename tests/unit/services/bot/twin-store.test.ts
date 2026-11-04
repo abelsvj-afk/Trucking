@@ -3,7 +3,7 @@
 // stores it; the decision log answers with counts or admits thin
 // history; the twin + transcription switches default OFF (no
 // settings row = off, the house convention). Before migration
-// 00047, capture fails with a plain not-applied message.
+// 00050, capture fails with a plain not-applied message.
 
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -191,18 +191,18 @@ describe("recordSentReply", () => {
     expect(row.reply_captured_at).toBeTruthy();
   });
 
-  it("before migration 00047 the capture fails with a plain not-applied message", async () => {
+  it("before migration 00050 the capture fails with a plain not-applied message", async () => {
     const db: Record<string, Row[]> = {};
     seedExchange(db);
     const store = fakeStore(db, {
       missingColumns: new Set(["dispatch_exchanges.edit_distance_ratio", "dispatch_exchanges.reply_captured_at"]),
     });
-    await expect(store.recordSentReply("ex-1", "anything")).rejects.toThrow(/migration 00047/);
+    await expect(store.recordSentReply("ex-1", "anything")).rejects.toThrow(/migration 00050/);
   });
 });
 
 describe("decision log", () => {
-  it("records and lists his decisions; pre-00047 the read degrades and the write says so", async () => {
+  it("records and lists his decisions; pre-00050 the read degrades and the write says so", async () => {
     const db: Record<string, Row[]> = {};
     const store = fakeStore(db);
     await store.recordLoadDecision({ description: "Memphis load, $1,900", decision: "passed", outcomeNote: null });
@@ -215,7 +215,7 @@ describe("decision log", () => {
     expect(await preStore.listLoadDecisions(10)).toEqual([]);
     await expect(
       preStore.recordLoadDecision({ description: "x", decision: "taken" }),
-    ).rejects.toThrow(/migration 00047/);
+    ).rejects.toThrow(/migration 00050/);
   });
 });
 

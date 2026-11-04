@@ -1,6 +1,6 @@
 // Phase D acceptance (design §5, test 1 + store discipline): a
 // settlement recorded against a pin gets code-computed true-pay
-// columns and a pin check at record time; before migration 00045
+// columns and a pin check at record time; before migration 00048
 // the WRITE fails with a plain "not applied" message while reads
 // degrade to empty; the weekly report job delivers once per week
 // and closes empty weeks silently.
@@ -251,10 +251,10 @@ describe("recordSettlement", () => {
     expect((db.settlements ?? [])[0]!.tax_setaside_cents).toBeNull(); // employment unknown - no set-aside computed, none invented
   });
 
-  it("before migration 00045 the WRITE fails plainly; reads degrade to empty", async () => {
+  it("before migration 00048 the WRITE fails plainly; reads degrade to empty", async () => {
     const missing = new Set(["settlements", "settlement_lines", "settlement_load_links", "pay_report_runs"]);
     const store = fakeStore({}, missing);
-    await expect(store.recordSettlement(SETTLEMENT_INPUT)).rejects.toThrow(/migration 00045/);
+    await expect(store.recordSettlement(SETTLEMENT_INPUT)).rejects.toThrow(/migration 00048/);
     expect(await store.listSettlements(5)).toEqual([]);
     expect(await store.listSettlementsInRange("2026-10-26", "2026-11-01")).toEqual([]);
     expect(await store.payReportRunForWeek("2026-10-26")).toBeNull();
