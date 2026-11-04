@@ -182,3 +182,26 @@ Design first, per the workflow: `docs/design/research-engine.md`, with `docs/sch
 ---
 
 *Every task here implements something already fully specified in `docs/`. If implementing a task reveals a real gap or contradiction in the design, stop and fix the relevant doc first, per the workflow's own escalation rule — don't silently improvise inside the code.*
+
+## Stage 9 — Driver-usable product pass (2026-11-04, owner's direct order)
+
+Owner's brief: make the app genuinely usable by a working truck driver, as
+if selling it to a fleet — everything doable in-app, logging made easy and
+visual, nothing buried, UI that is good on a phone, the home-page news
+banner where he asked for it. **Spec first** (CLAUDE.md): this stage needs
+`docs/design/driver-usability.md` (task-flow audit, navigation/IA, one-handed
+and glance rules) reviewed before implementation.
+
+Standing boundary (not negotiable, restated from the owner's HOS rules): the
+app is a **paper-log helper, not an ELD**. The truck's certified ELD remains
+the carrier's system; the disclaimer stays verbatim on HOS surfaces.
+
+- [ ] Task-flow audit of every daily driver job (log duty, start/finish load,
+      fuel, expenses, documents, parking, home time) — count taps, find buried
+      screens.
+- [ ] Navigation/IA fixes from the audit (delivered largely by merge steps 6
+      `home-news-banner` and 9 `ui-ux-pass`; verify against the audit).
+- [ ] Home page: news banner in place, glanceable clocks and next action.
+- [ ] Visual logging (duty-status graph) that is quick to edit and read.
+- [ ] Phone-first pass: tap targets, one-handed reach, no interaction while
+      moving, readable in a cab.
