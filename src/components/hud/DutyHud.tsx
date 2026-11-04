@@ -9,11 +9,14 @@
 // made-up clock. PAPER-LOG HELPER, NOT AN ELD - said on the surface.
 
 import { useCallback, useEffect, useState } from "react";
-import { computeHudClocks } from "@/lib/hud-clocks";
+import Link from "next/link";
+import { computeHudClocks, formatClock } from "@/lib/hud-clocks";
+import Sheet from "@/components/Sheet";
+import DayLog from "./DayLog";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useNowTick } from "@/lib/use-now-tick";
 import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
-import { formatDateTime } from "@/lib/time";
+import { formatDateTime, formatSinceTime } from "@/lib/time";
 import type { DutyStatus } from "@/types/entities";
 import ClockRing from "./ClockRing";
 import StatusSheet, { HUD_STATUS_LABELS } from "./StatusSheet";
@@ -26,6 +29,7 @@ export default function DutyHud() {
   const nowMs = useNowTick();
   const [picked, setPicked] = useState<DutyStatus | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
+  const [dayOpen, setDayOpen] = useState(false);
 
   // Focus and data-change refreshes come from the live layer
   // (LiveDataProvider). This interval is only the safety net that
@@ -64,8 +68,13 @@ export default function DutyHud() {
       {clocks?.state === "ready" && (
         <>
           <p className="hud-status">
-            <strong>{HUD_STATUS_LABELS[clocks.status]}</strong> since{" "}
-            {formatDateTime(new Date(clocks.statusSinceMs).toISOString())}
+            <strong>{HUD_STATUS_LABELS[clocks.status]}</strong>{" "}
+            <span className="hud-status-timer" aria-label="Time in this status">
+              {formatClock(nowMs - clocks.statusSinceMs)}
+            </span>
+          </p>
+          <p className="row-sub">
+            since {formatSinceTime(new Date(clocks.statusSinceMs).toISOString(), nowMs)}
           </p>
           {clocks.rested && (
             <p className="hud-note">Rested 10+ hours — drive and window start counting when you go on duty.</p>
@@ -111,20 +120,36 @@ export default function DutyHud() {
       </div>
 
       {picked && (
-        <StatusSheet
-          key={picked}
-          status={picked}
-          onCancel={() => setPicked(null)}
-          onSaved={(queued) => {
-            setPicked(null);
-            setSavedNote(
-              queued
-                ? "No signal — saved on this device and will sync when you're back online."
-                : "Status saved.",
-            );
-            if (!queued) refresh();
-          }}
-        />
+        <Sheet title="Change status" onClose={() => setPicked(null)}>
+          <StatusSheet
+            key={picked}
+            status={picked}
+            onCancel={() => setPicked(null)}
+            onSaved={(queued) => {
+              setPicked(null);
+              setSavedNote(
+                queued
+                  ? "No signal — saved on this device and will sync when you're back online."
+                  : "Status saved.",
+              );
+              if (!queued) refresh();
+            }}
+          />
+        </Sheet>
+      )}
+
+      <p className="hud-links">
+        <button type="button" onClick={() => setDayOpen(true)} disabled={!loaded || loaded.data.length === 0}>
+          Day log
+        </button>
+        <Link href="/fleet/hos/paper" className="hud-link-btn">
+          Paper log
+        </Link>
+      </p>
+      {dayOpen && loaded && (
+        <Sheet title="Your day" onClose={() => setDayOpen(false)}>
+          <DayLog rows={loaded.data} timeZone={loaded.hos.carrierTimeZone} oldestIso={loaded.hos.windowStart} />
+        </Sheet>
       )}
       {savedNote && (
         <p role="status" className="hud-note">

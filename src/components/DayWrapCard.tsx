@@ -6,6 +6,8 @@
 // photographed, detention owed and unclaimed).
 
 import { useEffect, useState } from "react";
+import { DAY_WRAP_TABLES } from "@/lib/live-tables";
+import { useLiveVersion } from "@/lib/use-live";
 
 interface DayWrapItem {
   kind: string;
@@ -15,12 +17,17 @@ interface DayWrapItem {
 
 export default function DayWrapCard() {
   const [items, setItems] = useState<DayWrapItem[] | null>(null);
+  // Live layer: re-derived whenever anything the wrap checks changes,
+  // so the card (and its proposal count) is never a stale snapshot.
+  const liveVersion = useLiveVersion(DAY_WRAP_TABLES);
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/v1/day-wrap")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
+        // A successful answer with nothing in it clears the card; a
+        // failed one keeps the last good wrap rather than blanking it.
         if (!cancelled && body?.data?.items) setItems(body.data.items as DayWrapItem[]);
       })
       .catch(() => {
@@ -29,7 +36,7 @@ export default function DayWrapCard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [liveVersion]);
 
   if (!items || items.length === 0) return null;
   const allOk = items.every((item) => item.severity === "ok");

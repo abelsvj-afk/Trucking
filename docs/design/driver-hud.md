@@ -173,3 +173,22 @@ creates a legal or audit problem, and numbers that protect revenue.
 3. **Map**: a compact live-position card on Home only when GPS is granted and the
    phone has a recent fix (otherwise the card is absent, not blank). The full
    map, routing and guidance stay in Drive Mode, so Home stays fast and glanceable.
+
+
+## 12. Home popups and live cards (owner request 2026-11-04)
+
+The owner's standard is an ELD: act in place, never switch pages for the daily
+jobs, and never see a stale number. On Home:
+- **Sheets** (`components/Sheet.tsx`, accessible bottom sheet: dialog role,
+  focus in/out, Tab trap, Esc/backdrop close, scroll lock, reduced-motion
+  safe): the status change, and "Day log" (the editable 24-hour day with
+  edit/insert/delete) open over Home. "Paper log" is one tap from the HUD.
+- **Time in status** ticks beside the status, like an ELD's status line.
+- **Live cards:** Day Wrap (including the proposed-records count) and the news
+  banner follow the live layer; a 5-minute safety re-read covers a dropped
+  channel. Live tables now include `bot_pending_actions`, `research_briefings`,
+  `research_signals` (migration 00058).
+- **Edit safety under live updates:** the day view tracks the picked entry by
+  id, so a live change can never redirect an edit to a different entry; if the
+  entry vanished, the editor closes and says so.
+- **Not yet:** clocks alongside a route in Drive Mode (next).

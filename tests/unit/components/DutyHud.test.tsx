@@ -138,6 +138,50 @@ describe("DutyHud", () => {
     expect(vi.mocked(apiClient.dutyLogWindow)).toHaveBeenCalledTimes(2);
   });
 
+  it("the status change opens as a popup over Home (no page switch) and closes on Escape", async () => {
+    await renderHud(windowResult([]));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Driving" }));
+    const dialog = screen.getByRole("dialog", { name: "Change status" });
+    expect(dialog.querySelector("form")).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows a live time-in-status counter that ticks", async () => {
+    const now = Date.now();
+    await renderHud(
+      windowResult([
+        { duty_status: "off_duty", started_at: new Date(now - 20 * H).toISOString() },
+        { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
+      ]),
+    );
+    const timer = screen.getByLabelText("Time in this status");
+    expect(timer.textContent).toBe("2:00:00");
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(timer.textContent).toBe("2:00:05");
+  });
+
+  it("Day log opens the editable day in a popup, right on Home; it is off with nothing logged", async () => {
+    await renderHud(windowResult([]));
+    expect((screen.getByRole("button", { name: "Day log" }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+
+    const now = Date.now();
+    await renderHud(
+      windowResult([
+        { duty_status: "off_duty", started_at: new Date(now - 20 * H).toISOString() },
+        { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
+      ]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Day log" }));
+    const dialog = screen.getByRole("dialog", { name: "Your day" });
+    expect(dialog.querySelector(".day-graph")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Paper log" }).getAttribute("href")).toBe("/fleet/hos/paper");
+  });
+
   it("flags an earlier time as entered after the fact, and refuses the future", async () => {
     await renderHud(windowResult([]));
     fireEvent.click(screen.getByRole("button", { name: "Off duty" }));

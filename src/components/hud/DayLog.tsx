@@ -23,7 +23,10 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
   const today = zonedDate(nowMs, timeZone);
   const oldest = zonedDate(Date.parse(oldestIso), timeZone);
   const [picked, setPicked] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
+  // The selection is the ENTRY (its id), never a list position: a live
+  // update can reorder or add rows while a panel is open, and an edit
+  // must only ever land on the entry the driver actually picked.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const day = picked ?? today;
 
@@ -39,10 +42,14 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
   }));
   const go = (date: string) => {
     setPicked(date === today ? null : date);
-    setSelected(null);
+    setSelectedId(null);
     setMessage(null);
   };
-  const stretch = selected !== null ? view.stretches[selected] : undefined;
+  const selectedIndex = selectedId === null ? -1 : view.stretches.findIndex((s) => sorted[s.rowIndex]?.id === selectedId);
+  const stretch = selectedIndex >= 0 ? view.stretches[selectedIndex] : undefined;
+  // The picked entry no longer appears on this day (changed or deleted
+  // elsewhere): close its panel and say so rather than edit something else.
+  const vanished = selectedId !== null && !stretch;
 
   return (
     <section aria-label="Day view" className="day-log">
@@ -58,7 +65,11 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
       {segments.length === 0 ? (
         <p className="hud-empty">Nothing logged on this day.</p>
       ) : (
-        <DayGraph segments={segments} selected={selected} onSelect={(i) => setSelected(i)} />
+        <DayGraph
+          segments={segments}
+          selected={selectedIndex >= 0 ? selectedIndex : null}
+          onSelect={(i) => setSelectedId(sorted[view.stretches[i]!.rowIndex]?.id ?? null)}
+        />
       )}
       <ul className="day-totals">
         {ORDER.map((s) => (
@@ -71,6 +82,11 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
         Times on your carrier&apos;s clock ({timeZone}). Tap a stretch to change it. Days before {oldest} are in the list
         below.
       </p>
+      {vanished && (
+        <p role="status" className="hud-note">
+          That entry changed or was removed somewhere else, so its editor was closed. Tap a stretch to edit it again.
+        </p>
+      )}
       {message && (
         <p role="status" className="hud-note">
           {message}
@@ -78,7 +94,7 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
       )}
       {stretch && (
         <DayEditPanel
-          key={`${day}-${stretch.rowIndex}-${stretch.startMin}`}
+          key={`${selectedId}-${sorted[stretch.rowIndex]!.started_at}-${sorted[stretch.rowIndex]!.duty_status}`}
           rows={sorted}
           stretch={stretch}
           dayDate={day}
@@ -87,9 +103,9 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
           nowMs={nowMs}
           onDone={(m) => {
             setMessage(m);
-            setSelected(null);
+            setSelectedId(null);
           }}
-          onClose={() => setSelected(null)}
+          onClose={() => setSelectedId(null)}
         />
       )}
     </section>

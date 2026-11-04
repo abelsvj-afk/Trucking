@@ -361,27 +361,35 @@ section:first-of-type {
 /* --- Stat grids: <dl> is used for the financial-summary numbers (Home,
    Money > Summary) - a real stat grid (label + big number) instead of
    default browser dl indentation. */
+/* Visual audit F1 (2026-11-04): the old auto-fit grid wrapped labels and
+   numbers into separate cells, so on a phone a label could sit over a
+   different row's number (Home's "DRIVING LEFT" over 14h). A two-column
+   label | value layout keeps every pair on its own row at any width. */
 dl {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1.25rem 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  gap: 0.75rem 1rem;
+  align-items: baseline;
   margin: 0;
 }
 
 dt {
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted-strong);
   margin: 0;
 }
 
 dd {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 800;
   letter-spacing: -0.01em;
-  margin: 0.25rem 0 0;
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
 section a {
@@ -797,9 +805,18 @@ nav[aria-label="Primary"] a[aria-current="page"] {
    screen's primary action as a real button (PageHeader.tsx). */
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem 1rem;
+}
+
+/* Visual audit: beside a button the title used to be squeezed into a
+   narrow column. The text block keeps a readable minimum width and the
+   action wraps below it on a phone. */
+.page-header-text {
+  flex: 1 1 15rem;
+  min-width: 0;
 }
 
 .page-header h1 {
@@ -2146,4 +2163,105 @@ nav[aria-label="Primary"] a span {
 .deleted-toggle button[aria-pressed="true"] {
   color: var(--color-primary);
   border-color: var(--color-primary);
+}
+
+/* --- Bottom sheet (components/Sheet.tsx): in-place actions on Home --- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.sheet-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 40rem;
+  max-height: 92vh;
+  background: var(--color-surface);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: var(--shadow-lg, 0 -8px 32px rgba(0, 0, 0, 0.25));
+  animation: sheetUp 0.22s ease-out;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.sheet-head .sheet-close {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  font-size: 1.25rem;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.sheet-body {
+  padding: 0.75rem 1rem 1.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    animation: none;
+  }
+}
+
+.hud-status-timer {
+  margin-left: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.hud-links button,
+.hud-links a.hud-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+  background: transparent;
+  border: 2px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+  box-shadow: none;
+  text-decoration: none;
 }

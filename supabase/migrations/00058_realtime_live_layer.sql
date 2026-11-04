@@ -26,7 +26,7 @@ begin
   foreach t in array array[
     'duty_logs', 'loads', 'expenses', 'fuel_purchases', 'maintenance_events',
     'maintenance_schedules', 'trucks', 'trailers', 'drivers', 'documents',
-    'detention_stamps'
+    'detention_stamps', 'bot_pending_actions', 'research_briefings', 'research_signals'
   ] loop
     if not exists (
       select 1 from pg_publication_tables

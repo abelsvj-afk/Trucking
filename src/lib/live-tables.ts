@@ -17,11 +17,26 @@ export const LIVE_TABLES = [
   "drivers",
   "documents",
   "detention_stamps",
+  // Home's cards: proposals waiting for his yes, and the news banner.
+  "bot_pending_actions",
+  "research_briefings",
+  "research_signals",
 ] as const;
 
 export type LiveTable = (typeof LIVE_TABLES)[number];
 
 const LIVE_SET = new Set<string>(LIVE_TABLES);
+
+/** Everything the Day Wrap checks (it is re-derived when any of these change). */
+export const DAY_WRAP_TABLES: LiveTable[] = [
+  "duty_logs",
+  "loads",
+  "expenses",
+  "fuel_purchases",
+  "documents",
+  "detention_stamps",
+  "bot_pending_actions",
+];
 
 /** The money summary is computed from these. */
 export const MONEY_TABLES: LiveTable[] = ["loads", "expenses", "fuel_purchases", "maintenance_events"];

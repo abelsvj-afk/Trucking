@@ -217,7 +217,11 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] King D-3: applied migration 00052 byte-identical to main again.
 - [x] Owner naming condition: the Telegram paper-log approval prompt names every flagged stretch; sub-0.80 stays dropped + named; partial stays labeled.
 - [x] Visual audit F2/F3/F5 (2026-11-04): Hours no longer words the provisional defaults as the carrier's rules; Log duty status is the page's primary button and the Deleted toggle is quiet on every list; "since 12:34 PM" carries the date when it isn't today.
-- [ ] Visual audit, not yet fixed: F1 (global `dl` stat-grid pairs labels/numbers independently - misaligned on a phone), F4 (Hours/day view/paper logs are 3 taps deep under the 6-tab layout), PageHeader squeezes the title beside an action button at phone width. Need the owner's call (F1, F4).
+- [x] Visual audit F1 (2026-11-04): `dl` is now a two-column label | value layout (labels can't sit over another row's number), labels 13px/darker; PageHeader wraps so the action drops below the title on a phone.
+- [x] Visual audit F4: Hours isn't a tab, so the daily jobs live on Home: status change, the editable day log and the paper-log route are one tap from the HUD, as popups (`components/Sheet.tsx`) - no page switching.
+- [x] Home has no stale cards: Day Wrap (proposal count) and the news banner now follow the live layer (migration 00058 gained `bot_pending_actions`, `research_briefings`, `research_signals`); HUD shows a ticking time-in-status like an ELD.
+- [ ] Not yet built: the HOS clocks running alongside a route in Drive Mode (owner request).
+- [ ] Visual audit set covers 14 of 62 pages; King to capture the rest after the next deploy (Drive Mode, forms, detail pages, HUD/day view/paper-log screens, banner states).
 - [ ] Open for ruling: on Telegram approval, a dropped/missing mid-day span is still covered by the previous status in the app's clocks (row model) — see driver-hud.md §6.
 - [x] Day-graph editing (b) built 2026-11-04 (branch `m3-hud-b`): day view on Hours, step through days, tap a stretch to change status / move start / add a change / delete (soft), carrier-clock times, paper re-mark reminder, entered-after-the-fact label.
 - [ ] Not yet built (spec §10): Telegram logging reminders (e), driving-speed input lockout and GPS map card (§5/§8).

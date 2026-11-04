@@ -121,3 +121,46 @@ describe("DayLog", () => {
     expect(screen.getByText(/Entered after the fact/)).toBeTruthy();
   });
 });
+
+describe("DayLog under live updates (pitfall hunt, 2026-11-04)", () => {
+  const stretchCount = () => document.querySelectorAll(".dg-hit").length;
+
+  it("an edit panel stays on the ENTRY the driver picked when a new row arrives above it", async () => {
+    const { rerender } = render(<DayLog rows={rows} timeZone={TZ} oldestIso="2026-10-25T04:00:00Z" />);
+    hit(1); // the 06:00 driving entry, id "b"
+    expect(screen.getByLabelText("Status")).toBeTruthy();
+    // Abel logs a new on-duty entry at 02:00 ET - everything below shifts down one position.
+    const withNew: DayRow[] = [
+      rows[0]!,
+      { id: "n", duty_status: "on_duty", started_at: "2026-11-03T07:00:00Z", created_at: "2026-11-03T07:00:05Z" },
+      rows[1]!,
+      rows[2]!,
+    ];
+    rerender(<DayLog rows={withNew} timeZone={TZ} oldestIso="2026-10-25T04:00:00Z" />);
+    expect(stretchCount()).toBe(4);
+    vi.mocked(apiClient.update).mockResolvedValue({} as never);
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "off_duty" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save status" })));
+    // Still the driving entry "b" - not whatever now sits at position 1.
+    expect(apiClient.update).toHaveBeenCalledWith("duty-logs", "b", { duty_status: "off_duty" });
+  });
+
+  it("if the picked entry disappears elsewhere, its editor closes and says why - nothing else is editable by accident", () => {
+    const { rerender } = render(<DayLog rows={rows} timeZone={TZ} oldestIso="2026-10-25T04:00:00Z" />);
+    hit(1);
+    rerender(<DayLog rows={[rows[0]!, rows[2]!]} timeZone={TZ} oldestIso="2026-10-25T04:00:00Z" />);
+    expect(screen.queryByLabelText("Status")).toBeNull();
+    expect(screen.getByText(/changed or was removed somewhere else/)).toBeTruthy();
+    expect(apiClient.update).not.toHaveBeenCalled();
+  });
+
+  it("a neighbour's change doesn't wipe what the driver is typing in this entry's panel", () => {
+    const { rerender } = render(<DayLog rows={rows} timeZone={TZ} oldestIso="2026-10-25T04:00:00Z" />);
+    hit(0);
+    const input = screen.getByLabelText(/Started at/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "21:15" } });
+    // A later entry's status changes elsewhere; this entry is untouched.
+    rerender(<DayLog rows={[rows[0]!, rows[1]!, { ...rows[2]!, duty_status: "off_duty" }]} timeZone={TZ} oldestIso="2026-10-25T04:00:00Z" />);
+    expect((screen.getByLabelText(/Started at/) as HTMLInputElement).value).toBe("21:15");
+  });
+});

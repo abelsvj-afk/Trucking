@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { buildBannerItems, formatRelativeAge } from "@/lib/news-banner";
 import { topicEmoji } from "@/lib/research-topics";
+import { useLiveVersion } from "@/lib/use-live";
 import type { ResearchPageData } from "@/types/entities";
 
 const ROTATE_MS = 6000;
@@ -48,7 +49,7 @@ export default function NewsBanner() {
   // .then-chain style (the house pattern): state writes land in
   // promise callbacks, never synchronously inside an effect.
   const load = useCallback(
-    (initial: boolean) =>
+    () =>
       apiClient
         .listResearchBriefings()
         .then((page) => {
@@ -61,15 +62,29 @@ export default function NewsBanner() {
           setPhase({ status: "ready", page });
         })
         .catch(() => {
-          // A failed first load says so, with a retry; a failed
-          // refresh keeps the last good payload rather than blanking Home.
-          if (initial) setPhase({ status: "failed" });
+          // Nothing shown yet (still loading, or a previous failure):
+          // say so, with a retry. A failed refresh over a good payload
+          // keeps that payload rather than blanking Home. Decided by
+          // what is on screen, not by which call this was - the first
+          // load can arrive after live events already bumped the version.
+          setPhase((prev) => (prev.status === "ready" || prev.status === "off" ? prev : { status: "failed" }));
         }),
     [],
   );
 
+  // Live layer: a new briefing or signal swaps into the rotation on
+  // its own (a failed refresh keeps the last good payload).
+  const liveVersion = useLiveVersion(["research_briefings", "research_signals"]);
   useEffect(() => {
-    void load(true);
+    void load();
+  }, [load, liveVersion]);
+
+  // Safety net for a dropped channel: re-read every 5 minutes while visible.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!document.hidden) void load();
+    }, 5 * 60_000);
+    return () => clearInterval(timer);
   }, [load]);
 
   useEffect(() => {
@@ -129,7 +144,7 @@ export default function NewsBanner() {
         showResult(
           `${res.new_signals} new item${res.new_signals === 1 ? "" : "s"} on the wires · just now`,
         );
-        void load(false);
+        void load();
       } else if (res.state === "quiet") {
         showResult(
           <>
@@ -137,7 +152,7 @@ export default function NewsBanner() {
             <Link href="/more/research">Want a full deep-dive? Queue one →</Link>
           </>,
         );
-        void load(false);
+        void load();
       } else if (res.state === "cooldown") {
         const ago = res.checked_at
           ? Math.max(1, Math.round((Date.now() - new Date(res.checked_at).getTime()) / 60000))
@@ -161,7 +176,7 @@ export default function NewsBanner() {
 
   function retryLoad() {
     setPhase({ status: "loading" });
-    void load(true);
+    void load();
   }
 
   function stepTo(next: number) {
