@@ -25,6 +25,7 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { useApiList } from "@/lib/use-api-list";
+import { useLiveVersion } from "@/lib/use-live";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, Truck } from "@/types/entities";
@@ -227,6 +228,8 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
 
   const expenses = useApiList<Expense>("expenses", { load_id: id });
   const duty = useApiList<DutyLog>("duty-logs", { load_id: id });
+  // Live layer: a change to loads (Abel, another tab) re-reads this one.
+  const liveVersion = useLiveVersion(["loads"]);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,7 +244,7 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, liveVersion]);
 
   if (error) {
     return (
