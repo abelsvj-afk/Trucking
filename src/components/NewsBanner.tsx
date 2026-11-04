@@ -5,9 +5,10 @@
 // signals - visible proof the engine is alive, with the ages always
 // showing. It stays dumb: the server filters the payload, the pure
 // builder in lib/news-banner.ts orders the rotation, this component
-// renders states and a timer. It never fakes it - engine off means
-// no strip at all, a dead runner gets a warning above the rotation,
-// and not-set-up says so instead of inventing headlines.
+// renders states and a timer. It never fakes it - and it never goes
+// silent: engine off says so (and where to turn it on), a failed load
+// says so with a retry, a dead runner gets a warning above the
+// rotation, and not-set-up says so instead of inventing headlines.
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -21,7 +22,11 @@ const MANUAL_PAUSE_MS = 12000;
 const RESULT_MS = 10000;
 const COOLDOWN_FALLBACK_MINUTES = 30;
 
-type LoadPhase = { status: "loading" } | { status: "hidden" } | { status: "ready"; page: ResearchPageData };
+type LoadPhase =
+  | { status: "loading" }
+  | { status: "off" }
+  | { status: "failed" }
+  | { status: "ready"; page: ResearchPageData };
 
 export default function NewsBanner() {
   const [phase, setPhase] = useState<LoadPhase>({ status: "loading" });
@@ -47,17 +52,18 @@ export default function NewsBanner() {
       apiClient
         .listResearchBriefings()
         .then((page) => {
-          // Deep research off (or unverifiable) = no strip at all (§7).
+          // Deep research off (or unverifiable) says so - a slim muted
+          // line, never invented headlines and never a silent absence.
           if (!page.engine_enabled) {
-            setPhase({ status: "hidden" });
+            setPhase({ status: "off" });
             return;
           }
           setPhase({ status: "ready", page });
         })
         .catch(() => {
-          // Fail closed on the first load; a failed refresh keeps
-          // the last good payload rather than blanking Home.
-          if (initial) setPhase({ status: "hidden" });
+          // A failed first load says so, with a retry; a failed
+          // refresh keeps the last good payload rather than blanking Home.
+          if (initial) setPhase({ status: "failed" });
         }),
     [],
   );
@@ -153,6 +159,11 @@ export default function NewsBanner() {
     }
   }
 
+  function retryLoad() {
+    setPhase({ status: "loading" });
+    void load(true);
+  }
+
   function stepTo(next: number) {
     setIndex(next);
     // A manual step holds the rotation for 12s (§3) - a timer, not a
@@ -162,7 +173,29 @@ export default function NewsBanner() {
     holdTimerRef.current = setTimeout(() => setManualHold(false), MANUAL_PAUSE_MS);
   }
 
-  if (phase.status === "hidden") return null;
+  if (phase.status === "off") {
+    return (
+      <section aria-label="News" className="news-banner news-banner-muted">
+        <p className="news-banner-line">
+          News is off — the research engine is turned off.{" "}
+          <Link href="/more/settings">Turn on Deep research in Settings →</Link>
+        </p>
+      </section>
+    );
+  }
+
+  if (phase.status === "failed") {
+    return (
+      <section aria-label="News" className="news-banner news-banner-muted">
+        <p className="news-banner-line">
+          News unavailable.{" "}
+          <button type="button" onClick={retryLoad}>
+            Tap to retry
+          </button>
+        </p>
+      </section>
+    );
+  }
 
   const setup =
     page !== null && (page.runner === null || page.runner.last_tick_at === null);

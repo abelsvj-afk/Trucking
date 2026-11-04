@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // vitest globals are off in this repo, so RTL's auto-cleanup never
 // registers - clean up by hand or renders leak across tests.
@@ -102,21 +102,32 @@ async function renderBanner() {
 }
 
 describe("NewsBanner", () => {
-  it("renders nothing when deep research is off", async () => {
+  it("says it is off, and where to turn it on, when deep research is off - never silent", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(page({ engine_enabled: false }));
     const { container } = render(<NewsBanner />);
     await act(async () => {});
-    expect(container.firstChild).toBeNull();
-    void container;
+    const strip = container.querySelector(".news-banner");
+    expect(strip).not.toBeNull();
+    expect(strip!.textContent).toContain("News is off");
+    expect(screen.getByRole("link", { name: /Settings/ }).getAttribute("href")).toBe("/more/settings");
+    expect(container.querySelector(".news-banner-headline")).toBeNull();
   });
 
-  it("renders nothing when the fetch fails (fail closed)", async () => {
+  it("says news is unavailable with a retry when the first fetch fails, and retry restores the rotation", async () => {
     vi.useFakeTimers();
-    vi.mocked(apiClient.listResearchBriefings).mockRejectedValue(new Error("down"));
+    vi.mocked(apiClient.listResearchBriefings).mockRejectedValueOnce(new Error("down"));
     const { container } = render(<NewsBanner />);
     await act(async () => {});
-    expect(container.querySelector(".news-banner")).toBeNull();
+    expect(container.querySelector(".news-banner")!.textContent).toContain("News unavailable");
+    expect(container.querySelector(".news-banner-headline")).toBeNull();
+
+    vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(page({}));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    });
+    expect(container.textContent).not.toContain("News unavailable");
+    expect(vi.mocked(apiClient.listResearchBriefings)).toHaveBeenCalledTimes(2);
   });
 
   it("shows the setup state - and no pull button - when the runner has never ticked", async () => {

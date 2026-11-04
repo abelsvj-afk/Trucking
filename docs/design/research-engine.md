@@ -220,3 +220,19 @@ engines stay distinct in his answers until the R-7 door merge:
   policies (mirroring §6's fence) so the web surface's session client
   can queue/dismiss exactly like the Telegram surface's service-role
   client already could.
+
+## Home news banner — states (owner/King ruling 2026-11-04)
+
+The banner sits directly under the Home header (day-wrap card below it). It is never silently absent:
+
+| State | What Home shows |
+|---|---|
+| Loading | "Checking the wires…" |
+| Engine off (`engine_enabled: false`) | Slim muted line: news is off, with a link to Settings → Deep research. No headlines. |
+| First load failed | Slim muted line: "News unavailable" with a "Tap to retry" button (44px target); success swaps in the real rotation. A failed *refresh* keeps the last good payload. |
+| Runner never ticked | Setup message, no pull button |
+| Runner stale | Warning above the rotation |
+| Ready, no items | "The wires are quiet" with the last-checked age |
+| Ready | Rotation of briefings and Watching signals, with ages |
+
+Invented headlines are never shown in any state. This supersedes the earlier "engine off = no strip" rule.

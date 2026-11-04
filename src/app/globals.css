@@ -1171,3 +1171,14 @@ a.page-action:hover,
     display: none;
   }
 }
+
+/* Home News Banner: off / unavailable strips are quiet but never
+   hidden, and the retry control is a real thumb-sized target. */
+.news-banner-muted {
+  color: var(--color-text-muted);
+}
+
+.news-banner-muted button {
+  min-height: 44px;
+  padding: 0 0.75rem;
+}
