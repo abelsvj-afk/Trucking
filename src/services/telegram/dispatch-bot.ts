@@ -37,7 +37,7 @@ import {
   type BotMemoryRow,
 } from "./context";
 import type { TelegramStore } from "./store";
-import type { TelegramPhotoSize } from "./photo-intake";
+import type { TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
 
 export interface TelegramConfig {
   botToken: string | null;
@@ -63,10 +63,26 @@ export interface TelegramUpdate {
     text?: string;
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
     photo?: TelegramPhotoSize[];
+    /** UH-14 fix: Telegram album grouping id, when the photo arrived as part of an album. */
+    media_group_id?: string;
     caption?: string;
     forward_origin?: unknown;
     forward_from?: unknown;
     forward_date?: number;
+  };
+  /**
+   * Image Intelligence (§3.3): a tap on an inline-keyboard button
+   * arrives as its own update kind - the first button surface in
+   * this bot. `data` carries the photo-purpose ask's pending id +
+   * the chosen purpose ("pp:<id>:<choice>").
+   */
+  callback_query?: {
+    id?: string;
+    data?: string;
+    message?: {
+      message_id?: number;
+      chat?: { id?: number; type?: string };
+    };
   };
 }
 
@@ -107,12 +123,39 @@ export interface TelegramDeps {
    * returns the plain-words reply (what was stored, extraction
    * state). Wired only when the brain store exists; absent = the
    * bot says honestly that photo filing isn't configured and stores
-   * nothing.
+   * nothing. Image Intelligence (§3): the reply widens to a
+   * TelegramPhotoResult - when it carries a purpose ask, the text
+   * goes out with buttons (sendAskMessage) or, failing that, as a
+   * numbered list resolved by the pending-question grammar.
    */
   handlePhoto?: (
     photo: TelegramPhotoSize[],
     caption: string | undefined,
-  ) => Promise<string>;
+    mediaGroupId?: string,
+  ) => Promise<TelegramPhotoResult>;
+  /**
+   * §3.3: sends a message with an inline keyboard (photo-purpose
+   * asks). Absent = asks always go out as numbered text.
+   */
+  sendAskMessage?: (
+    chatId: number,
+    text: string,
+    buttons: { text: string; callback_data: string }[][],
+  ) => Promise<void>;
+  /** §3.3: acknowledges a button tap (stops Telegram's spinner). Best-effort by contract. */
+  answerCallbackQuery?: (queryId: string, text?: string) => Promise<void>;
+  /**
+   * §3.3: resolves a photo-purpose ask from a button tap (loads
+   * the staged question, settles the purpose, returns the reply
+   * text). Wired from the brain store by the webhook.
+   */
+  resolvePhotoAsk?: (pendingId: string, choice: string) => Promise<string>;
+  /**
+   * §3.3/§3.4: the photo_intelligence gate for button taps - a tap
+   * that lands after the owner turned the capability off settles
+   * nothing. Absent = no gate (reduced mode has no asks to tap).
+   */
+  isPhotoIntelligenceEnabled?: () => Promise<boolean>;
   /** Null = reduced mode (no history/snapshot/memory). */
   store?: TelegramStore | null;
 }
@@ -127,6 +170,8 @@ export type TelegramHandleResult =
   | "dispatch_disabled"
   | "no_text_replied"
   | "photo_replied"
+  | "callback_replied"
+  | "callback_ignored"
   | "replied"
   | "remembered"
   | "instruction_saved"
@@ -246,6 +291,66 @@ export async function handleTelegramUpdate(
   }
 }
 
+const CALLBACK_DATA_PATTERN = /^pp:([0-9a-fA-F-]{36}):([a-z_]+)$/;
+
+/**
+ * §3.3: resolves one inline-keyboard tap. The tap settles a
+ * photo's PURPOSE only - never a record write (any write the
+ * purpose implies is staged by the purpose's own pipeline and
+ * still needs his yes). Every failure mode answers the callback
+ * so Telegram stops spinning, and says plainly what happened.
+ */
+async function handleCallbackQuery(
+  query: NonNullable<TelegramUpdate["callback_query"]>,
+  chatId: number,
+  deps: TelegramDeps,
+  store: TelegramStore | null,
+): Promise<TelegramHandleResult> {
+  const answer = async (text?: string): Promise<void> => {
+    if (!query.id || !deps.answerCallbackQuery) return;
+    try {
+      await deps.answerCallbackQuery(query.id, text);
+    } catch (err) {
+      console.error("[telegram] answerCallbackQuery failed", err);
+    }
+  };
+
+  const match = typeof query.data === "string" ? query.data.match(CALLBACK_DATA_PATTERN) : null;
+  if (!match) {
+    await answer("That button doesn't work anymore.");
+    return "callback_ignored";
+  }
+  const [, pendingId, choice] = match as unknown as [string, string, string];
+
+  // §3.4: the capability gate applies to taps too - off means the
+  // question settles nothing (the photo stays stored-unfiled).
+  if (deps.isPhotoIntelligenceEnabled) {
+    const enabled = await deps.isPhotoIntelligenceEnabled().catch(() => false);
+    if (!enabled) {
+      await answer("Photo understanding is turned off right now.");
+      return "callback_ignored";
+    }
+  }
+
+  if (!deps.resolvePhotoAsk) {
+    await answer("Photo buttons aren't set up in this mode.");
+    return "callback_ignored";
+  }
+
+  const reply = await deps.resolvePhotoAsk(pendingId!, choice!);
+  await answer();
+  await deps.sendMessage(chatId, reply);
+  if (store) {
+    try {
+      await store.saveMessage(chatId, "user", `[photo tap] ${choice}`);
+      await store.saveMessage(chatId, "assistant", reply);
+    } catch (err) {
+      console.error("[telegram] failed to persist callback turn", err);
+    }
+  }
+  return "callback_replied";
+}
+
 async function processTelegramUpdate(
   update: TelegramUpdate,
   config: TelegramConfig,
@@ -254,7 +359,9 @@ async function processTelegramUpdate(
 ): Promise<TelegramHandleResult> {
   if (!config.botToken) return "disabled";
 
-  const chat = update.message?.chat;
+  // §3.3: a button tap carries its chat on the callback's message,
+  // not on a message of its own - the same gates apply to it below.
+  const chat = update.message?.chat ?? update.callback_query?.message?.chat;
   if (!chat || typeof chat.id !== "number") return "ignored_no_chat";
   const chatId = chat.id;
   if (chat.type !== "private") return "ignored_not_private";
@@ -300,6 +407,14 @@ async function processTelegramUpdate(
     if (!claimed) return "duplicate_ignored";
   }
 
+  // §3.3: a button tap is resolved here, after the same gates and
+  // the same dedup claim as every other update kind (acceptance
+  // A2: a double-tap or a Telegram retry of the tap hits the claim
+  // above and never settles twice).
+  if (update.callback_query) {
+    return handleCallbackQuery(update.callback_query, chatId, deps, store);
+  }
+
   // §13: a photo message is document intake, not conversation — it
   // runs before the text paths (a photo's caption is a note on the
   // document, never a message to answer). Same gating as everything
@@ -308,20 +423,59 @@ async function processTelegramUpdate(
   const photo = update.message?.photo;
   if (photo && photo.length > 0) {
     const caption = update.message?.caption?.trim() || undefined;
+    let result: TelegramPhotoResult | null = null;
     let reply: string;
     if (deps.handlePhoto) {
       try {
-        reply = await deps.handlePhoto(photo, caption);
+        const mediaGroupId = update.message?.media_group_id;
+        result = mediaGroupId
+          ? await deps.handlePhoto(photo, caption, mediaGroupId)
+          : await deps.handlePhoto(photo, caption);
       } catch (err) {
         console.error("[telegram] photo intake failed", err);
-        reply =
+        result =
           "I got your photo but something went wrong storing it — nothing was saved. Try sending it again.";
       }
     } else {
-      reply =
+      result =
         "I got your photo, but photo filing isn't configured on the server yet (it needs the bot's company setup), so I couldn't store it. For now, upload it from More → Documents in the app.";
     }
-    await deps.sendMessage(chat.id, reply);
+    if (typeof result === "string") {
+      reply = result;
+      await deps.sendMessage(chat.id, reply);
+    } else {
+      // §3.3: a purpose ask goes out with buttons when the surface
+      // supports them; button delivery failing (or unsupported)
+      // degrades to the SAME choices as a numbered text list -
+      // the fallback is permanent, not an error path. The text
+      // persisted to the timeline is the text he actually saw.
+      reply = result.text;
+      let sentWithButtons = false;
+      if (result.ask && deps.sendAskMessage) {
+        try {
+          const rows = result.ask.options.map((option) => ({
+            text: option.label,
+            callback_data: `pp:${result.ask!.pendingId}:${option.choice}`,
+          }));
+          // Two buttons per row - tappable with gloves, at a truck.
+          const buttons: { text: string; callback_data: string }[][] = [];
+          for (let i = 0; i < rows.length; i += 2) buttons.push(rows.slice(i, i + 2));
+          await deps.sendAskMessage(chat.id, result.text, buttons);
+          sentWithButtons = true;
+        } catch (err) {
+          console.error("[telegram] ask button send failed; falling back to numbered text", err);
+        }
+      }
+      if (!sentWithButtons) {
+        if (result.ask) {
+          const numbered = result.ask.options
+            .map((option, i) => `${i + 1}. ${option.label}`)
+            .join("\n");
+          reply = `${result.text}\n\n${numbered}\n\n(Reply with a number — or just tell me what it is.)`;
+        }
+        await deps.sendMessage(chat.id, reply);
+      }
+    }
     if (store) {
       try {
         await store.saveMessage(chatId, "user", caption ? `[photo] ${caption}` : "[photo]");

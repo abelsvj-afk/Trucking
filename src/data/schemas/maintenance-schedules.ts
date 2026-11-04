@@ -21,6 +21,12 @@ const maintenanceScheduleFieldsSchema = z.object({
     .nullable()
     .optional(),
   status: maintenanceScheduleStatusSchema.optional(),
+  // The maintenance brain (migration 00046): the interval-library
+  // key (§5.1) and where this row came from. Reminder state
+  // (last_reminded_at / last_reminder_key) is watcher-owned and is
+  // deliberately NOT accepted here.
+  template_key: z.string().min(1).max(60).nullable().optional(),
+  origin: z.enum(["template", "owner", "abel"]).optional(),
 });
 
 function exactlyOneVehicle(data: { truck_id?: string | null; trailer_id?: string | null }) {

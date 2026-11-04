@@ -441,3 +441,36 @@ export function enhanceScanPixels(image: GrayImage): EnhanceResult {
   const bw = adaptiveThreshold(working, windowSize, 0.9);
   return { ...bw, perspectiveApplied };
 }
+
+/**
+ * UH-13 fix: advisory clarity metric — variance of the Laplacian
+ * over the grayscale buffer (the classic cheap blur measure: a sharp
+ * document is all edges; a blurry one is smooth). Pure + testable.
+ * Returns 0 for degenerate inputs.
+ */
+export function laplacianVariance(image: GrayImage): number {
+  const { data, width, height } = image;
+  if (width < 3 || height < 3 || data.length < width * height) return 0;
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const lap = 4 * data[i]! - data[i - 1]! - data[i + 1]! - data[i - width]! - data[i + width]!;
+      sum += lap;
+      sumSq += lap * lap;
+      n++;
+    }
+  }
+  if (n === 0) return 0;
+  const mean = sum / n;
+  return sumSq / n - mean * mean;
+}
+
+/** Below this Laplacian variance a document photo is treated as blurry (advisory only). */
+export const CLARITY_BLURRY_BELOW = 100;
+
+export function isBlurryScore(score: number): boolean {
+  return score > 0 && score < CLARITY_BLURRY_BELOW;
+}

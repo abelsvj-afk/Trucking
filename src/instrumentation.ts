@@ -23,5 +23,11 @@ export async function register() {
     // due-ness from consolidation_runs, kill-switched in Settings.
     const { startConsolidationScheduler } = await import("@/services/bot/consolidation-scheduler");
     startConsolidationScheduler();
+    // Maintenance watcher (Image Intelligence §5.6) - same
+    // in-process pattern: a ~6-hourly evaluation pass whose
+    // due-ness comes from maintenance_watch_runs; it also rides
+    // the research endpoint's hourly invoker (its second door).
+    const { startMaintenanceWatchScheduler } = await import("@/services/fleet/maintenance-watch");
+    startMaintenanceWatchScheduler();
   }
 }

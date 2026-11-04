@@ -43,3 +43,30 @@ export function formatMileage(miles: number | null | undefined): string | null {
   if (miles == null) return null;
   return `${miles.toLocaleString("en-US")} mi`;
 }
+
+const MILEAGE_SOURCE_TEXT: Record<string, string> = {
+  odometer_photo: "from a dash photo",
+  duty_log: "from a duty log entry",
+  maintenance_event: "from a maintenance record",
+  fuel_entry: "from a fuel entry",
+  owner_said: "from his word",
+};
+
+/**
+ * Mileage provenance (Image Intelligence §5.3): where the current
+ * reading came from and when - shown wherever the number itself
+ * shows, so a stale or surprising mileage is never a bare figure.
+ * Null when the reading predates provenance (or none is recorded).
+ */
+export function mileageProvenance(
+  source: string | null | undefined,
+  at: string | null | undefined,
+): string | null {
+  if (!source) return null;
+  const from = MILEAGE_SOURCE_TEXT[source] ?? null;
+  if (!from) return null;
+  if (!at) return from;
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return from;
+  return `${from} · ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+}
