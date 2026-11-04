@@ -1,8 +1,8 @@
 -- Fresh-Eyes Gap Register (2026-11-02) — Cluster A: GAP-04 detention,
 -- GAP-05 paperwork closeout inputs, GAP-02 appointment windows.
--- Renumbered in the wave renumber (2026-11-04): GAP files run 00052-00057
--- (Unit C 00043-00044, photo/maintenance 00045-00047, Abel 00048-00050,
--- R-6 00051; main's live ledger ends at 00042). File only — applied by the
+-- Renumbered in the union fix round (2026-11-02): GAP files now run
+-- 00052-00057 (img-maint holds 00042-00044, Abel 00045-00047, R-6 00048;
+-- main's 00041 record_lifecycle is untouched). File only — applied by the
 -- owner through the dashboard like every migration before it.
 --
 -- GAP-02: a load stores only pickup/delivery DATES; the appointment
