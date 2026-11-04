@@ -53,5 +53,12 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] E3 — `docs/design/driver-usability.md` `docs/design/driver-usability.md` (the missing consolidated design).
 - [ ] E4 UX-10 Visual audit covers 14 of 62 pages — **King** captures the rest after deploy (Drive, forms, details, HUD/day view/paper-log, banner states).
 - [ ] E5 Maintainability: decompose `drive.ts` (1018), Drive page, `photo-purpose.ts` (1031), `globals.css` (~2,200).
-- [ ] E6 Self-audit of this cycle's work (pitfall hunt, regression tests proven to fail on the bug).
-- [ ] E7 Land on `main` (fast-forward), verify the tree, report coordinates.
+- [x] E6 Self-audit done: found and fixed the lull-in-traffic unlock (A7), the WordReveal screen-reader bug, the banner/day-edit live-update pitfalls; regression tests proven to fail on the old behaviour; whole-Home integration test; no images/secrets/SQL changes in the diff.
+- [x] E7 Landed on `main` (fast-forward 516ad19 -> 8de735a), tree verified identical to the gated tree d4bfb9c1.
+
+## F. What must happen for this to be fully live in the app (humans)
+1. **Fly:** owner taps Deploy on `main` (8de735a).
+2. **Supabase (King/owner, SQL editor), in order:** 00045–00057 (photo/maintenance, Abel, R-6, GAP — confirm which are already applied; 00043/00044 per King), then **00058** (realtime — without it "Live" never appears and pages refresh only on open/focus/own save), then **00059** (paper-log save — without it saving a reviewed paper day fails with an error). Never applied by Claude.
+3. **Settings:** turn on *Photo understanding* (paper-log reading) and, if wanted, Deep research (news banner), voice, driver twin.
+4. **Phone:** allow location for the site (live position card, GPS status location, the driving lockout's "stopped" reading). Without it everything still works but asks "I'm parked" first.
+5. **A5** (delete the public screenshot branch + purge) is still open and urgent.
