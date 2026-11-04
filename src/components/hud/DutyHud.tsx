@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useNowTick } from "@/lib/use-now-tick";
-import { PROVISIONAL_HOS_CONFIG } from "@/lib/hos-cycle";
+import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
 import { formatDateTime } from "@/lib/time";
 import type { DutyStatus } from "@/types/entities";
 import ClockRing from "./ClockRing";
@@ -43,12 +43,7 @@ export default function DutyHud() {
   const loaded = state.status === "loaded" ? state : null;
   const clocks = loaded ? computeHudClocks(loaded.data, loaded.hos, nowMs) : null;
   const hos = loaded?.hos ?? null;
-  const provisional =
-    hos !== null &&
-    hos.cycle === PROVISIONAL_HOS_CONFIG.cycle &&
-    hos.periodAnchor === PROVISIONAL_HOS_CONFIG.periodAnchor &&
-    hos.restartEnabled === PROVISIONAL_HOS_CONFIG.restartEnabled &&
-    hos.carrierTimeZone === PROVISIONAL_HOS_CONFIG.carrierTimeZone;
+  const provisional = hos !== null && isProvisionalCarrierConfig(hos);
 
   return (
     <section aria-label="Duty status and clocks" className="hud">

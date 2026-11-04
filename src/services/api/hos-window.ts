@@ -12,8 +12,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { summarizeHos, type HosSummary } from "@/lib/hos";
-import { summarizeHosCycle, PROVISIONAL_HOS_CONFIG, type HosCycleSummary } from "@/lib/hos-cycle";
-import { hosCalculationWindowStartMs, type HosCarrierConfig } from "@/lib/hos-periods";
+import { summarizeHosCycle, type HosCycleSummary } from "@/lib/hos-cycle";
+import { hosCalculationWindowStartMs, isProvisionalCarrierConfig, type HosCarrierConfig } from "@/lib/hos-periods";
 import { loadHosConfig } from "@/services/api/hos-config";
 import { ApiError } from "@/services/api/errors";
 import type { DutyLog } from "@/types/entities";
@@ -64,11 +64,7 @@ export function snapshotFromRows(rows: DutyLog[], config: HosCarrierConfig, now:
   return {
     rows,
     config,
-    provisional:
-      config.cycle === PROVISIONAL_HOS_CONFIG.cycle &&
-      config.periodAnchor === PROVISIONAL_HOS_CONFIG.periodAnchor &&
-      config.restartEnabled === PROVISIONAL_HOS_CONFIG.restartEnabled &&
-      config.carrierTimeZone === PROVISIONAL_HOS_CONFIG.carrierTimeZone,
+    provisional: isProvisionalCarrierConfig(config),
     cycle: summarizeHosCycle(rows, now, config),
     short: { ...rawShort, warnings: rawShort.warnings.filter((w) => !w.includes("8-day on-duty limit")) },
   };

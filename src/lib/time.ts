@@ -107,6 +107,26 @@ export function formatDate(value: string | Date, timeZone: string = viewerTimeZo
   }).format(date);
 }
 
+/**
+ * "12:34 PM" when the instant is on today's calendar day in the zone,
+ * otherwise the full date and time - so "since 12:34 PM" can never be
+ * read as today when it was yesterday.
+ */
+export function formatSinceTime(
+  value: string | Date,
+  nowMs: number,
+  timeZone: string = viewerTimeZone(),
+): string {
+  const date = toDate(value);
+  if (!date) return typeof value === "string" ? value : "";
+  const day = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  if (day(date) === day(new Date(nowMs))) {
+    return new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(date);
+  }
+  return formatDateTime(date, timeZone);
+}
+
 /** Shared date+time rendering - the formatDate companion (B.2.3). */
 export function formatDateTime(value: string | Date, timeZone: string = viewerTimeZone()): string {
   const date = toDate(value);

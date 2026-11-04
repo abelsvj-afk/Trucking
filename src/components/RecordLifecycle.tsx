@@ -43,7 +43,7 @@ export function DeletedToggleButton({
   listLabel: string;
 }) {
   return (
-    <p>
+    <p className="deleted-toggle">
       <button type="button" onClick={() => onChange(!showDeleted)} aria-pressed={showDeleted}>
         {showDeleted ? `Back to ${listLabel}` : "Deleted"}
       </button>

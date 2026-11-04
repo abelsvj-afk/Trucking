@@ -2123,3 +2123,27 @@ nav[aria-label="Primary"] a span {
   vertical-align: baseline;
   white-space: nowrap;
 }
+
+/* The Deleted toggle (RecordLifecycle) is a quiet utility on every list
+   screen: the page's real action must be the obvious button (visual
+   audit F3, 2026-11-04). It stays a full-size tap target. */
+.deleted-toggle button {
+  min-height: 44px;
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted-strong);
+  background: transparent;
+  border: 1.5px solid var(--color-border-strong);
+  box-shadow: none;
+}
+
+.deleted-toggle button:hover {
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+}
+
+.deleted-toggle button[aria-pressed="true"] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}

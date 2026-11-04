@@ -23,6 +23,7 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { summarizeHos } from "@/lib/hos";
+import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
 import { formatDate, formatDateTime } from "@/lib/time";
 import {
   useDeletedToggle,
@@ -79,6 +80,11 @@ export default function HosPage() {
       <PageHeader
         title="Hours of service"
         purpose="Track your hours so you never run illegal — every status change you log, turned into what's left today and this week."
+        action={
+          <Link href="/fleet/hos/new" className="page-action">
+            Log duty status
+          </Link>
+        }
       />
       <p>
         <strong>Paper-log helper, not an ELD.</strong> These numbers come
@@ -87,7 +93,6 @@ export default function HosPage() {
         disagree, the ELD/official log wins.
       </p>
       <p>
-        <Link href="/fleet/hos/new">Log duty status</Link> ·{" "}
         <Link href="/fleet/hos/paper">Paper logs — photograph a sheet</Link>
       </p>
 
@@ -127,8 +132,17 @@ export default function HosPage() {
           </ul>
           <p>
             Cycle basis: current + previous {hos.cycle === "70/8" ? 7 : 6} carrier periods
-            (the {hos.cycle} cycle), each starting at {hos.periodAnchor} {hos.carrierTimeZone} —
-            your carrier&apos;s specified period start, not calendar days.
+            (the {hos.cycle} cycle), each starting at {hos.periodAnchor} {hos.carrierTimeZone}
+            {isProvisionalCarrierConfig(hos) ? (
+              <>
+                {" "}
+                — <strong>provisional default settings</strong>, not your carrier&apos;s confirmed rules.
+                Enter your carrier&apos;s real cycle, period start and time zone in{" "}
+                <Link href="/more/settings">Settings</Link>.
+              </>
+            ) : (
+              " — your carrier's specified period start, not calendar days."
+            )}
           </p>
           {hos.restartApplied && (
             <p>

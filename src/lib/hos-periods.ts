@@ -47,6 +47,20 @@ export const PROVISIONAL_HOS_CONFIG: HosCarrierConfig = {
 };
 
 /** "HH:MM" 24-hour wall time - mirrors migration 00042's CHECK. */
+/**
+ * True while a carrier configuration is still the labeled PROVISIONAL
+ * defaults (all four fields equal them) - the one test every surface
+ * uses before it words the settings as the carrier's real rules.
+ */
+export function isProvisionalCarrierConfig(config: HosCarrierConfig): boolean {
+  return (
+    config.cycle === PROVISIONAL_HOS_CONFIG.cycle &&
+    config.periodAnchor === PROVISIONAL_HOS_CONFIG.periodAnchor &&
+    config.restartEnabled === PROVISIONAL_HOS_CONFIG.restartEnabled &&
+    config.carrierTimeZone === PROVISIONAL_HOS_CONFIG.carrierTimeZone
+  );
+}
+
 export const PERIOD_ANCHOR_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function isValidPeriodAnchor(anchor: string): boolean {

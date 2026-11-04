@@ -22,6 +22,8 @@ import Reveal from "@/components/Reveal";
 import { Bot, ClipboardCheck, Fuel, PackagePlus } from "lucide-react";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
+import { formatSinceTime } from "@/lib/time";
+import { useNowTick } from "@/lib/use-now-tick";
 import type { DutyLog } from "@/types/entities";
 import { revenueConventionLabel } from "@/types/financial-summary";
 
@@ -83,6 +85,7 @@ export default function HomePage() {
   // UH-12 fix: documents feed the paper/partial label under the hours.
   const documents = useApiList<PaperDocLike & Record<string, unknown>>("documents", { limit: "200" });
 
+  const nowMs = useNowTick(60_000);
   const logs = duty.state.status === "loaded" ? duty.state.result.data : [];
   const paperLabel =
     documents.state.status === "loaded" ? homeHosPaperLabel(logs, documents.state.result.data) : null;
@@ -141,7 +144,7 @@ export default function HomePage() {
             ) : (
               <p>
                 You&apos;re {STATUS_LABELS[latest.duty_status].toLowerCase()} since{" "}
-                {new Date(latest.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+                {formatSinceTime(latest.started_at, nowMs)}.
                 Ready to roll? Log your next duty status when you start.
               </p>
             )}
