@@ -63,12 +63,16 @@ function lineFeature(points: LatLng[]) {
   };
 }
 
+// Pin colors mirror the globals.css semantic tokens (audit Section
+// D): white letters on the old #16a34a / #d97706 were 3.30:1 / 3.19:1;
+// on the darkened success/warning/danger values they are 5.02:1 /
+// 5.02:1 / 6.47:1.
 const STOP_COLORS: Record<DriveStop["kind"], string> = {
   start: "#0f766a",
-  pickup: "#16a34a",
-  delivery: "#dc2626",
+  pickup: "#15803d",
+  delivery: "#b91c1c",
   rest: "#2563eb",
-  fuel: "#d97706",
+  fuel: "#b45309",
   food: "#7c3aed",
   workout: "#e11d48",
 };

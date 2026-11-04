@@ -1475,6 +1475,8 @@ a.page-action:hover,
 .news-banner-muted button {
   min-height: 44px;
   padding: 0 0.75rem;
+}
+
 /* --- UI/UX pass: motion + nav fit (Crew B) --- */
 /* Everything below this line is Crew B's single appended section
    (motion + icons + navigation crew). It only ADDS rules; no existing
