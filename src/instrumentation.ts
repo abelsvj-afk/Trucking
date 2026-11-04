@@ -23,5 +23,10 @@ export async function register() {
     // due-ness from consolidation_runs, kill-switched in Settings.
     const { startConsolidationScheduler } = await import("@/services/bot/consolidation-scheduler");
     startConsolidationScheduler();
+    // Abel weekly pay-truth report (Intelligence Upgrade Phase D) -
+    // same in-process pattern: hourly due-check against
+    // pay_report_runs, one report per completed Mon-Sun week.
+    const { startPayReportScheduler } = await import("@/services/bot/pay-report-scheduler");
+    startPayReportScheduler();
   }
 }

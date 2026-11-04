@@ -36,8 +36,13 @@ import {
   stripCapturePrefix,
   type BotMemoryRow,
 } from "./context";
+import { formatPayPinLine } from "@/services/bot/pay-pin";
+import { buildLifePhaseText } from "@/services/bot/life-phase";
+import { formatOpenLoopsBlock } from "@/services/bot/threads";
 import type { TelegramStore } from "./store";
 import type { TelegramPhotoSize } from "./photo-intake";
+import type { TelegramVoice, VoiceIntakeResult } from "./voice-intake";
+import { formatExemplarsBlock } from "@/services/bot/voice-corpus";
 
 export interface TelegramConfig {
   botToken: string | null;
@@ -63,6 +68,8 @@ export interface TelegramUpdate {
     text?: string;
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
     photo?: TelegramPhotoSize[];
+    /** Phase E: a voice note (transcribed, then worked like a typed message). */
+    voice?: TelegramVoice;
     caption?: string;
     forward_origin?: unknown;
     forward_from?: unknown;
@@ -113,6 +120,22 @@ export interface TelegramDeps {
     photo: TelegramPhotoSize[],
     caption: string | undefined,
   ) => Promise<string>;
+  /**
+   * Phase C: best-effort thread capture for a dispatch message -
+   * reconstructs the conversation into a stored thread record
+   * (services/bot/thread-capture.ts). Runs AFTER the reply and the
+   * exchange store; failures are logged and never change the reply.
+   * Wired only when the brain store exists.
+   */
+  captureThread?: (text: string) => Promise<void>;
+  /**
+   * Phase E: voice-note intake - downloads + transcribes the note
+   * (services/telegram/voice-intake.ts) under the
+   * voice_transcription kill switch. A "transcript" result flows
+   * into the normal text pipeline; a "reply" result is sent as-is.
+   * Absent = the bot says honestly that voice isn't configured.
+   */
+  handleVoice?: (voice: TelegramVoice) => Promise<VoiceIntakeResult>;
   /** Null = reduced mode (no history/snapshot/memory). */
   store?: TelegramStore | null;
 }
@@ -127,6 +150,7 @@ export type TelegramHandleResult =
   | "dispatch_disabled"
   | "no_text_replied"
   | "photo_replied"
+  | "voice_replied"
   | "replied"
   | "remembered"
   | "instruction_saved"
@@ -142,6 +166,12 @@ interface LoadedContext {
   relevantMemories: BotMemoryRow[];
   /** Lane 2: the retrieval self-report line (null on the legacy path). */
   memoryReport: string | null;
+  /** Phase D: the pay pin block (pin or NOT-PINNED instruction), loaded whenever the store supports it. */
+  payPinText: string | null;
+  /** Phase C: the life-phase framing block (pin-aware; his "Life phase" fact overrides). */
+  lifePhaseText: string | null;
+  /** Phase C: unanswered asks from recorded threads, when any exist. */
+  openLoopsText: string | null;
   snapshotText: string | null;
   /** Lane 1 (audit B-4): true when the context load failed and the turn is answering without his records - the reply must SAY so. */
   degraded: boolean;
@@ -160,6 +190,21 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
     // newest-100 load + keyword pick no longer touches context
     // assembly. Older store shapes (test doubles, the v1 store)
     // keep the legacy path below.
+    // Phase D: the pay pin rides every Telegram turn too (optional
+    // method - older store shapes simply skip the block).
+    const payPin = store.loadPayPin ? await store.loadPayPin() : null;
+    const payPinText = payPin ? formatPayPinLine(payPin) : null;
+    // Phase C: life phase (derived from the same pin; his stored
+    // override wins) + open loops from recorded threads.
+    const lifePhaseText =
+      payPin && store.loadLifePhaseOverride
+        ? buildLifePhaseText(payPin, await store.loadLifePhaseOverride())
+        : null;
+    const openLoopsText = store.listThreads
+      ? formatOpenLoopsBlock(
+          await store.listThreads({ openOnly: true, unansweredOnly: true, limit: 3 }),
+        )
+      : null;
     if (store.retrieveFacts && store.loadInstructionMemories) {
       const [instructions, retrieval] = await Promise.all([
         store.loadInstructionMemories(),
@@ -171,6 +216,9 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
         instructions: instructions as BotMemoryRow[],
         relevantMemories: retrieval.facts as BotMemoryRow[],
         memoryReport: retrieval.reportLine,
+        payPinText,
+        lifePhaseText,
+        openLoopsText,
         snapshotText,
         degraded: false,
       };
@@ -182,6 +230,9 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
       instructions: instructionMemories(memories),
       relevantMemories: pickRelevantMemories(memories, text),
       memoryReport: null,
+      payPinText,
+      lifePhaseText,
+      openLoopsText,
       snapshotText,
       degraded: false,
     };
@@ -197,6 +248,9 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
       instructions: [],
       relevantMemories: [],
       memoryReport: null,
+      payPinText: null,
+      lifePhaseText: null,
+      openLoopsText: null,
       snapshotText: null,
       degraded: true,
     };
@@ -333,6 +387,46 @@ async function processTelegramUpdate(
     return "photo_replied";
   }
 
+  // Phase E: a voice note is transcribed and then worked EXACTLY
+  // like a typed message (same pipeline, same brain) - the
+  // transcript becomes this turn's text, and the timeline keeps a
+  // "[voice]" marker so he can see how it arrived. Intake failures
+  // (capability off / not configured / download failed) reply
+  // plainly and store nothing beyond the marker + that reply.
+  let voiceNote = false;
+  const voice = update.message?.voice;
+  if (voice) {
+    if (!deps.handleVoice) {
+      const reply =
+        "I got your voice note, but voice transcription isn't configured on the server yet, so I couldn't turn it into text. Type it for now and I'll work it the same way.";
+      await deps.sendMessage(chat.id, reply);
+      if (store) {
+        try {
+          await store.saveMessage(chatId, "user", "[voice]");
+          await store.saveMessage(chatId, "assistant", reply);
+        } catch (err) {
+          console.error("[telegram] failed to persist voice turn", err);
+        }
+      }
+      return "voice_replied";
+    }
+    const outcome = await deps.handleVoice(voice);
+    if (outcome.kind === "reply") {
+      await deps.sendMessage(chat.id, outcome.text);
+      if (store) {
+        try {
+          await store.saveMessage(chatId, "user", "[voice]");
+          await store.saveMessage(chatId, "assistant", outcome.text);
+        } catch (err) {
+          console.error("[telegram] failed to persist voice turn", err);
+        }
+      }
+      return "voice_replied";
+    }
+    voiceNote = true;
+    update = { ...update, message: { ...update.message, text: outcome.text } };
+  }
+
   const text = update.message?.text?.trim();
   if (!text) {
     await deps.sendMessage(
@@ -354,6 +448,9 @@ async function processTelegramUpdate(
         instructions: [],
         relevantMemories: [],
         memoryReport: null,
+        payPinText: null,
+        lifePhaseText: null,
+        openLoopsText: null,
         snapshotText: null,
         degraded: false,
       };
@@ -367,7 +464,7 @@ async function processTelegramUpdate(
   const persistTurn = async (assistantText: string) => {
     if (!store) return;
     try {
-      await store.saveMessage(chatId, "user", text);
+      await store.saveMessage(chatId, "user", voiceNote ? `[voice] ${text}` : text);
       await store.saveMessage(chatId, "assistant", assistantText);
     } catch (err) {
       console.error("[telegram] failed to persist conversation turn", err);
@@ -411,11 +508,29 @@ async function processTelegramUpdate(
         }
       }
       const dispatchContext = buildDispatchContext(ctx.snapshotText, instructions, relevantMemories);
+      // Phase E (twin): when the driver twin is ON, his actual sent
+      // replies from similar exchanges ride the drafting context -
+      // the draft is steered by his voice, not by the model's idea
+      // of it. OFF (or no corpus match) = byte-identical context to
+      // before, and nothing is tracked.
+      let exemplarsBlock: string | null = null;
+      if (store?.isDriverTwinEnabled && store?.loadVoiceExemplars) {
+        try {
+          if (await store.isDriverTwinEnabled()) {
+            exemplarsBlock = formatExemplarsBlock(await store.loadVoiceExemplars(text));
+          }
+        } catch (err) {
+          console.error("[telegram] twin exemplar load failed", err);
+        }
+      }
+      const contextParts = [
+        dispatchContext ?? "",
+        ctx.memoryReport ? `CONTEXT REPORT: ${ctx.memoryReport}` : "",
+        exemplarsBlock ?? "",
+      ].filter(Boolean);
       const suggestion = await deps.getSuggestion(
         text,
-        ctx.memoryReport
-          ? `${dispatchContext ?? ""}\n\nCONTEXT REPORT: ${ctx.memoryReport}`.trim()
-          : dispatchContext,
+        contextParts.length > 0 ? contextParts.join("\n\n") : dispatchContext,
       );
       let reply = formatDispatchSuggestion(suggestion);
       // §11: recordables the helper spotted ride the same
@@ -438,6 +553,17 @@ async function processTelegramUpdate(
           console.error("[telegram] failed to store dispatch exchange", err);
         }
       }
+      // Phase C: the same forward becomes a stored thread record
+      // (participants, ask, open loop) so it outlives the scroll.
+      // Best-effort: capture must never eat or delay the reply -
+      // it runs after the send, and any failure is log-only.
+      if (deps.captureThread) {
+        try {
+          await deps.captureThread(text);
+        } catch (err) {
+          console.error("[telegram] thread capture failed", err);
+        }
+      }
       await persistTurn(reply);
       return "replied";
     }
@@ -454,6 +580,9 @@ async function processTelegramUpdate(
       instructions,
       memories: relevantMemories,
       memoryReport: ctx.memoryReport ?? undefined,
+      payPinText: ctx.payPinText,
+      lifePhaseText: ctx.lifePhaseText,
+      openLoopsText: ctx.openLoopsText,
     };
     if (deps.runAgent && store) {
       const agentOutput = await deps.runAgent(chatInput);
