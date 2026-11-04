@@ -8,7 +8,13 @@ import type { DutyLogWindowSummary, HosSettings } from "@/types/hos-settings";
 import type { DutyLog } from "@/types/entities";
 import { viewerTimeZone } from "@/lib/time";
 import type { ServiceStatus } from "@/types/service-status";
-import type { DetentionStamp, ResearchBriefing, ResearchPageData, ResearchRun } from "@/types/entities";
+import type {
+  CheckWiresResult,
+  DetentionStamp,
+  ResearchBriefing,
+  ResearchPageData,
+  ResearchRun,
+} from "@/types/entities";
 import type { DetentionSummary } from "@/lib/detention";
 import type { PaperworkState } from "@/lib/paperwork";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
@@ -283,4 +289,11 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ topic }),
     }),
+  // Home News Banner (2026-11-02 design §6.4): one briefing by id,
+  // including dismissed - the deep-link fallback for a banner tap.
+  getResearchBriefing: (id: string) => request<ResearchBriefing>(`/api/v1/research-briefings/${id}`),
+  // Home News Banner (2026-11-02 design §4): the watcher-only light
+  // pull - free sources, no AI call, no run-cap spend.
+  checkWires: () =>
+    request<CheckWiresResult>("/api/v1/research-briefings/check-wires", { method: "POST" }),
 };

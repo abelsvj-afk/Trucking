@@ -1003,6 +1003,151 @@ a.page-action:hover,
   font-weight: 700;
 }
 
+/* --- Home news banner (src/components/NewsBanner.tsx; 2026-11-02
+   design): a slim strip under the Home header rotating the research
+   engine's briefings and Watching signals. The strip is a FIXED
+   height in every state (loading, item, quiet, stale, setup) so
+   Home never layout-shifts under his hours. Rotation itself is a JS
+   timer - the component checks prefers-reduced-motion itself and
+   never starts the timer; bannerFade below is the crossfade each
+   item enters with, neutralized by the reduced-motion block like
+   every other animation here. */
+@keyframes bannerFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.news-banner {
+  height: 13.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  overflow: hidden;
+}
+
+.news-banner-item-zone {
+  height: 5.5rem;
+  overflow: hidden;
+}
+
+.news-banner-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: inherit;
+  animation: bannerFade 0.45s ease both;
+}
+
+.news-banner-item:hover {
+  text-decoration: none;
+}
+
+.news-banner-tagrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.news-banner-watching {
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  border-radius: 999px;
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.news-banner-new {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.news-banner-headline {
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-banner-sub {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.news-banner-line {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.news-banner-warning {
+  margin: 0;
+  color: var(--color-warning);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.news-banner-dots {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.news-banner-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  background-color: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.news-banner-dot.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.news-banner-actions {
+  margin: auto 0 0;
+}
+
+.news-banner-result {
+  margin-top: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Deep-link spotlight (Research tab, 2026-11-02 design §6): the
+   banner's tapped item gets a brief outline so his eye lands on it;
+   the page clears it after ~4s or on first interaction. */
+.spotlight {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: 0.5rem;
+}
+
+/* The closing "Original sources" block of a briefing read: in-app
+   content first, exits last and visibly secondary. */
+.original-sources {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
 /* Motion sensitivity (WCAG 2.3.3, part of this project's WCAG 2.1 AA
    commitment in docs/design/ui-ux.md) - must stay the LAST rule in this
    file. TruckCrossing.tsx also independently checks this preference in
