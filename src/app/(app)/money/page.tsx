@@ -10,8 +10,10 @@
 // usePageTitle() client hook every data-fetching screen uses instead.
 import Link from "next/link";
 import type { Metadata } from "next";
+import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
+import Reveal from "@/components/Reveal";
 
 export const metadata: Metadata = { title: "Money — Trucking OS" };
 
@@ -27,13 +29,16 @@ export default function MoneyPage() {
     <div>
       <PageHeader title="Money" purpose="What came in, what went out, and what's left — the numbers the business runs on." />
       <ul>
-        {SECTIONS.map((section) => (
-          <li key={section.href}>
-            <Link href={section.href} className="hub-link">
-              {section.label}
+        {SECTIONS.map((section, i) => (
+          <Reveal as="li" key={section.href} index={i}>
+            <Link href={section.href} className="hub-row-link">
+              <span className="hub-link">
+                {section.label}
+                <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" className="hub-chevron" />
+              </span>
+              <span className="hub-desc">{section.desc}</span>
             </Link>
-            <span className="hub-desc">{section.desc}</span>
-          </li>
+          </Reveal>
         ))}
       </ul>
 

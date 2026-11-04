@@ -7,6 +7,7 @@
 // conversation already started.
 
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 
 export default function AskAssistant({
   heading,
@@ -31,7 +32,8 @@ export default function AskAssistant({
         ))}
       </div>
       <Link href="/more/assistant" className="ask-assistant-open">
-        Open the assistant →
+        Open the assistant{" "}
+        <ArrowRight size={16} strokeWidth={1.75} aria-hidden="true" className="inline-action-icon" />
       </Link>
     </section>
   );

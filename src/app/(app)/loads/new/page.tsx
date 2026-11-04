@@ -127,7 +127,7 @@ export default function NewLoadPage() {
           required
         />
 
-        <label htmlFor="pickup_date">Pickup date</label>
+        <label htmlFor="pickup_date">Pickup date (optional)</label>
         <input
           id="pickup_date"
           type="date"
@@ -135,7 +135,7 @@ export default function NewLoadPage() {
           onChange={(event) => setPickupDate(event.target.value)}
         />
 
-        <label htmlFor="delivery_date">Delivery date</label>
+        <label htmlFor="delivery_date">Delivery date (optional)</label>
         <input
           id="delivery_date"
           type="date"
@@ -143,7 +143,7 @@ export default function NewLoadPage() {
           onChange={(event) => setDeliveryDate(event.target.value)}
         />
 
-        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con)</label>
+        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con) (optional)</label>
         <input
           id="pickup_window_start"
           type="datetime-local"
@@ -151,7 +151,7 @@ export default function NewLoadPage() {
           onChange={(event) => setPickupWindowStart(event.target.value)}
         />
 
-        <label htmlFor="pickup_window_end">Pickup window ends</label>
+        <label htmlFor="pickup_window_end">Pickup window ends (optional)</label>
         <input
           id="pickup_window_end"
           type="datetime-local"
@@ -159,7 +159,7 @@ export default function NewLoadPage() {
           onChange={(event) => setPickupWindowEnd(event.target.value)}
         />
 
-        <label htmlFor="delivery_window_start">Delivery window starts</label>
+        <label htmlFor="delivery_window_start">Delivery window starts (optional)</label>
         <input
           id="delivery_window_start"
           type="datetime-local"
@@ -167,7 +167,7 @@ export default function NewLoadPage() {
           onChange={(event) => setDeliveryWindowStart(event.target.value)}
         />
 
-        <label htmlFor="delivery_window_end">Delivery window ends</label>
+        <label htmlFor="delivery_window_end">Delivery window ends (optional)</label>
         <input
           id="delivery_window_end"
           type="datetime-local"
@@ -175,7 +175,7 @@ export default function NewLoadPage() {
           onChange={(event) => setDeliveryWindowEnd(event.target.value)}
         />
 
-        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills</label>
+        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills (optional)</label>
         <input
           id="detention_free_minutes"
           type="number"
@@ -185,7 +185,7 @@ export default function NewLoadPage() {
           onChange={(event) => setDetentionFreeMinutes(event.target.value)}
         />
 
-        <label htmlFor="detention_rate">Detention rate ($/hour after free time)</label>
+        <label htmlFor="detention_rate">Detention rate ($/hour after free time) (optional)</label>
         <input
           id="detention_rate"
           type="number"
@@ -195,7 +195,7 @@ export default function NewLoadPage() {
           onChange={(event) => setDetentionRateDollars(event.target.value)}
         />
 
-        <label htmlFor="rate">Rate ($)</label>
+        <label htmlFor="rate">Rate ($) (optional)</label>
         <input
           id="rate"
           type="number"
@@ -218,7 +218,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="truck_id">Truck</label>
+        <label htmlFor="truck_id">Truck (optional)</label>
         <select id="truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
           <option value="">Unassigned</option>
           {trucks.map((truck) => (
@@ -228,7 +228,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="driver_id">Driver</label>
+        <label htmlFor="driver_id">Driver (optional)</label>
         <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
           <option value="">Unassigned</option>
           {drivers.map((driver) => (
@@ -238,7 +238,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="broker_id">Broker</label>
+        <label htmlFor="broker_id">Broker (optional)</label>
         <select id="broker_id" value={brokerId} onChange={(event) => setBrokerId(event.target.value)}>
           <option value="">None</option>
           {brokers.map((broker) => (
@@ -248,7 +248,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="pickup_facility_id">Pickup facility (remembered place)</label>
+        <label htmlFor="pickup_facility_id">Pickup facility (remembered place) (optional)</label>
         <select
           id="pickup_facility_id"
           value={pickupFacilityId}
@@ -263,7 +263,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="delivery_facility_id">Delivery facility (remembered place)</label>
+        <label htmlFor="delivery_facility_id">Delivery facility (remembered place) (optional)</label>
         <select
           id="delivery_facility_id"
           value={deliveryFacilityId}
@@ -278,7 +278,7 @@ export default function NewLoadPage() {
           ))}
         </select>
 
-        <label htmlFor="customer_id">Customer</label>
+        <label htmlFor="customer_id">Customer (optional)</label>
         <select
           id="customer_id"
           value={customerId}

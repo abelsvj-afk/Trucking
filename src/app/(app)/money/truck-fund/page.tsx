@@ -13,7 +13,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { useTruckFund } from "@/lib/use-truck-fund";
-import { ListLoading, ListError, ListEmpty } from "@/components/ListStates";
+import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
@@ -27,6 +27,7 @@ import {
   type TruckPriceBandKey,
 } from "@/lib/truck-fund";
 import type { FundEntry } from "@/types/entities";
+import NumberTicker from "@/components/NumberTicker";
 import LadderSection from "./ladder";
 import SnapshotsSection from "./snapshots";
 
@@ -182,7 +183,13 @@ export default function TruckFundPage() {
           <section aria-labelledby="fund-heading">
             <h2 id="fund-heading">Truck Fund</h2>
             <p>
-              <strong>{formatDollars(data.truck_fund_progress.balance_cents)}</strong> logged
+              <strong>
+                <NumberTicker
+                  value={data.truck_fund_progress.balance_cents}
+                  format={(v) => formatDollars(Math.round(v))}
+                />
+              </strong>{" "}
+              logged
               {data.truck_fund_progress.target_cents != null && (
                 <>
                   {" "}
@@ -285,7 +292,10 @@ export default function TruckFundPage() {
           <section aria-labelledby="log-heading">
             <h2 id="log-heading">Fund log</h2>
             {data.entries.length === 0 ? (
-              <ListEmpty message="Nothing logged yet — when you move money by hand, write it here so the fund always tells the truth." />
+              <TeachingEmpty
+                title="Nothing logged yet"
+                message="When you move money by hand, write it here so the fund always tells the truth."
+              />
             ) : (
               <ul>
                 {data.entries.map((entry) => (

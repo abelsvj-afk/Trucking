@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
+import WordReveal from "@/components/WordReveal";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { IndustryBriefing } from "@/types/entities";
 import type { ServiceStatus } from "@/types/service-status";
@@ -82,7 +83,9 @@ export default function IndustryIntelligencePage() {
         <ul>
           {state.briefings.map((briefing) => (
             <li key={briefing.id}>
-              <p>{briefing.summary}</p>
+              <p>
+                <WordReveal text={briefing.summary} />
+              </p>
               <p>{briefing.reasoning}</p>
               <p>
                 {CONFIDENCE_LABELS[briefing.confidence]} — based on: {briefing.based_on.join(", ")}

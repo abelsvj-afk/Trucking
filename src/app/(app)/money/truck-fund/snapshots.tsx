@@ -10,6 +10,8 @@ import { useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { formatDollars } from "@/lib/truck-fund";
 import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { TeachingEmpty } from "@/components/ListStates";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import type { AccountSnapshot } from "@/types/entities";
 import type { AccountView } from "@/types/truck-fund";
@@ -33,6 +35,7 @@ export default function SnapshotsSection({
   // One idempotency token per form opening (Unit A / F-006).
   const submissionId = useSubmissionId();
   const [showDeleted, setShowDeleted] = useDeletedToggle();
+  const [pendingRemove, setPendingRemove] = useState<AccountView | null>(null);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,7 +90,10 @@ export default function SnapshotsSection({
         </div>
       )}
       {accounts.length === 0 ? (
-        <p>No snapshots yet — record one below so the fund picture includes what&apos;s actually in the bank.</p>
+        <TeachingEmpty
+          title="No snapshots yet"
+          message="Record one below so the fund picture includes what's actually in the bank."
+        />
       ) : (
         <ul>
           {accounts.map((account) => (
@@ -97,7 +103,7 @@ export default function SnapshotsSection({
               {account.staleness.label.toLowerCase()}
               {account.staleness.level !== "current" && ` (${account.staleness.age_days} days old)`}
               {account.note && ` — ${account.note}`}{" "}
-              <button type="button" onClick={() => remove(account)}>
+              <button type="button" onClick={() => setPendingRemove(account)}>
                 Remove
               </button>
             </li>
@@ -172,6 +178,24 @@ export default function SnapshotsSection({
           {saving ? "Saving…" : "Record snapshot"}
         </button>
       </form>
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove this snapshot?"
+        message={
+          pendingRemove
+            ? `Remove the ${pendingRemove.institution} — ${pendingRemove.account_name} (••${pendingRemove.last4}) snapshot? It moves to Deleted accounts, where you can restore it.`
+            : ""
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          if (!pendingRemove) return;
+          const account = pendingRemove;
+          setPendingRemove(null);
+          void remove(account);
+        }}
+      />
 
       <DeletedToggleButton showDeleted={showDeleted} onChange={setShowDeleted} listLabel="accounts" />
       {showDeleted && (

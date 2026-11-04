@@ -21,7 +21,7 @@ import {
   serializeActivePlan,
 } from "@/lib/drive";
 import { useApiList } from "@/lib/use-api-list";
-import { ListLoading, ListError } from "@/components/ListStates";
+import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { formatEastern, formatMinutes, routeCaption } from "@/lib/smart-path";
@@ -275,7 +275,15 @@ function SmartPathInner() {
       {loadsState.status === "loading" && <ListLoading />}
       {loadsState.status === "error" && <ListError message={loadsState.message} onRetry={retry} />}
       {loadsState.status === "loaded" && loads.length === 0 && (
-        <p>No loads yet — add a load first, then check its run here.</p>
+        <TeachingEmpty
+          title="No loads yet"
+          message="Add a load first, then check its run here."
+          action={
+            <Link href="/loads/new" className="page-action">
+              Add load
+            </Link>
+          }
+        />
       )}
 
       {loads.length > 0 && (

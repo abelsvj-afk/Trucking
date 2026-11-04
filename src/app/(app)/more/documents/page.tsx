@@ -14,6 +14,7 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, ListEmpty, ListError, TeachingEmpty } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { DocumentPreview, extractionStatusText } from "@/components/DocumentPreview";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { usePageTitle } from "@/lib/use-page-title";
 import type {
   CleanupIncident,
@@ -83,6 +84,7 @@ function DocumentsInner() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [docsState, setDocsState] = useState<DocsState>({ status: "loaded", documents: [] });
   const [previewDoc, setPreviewDoc] = useState<DocumentWithSignedUrl | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<DocumentWithSignedUrl | null>(null);
   const [searchText, setSearchText] = useState("");
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
   // Cleanup incidents (Unit A / F-038 surface): leftover files whose
@@ -380,7 +382,7 @@ function DocumentsInner() {
               <button type="button" onClick={() => setPreviewDoc(doc)}>
                 View
               </button>{" "}
-              <button type="button" onClick={() => handleRemove(doc.id)}>
+              <button type="button" onClick={() => setPendingRemove(doc)}>
                 Remove
               </button>
               <p>{extractionStatusText(doc)}</p>
@@ -430,6 +432,24 @@ function DocumentsInner() {
           )}
         </section>
       )}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove this document?"
+        message={
+          pendingRemove
+            ? `Remove "${pendingRemove.file_name}"? It moves to Deleted documents, where you can restore it.`
+            : ""
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          if (!pendingRemove) return;
+          const id = pendingRemove.id;
+          setPendingRemove(null);
+          void handleRemove(id);
+        }}
+      />
 
       {previewDoc && <DocumentPreview key={previewDoc.id} doc={previewDoc} />}
     </div>

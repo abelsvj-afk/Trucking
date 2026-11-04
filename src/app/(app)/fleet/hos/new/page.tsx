@@ -40,6 +40,7 @@ export default function NewDutyLogPage() {
     setSubmitting(true);
 
     const body = {
+      submission_id: submissionId,
       driver_id: driverId || null,
       load_id: loadId || null,
       duty_status: dutyStatus,
@@ -47,7 +48,6 @@ export default function NewDutyLogPage() {
       location: location || null,
       odometer: odometer ? Number(odometer) : null,
       notes: notes || null,
-      submission_id: submissionId,
     };
     try {
       await apiClient.create<DutyLog>("duty-logs", body);
@@ -75,7 +75,7 @@ export default function NewDutyLogPage() {
       </p>
 
       <form onSubmit={handleSubmit}>
-        <label htmlFor="driver_id">Driver</label>
+        <label htmlFor="driver_id">Driver (optional)</label>
         <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
           <option value="">Unassigned</option>
           {drivers.map((driver) => (
@@ -85,7 +85,7 @@ export default function NewDutyLogPage() {
           ))}
         </select>
 
-        <label htmlFor="load_id">Load</label>
+        <label htmlFor="load_id">Load (optional)</label>
         <select id="load_id" value={loadId} onChange={(event) => setLoadId(event.target.value)}>
           <option value="">No load</option>
           {loads.map((load) => (
@@ -116,7 +116,7 @@ export default function NewDutyLogPage() {
           required
         />
 
-        <label htmlFor="location">Location</label>
+        <label htmlFor="location">Location (optional)</label>
         <input
           id="location"
           value={location}
@@ -124,7 +124,7 @@ export default function NewDutyLogPage() {
           placeholder="e.g. Melbourne, FL"
         />
 
-        <label htmlFor="odometer">Odometer</label>
+        <label htmlFor="odometer">Odometer (optional)</label>
         <input
           id="odometer"
           type="number"
@@ -133,7 +133,7 @@ export default function NewDutyLogPage() {
           onChange={(event) => setOdometer(event.target.value)}
         />
 
-        <label htmlFor="notes">Notes</label>
+        <label htmlFor="notes">Notes (optional)</label>
         <input id="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
 
         {error && <p role="alert">{error}</p>}

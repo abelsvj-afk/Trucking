@@ -1,49 +1,55 @@
 "use client";
 
-// Bottom-tab navigation shell, per docs/design/ui-ux.md: Home / Loads /
-// Fleet / Money / More. A route group (not part of the URL) so /login
-// stays outside it - only authenticated screens get the nav.
+// Bottom-tab navigation shell, per docs/design/ui-ux.md. A route group
+// (not part of the URL) so /login stays outside it — only authenticated
+// screens get the nav. The tab set itself lives in src/lib/nav-config.ts
+// (BOTTOM_TABS — the single switch; see that file for the PARKED owner
+// decision (a) it implements and how to revert it). Icons are Lucide
+// (22px, strokeWidth 1.75), purely decorative (aria-hidden — the tab's
+// own link text is what screen readers announce).
 //
 // Task 3.12 (TASKS.md) accessibility pass additions: aria-current="page"
-// on the active tab (WCAG 2.4.8, needs the current route via usePathname,
-// hence "use client"), and a skip link (WCAG 2.4.1) so keyboard/screen-
-// reader users can bypass the tab list straight to page content instead of
-// tabbing through all five links on every single page.
+// on the active tab (WCAG 2.4.8, needs the current route via
+// usePathname, hence "use client"), and a skip link (WCAG 2.4.1) so
+// keyboard/screen-reader users can bypass the tab list straight to
+// page content instead of tabbing through every link on every page.
+// Active state comes from nav-config's longest-prefix resolver, so
+// /more/assistant lights Assistant (not More) and /smart-path/drive
+// lights Smart Path.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, LoadsIcon, FleetIcon, MoneyIcon, MoreIcon } from "@/components/NavIcons";
-
-const TABS = [
-  { href: "/", label: "Home", Icon: HomeIcon },
-  { href: "/loads", label: "Loads", Icon: LoadsIcon },
-  { href: "/fleet", label: "Fleet", Icon: FleetIcon },
-  { href: "/money", label: "Money", Icon: MoneyIcon },
-  { href: "/more", label: "More", Icon: MoreIcon },
-];
+import { BOTTOM_TABS, resolveActiveTab } from "@/lib/nav-config";
+import PageTransition from "@/components/PageTransition";
+import AbelDrop from "@/components/AbelDrop";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const activeTab = resolveActiveTab(pathname);
 
   return (
     <div>
       <a href="#main-content">Skip to main content</a>
-      <main id="main-content">{children}</main>
+      <main id="main-content">
+        <PageTransition>{children}</PageTransition>
+      </main>
       <nav aria-label="Primary">
         <ul>
-          {TABS.map(({ href, label, Icon }) => {
-            const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
+          {BOTTOM_TABS.map((tab) => {
+            const isActive = activeTab?.href === tab.href;
+            const Icon = tab.Icon;
             return (
-              <li key={href}>
-                <Link href={href} aria-current={isActive ? "page" : undefined}>
-                  <Icon />
-                  <span>{label}</span>
+              <li key={tab.href}>
+                <Link href={tab.href} aria-current={isActive ? "page" : undefined}>
+                  <Icon size={22} strokeWidth={1.75} aria-hidden="true" />
+                  <span>{tab.label}</span>
                 </Link>
               </li>
             );
           })}
         </ul>
       </nav>
+      <AbelDrop />
     </div>
   );
 }

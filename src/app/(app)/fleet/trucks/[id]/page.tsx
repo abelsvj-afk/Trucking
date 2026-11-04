@@ -24,6 +24,7 @@ import TruckIdentityFields, {
   type TruckIdentityValues,
 } from "@/components/TruckIdentityFields";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useToast } from "@/components/Toast";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { truckTypeLabel } from "@/lib/fleet-display";
 import type { Truck, VehicleDefect } from "@/types/entities";
@@ -157,6 +158,7 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
 }
 
 function TruckEditForm({ truck, onSaved }: { truck: Truck; onSaved: (truck: Truck) => void }) {
+  const toast = useToast();
   const [identity, setIdentity] = useState<TruckIdentityValues>(() => truckIdentityFromTruck(truck));
   const [profile, setProfile] = useState<TruckProfileValues>(() => truckProfileFromTruck(truck));
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +177,7 @@ function TruckEditForm({ truck, onSaved }: { truck: Truck; onSaved: (truck: Truc
       });
       onSaved(updated);
       setSaved(true);
+      toast.success("Saved");
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
     } finally {

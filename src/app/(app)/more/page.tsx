@@ -11,11 +11,17 @@
 // usePageTitle() client hook every data-fetching screen uses instead.
 import Link from "next/link";
 import type { Metadata } from "next";
+import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import Reveal from "@/components/Reveal";
 
 export const metadata: Metadata = { title: "More — Trucking OS" };
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
+  // Fleet reachability under the parked nav default (src/lib/nav-config.ts,
+  // decision (a)): Fleet lost its bottom tab to Smart Path/Assistant, so
+  // its hub door sits at the TOP of More — one tap from this hub.
+  { href: "/fleet", label: "Fleet", desc: "Your trucks, trailers, drivers, and hours — the physical side of the business." },
   { href: "/more/assistant", label: "Assistant", desc: "King — ask anything, log anything, paste a whole dispatch thread or settlement." },
   { href: "/more/dispatch", label: "Dispatch helper", desc: "Paste a dispatch message; get a translation, a read on it, and reply drafts in English and Spanish." },
   { href: "/smart-path", label: "Smart Path", desc: "Map and route check — can you legally make this run, and where do fuel and food fit?" },
@@ -35,13 +41,16 @@ export default function MorePage() {
     <div>
       <PageHeader title="More" purpose="The assistant, your paperwork, your contacts, and your settings." />
       <ul>
-        {SECTIONS.map((section) => (
-          <li key={section.href}>
-            <Link href={section.href} className="hub-link">
-              {section.label}
+        {SECTIONS.map((section, i) => (
+          <Reveal as="li" key={section.href} index={i}>
+            <Link href={section.href} className="hub-row-link">
+              <span className="hub-link">
+                {section.label}
+                <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" className="hub-chevron" />
+              </span>
+              <span className="hub-desc">{section.desc}</span>
             </Link>
-            <span className="hub-desc">{section.desc}</span>
-          </li>
+          </Reveal>
         ))}
       </ul>
     </div>

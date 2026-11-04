@@ -17,6 +17,8 @@ import NewsBanner from "@/components/NewsBanner";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
 import DayWrapCard from "@/components/DayWrapCard";
+import Reveal from "@/components/Reveal";
+import { Bot, ClipboardCheck, Fuel, PackagePlus } from "lucide-react";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { DutyLog } from "@/types/entities";
@@ -101,7 +103,7 @@ export default function HomePage() {
 
       <DayWrapCard />
 
-      <section aria-label="Your next step" className="next-step">
+      <Reveal aria-label="Your next step" className="next-step" index={0}>
         <h2>Your next step</h2>
         {duty.state.status === "loading" && <p>Checking your hours…</p>}
         {duty.state.status === "error" && (
@@ -142,22 +144,30 @@ export default function HomePage() {
             </Link>
           </>
         )}
-      </section>
+      </Reveal>
 
       <ActivePlanCard />
 
-      <section aria-label="Quick actions">
+      <Reveal aria-label="Quick actions" index={1}>
         <h2>Quick actions</h2>
         <div className="quick-actions">
-          <Link href="/fleet/pretrip-inspections/new">Start pre-trip</Link>
-          <Link href="/money/fuel-purchases/new">Log fuel</Link>
-          <Link href="/loads/new">Add load</Link>
-          <Link href="/more/assistant">Ask the assistant</Link>
+          <Link href="/fleet/pretrip-inspections/new">
+            <ClipboardCheck size={20} strokeWidth={1.75} aria-hidden="true" /> Start pre-trip
+          </Link>
+          <Link href="/money/fuel-purchases/new">
+            <Fuel size={20} strokeWidth={1.75} aria-hidden="true" /> Log fuel
+          </Link>
+          <Link href="/loads/new">
+            <PackagePlus size={20} strokeWidth={1.75} aria-hidden="true" /> Add load
+          </Link>
+          <Link href="/more/assistant">
+            <Bot size={20} strokeWidth={1.75} aria-hidden="true" /> Ask the assistant
+          </Link>
         </div>
-      </section>
+      </Reveal>
 
       {summary && logs.length > 0 && (
-        <section aria-label="Your hours today">
+        <Reveal aria-label="Your hours today" index={2}>
           <h2>Your hours</h2>
           <dl>
             <dt>Driving left (11h)</dt>
@@ -175,10 +185,10 @@ export default function HomePage() {
           </p>
           {paperLabel && <p className="row-sub">{paperLabel}</p>}
           <Link href="/fleet/hos">Hours of service</Link>
-        </section>
+        </Reveal>
       )}
 
-      <section aria-label="This month's financial summary">
+      <Reveal aria-label="This month's financial summary" index={3}>
         <h2>This month</h2>
         {state.status === "loading" && <ListLoading />}
         {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
@@ -199,7 +209,7 @@ export default function HomePage() {
           </dl>
         )}
         <Link href="/money/summary">View full summary</Link>
-      </section>
+      </Reveal>
 
       <AskAssistant
         heading="King knows your loads, hours, money, and fleet — and can log things for you. Try one:"

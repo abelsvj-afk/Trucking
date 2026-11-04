@@ -18,9 +18,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import { ListLoading, ListEmpty, ListError } from "@/components/ListStates";
+import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatRelativeAge } from "@/lib/news-banner";
+import WordReveal from "@/components/WordReveal";
 import type { ResearchBriefing, ResearchPageData } from "@/types/entities";
 
 type PageState =
@@ -79,7 +80,9 @@ function BriefingSnapshot({
         {!briefing.read_at && <strong>● New - </strong>}
         <strong>{briefing.title}</strong>
       </p>
-      <p>{briefing.headline}</p>
+      <p>
+        <WordReveal text={briefing.headline} />
+      </p>
       <p>
         Topic: {briefing.topic} · {CONFIDENCE_LABELS[briefing.confidence]} ·{" "}
         {new Date(briefing.created_at).toLocaleString()}
@@ -152,7 +155,7 @@ export default function ResearchPage() {
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [topic, setTopic] = useState("");
-  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [queueMessage, setQueueMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [queueing, setQueueing] = useState(false);
 
   // Deep-link state (§6): the target parsed from the URL, the
@@ -307,14 +310,16 @@ export default function ResearchPage() {
     try {
       await apiClient.researchNow(trimmed);
       setTopic("");
-      setQueueMessage(
-        "Queued. The engine will run it on its next check-in - subject to the run caps and the Deep research switch in Settings.",
-      );
+      setQueueMessage({
+        kind: "success",
+        text: "Queued. The engine will run it on its next check-in - subject to the run caps and the Deep research switch in Settings.",
+      });
       fetchPage();
     } catch (err: unknown) {
-      setQueueMessage(
-        err instanceof ApiClientError ? err.message : "Couldn't queue that. Try again.",
-      );
+      setQueueMessage({
+        kind: "error",
+        text: err instanceof ApiClientError ? err.message : "Couldn't queue that. Try again.",
+      });
     } finally {
       setQueueing(false);
     }
@@ -343,7 +348,16 @@ export default function ResearchPage() {
         <button type="submit" disabled={queueing || topic.trim().length < 3}>
           {queueing ? "Queueing…" : "Queue research"}
         </button>
-        {queueMessage && <p>{queueMessage}</p>}
+        {queueMessage && queueMessage.kind === "success" && (
+          <p role="status" className="queue-message queue-message-success">
+            {queueMessage.text}
+          </p>
+        )}
+        {queueMessage && queueMessage.kind === "error" && (
+          <p role="alert" className="queue-message queue-message-error">
+            {queueMessage.text}
+          </p>
+        )}
       </form>
 
       {state.status === "loading" && <ListLoading />}
@@ -456,7 +470,10 @@ export default function ResearchPage() {
             </>
           )}
           {state.page.data.length === 0 && !pinnedBriefing && (
-            <ListEmpty message="No briefings yet. The engine writes its first one at the next pressure trigger or baseline run - or queue a topic above." />
+            <TeachingEmpty
+              title="No briefings yet"
+              message="The engine writes its first one at the next pressure trigger or baseline run - or queue a topic above."
+            />
           )}
           {state.page.data.length > 0 && (
             <ul>

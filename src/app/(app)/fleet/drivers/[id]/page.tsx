@@ -18,6 +18,7 @@ import DriverProfileFields, {
 } from "@/components/DriverProfileFields";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
+import { useToast } from "@/components/Toast";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { driverRoleLabel } from "@/lib/fleet-display";
 import type { Driver, Truck } from "@/types/entities";
@@ -132,6 +133,7 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
 }
 
 function DriverEditForm({ driver, onSaved }: { driver: Driver; onSaved: (driver: Driver) => void }) {
+  const toast = useToast();
   const [values, setValues] = useState<DriverProfileValues>(() => driverProfileFromDriver(driver));
   const trucks = usePickerList<Truck>("trucks");
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +149,7 @@ function DriverEditForm({ driver, onSaved }: { driver: Driver; onSaved: (driver:
       const updated = await apiClient.update<Driver>("drivers", driver.id, driverProfileToPayload(values));
       onSaved(updated);
       setSaved(true);
+      toast.success("Saved");
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
     } finally {

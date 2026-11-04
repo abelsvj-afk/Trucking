@@ -37,13 +37,13 @@ export default function NewFuelPurchasePage() {
     setSubmitting(true);
 
     const body = {
+      submission_id: submissionId,
       truck_id: truckId,
       location: location || undefined,
       gallons: parseFloat(gallons || "0"),
       price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
       total_cost_cents: Math.round(parseFloat(totalCostDollars || "0") * 100),
       purchased_at: purchasedAt,
-      submission_id: submissionId,
     };
     try {
       await apiClient.create<FuelPurchase>("fuel-purchases", body);
@@ -81,7 +81,7 @@ export default function NewFuelPurchasePage() {
           ))}
         </select>
 
-        <label htmlFor="location">Location</label>
+        <label htmlFor="location">Location (optional)</label>
         <input id="location" value={location} onChange={(event) => setLocation(event.target.value)} />
 
         <label htmlFor="gallons">Gallons</label>

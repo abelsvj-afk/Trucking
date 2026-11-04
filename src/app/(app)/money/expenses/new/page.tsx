@@ -47,6 +47,7 @@ export default function NewExpensePage() {
     setSubmitting(true);
 
     const body = {
+      submission_id: submissionId,
       category,
       amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
       expense_date: expenseDate,
@@ -54,7 +55,6 @@ export default function NewExpensePage() {
       load_id: loadId || null,
       driver_id: driverId || null,
       description: description || undefined,
-      submission_id: submissionId,
     };
     try {
       await apiClient.create<Expense>("expenses", body);
@@ -110,7 +110,7 @@ export default function NewExpensePage() {
           required
         />
 
-        <label htmlFor="truck_id">Truck</label>
+        <label htmlFor="truck_id">Truck (optional)</label>
         <select id="truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
           <option value="">Unassigned</option>
           {trucks.map((truck) => (
@@ -120,7 +120,7 @@ export default function NewExpensePage() {
           ))}
         </select>
 
-        <label htmlFor="load_id">Load</label>
+        <label htmlFor="load_id">Load (optional)</label>
         <select id="load_id" value={loadId} onChange={(event) => setLoadId(event.target.value)}>
           <option value="">Unassigned</option>
           {loads.map((load) => (
@@ -130,7 +130,7 @@ export default function NewExpensePage() {
           ))}
         </select>
 
-        <label htmlFor="driver_id">Driver</label>
+        <label htmlFor="driver_id">Driver (optional)</label>
         <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
           <option value="">Unassigned</option>
           {drivers.map((driver) => (
@@ -140,7 +140,7 @@ export default function NewExpensePage() {
           ))}
         </select>
 
-        <label htmlFor="description">Description</label>
+        <label htmlFor="description">Description (optional)</label>
         <input
           id="description"
           value={description}

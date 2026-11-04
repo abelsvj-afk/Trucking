@@ -388,6 +388,14 @@ export interface Document {
   extraction_status: DocumentExtractionStatus;
   extraction_error: string | null;
   extracted_at: string | null;
+  // Retention delete (migration 00041): set when the document is
+  // deleted; the file stays in storage while retention_status is
+  // 'retained'. purged_at is only ever set by a future purge process
+  // under an owner-approved retention policy - never by deletion.
+  deleted_at: string | null;
+  retention_status: DocumentRetentionStatus | null;
+  retention_error: string | null;
+  purged_at: string | null;
   // Photo intelligence (Image Intelligence design §3, migration
   // 00045): the photo's settled purpose, who settled it, and the
   // read's confidence. All null on legacy documents and on photos
@@ -403,14 +411,6 @@ export interface Document {
     | null;
   photo_purpose_source: "vision" | "caption" | "owner" | null;
   photo_purpose_confidence: number | null;
-  // Retention delete (migration 00041): set when the document is
-  // deleted; the file stays in storage while retention_status is
-  // 'retained'. purged_at is only ever set by a future purge process
-  // under an owner-approved retention policy - never by deletion.
-  deleted_at: string | null;
-  retention_status: DocumentRetentionStatus | null;
-  retention_error: string | null;
-  purged_at: string | null;
 }
 
 // The retention lifecycle of a deleted document (design A.7):
