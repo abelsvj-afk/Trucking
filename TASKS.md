@@ -214,4 +214,6 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Live layer (c) built 2026-11-04 (branch `m3-hud-c`): one Realtime channel, silent re-fetch on change / own write / focus, "Live" only while subscribed, migration `00058` (realtime publication; NOT applied). Live NV-3 two-company check outstanding.
 - [x] Paper-log review (d) built 2026-11-04 (branch `m3-hud-d`): photograph → read → review beside the recreated day graph → atomic save (migration `00059`, NOT applied); by-hand entry when reading is off/fails. Owner acceptance (his own sheet vs his reading) outstanding.
 - [ ] Telegram-path paper-log defect: dropped/unreadable stretches absorbed into the previous status on approval; naive 8-day figure in its reply (see driver-hud.md §6). Needs King's ruling.
-- [ ] Not yet built (spec §10): day-graph editing (b), Telegram logging reminders (e), driving-speed input lockout and GPS map card (§5/§8).
+- [x] Day-graph editing (b) built 2026-11-04 (branch `m3-hud-b`): day view on Hours, step through days, tap a stretch to change status / move start / add a change / delete (soft), carrier-clock times, paper re-mark reminder, entered-after-the-fact label.
+- [ ] Not yet built (spec §10): Telegram logging reminders (e), driving-speed input lockout and GPS map card (§5/§8).
+- [ ] Re-anchor the HUD/wave stack on main (main gained KR-1, KR-2 and Reliability Unit C on 2026-11-04 after this stack was cut from ff63fb5d).

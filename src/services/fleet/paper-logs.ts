@@ -17,6 +17,8 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { summarizeHos } from "@/lib/hos";
+import { zonedInstant } from "@/lib/zoned-day";
+import { PAPER_REMARK_LINE } from "@/lib/paper-day";
 import type { DutyLog, Load } from "@/types/entities";
 import type { BotBrainStore } from "@/services/bot/store";
 import { buildBotTools } from "@/services/bot/tools";
@@ -26,9 +28,8 @@ import {
   type PaperLogExtraction,
 } from "@/services/ai/paper-log-extraction";
 
-/** §7.6, verbatim-shaped: any correction to a paper-sourced row carries this line. */
-export const PAPER_REMARK_LINE =
-  "This changes the app's mirror — your paper sheet still says the old time until you re-mark it.";
+/** §7.6: any correction to a paper-sourced row carries this line (defined in lib/paper-day.ts so the app can show it too). */
+export { PAPER_REMARK_LINE };
 
 const STATUS_LABELS: Record<string, string> = {
   off_duty: "off duty",
@@ -41,28 +42,9 @@ const STATUS_LABELS: Record<string, string> = {
 // Sheet-local times -> timestamps (the sheet's day is a local day)
 // ---------------------------------------------------------------------
 
-function tzOffsetMs(date: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(date);
-  const get = (type: string) => Number.parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
-  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
-  return asUtc - date.getTime();
-}
-
 /** The UTC instant of a wall-clock time on the sheet's date, in his timezone. */
 export function paperSheetInstant(logDate: string, hhmm: string, timeZone = "America/New_York"): Date {
-  const [y, m, d] = logDate.split("-").map((part) => Number.parseInt(part, 10));
-  const [hh, mm] = hhmm.split(":").map((part) => Number.parseInt(part, 10));
-  const guess = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0);
-  return new Date(guess - tzOffsetMs(new Date(guess), timeZone));
+  return zonedInstant(logDate, hhmm, timeZone);
 }
 
 function formatClock(minutes: number): string {

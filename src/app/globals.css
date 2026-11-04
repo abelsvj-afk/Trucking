@@ -2033,3 +2033,93 @@ nav[aria-label="Primary"] a span {
   border: 2px solid var(--color-border-strong);
   box-shadow: none;
 }
+
+/* --- Day view on Hours (docs/design/driver-hud.md §3) --- */
+.day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.day-nav h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  text-align: center;
+}
+
+.day-nav button {
+  min-width: 56px;
+  min-height: 48px;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.day-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 1rem;
+  padding: 0;
+  margin: 0.5rem 0;
+  list-style: none;
+}
+
+.day-totals li {
+  display: flex;
+  justify-content: space-between;
+}
+
+.day-edit button {
+  min-height: 48px;
+}
+
+.day-insert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+.day-edit .day-delete {
+  color: var(--color-danger);
+  background: transparent;
+  border: 2px solid var(--color-danger);
+}
+
+.day-delete-confirm {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--color-danger-light);
+}
+
+.day-log .day-totals li {
+  padding: 0.3rem 0;
+  margin: 0;
+  min-height: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.day-log .day-totals strong {
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: none;
+  text-transform: none;
+}
+
+.day-log .day-totals li {
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.day-log .day-totals strong {
+  font-size: 1rem;
+  vertical-align: baseline;
+  white-space: nowrap;
+}

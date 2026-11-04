@@ -41,6 +41,21 @@ duty" - never a fabricated running clock.
 - Midnight-crossing segments split at the carrier day boundary for display only.
 - Every edit keeps the audit trail; deleted rows are recoverable.
 
+**As built (2026-11-04, branch `m3-hud-b`):** Hours shows a day view
+(`components/hud/DayLog.tsx`) above the list: the carrier day as the 24-hour
+grid (shared `components/paper/DayGraph.tsx`), totals per status, ‹ › to step
+back through the HOS window (older days stay in the list). Today stops at
+"now"; time before the first row he ever logged is left blank. Tapping a
+stretch opens `DayEditPanel`: change status, move the start (only between its
+neighbours, never into the future), add a change inside the stretch, or
+delete (soft, restorable; the confirm names which status then runs on and
+until when). All through the normal duty-log API. Paper-sheet rows carry the
+re-mark reminder; rows saved >5 min after their start time show "entered
+after the fact". Times are entered on the carrier's clock (`lib/zoned-day.ts`,
+now shared with the server's paper-log code; DST-correct). Known limit: on a
+23/25-hour changeover day the graph positions use elapsed minutes, so stretches
+after 02:00 are drawn up to an hour off; the edit panel's times are exact.
+
 ## 4. Live layer (all main pages)
 
 - Supabase Realtime subscriptions per company on duty_logs, loads, expenses,

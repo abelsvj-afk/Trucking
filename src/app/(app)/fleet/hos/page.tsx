@@ -18,6 +18,7 @@
 import Link from "next/link";
 import { useApiList } from "@/lib/use-api-list";
 import { useHosWindow } from "@/lib/use-hos-window";
+import DayLog from "@/components/hud/DayLog";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
@@ -160,6 +161,14 @@ export default function HosPage() {
             </p>
           ))}
         </section>
+      )}
+
+      {hosWindow.state.status === "loaded" && hosWindow.state.data.length > 0 && (
+        <DayLog
+          rows={hosWindow.state.data}
+          timeZone={hosWindow.state.hos.carrierTimeZone}
+          oldestIso={hosWindow.state.hos.windowStart}
+        />
       )}
 
       {state.status === "loading" && <ListLoading />}

@@ -11,6 +11,10 @@ import type { DutyStatus } from "@/types/entities";
 
 export const DAY_MINUTES = 1440;
 
+/** §7.6: any correction to a paper-sourced row carries this line, in Telegram and in the app. */
+export const PAPER_REMARK_LINE =
+  "This changes the app's mirror — your paper sheet still says the old time until you re-mark it.";
+
 /**
  * clean    - read at/above the clean bar
  * flagged  - read, above the floor but faint: shown for a double-check
