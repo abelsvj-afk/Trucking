@@ -124,11 +124,15 @@ export function computeDetention(load: Load, stamps: DetentionStamp[]): Detentio
 
 function fmtTime(iso: string | null): string {
   if (!iso) return "—";
+  // The claim pack is assembled server-side and pasted to brokers —
+  // its times must read on the driver's clock (America/New_York),
+  // never the server's (UTC in production). King review KR-1.
   return new Date(iso).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "America/New_York",
   });
 }
 
