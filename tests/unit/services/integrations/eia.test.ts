@@ -44,6 +44,45 @@ describe("fetchFuelMarketSnapshot", () => {
     });
   });
 
+  it("parses the STRING value EIA actually sends (live-verified 2026-11-04: value arrives as \"6.292\", not a number)", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: {
+          data: [{ period: "2026-11-02", value: "6.292", units: "$/GAL" }],
+        },
+      }),
+    }) as never;
+
+    const result = await fetchFuelMarketSnapshot();
+    expect(result.pricePerGallon).toBe(6.292);
+    expect(typeof result.pricePerGallon).toBe("number");
+  });
+
+  it("throws loudly on a non-numeric string value instead of coercing it to 0/NaN", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: {
+          data: [{ period: "2026-11-02", value: "N/A", units: "$/GAL" }],
+        },
+      }),
+    }) as never;
+    await expect(fetchFuelMarketSnapshot()).rejects.toThrow("didn't match the expected shape");
+  });
+
+  it("throws loudly on an empty-string value instead of reading it as 0", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: {
+          data: [{ period: "2026-11-02", value: "", units: "$/GAL" }],
+        },
+      }),
+    }) as never;
+    await expect(fetchFuelMarketSnapshot()).rejects.toThrow("didn't match the expected shape");
+  });
+
   it("throws when the HTTP response is not ok", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" }) as never;
     await expect(fetchFuelMarketSnapshot()).rejects.toThrow("EIA API request failed: 403");
