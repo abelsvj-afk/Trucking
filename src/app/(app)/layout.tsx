@@ -22,34 +22,40 @@ import { usePathname } from "next/navigation";
 import { BOTTOM_TABS, resolveActiveTab } from "@/lib/nav-config";
 import PageTransition from "@/components/PageTransition";
 import AbelDrop from "@/components/AbelDrop";
+import LiveDataProvider from "@/components/live/LiveDataProvider";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const activeTab = resolveActiveTab(pathname);
 
   return (
-    <div>
-      <a href="#main-content">Skip to main content</a>
-      <main id="main-content">
-        <PageTransition>{children}</PageTransition>
-      </main>
-      <nav aria-label="Primary">
-        <ul>
-          {BOTTOM_TABS.map((tab) => {
-            const isActive = activeTab?.href === tab.href;
-            const Icon = tab.Icon;
-            return (
-              <li key={tab.href}>
-                <Link href={tab.href} aria-current={isActive ? "page" : undefined}>
-                  <Icon size={22} strokeWidth={1.75} aria-hidden="true" />
-                  <span>{tab.label}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-      <AbelDrop />
-    </div>
+    <LiveDataProvider>
+      <div>
+        <a href="#main-content">Skip to main content</a>
+        <main id="main-content">
+          <PageTransition>{children}</PageTransition>
+        </main>
+        <nav aria-label="Primary">
+          <ul>
+            {BOTTOM_TABS.map((tab) => {
+              const isActive = activeTab?.href === tab.href;
+              const Icon = tab.Icon;
+              return (
+                <li key={tab.href}>
+                  <Link
+                    href={tab.href}
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <Icon size={22} strokeWidth={1.75} aria-hidden="true" />
+                    <span>{tab.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+        <AbelDrop />
+      </div>
+    </LiveDataProvider>
   );
 }

@@ -17,6 +17,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError, type ListResponse } from "./api-client";
+import { tableForResource } from "./live-tables";
+import { useLiveVersion } from "./use-live";
 
 export type ListState<T> =
   | { status: "loading" }
@@ -43,9 +45,13 @@ export function useApiList<T>(resource: string, params?: Record<string, string>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resource, paramsKey]);
 
+  // Live layer (docs/design/driver-hud.md §4): a change to this
+  // resource's table re-fetches silently - no loading flash.
+  const liveVersion = useLiveVersion([tableForResource(resource)]);
+
   useEffect(() => {
     fetchList();
-  }, [fetchList]);
+  }, [fetchList, liveVersion]);
 
   const retry = useCallback(() => {
     setState({ status: "loading" });

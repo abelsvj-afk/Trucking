@@ -4,7 +4,8 @@
 // four live clock rings, four status buttons. Clocks tick locally each
 // second from data fetched once (re-fetched on focus and every 5
 // minutes as a safety net, and right after a save) - no per-second
-// network. If there is nothing to count, it says so; it never runs a
+// network; changes from anywhere (Telegram, another tab) arrive via
+// the live layer. If there is nothing to count, it says so; it never runs a
 // made-up clock. PAPER-LOG HELPER, NOT AN ELD - said on the surface.
 
 import { useCallback, useEffect, useState } from "react";
@@ -26,18 +27,18 @@ export default function DutyHud() {
   const [picked, setPicked] = useState<DutyStatus | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
 
-  const refreshOnFocus = useCallback(() => {
+  // Focus and data-change refreshes come from the live layer
+  // (LiveDataProvider). This interval is only the safety net that
+  // keeps the server's cycle total fresh across carrier-period
+  // rollovers on a page left open for a long time.
+  const refreshIfVisible = useCallback(() => {
     if (!document.hidden) refresh();
   }, [refresh]);
 
   useEffect(() => {
-    const timer = setInterval(refreshOnFocus, REFRESH_MS);
-    document.addEventListener("visibilitychange", refreshOnFocus);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshOnFocus);
-    };
-  }, [refreshOnFocus]);
+    const timer = setInterval(refreshIfVisible, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [refreshIfVisible]);
 
   const loaded = state.status === "loaded" ? state : null;
   const clocks = loaded ? computeHudClocks(loaded.data, loaded.hos, nowMs) : null;

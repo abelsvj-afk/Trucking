@@ -8,6 +8,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError } from "./api-client";
+import { MONEY_TABLES } from "./live-tables";
+import { useLiveVersion } from "./use-live";
 import type { FinancialSummary } from "@/types/financial-summary";
 
 export type FinancialSummaryState =
@@ -33,9 +35,12 @@ export function useFinancialSummary(params?: { from: string; to: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey]);
 
+  // Live layer: the summary is re-derived when any money table changes.
+  const liveVersion = useLiveVersion(MONEY_TABLES);
+
   useEffect(() => {
     fetchSummary();
-  }, [fetchSummary]);
+  }, [fetchSummary, liveVersion]);
 
   const retry = useCallback(() => {
     setState({ status: "loading" });

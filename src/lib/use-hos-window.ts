@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError } from "./api-client";
+import { useLiveVersion } from "./use-live";
 import type { DutyLog } from "@/types/entities";
 import type { DutyLogWindowSummary } from "@/types/hos-settings";
 
@@ -32,9 +33,12 @@ export function useHosWindow() {
       });
   }, []);
 
+  // Live layer: any duty-log change re-fetches the window silently.
+  const liveVersion = useLiveVersion(["duty_logs"]);
+
   useEffect(() => {
     fetchWindow();
-  }, [fetchWindow]);
+  }, [fetchWindow, liveVersion]);
 
   const retry = useCallback(() => {
     setState({ status: "loading" });

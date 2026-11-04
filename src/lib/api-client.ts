@@ -89,8 +89,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
 
+  notifyMutation(path, init?.method);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** Window event the live layer listens to: a write this tab just made. */
+export const MUTATION_EVENT = "trucking:mutation";
+
+// After a successful write, tell the live layer so the open page
+// refreshes at once - before (or without) the Realtime echo.
+function notifyMutation(path: string, method: string | undefined) {
+  if (!method || method.toUpperCase() === "GET") return;
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(MUTATION_EVENT, { detail: { path } }));
 }
 
 export interface ListResponse<T> {

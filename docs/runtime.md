@@ -138,3 +138,7 @@ No write path assumes success. User-facing failures follow the standard error co
 ---
 
 *Business logic lives in `services/*`, per `docs/architecture.md`. This document defines how requests and scheduled triggers reach it and how the system behaves at its edges — not what happens once a request is inside.*
+
+## Live layer (Realtime) — 2026-11-04
+
+The app's "Live" pages use Supabase Realtime `postgres_changes` (see `docs/design/driver-hud.md` §4). Requirements in production: migration `00058_realtime_live_layer.sql` applied (adds the live tables to the `supabase_realtime` publication) and Realtime enabled on the project (on by default). No new secret: the browser uses the existing anon key plus the signed-in session token, and Realtime enforces each table's RLS SELECT policy. Until 00058 is applied the app behaves exactly as before - it re-fetches on open and on focus - and the "Live" badge never appears.

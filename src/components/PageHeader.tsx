@@ -4,6 +4,9 @@
 // line what it's for doesn't ship. `action` is the screen's primary
 // button (usually its Add link), given a real button treatment by the
 // .page-action class in globals.css instead of a bare text link.
+// The Live indicator renders only while the live channel is connected.
+
+import LiveIndicator from "./live/LiveIndicator";
 
 export default function PageHeader({
   title,
@@ -17,7 +20,9 @@ export default function PageHeader({
   return (
     <header className="page-header">
       <div className="page-header-text">
-        <h1>{title}</h1>
+        <h1>
+          {title} <LiveIndicator />
+        </h1>
         <p className="page-purpose">{purpose}</p>
       </div>
       {action}
