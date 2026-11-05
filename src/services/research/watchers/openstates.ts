@@ -33,6 +33,14 @@ export const PRIORITY_STATES: Array<{ name: string; code: string }> = [
 ];
 
 export const STATES_PER_TICK = 3;
+/**
+ * How far back "updated" reaches. Three states per tick over 13 states means a
+ * state is revisited only every ~5 ticks, so a 3-day window silently dropped
+ * bills updated between visits (and legislatures are mostly out of session
+ * this time of year). Signals dedupe on bill id, so a wider window cannot
+ * double-count.
+ */
+export const UPDATED_WINDOW_DAYS = 14;
 
 const CATEGORY_KEYWORDS = [
   "truck",
@@ -117,14 +125,16 @@ export const openStatesWatcher: Watcher = {
     // a 400 ever recurs the Research page names the exact cause).
     // Date-only widens the 3-day window by under a day; signals
     // dedupe on bill id, so nothing double-counts.
-    const updatedSince = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const updatedSince = new Date(Date.now() - UPDATED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const observedAt = new Date().toISOString();
     const signals: PressureSignal[] = [];
     const failures: string[] = [];
+    let fetched = 0;
 
     for (const jurisdiction of covered) {
       try {
         const bills = await fetchOpenStatesBills(jurisdiction.name, "truck", updatedSince);
+        fetched += bills.length;
         for (const bill of bills) {
           if (billMatchesCategories(bill)) signals.push(buildStateLawSignal(bill, jurisdiction.code, observedAt));
         }
@@ -146,7 +156,8 @@ export const openStatesWatcher: Watcher = {
       watcherKey: OPENSTATES_WATCHER_KEY,
       status: "ok",
       message:
-        `Covered ${covered.map((c) => c.code).join(", ")} this tick (rotation of ${PRIORITY_STATES.length} priority states).` +
+        `Covered ${covered.map((c) => c.code).join(", ")} this tick (rotation of ${PRIORITY_STATES.length} priority states). ` +
+        `${fetched} bill(s) matched "truck" since ${updatedSince}; ${signals.length} fit a tracked category.` +
         (failures.length > 0 ? ` Failed: ${failures.join("; ")}` : ""),
       signals,
       state: { rotation: (rotation + STATES_PER_TICK) % PRIORITY_STATES.length },
