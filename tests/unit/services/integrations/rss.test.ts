@@ -1,18 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { parseURLMock } = vi.hoisted(() => ({ parseURLMock: vi.fn() }));
+const { parseStringMock } = vi.hoisted(() => ({ parseStringMock: vi.fn() }));
 
 vi.mock("rss-parser", () => ({
   default: class {
-    parseURL = parseURLMock;
+    parseString = parseStringMock;
   },
 }));
 
-import { fetchIndustryNews } from "@/services/integrations/rss";
+import { FEED_REQUEST_HEADERS, fetchIndustryNews } from "@/services/integrations/rss";
+
+const okFetch = () => vi.fn(async (_url: string, _init?: RequestInit) => new Response("<rss/>", { status: 200 }));
 
 describe("fetchIndustryNews", () => {
   it("normalizes items from every feed that succeeds", async () => {
-    parseURLMock.mockResolvedValue({
+    parseStringMock.mockResolvedValue({
       items: [
         {
           title: "New FMCSA rule proposed",
@@ -23,7 +25,7 @@ describe("fetchIndustryNews", () => {
       ],
     });
 
-    const results = await fetchIndustryNews();
+    const results = await fetchIndustryNews(okFetch() as never);
 
     expect(results).toHaveLength(3);
     for (const feed of results) {
@@ -39,9 +41,7 @@ describe("fetchIndustryNews", () => {
   });
 
   it("records a per-feed error instead of throwing, so one dead feed doesn't sink the others", async () => {
-    parseURLMock.mockRejectedValue(new Error("ECONNREFUSED"));
-
-    const results = await fetchIndustryNews();
+    const results = await fetchIndustryNews(vi.fn(async () => { throw new Error("ECONNREFUSED"); }) as never);
 
     expect(results).toHaveLength(3);
     for (const feed of results) {
@@ -51,11 +51,29 @@ describe("fetchIndustryNews", () => {
   });
 
   it("caps items at 10 per feed", async () => {
-    parseURLMock.mockResolvedValue({
+    parseStringMock.mockResolvedValue({
       items: Array.from({ length: 25 }, (_, i) => ({ title: `Item ${i}`, link: `https://example.test/${i}` })),
     });
 
-    const results = await fetchIndustryNews();
+    const results = await fetchIndustryNews(okFetch() as never);
     expect(results[0]?.items).toHaveLength(10);
+  });
+
+  it("sends identifying headers (no browser impersonation) and a timeout signal", async () => {
+    parseStringMock.mockResolvedValue({ items: [] });
+    const fetchFn = okFetch();
+    await fetchIndustryNews(fetchFn as never);
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    const init = fetchFn.mock.calls[0]![1]!;
+    expect(init.headers).toEqual(FEED_REQUEST_HEADERS);
+    expect(String((init.headers as Record<string, string>)["User-Agent"])).toContain("TruckingResearchEngine");
+    expect(String((init.headers as Record<string, string>)["User-Agent"])).not.toMatch(/Mozilla|Chrome|Safari/);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("a refusal names the HTTP status, so one production poll shows the real cause", async () => {
+    const results = await fetchIndustryNews(vi.fn(async () => new Response("denied", { status: 403, statusText: "Forbidden" })) as never);
+    expect(results[0]!.error).toMatch(/answered HTTP 403 Forbidden/);
+    expect(results[0]!.error).toContain(results[0]!.source);
   });
 });

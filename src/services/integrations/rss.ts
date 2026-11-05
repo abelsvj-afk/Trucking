@@ -41,9 +41,32 @@ export interface FeedFetchResult {
   error: string | null;
 }
 
-async function fetchOneFeed(feed: (typeof FEEDS)[number]): Promise<FeedFetchResult> {
+/**
+ * Honest, identifying request headers. rss-parser's own parseURL sent a bare
+ * default client; several publisher sites (the FMCSA newsroom among them)
+ * refuse or drop requests with no meaningful User-Agent / Accept, and the
+ * failure came back as an opaque error. This names the app, asks for feed
+ * content types, and - crucially - reports the HTTP status when refused so one
+ * production poll tells us the real cause. It does NOT impersonate a browser
+ * and uses no relay/proxy (owner ruling: those need a fresh decision).
+ */
+export const FEED_REQUEST_HEADERS = {
+  "User-Agent": "TruckingResearchEngine/1.0 (owner-operator research bot; RSS reader)",
+  Accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5",
+  "Accept-Language": "en-US,en;q=0.9",
+} as const;
+
+async function fetchOneFeed(feed: (typeof FEEDS)[number], fetchFn: typeof fetch): Promise<FeedFetchResult> {
   try {
-    const parsed = await parser.parseURL(feed.url);
+    const res = await fetchFn(feed.url, {
+      headers: FEED_REQUEST_HEADERS,
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      throw new Error(`${feed.source} answered HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`);
+    }
+    const parsed = await parser.parseString(await res.text());
     const items: NewsItem[] = (parsed.items ?? []).slice(0, 10).map((item) => ({
       source: feed.source,
       title: item.title ?? "(untitled)",
@@ -61,6 +84,6 @@ async function fetchOneFeed(feed: (typeof FEEDS)[number]): Promise<FeedFetchResu
   }
 }
 
-export async function fetchIndustryNews(): Promise<FeedFetchResult[]> {
-  return Promise.all(FEEDS.map(fetchOneFeed));
+export async function fetchIndustryNews(fetchFn: typeof fetch = fetch): Promise<FeedFetchResult[]> {
+  return Promise.all(FEEDS.map((feed) => fetchOneFeed(feed, fetchFn)));
 }

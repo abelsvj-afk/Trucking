@@ -12,6 +12,7 @@ import type { Queryable } from "@/services/ai/run-industry-briefing";
 import type { TelegramNotifier } from "@/services/telegram/notify";
 import type { ResearchConfig } from "./config";
 import { getEligibleCompanyIds } from "./run-research";
+import { WATCHERS } from "./watchers";
 
 export interface HealthIssue {
   key: string;
@@ -27,10 +28,17 @@ interface AlertRow extends Record<string, unknown> {
 
 const HOUR_MS = 60 * 60 * 1000;
 
+/** The keys of watchers that exist in code today. A state row for any other key is a retired watcher's tombstone. */
+export function activeWatcherKeys(): ReadonlySet<string> {
+  return new Set(WATCHERS.map((w) => w.key));
+}
+
 export async function detectHealthIssues(
   db: Queryable,
   config: ResearchConfig,
   now: Date,
+  /** Injectable for tests; defaults to the live registry. */
+  activeKeys: ReadonlySet<string> = activeWatcherKeys(),
 ): Promise<HealthIssue[]> {
   const issues: HealthIssue[] = [];
 
@@ -56,6 +64,12 @@ export async function detectHealthIssues(
     { watcher_key: string; last_status: string; last_error: string | null; updated_at: string } & Record<string, unknown>
   >(`select watcher_key, last_status, last_error, updated_at from research_watcher_state`);
   for (const watcher of watchers) {
+    // A state row whose watcher no longer exists (retired - e.g. the Stooq
+    // market watcher replaced by FRED) is a frozen tombstone, not a live
+    // fault: it can never recover on its own, so alerting on it every 24h is
+    // noise that teaches the owner to ignore real alerts. Only watchers in
+    // the active registry are judged. (The row itself is cleanup, not an alarm.)
+    if (!activeKeys.has(watcher.watcher_key)) continue;
     if (watcher.last_status === "error" && now.getTime() - Date.parse(watcher.updated_at) > config.watcherErrorAlertHours * HOUR_MS) {
       issues.push({
         key: `watcher_error:${watcher.watcher_key}`,

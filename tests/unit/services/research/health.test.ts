@@ -58,6 +58,33 @@ function notifier() {
   return { notifyOwner: vi.fn(async () => true) } as unknown as TelegramNotifier & { notifyOwner: ReturnType<typeof vi.fn> };
 }
 
+describe("detectHealthIssues - retired watchers (tombstones)", () => {
+  const old = new Date(NOW.getTime() - 100 * HOUR).toISOString();
+  const recent = new Date(NOW.getTime() - 1 * HOUR).toISOString();
+  const base = { lastTickAt: recent, eligible: [] as string[] };
+
+  it("a state row with an UNREGISTERED key stuck in error produces no health issue", async () => {
+    const { db } = fakeDb({ ...base, watchers: [{ watcher_key: "retired_market", last_status: "error", last_error: "frozen", updated_at: old }] });
+    const issues = await detectHealthIssues(db, config, NOW, new Set(["eia_diesel", "market_snapshot"]));
+    expect(issues.find((i) => i.key.startsWith("watcher_error:"))).toBeUndefined();
+  });
+
+  it("the same stuck error on a REGISTERED watcher still alerts", async () => {
+    const { db } = fakeDb({ ...base, watchers: [{ watcher_key: "market_snapshot", last_status: "error", last_error: "boom", updated_at: old }] });
+    const issues = await detectHealthIssues(db, config, NOW, new Set(["market_snapshot"]));
+    expect(issues.map((i) => i.key)).toContain("watcher_error:market_snapshot");
+  });
+
+  it("the default registry is the real one: stooq_market is not in it, the live watchers are", async () => {
+    const { activeWatcherKeys } = await import("@/services/research/health");
+    const keys = activeWatcherKeys();
+    expect(keys.has("stooq_market")).toBe(false);
+    expect(keys.has("eia_diesel")).toBe(true);
+    const { db } = fakeDb({ ...base, watchers: [{ watcher_key: "stooq_market", last_status: "error", last_error: "frozen", updated_at: old }] });
+    expect((await detectHealthIssues(db, config, NOW)).some((i) => i.key.includes("stooq_market"))).toBe(false);
+  });
+});
+
 describe("detectHealthIssues", () => {
   it("flags a runner that never ticked, and one gone stale", async () => {
     const never = await detectHealthIssues(fakeDb({ lastTickAt: null }).db, config, NOW);
