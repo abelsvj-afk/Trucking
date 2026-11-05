@@ -15,7 +15,8 @@
 import Parser from "rss-parser";
 
 const FEEDS = [
-  { source: "FMCSA Newsroom", url: "https://www.fmcsa.dot.gov/rss.xml" },
+  // The FMCSA newsroom's taxonomy feed (King's fix, 2026-11-05; the old /rss.xml did not answer from production).
+  { source: "FMCSA Newsroom", url: "https://www.fmcsa.dot.gov/taxonomy/term/191/feed" },
   { source: "FreightWaves", url: "https://www.freightwaves.com/news/feed" },
   { source: "Overdrive", url: "https://www.overdriveonline.com/feed" },
 ];

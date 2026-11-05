@@ -76,4 +76,13 @@ describe("fetchIndustryNews", () => {
     expect(results[0]!.error).toMatch(/answered HTTP 403 Forbidden/);
     expect(results[0]!.error).toContain(results[0]!.source);
   });
+
+  it("fetches the FMCSA newsroom from its taxonomy feed URL", async () => {
+    parseStringMock.mockResolvedValue({ items: [] });
+    const fetchFn = okFetch();
+    await fetchIndustryNews(fetchFn as never);
+    const urls = fetchFn.mock.calls.map((c) => String(c[0]));
+    expect(urls).toContain("https://www.fmcsa.dot.gov/taxonomy/term/191/feed");
+    expect(urls).not.toContain("https://www.fmcsa.dot.gov/rss.xml");
+  });
 });

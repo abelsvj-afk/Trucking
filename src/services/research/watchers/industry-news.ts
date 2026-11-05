@@ -99,7 +99,10 @@ export const industryNewsWatcher: Watcher = {
       status: "ok",
       message:
         failed.length > 0
-          ? `Partial coverage: ${failed.map((f) => f.source).join(", ")} failed this poll.`
+          ? // Name each failed source WITH its cause (the HTTP status the feed fetch captured,
+            // e.g. "FMCSA Newsroom (FMCSA Newsroom answered HTTP 403 Forbidden)") so one production
+            // poll shows the real reason - the owner's drop decision rests on that evidence.
+            `Partial coverage: ${failed.map((f) => `${f.source} (${f.error})`).join("; ")} failed this poll.`
           : null,
       signals,
       state: { lastItemCount: recent.length },
