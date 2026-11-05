@@ -1,5 +1,20 @@
 # Roadmap
 
+## Where the product is now — reconciled 2026-11-05 (the stages below are kept as history)
+
+Stages 1–6 below are **built and live**: foundation, auth, the MVP company database, the industry-intelligence engine, hardening (partly — see the audit checklist), and deployment on Fly.io + Supabase. The roadmap since then has been owner-directed, in this order (details in `PROJECT_STATE.md`, `TASKS.md`, `docs/reconciliation/`):
+
+1. **Reliability program** (Units A–E: record lifecycle, time and HOS, money truth, tenant-isolation proof) — A–C built; D/E partly, E needs the live isolation run.
+2. **Driver product**: Driver MVP (Telegram bot Abel, dispatch helper, documents/photo/voice), Smart Path + Drive Mode, the Home HUD with the live layer, paper-log review, trip intake (stops, tasks, confirmation lifecycle), pay terms + projected pay, logging reminders, Live Location, credentials/invoices screens, documents per trip, trailer assignment.
+3. **Research and planning**: Deep Research Engine (watchers, briefings, news banner with images), Game Plan.
+4. **Retrospective audit closure** (`docs/reconciliation/audit-closure-checklist.md`): Waves 1–3 (documentation) done pending review; **next: Wave 4** (RLS + service-role isolation tests, E2E, AI evals, accessibility/performance), **Wave 5** (this roadmap, `TASKS.md` reconciliation, `CHANGELOG.md` once approved), **Wave 6** (remediation only per owner-approved unit).
+5. **Open product items:** reminders refinements (a "no log by 10:00 ET" nudge once defined), Relay load parser (needs real messages), payroll-tax math by worker type, the Home map card, screens for bot-only features if wanted, FMCSA feed verdict (one production poll).
+6. **Owner-lane/King-lane gates before each deploy:** apply pending migrations, deploy via the Fly web UI, verify (deployed SHA, schedulers, Realtime, webhook), then the owner reports phone-test results.
+
+Beyond that, the "Beyond the MVP" section below remains the long-range direction (own truck → authority → fleet).
+
+---
+
 Phase 13 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`. Translates everything designed in `docs/` into an actual build sequence. This is ordering, not new design — every stage below points back to a document that already specifies it; nothing here introduces a decision that wasn't already made. `TASKS.md` (Phase 14, next) breaks each stage into the small, independently-testable units that actually get implemented.
 
 Sequenced by real dependency, not by the workflow doc's generic example (Foundation → Auth → Core → AI → Integrations → Automation → Optimization → Deployment) — adapted to what this project's architecture actually requires, since testing here is continuous rather than a late bolt-on, and only one AI capability is design-complete enough to build.

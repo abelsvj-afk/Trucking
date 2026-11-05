@@ -19,7 +19,7 @@ Legend: ✅ done (docs/code evidence in repo) · 🟡 partly · ⬜ not started 
 | 9 | Critical workflows have passing unit, integration, E2E and AI-eval evidence | 🟡 | Unit coverage strong (1750+). Remaining: E2E for dispatch→load, paper-log, Drive reroute, pay terms; AI evals (grounding, language, proposal identity, stale/multiple, cancel≠delete, injection). |
 | 10 | Accessibility and performance gates executed and recorded | ⬜ | Contrast guard exists. Remaining: keyboard/screen-reader pass, phone-width perf budget run (targets accepted D-5). |
 | 11 | Production SHA, migrations, secrets, schedulers, Realtime, webhook, rollback verified | 🔑 | King: v48 verified; migrations through 00064 verified; secrets/schedulers/Realtime/webhook/rollback proof outstanding. |
-| 12 | ROADMAP.md, TASKS.md, PROJECT_STATE.md agree | ⬜ | No `ROADMAP.md` exists. Wave 5: rebuild it from the reconciled architecture; reconcile TASKS.md into small dependency-ordered tasks; keep PROJECT_STATE current (done daily). |
+| 12 | ROADMAP.md, TASKS.md, PROJECT_STATE.md agree | 🟡 | `ROADMAP.md` EXISTS (my earlier line saying it didn't was wrong — caught by ChatGPT's re-check 2026-11-05) but described only the original MVP stages; a reconciled "where the product is now" section was added 2026-11-05. Remaining: reconcile `TASKS.md` (258 lines, mixed history) into small dependency-ordered tasks; CHANGELOG.md only after owner approval; keep PROJECT_STATE current. |
 | 13 | Reviewer independently accepted the documentation and evidence | 🔑 | King's review of Waves 1–3 outstanding. |
 | 14 | Owner approved the next implementation scope | 👤 | Waves 4–6 scope below awaits approval per work unit. |
 
