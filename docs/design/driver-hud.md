@@ -4,9 +4,9 @@ Status: APPROVED TO BUILD by the owner (chat orders 2026-11-04: "Start the HUD
 build now", then the live layer, the paper-log review screen and the day view,
 in that order). Built so far: §2 HUD (Home), §3 day view, §4 live layer,
 §5 driving lockout (Home HUD + Drive Mode), §6 paper-log review, §12 popups.
-NOT built (reconciled 2026-11-05): §7 *proactive* Telegram logging reminders
-(Abel does not yet message him to remind him to log; Live Location status
-*proposals* and chat-staged duty changes do exist) and §8 the Home map card.
+NOT built (reconciled 2026-11-05): §8 the Home map card. §7 proactive logging
+reminders are BUILT (HOS clocks at 30/10/0 min, stale-status question; off by
+default; `logging-reminders.md`).
 Built since this header was first written: Drive-Mode clocks alongside the
 route, the Home active-load cockpit, image-led news, rerouting (truck-checked
 only), and screen-off position via Telegram Live Location.

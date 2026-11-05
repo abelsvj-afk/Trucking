@@ -1104,3 +1104,11 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - 00061 `loads.loaded_miles` numeric(8, 2) (>= 0)
 - 00061 `loads.pickup_tz` text
 - 00061 `loads.delivery_tz` text
+
+### `reminder_sends` — created in 00065
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `dedupe_key` text not null
+- `kind` text not null check (kind in ('hos', 'stale_status'))
+- `sent_at` timestamptz not null default now()
+- _unique (company_id, dedupe_key)_ — tenant isolation RLS policy.

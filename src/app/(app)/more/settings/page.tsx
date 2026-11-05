@@ -51,6 +51,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   driver_twin: "Driver twin (on Telegram, Abel drafts dispatch replies using your own past sent replies as examples, and tracks how much you edit his drafts — web dispatch drafts don't use the twin yet; off means no examples in drafts and no edit tracking)",
   photo_intelligence: "Photo understanding (when you send Abel a photo, he figures out what it's for — paperwork, the truck, a trailer, the dash, a pre-trip — and asks you with one tap when he isn't sure; off means photos are just filed as documents, like before)",
   live_location: "Live Location (when you share your live location with Abel in Telegram, he keeps only your latest position and may ASK whether to change your duty status — he never changes it on his own; on by default because you start it by sharing; off means nothing is stored and nothing is proposed)",
+  logging_reminders: "Logging reminders (Abel messages you when a driving, 14-hour or break clock is about to run out by your own logged hours — 30, 10 and 0 minutes left, even at night — and, in the morning, when your log still says Driving long after it could be true; he only informs or asks, never changes your status; planning only, not an ELD; off by default)",
   maintenance_watch: "Maintenance reminders (Abel watches your maintenance schedules and open defects in the background and messages you when something is due, overdue, or going stale — one digest a day at most, urgent safety/legal items right away; off means he only answers when you ask)",
 };
 

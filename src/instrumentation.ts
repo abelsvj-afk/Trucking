@@ -34,5 +34,9 @@ export async function register() {
     // the research endpoint's hourly invoker (its second door).
     const { startMaintenanceWatchScheduler } = await import("@/services/fleet/maintenance-watch");
     startMaintenanceWatchScheduler();
+    // Proactive logging reminders (docs/design/logging-reminders.md) - every
+    // 5 minutes, behind the logging_reminders switch (off by default).
+    const { startReminderScheduler } = await import("@/services/bot/reminder-scheduler");
+    startReminderScheduler();
   }
 }

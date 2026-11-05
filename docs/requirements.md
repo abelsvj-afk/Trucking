@@ -99,6 +99,7 @@ Safety class: **M** = usable while moving (glance/voice only) · **P** = parked 
 | REQ-16 | Game Plan | `gaming-system.md` | P | built |
 | REQ-17 | Maintenance schedules, defects, watcher | maintenance docs | P/S | built |
 | REQ-18 | Records lifecycle (soft delete, restore, retention) | `docs/record-lifecycle.md` | P | built |
+| REQ-20 | Proactive logging reminders (HOS clocks 30/10/0 min, stale status) | `design/logging-reminders.md` | S | built, off until switched on |
 | REQ-19 | Tenant isolation (RLS) and service-role exceptions | `docs/design/security.md` | S | built; **proof pending** (Wave 4) |
 
 **Testable system-wide safety requirements** (to be turned into acceptance tests in Wave 4): SAF-1 no editable form is reachable while speed is unknown/stale/moving and permission is granted; SAF-2 Drive's moving surface exposes only Skip stop, I'm parked, Talk to Abel, Voice toggle, Re-plan; SAF-3 a car-profile route can never replace a truck route; SAF-4 no proposal executes unless the owner just saw it.

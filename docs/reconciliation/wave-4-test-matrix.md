@@ -99,3 +99,5 @@ Each path below runs with RLS bypassed and scopes to a company only in code. For
 
 ## 5. Untested tables (no isolation test today)
 `maintenance_schedules`, `equipment_checklist_items`, `pretrip_inspections`, `research_signals`, `research_watcher_state`, `conversation_summaries`, `consolidation_runs`, `telegram_processed_updates`, `research_runner_heartbeat`, `research_health_alerts`, `research_corridor`, `research_requests`, `cleanup_incidents`, `vehicle_defects`, `maintenance_watch_runs`, `settlements`, `settlement_lines`, `settlement_load_links`, `pay_report_runs`, `forward_threads`, `forward_thread_messages`, `load_decisions`, `detention_stamps`, `facilities`, `credentials`, `load_invoices`, `recurring_obligations`, `broker_followups`, `driver_positions`, `load_tasks`, `load_stops`, `employer_pay_profiles`
+
+> Added after generation: `reminder_sends` (migration 00065, tenant isolation policy) — needs an A/B isolation test like the others; and the service-role reminder scheduler needs a code-scope test.

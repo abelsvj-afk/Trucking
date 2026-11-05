@@ -34,6 +34,7 @@ import type { TelegramStore } from "@/services/telegram/store";
 import type { BotMemoryRow, CompanySnapshot } from "@/services/telegram/context";
 import type { DutyLog } from "@/types/entities";
 import { LIVE_LOCATION_CAPABILITY } from "@/lib/live-motion";
+import { LOGGING_REMINDERS_CAPABILITY } from "@/lib/reminders";
 import { findPayPin, isPinned, payPinFromProfile, type PayPin, type PayProfileRow } from "./pay-pin";
 import { parseBusinessFact, parsePersonProfile } from "./people";
 import { LIFE_PHASE_SUBJECT } from "./life-phase";
@@ -215,6 +216,8 @@ export interface BotBrainStore extends TelegramStore {
   loadInstructionMemories(): Promise<RetrievedFact[]>;
   /** The newest rolling conversation summary, when the night shift has produced one (migration 00032; null before it / when none). */
   loadLatestSummary(): Promise<{ weekStart: string; summary: string } | null>;
+  /** The logging_reminders switch (proactive Telegram reminders): no row = off. */
+  isLoggingRemindersEnabled(): Promise<boolean>;
   /** The live_location switch: default ON when no row exists; an explicit off row, the global switch, or an unverifiable read stops it. */
   isLiveLocationEnabled(): Promise<boolean>;
   /** The memory_consolidation kill switch (the night shift), same convention as every capability. */
@@ -775,6 +778,10 @@ export function createBotStore(
 
     async isPhotoIntelligenceEnabled() {
       return capabilityEnabled(PHOTO_INTELLIGENCE_CAPABILITY);
+    },
+
+    async isLoggingRemindersEnabled() {
+      return capabilityEnabled(LOGGING_REMINDERS_CAPABILITY);
     },
 
     async isLiveLocationEnabled() {

@@ -140,7 +140,7 @@ Built and removed from this list: image-led news, rerouting, background position
 lock, DST-correct day graph.
 
 Still open:
-- Proactive Telegram logging reminders (hud §7) — owner decision on when/what.
+- ~~Proactive Telegram logging reminders (hud §7)~~ built 2026-11-05 (`logging-reminders.md`), off until switched on.
 - Home map card (hud §8) — owner decision.
 - Telegram paper-log approval across an unreadable gap — **ruled** 2026-11-04 (flagged stretches book; unreadable are dropped and named); keep as a regression test.
 - Motion gate coverage on every remaining form (SAF-1 test) — Wave 4.
