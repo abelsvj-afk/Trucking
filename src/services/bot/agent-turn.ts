@@ -59,6 +59,8 @@ export const BOT_DISABLED_REPLY =
   "My chat brain is turned off right now. You can turn it on in the app: More -> Account & settings -> Bot chat. Dispatch help and remember: still work either way.";
 
 export const PENDING_EXPIRY_MS = 2 * 60 * 60 * 1000;
+/** A proposal shown this recently is what a bare yes/no means. */
+export const SHOWN_RECENTLY_MS = 10 * 60 * 1000;
 
 const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you King). Plain language first, short answers, no corporate filler. CANCEL IS NOT DELETE: when he says no / remove that / drop that about something you just suggested, that only cancels the suggestion - never propose deleting a saved record unless he names that saved record and asks to delete it. Every id you pass to a tool (broker, customer, driver, load) must be a real id from a read tool, never a name; if you cannot find it, say so and ask. You know his business only through the context blocks and the tools - both come from his real records.
 
@@ -346,6 +348,25 @@ export async function runAgentTurn(
   // §9: a pending dump batch has its own grammar (approve all /
   // by number / drop the rest), resolved the same way.
   const pending = await store.loadPendingAction();
+  // Trip 1852 audit (P1): a bare yes/no targets what was most recently
+  // shown. If several proposals are open and the newest was NOT shown
+  // just now, a bare answer could mean any of them - list them, ask.
+  if (pending && pending.tool_name !== PHOTO_PURPOSE_TOOL) {
+    const bare = classifyConfirmation(input.userText) !== "other" || parseBatchCommand(input.userText).kind !== "other";
+    if (bare && Date.now() - new Date(pending.created_at).getTime() > SHOWN_RECENTLY_MS) {
+      const open = (await store.loadOpenPendingGroups()).filter(
+        (g) => g.toolName !== PHOTO_PURPOSE_TOOL && Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
+      );
+      if (open.length > 1) {
+        return {
+          reply:
+            `I have ${open.length} things waiting and I'm not sure which one you mean, so I haven't done any of them:\n` +
+            open.map((g, i) => `${i + 1}. ${g.summary}`).join("\n") +
+            "\nTell me which one you mean, in your own words, and I will handle just that one.",
+        };
+      }
+    }
+  }
   let pendingBatch: PendingAction[] = [];
   // Image Intelligence (§3.3): the oldest pending row may be a
   // photo-purpose QUESTION, not a write proposal. It resolves in
@@ -354,6 +375,7 @@ export async function runAgentTurn(
   // honest expiry reply. Anything else leaves it open - noted in
   // the context blocks below - and the turn proceeds normally.
   let pendingPhotoAsk: PendingAction | null = null;
+  let cancelledSuggestion: string | null = null;
   if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
     const resolved = await tryResolvePhotoPurposeAsk(store, pending, input.userText);
     if (resolved) return resolved;
@@ -381,6 +403,13 @@ export async function runAgentTurn(
     const kind = classifyConfirmation(input.userText);
     if (kind !== "other") {
       return resolvePending(store, pending, kind);
+    }
+    // "No. Remove that. Add this..." - a leading no answers the waiting
+    // proposal (it is cancelled, in code) and the rest of the message is a
+    // NEW request. The cancel can never become a delete of a saved record.
+    if (/^no\b[.,!]?\s+\S/i.test(input.userText.trim())) {
+      await store.clearPendingAction(pending.id);
+      cancelledSuggestion = pending.summary;
     }
   }
 
@@ -412,6 +441,11 @@ export async function runAgentTurn(
   } else if (pending) {
     contextBlocks.push(
       `A PROPOSED ACTION IS WAITING FOR HIS YES/NO (over 2 hours old proposals expire): ${pending.summary}. If he says yes or no, it is handled - anything else, answer normally and it stays waiting.`,
+    );
+  }
+  if (cancelledSuggestion) {
+    contextBlocks.push(
+      `HE JUST SAID NO to your waiting suggestion, and it is cancelled (nothing was recorded): ${cancelledSuggestion}. The rest of his message is a NEW request - handle it fresh, do not carry the cancelled item into it, and do NOT propose deleting any saved record.`,
     );
   }
   const researchAskBlock = await loadPendingResearchAskBlock(store);
@@ -454,7 +488,9 @@ export async function runAgentTurn(
   // pulls its schedule completion into the same batch, in code -
   // recording the work and advancing the schedule take ONE yes.
   // Pairing failure never costs him the event proposal itself.
-  let proposals = result.proposals;
+  let proposals = cancelledSuggestion
+    ? result.proposals.filter((p) => p.tool !== "delete_record")
+    : result.proposals;
   if (proposals.some((p) => p.tool === "create_maintenance_event")) {
     try {
       proposals = await expandMaintenancePairings(store, proposals);

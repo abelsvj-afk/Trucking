@@ -155,10 +155,13 @@ describe("LiveDataProvider", () => {
   });
 });
 
-describe("migration 00058", () => {
+describe("migration 00058 (+ later additions)", () => {
   it("adds exactly the tables the app listens to", () => {
     const sql = readFileSync("supabase/migrations/00058_realtime_live_layer.sql", "utf8");
     const listed = [...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).filter((t) => t !== "supabase_realtime" && t !== "public");
-    expect(new Set(listed)).toEqual(new Set(LIVE_TABLES));
+    // Tables added to the publication by later migrations (each guarded the same way).
+    const later = ["load_tasks"]; // 00061_trip_intake.sql
+    expect(readFileSync("supabase/migrations/00061_trip_intake.sql", "utf8")).toContain("tablename = 'load_tasks'");
+    expect(new Set([...listed, ...later])).toEqual(new Set(LIVE_TABLES));
   });
 });

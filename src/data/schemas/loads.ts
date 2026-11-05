@@ -42,6 +42,13 @@ const loadFieldsSchema = z.object({
   miles: z.number().int().nonnegative("miles must not be negative.").optional(),
   status: loadStatusSchema.optional(),
   notes: z.string().optional(),
+  // Trip intake (migration 00061)
+  trip_number: z.string().min(1).optional(),
+  broker_reference: z.string().min(1).optional(),
+  deadhead_miles: z.number().nonnegative().optional(),
+  loaded_miles: z.number().nonnegative().optional(),
+  pickup_tz: z.string().min(1).optional(),
+  delivery_tz: z.string().min(1).optional(),
 });
 
 function deliveryNotBeforePickup(data: { pickup_date?: string; delivery_date?: string }) {

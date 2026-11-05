@@ -174,6 +174,13 @@ export interface Load extends BaseRow {
   miles: number | null;
   status: LoadStatus;
   notes: string | null;
+  // Trip intake (migration 00061): null until captured.
+  trip_number?: string | null;
+  broker_reference?: string | null;
+  deadhead_miles?: number | null;
+  loaded_miles?: number | null;
+  pickup_tz?: string | null;
+  delivery_tz?: string | null;
   // GAP-02/04/05 (migration 00052): appointment windows, detention
   // terms, scale-ticket weight. Null until captured.
   pickup_window_start: string | null;
@@ -769,4 +776,14 @@ export interface CheckWiresResult {
   /** Cooldown only: minutes until another pull is allowed. */
   next_check_in_minutes: number | null;
   reason: string | null;
+}
+
+/** Trip intake (migration 00061): one dispatcher requirement on a load. */
+export interface LoadTask extends BaseRow {
+  load_id: string;
+  text: string;
+  stop_kind: "pickup" | "delivery" | "every_stop" | null;
+  sort_order: number;
+  /** Set only when the owner records it done. */
+  done_at: string | null;
 }

@@ -1,4 +1,4 @@
-# Trip Intake and confirmation lifecycle — design (Phase A fixed; B–D not built)
+# Trip Intake and confirmation lifecycle — design (Phases A–C built; D partly)
 
 Status: 2026-11-06. Source: King's audit of the Trip 1852 transcript, with the
 claims below re-verified against `main` before acting.
@@ -7,13 +7,13 @@ claims below re-verified against `main` before acting.
 
 | # | Claim | Verified in code | Status |
 |---|---|---|---|
-| 1 | A YES resolves the OLDEST pending action company-wide, any channel | `store.ts` `loadPendingRows`: `company_id` only, `created_at asc` | **OPEN (Phase B)** |
+| 1 | A YES resolves the OLDEST pending action company-wide, any channel | `store.ts` `loadPendingRows`: `company_id` only, `created_at asc` | **FIXED (Phase B, owner-approved 2026-11-06)**: a bare yes/no targets the most recently shown proposal; with several open and none shown in the last 10 min it executes nothing and lists them |
 | 2 | Proposals are stored without `validateArgs`; a broker NAME reached a uuid field | `agent-loop.ts` stored `writeArgs` raw | **FIXED (Phase A)**: validated before staging; invalid → model told, nothing shown/stored |
 | 3 | `list_contacts` returned names only, so ids could not be found | `tools.ts` selected `name` | **FIXED (Phase A)**: returns `[id] name` |
 | 4 | A failed write discarded the proposal | `resolvePending` cleared first | **FIXED (Phase A)**: failure re-stages the same proposal and says so |
-| 5 | "No, remove that" became a delete-load proposal | prompt had no cancel≠delete rule | **MITIGATED (Phase A)**: prompt rule; hard guard is Phase B |
+| 5 | "No, remove that" became a delete-load proposal | prompt had no cancel≠delete rule | **FIXED**: a leading "No" cancels the waiting proposal in code and any `delete_record` proposed in that turn is discarded |
 | 6 | English dispatch got a Spanish reply draft | model-selected language trusted | OPEN (Phase D) |
-| 7 | Load has no trip number / broker reference / deadhead+loaded miles / per-stop state | schema | OPEN (Phase C) |
+| 7 | Load has no trip number / broker reference / deadhead+loaded miles / per-stop state | schema | **BUILT (Phase C, migration 00061 — NOT applied)**: trip_number, broker_reference, deadhead/loaded miles (numeric 2dp), pickup_tz/delivery_tz, `load_tasks`. Per-stop arrival/departure already exist as detention stamps; a separate per-stop dispatcher-approval record is NOT built — approval is never assumed and stays a task the owner ticks |
 
 Not verified here: live `bot_pending_actions` rows and which commit Fly runs.
 
@@ -62,3 +62,17 @@ suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language
 1. Approve Phase C's migration shape (trip number/reference/miles columns +
    `load_stops` + `load_tasks`).
 2. Approve "bare YES targets the last-shown proposal; ambiguity lists them".
+
+## 6. Built 2026-11-06 (owner approved both decisions)
+
+- Phase B: targeting + ambiguity listing + cancel-in-code (tests in `agent-turn.test.ts`).
+  Failed writes keep their proposal. Expiry behavior unchanged (2 h).
+- Phase C: migration `00061_trip_intake.sql` (the Employer Pay Profile migration
+  therefore moves to 00062); `create_load` takes the new fields and a `tasks`
+  list saved in the same yes; Load detail shows trip, reference, exact miles,
+  appointments in the facility's own zone, and a Trip tasks checklist
+  (`/api/v1/load-tasks`). Frontend + bot + API ship together.
+- Still open: Phase D language enforcement (Spanish draft for an English
+  dispatch message); a structured multi-stop (3+) model; a forwarded-dispatch
+  trigger that calls `create_load` with the trip fields is a prompt/extraction
+  behavior and needs a real forwarded message to tune.

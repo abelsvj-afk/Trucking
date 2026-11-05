@@ -28,12 +28,66 @@ import { useApiList } from "@/lib/use-api-list";
 import { useLiveVersion } from "@/lib/use-live";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, Truck } from "@/types/entities";
+import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, LoadTask, Truck } from "@/types/entities";
 import type { DetentionSummary } from "@/lib/detention";
 import type { PaperworkState } from "@/lib/paperwork";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** An appointment in the zone it was written in (the facility's), labeled - never silently the phone's. */
+function formatInZone(iso: string, zone: string | null | undefined) {
+  if (!zone) return formatStampTime(iso);
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: zone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+    });
+  } catch {
+    return formatStampTime(iso);
+  }
+}
+
+/** The dispatcher's requirements for this trip; a task is done only when he marks it. */
+function TripTasksSection({ loadId }: { loadId: string }) {
+  const version = useLiveVersion(["load_tasks"]);
+  const [tasks, setTasks] = useState<LoadTask[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .list<LoadTask>("load-tasks", { load_id: loadId })
+      .then((r) => { if (!cancelled) setTasks([...r.data].sort((a, b) => a.sort_order - b.sort_order)); })
+      .catch(() => { if (!cancelled) setNote("Couldn't load the trip tasks."); });
+    return () => { cancelled = true; };
+  }, [loadId, version]);
+  if (note) return <p role="alert">{note}</p>;
+  if (!tasks || tasks.length === 0) return null;
+  async function toggle(task: LoadTask) {
+    setNote(null);
+    try {
+      const updated = await apiClient.update<LoadTask>("load-tasks", task.id, { done_at: task.done_at ? null : new Date().toISOString() });
+      setTasks((prev) => (prev ? prev.map((t) => (t.id === task.id ? { ...t, ...updated } : t)) : prev));
+    } catch {
+      setNote("Couldn't save that. Try again.");
+    }
+  }
+  return (
+    <section aria-label="Trip tasks">
+      <h2>Trip tasks</h2>
+      <ul className="record-list">
+        {tasks.map((t) => (
+          <li key={t.id}>
+            <label>
+              <input type="checkbox" checked={Boolean(t.done_at)} onChange={() => void toggle(t)} /> {t.text}
+              {t.stop_kind && t.stop_kind !== "every_stop" ? ` (${t.stop_kind})` : ""}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <p className="row-sub">A task is done only when you tick it. The dispatcher&apos;s approval is never assumed.</p>
+    </section>
+  );
 }
 
 function formatStampTime(iso: string) {
@@ -282,10 +336,21 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
       <section aria-label="Load facts">
         <h2>The load</h2>
         <dl>
+          {load.trip_number && (<><dt>Trip</dt><dd>{load.trip_number}</dd></>)}
+          {load.broker_reference && (<><dt>Broker ref</dt><dd>{load.broker_reference}</dd></>)}
           <dt>Rate</dt>
           <dd>{load.rate_cents != null ? formatDollars(load.rate_cents) : "—"}</dd>
           <dt>Miles</dt>
           <dd>{load.miles != null ? load.miles.toLocaleString("en-US") : "—"}</dd>
+          {(load.deadhead_miles != null || load.loaded_miles != null) && (
+            <>
+              <dt>Deadhead / loaded</dt>
+              <dd>
+                {load.deadhead_miles != null ? `${load.deadhead_miles.toFixed(2)} mi` : "—"} /{" "}
+                {load.loaded_miles != null ? `${load.loaded_miles.toFixed(2)} mi` : "—"}
+              </dd>
+            </>
+          )}
           <dt>Per mile</dt>
           <dd>
             {load.rate_cents != null && load.miles != null && load.miles > 0
@@ -309,10 +374,10 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
         {(load.pickup_window_start || load.delivery_window_start) && (
           <p className="row-sub">
             {load.pickup_window_start &&
-              `Pickup window ${formatStampTime(load.pickup_window_start)} – ${load.pickup_window_end ? formatStampTime(load.pickup_window_end) : "?"}`}
+              `Pickup window ${formatInZone(load.pickup_window_start, load.pickup_tz)} – ${load.pickup_window_end ? formatInZone(load.pickup_window_end, load.pickup_tz) : "?"}`}
             {load.pickup_window_start && load.delivery_window_start ? " · " : ""}
             {load.delivery_window_start &&
-              `Delivery window ${formatStampTime(load.delivery_window_start)} – ${load.delivery_window_end ? formatStampTime(load.delivery_window_end) : "?"}`}
+              `Delivery window ${formatInZone(load.delivery_window_start, load.delivery_tz)} – ${load.delivery_window_end ? formatInZone(load.delivery_window_end, load.delivery_tz) : "?"}`}
           </p>
         )}
         {load.weight_lbs != null && (
@@ -322,6 +387,8 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
       </section>
 
       <LoadStatusSection key={`status-${load.id}-${load.status}`} load={load} onChanged={setLoad} />
+
+      <TripTasksSection loadId={load.id} />
 
       <DetentionSection load={load} />
 

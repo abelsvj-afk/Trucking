@@ -162,7 +162,10 @@ export interface BotBrainStore extends TelegramStore {
   /** The shared timeline: recent turns across BOTH channels, oldest first. */
   loadConversationHistory(limit?: number): Promise<BotChatTurn[]>;
   saveConversationMessage(role: "user" | "assistant", text: string): Promise<void>;
+  /** The TARGET of a bare yes/no: the most recently shown pending proposal (not the oldest). */
   loadPendingAction(): Promise<PendingAction | null>;
+  /** Every open proposal (a dump batch counts once), oldest first - used to ask "which one?" when it is unclear. */
+  loadOpenPendingGroups(): Promise<{ key: string; toolName: string; summary: string; createdAt: string }[]>;
   /** §9: every pending item of the oldest pending dump batch (empty when the oldest pending proposal is a single, or none is pending). */
   loadPendingBatch(): Promise<PendingAction[]>;
   savePendingAction(action: {
@@ -333,6 +336,31 @@ export function createBotStore(
 
   const PENDING_BASE_COLUMNS = "id, tool_name, arguments, summary, channel, created_at";
   const PENDING_BATCH_COLUMNS = `${PENDING_BASE_COLUMNS}, batch_id, item_number, source_quote, confidence`;
+
+  /**
+   * Pending rows grouped into what the owner sees as ONE proposal (a dump
+   * batch is one group; a single proposal is its own), ordered oldest first
+   * by the group's newest row. A bare yes/no targets the LAST group - what
+   * was most recently shown - never the oldest (Trip 1852 audit, P1).
+   */
+  function groupPending(rows: PendingAction[]): PendingAction[][] {
+    const groups = new Map<string, PendingAction[]>();
+    for (const row of rows) {
+      const key = row.batch_id ?? row.id;
+      const list = groups.get(key) ?? [];
+      list.push(row);
+      groups.set(key, list);
+    }
+    const list = [...groups.values()].map((g) => g.sort((a, b) => (a.item_number ?? 0) - (b.item_number ?? 0)));
+    return list.sort((a, b) => Date.parse(newestCreatedAt(a)) - Date.parse(newestCreatedAt(b)));
+  }
+  function newestCreatedAt(group: PendingAction[]): string {
+    return group.reduce((m, r) => (r.created_at > m ? r.created_at : m), group[0]!.created_at);
+  }
+  async function targetGroup(): Promise<PendingAction[] | null> {
+    const groups = groupPending(await loadPendingRows());
+    return groups.length > 0 ? groups[groups.length - 1]! : null;
+  }
 
   async function loadPendingRows(): Promise<PendingAction[]> {
     const runQuery = (columns: string) =>
@@ -568,17 +596,23 @@ export function createBotStore(
     },
 
     async loadPendingAction() {
-      const rows = await loadPendingRows();
-      return rows[0] ?? null;
+      return (await targetGroup())?.[0] ?? null;
     },
 
     async loadPendingBatch() {
-      const rows = await loadPendingRows();
-      const first = rows[0];
+      const group = await targetGroup();
+      const first = group?.[0];
       if (!first || !first.batch_id) return [];
-      return rows
-        .filter((row) => row.batch_id === first.batch_id)
-        .sort((a, b) => (a.item_number ?? 0) - (b.item_number ?? 0));
+      return group!;
+    },
+
+    async loadOpenPendingGroups() {
+      return groupPending(await loadPendingRows()).map((g) => ({
+        key: g[0]!.batch_id ?? g[0]!.id,
+        toolName: g[0]!.tool_name,
+        summary: g.length > 1 ? `${g.length} items: ${g.map((r) => r.summary).join("; ")}` : g[0]!.summary,
+        createdAt: newestCreatedAt(g),
+      }));
     },
 
     async savePendingAction(action) {

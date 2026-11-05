@@ -47,7 +47,7 @@ function matches(row: Row, filters: Filter[]): boolean {
 
 class FakeQuery {
   private op: "select" | "insert" | "update" = "select";
-  private payload: Row | null = null;
+  private payload: Row | Row[] | null = null;
   private filters: Filter[] = [];
   private orderCol: string | null = null;
   private orderAsc = true;
@@ -66,7 +66,7 @@ class FakeQuery {
     if (opts?.count) this.wantCount = true;
     return this;
   }
-  insert(payload: Row) {
+  insert(payload: Row | Row[]) {
     this.op = "insert";
     this.payload = payload;
     return this;
@@ -108,6 +108,12 @@ class FakeQuery {
 
   private execute(single: boolean, maybe: boolean) {
     const rows = (this.db[this.table] ??= []);
+    if (this.op === "insert" && Array.isArray(this.payload)) {
+      for (const item of this.payload as Row[]) {
+        rows.push({ id: `row-${rows.length + 1}-${Math.random().toString(36).slice(2, 8)}`, created_at: this.nextStamp(), ...item });
+      }
+      return { data: null, error: null, count: null };
+    }
     if (this.op === "insert") {
       const row: Row = {
         id: `row-${rows.length + 1}-${Math.random().toString(36).slice(2, 8)}`,
@@ -283,6 +289,83 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     const open = db.bot_pending_actions!.filter((r) => !r.deleted_at);
     expect(open).toHaveLength(1);
     expect(open[0]).toMatchObject({ tool_name: "create_expense", summary: "Expense: broken" });
+  });
+
+  it("a bare yes targets the proposal just shown, not the oldest one waiting", async () => {
+    const seed = baseSeed(true);
+    const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    seed.bot_pending_actions = [
+      { id: "old", company_id: COMPANY, channel: "web", tool_name: "create_expense", arguments: { category: "tolls", amount_dollars: 11 }, summary: "Expense: $11.00 (tolls)", created_at: ago(90), deleted_at: null },
+      { id: "new", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: ago(1), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("$88.00");
+    expect(db.expenses).toHaveLength(1);
+    expect(db.expenses![0]).toMatchObject({ category: "repairs" });
+    expect(db.bot_pending_actions!.filter((r) => !r.deleted_at).map((r) => r.id)).toEqual(["old"]);
+  });
+
+  it("with several waiting and none shown recently, a bare yes executes nothing and asks which", async () => {
+    const seed = baseSeed(true);
+    const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    seed.bot_pending_actions = [
+      { id: "a", company_id: COMPANY, channel: "web", tool_name: "create_expense", arguments: { category: "tolls", amount_dollars: 11 }, summary: "Expense: $11.00 (tolls)", created_at: ago(60), deleted_at: null },
+      { id: "b", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: ago(30), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("not sure which one");
+    expect(out.reply).toContain("$11.00");
+    expect(out.reply).toContain("$88.00");
+    expect(db.expenses ?? []).toHaveLength(0);
+    expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(2);
+  });
+
+  it("'No. Remove that. Add this' cancels the waiting suggestion and can never become a delete of a saved load", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "m", company_id: COMPANY, channel: "telegram", tool_name: "save_memory", arguments: { kind: "fact", content: "old mileage" }, summary: "Remember: old mileage", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "c1", name: "delete_record", arguments: JSON.stringify({ record_type: "load", record_id: "00000000-0000-4000-8000-000000000001", confirmation: "propose" }) }] },
+      { text: "Okay, send me the trip details.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("No. Remove that. Add this trip: Bekaert to Fort Pierce"));
+    expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
+    expect(out.reply).not.toMatch(/delete/i);
+  });
+
+  it("Trip 1852: one yes saves the load with trip number, reference, exact miles, zones - and its tasks", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [];
+    seed.load_tasks = [];
+    seed.bot_pending_actions = [
+      {
+        id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load",
+        arguments: {
+          origin: "Van Buren, AR", destination: "Fort Pierce, FL",
+          trip_number: "1852", broker_reference: "ACCENT12558481",
+          deadhead_miles: 120, loaded_miles: 1213.91, miles: 1334,
+          pickup_tz: "America/Chicago", delivery_tz: "America/New_York",
+          tasks: ["Send trailer and seal photos at each stop", "Send signed BOL to the dispatch group"],
+        },
+        summary: "Load (trip 1852): Van Buren, AR → Fort Pierce, FL", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null,
+      },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("Done");
+    expect(out.reply).toContain("2 trip tasks");
+    expect(db.loads).toHaveLength(1);
+    expect(db.loads![0]).toMatchObject({ trip_number: "1852", broker_reference: "ACCENT12558481", deadhead_miles: 120, loaded_miles: 1213.91, pickup_tz: "America/Chicago" });
+    expect(db.load_tasks).toHaveLength(2);
+    expect(db.load_tasks![0]).toMatchObject({ load_id: db.loads![0]!.id });
+    expect(db.load_tasks!.every((t) => !t.done_at)).toBe(true);
   });
 
   it("drops the proposal on no - nothing is ever written", async () => {

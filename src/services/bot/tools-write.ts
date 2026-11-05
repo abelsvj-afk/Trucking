@@ -231,12 +231,21 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     destination_state: z.string().length(2).optional(),
     pickup_facility_id: uuid.nullable().optional(),
     delivery_facility_id: uuid.nullable().optional(),
+    // Trip intake (migration 00061)
+    trip_number: z.string().min(1).optional(),
+    broker_reference: z.string().min(1).optional(),
+    deadhead_miles: z.number().nonnegative().optional(),
+    loaded_miles: z.number().nonnegative().optional(),
+    pickup_tz: z.string().min(1).optional(),
+    delivery_tz: z.string().min(1).optional(),
   };
   const createLoadBot = z
     .object({
       ...loadBotFields,
       origin: z.string().min(1, "origin is required."),
       destination: z.string().min(1, "destination is required."),
+      // The dispatcher's requirements, saved with the load in the same yes.
+      tasks: z.array(z.string().trim().min(1)).max(30).optional(),
     })
     .refine(
       (d) => !d.pickup_date || !d.delivery_date || d.delivery_date >= d.pickup_date,
@@ -249,7 +258,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       { message: "delivery_date must not be before pickup_date.", path: ["delivery_date"] },
     );
   const loadToRow = (args: Row): Row => {
-    const { rate_dollars, detention_rate_dollars, ...rest } = definedOnly(args);
+    const { rate_dollars, detention_rate_dollars, tasks: _tasks, ...rest } = definedOnly(args);
+    void _tasks;
     const row: Row = { ...rest };
     if (rate_dollars !== undefined) row.rate_cents = Math.round(Number(rate_dollars) * 100);
     if (detention_rate_dollars !== undefined) {
@@ -279,6 +289,12 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     truck_id: { type: "string" },
     driver_id: { type: "string" },
     notes: { type: "string" },
+    trip_number: { type: "string", description: "The dispatcher's trip/assignment number (e.g. 1852). NOT the broker's name and NOT the reference." },
+    broker_reference: { type: "string", description: "The broker's reference/PRO number for this load (e.g. ACCENT12558481)." },
+    deadhead_miles: { type: "number", description: "Empty miles to the pickup, exact (e.g. 120.00)." },
+    loaded_miles: { type: "number", description: "Loaded miles pickup to delivery, exact (e.g. 1213.91). Set miles to the rounded total." },
+    pickup_tz: { type: "string", description: "IANA zone of the pickup appointment as written (e.g. America/Chicago for CST at Van Buren AR)." },
+    delivery_tz: { type: "string", description: "IANA zone of the delivery appointment as written (e.g. America/New_York)." },
   };
 
   tools.push(
@@ -286,14 +302,36 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       name: "create_load",
       description:
         "Create a load in his books (Loads tab). Origin and destination are required; everything else can be filled in later. Leave fields he didn't mention out entirely - never guess a rate, date, or id.",
-      parameters: { type: "object", properties: loadParams, required: ["origin", "destination"] },
+      parameters: {
+        type: "object",
+        properties: {
+          ...loadParams,
+          tasks: { type: "array", items: { type: "string" }, description: "Dispatcher requirements for this trip, one per item (photos, seal, signed BOL, status at every stop, wait for approval before leaving). Only what the message states." },
+        },
+        required: ["origin", "destination"],
+      },
       botSchema: createLoadBot,
+      afterCreate: async (args, id) => {
+        const tasks = Array.isArray(args.tasks) ? (args.tasks as string[]) : [];
+        if (tasks.length === 0) return;
+        const { error } = await store.client.from("load_tasks").insert(
+          tasks.map((text, i) => ({ company_id: store.companyId, load_id: id, text, sort_order: i })),
+        );
+        return error
+          ? " The load is saved but its task list was not (" + error.message + ") - say so and offer to retry."
+          : ` Saved ${tasks.length} trip task${tasks.length === 1 ? "" : "s"}.`;
+      },
       table: "loads",
       label: "load",
       toRow: (args) => loadToRow(args),
       rowSchema: createLoadSchema,
       summarize: (args) =>
-        `Load: ${args.origin} → ${args.destination}` +
+        `Load${args.trip_number ? ` (trip ${args.trip_number})` : ""}: ${args.origin} → ${args.destination}` +
+        `${args.broker_reference ? `, ref ${args.broker_reference}` : ""}` +
+        `${args.pickup_window_start ? `, pickup appt ${args.pickup_window_start}${args.pickup_tz ? ` (${args.pickup_tz})` : ""}` : ""}` +
+        `${args.delivery_window_start ? `, delivery appt ${args.delivery_window_start}${args.delivery_tz ? ` (${args.delivery_tz})` : ""}` : ""}` +
+        `${typeof args.deadhead_miles === "number" || typeof args.loaded_miles === "number" ? `, miles: deadhead ${args.deadhead_miles ?? "?"} + loaded ${args.loaded_miles ?? "?"}${typeof args.miles === "number" ? ` = ${args.miles} total` : ""}` : ""}` +
+        `${Array.isArray(args.tasks) && args.tasks.length > 0 ? `, ${args.tasks.length} trip task(s)` : ""}` +
         `${args.pickup_date ? `, pickup ${args.pickup_date}` : ""}` +
         `${args.delivery_date ? `, delivery ${args.delivery_date}` : ""}` +
         `${typeof args.rate_dollars === "number" ? `, rate ${dollars(Math.round(args.rate_dollars * 100))}` : ""}`,

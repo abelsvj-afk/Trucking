@@ -57,7 +57,7 @@ company+employer where effective_to is null and deleted_at is null).
 1. Per company (recommended — one owner) vs per driver. Default: per company.
 2. Seed in the migration vs entered by the owner on first visit. Default: the
    migration seeds Steven/55¢ for company rows that have none.
-3. Migration number: next free after 00060 (00061).
+3. Migration number: next free after 00061 (00062; 00061 is trip intake).
 
 ## 6. Build order
 
