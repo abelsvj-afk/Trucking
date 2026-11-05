@@ -12,6 +12,28 @@ import { matchTrackedTopics, TRACKED_TOPICS, type PressureSignal, type TrackedTo
 
 export const GDELT_WATCHER_KEY = "gdelt_geo";
 
+/**
+ * The GDELT query is shipping/energy, but the shared topic keywords are
+ * trucking-news words, so most real shipping headlines ("Red Sea attack",
+ * "tanker seized") matched nothing and the watcher never fired. These extras
+ * apply to THIS watcher only (the shared lists also feed the industry-news and
+ * Federal Register watchers, whose meaning must not shift).
+ */
+const GEO_EXTRA_KEYWORDS: Partial<Record<TrackedTopic, string[]>> = {
+  fuel: ["oil supply", "tanker", "hormuz", "refinery", "crude"],
+  market: ["red sea", "supply chain", "port strike", "shipping lane", "container ship"],
+};
+
+/** Shared topic matches plus this watcher's shipping/energy words. */
+export function matchGeoTopics(title: string): TrackedTopic[] {
+  const hay = title.toLowerCase();
+  const topics = new Set<TrackedTopic>(matchTrackedTopics(title));
+  for (const [topic, words] of Object.entries(GEO_EXTRA_KEYWORDS) as Array<[TrackedTopic, string[]]>) {
+    if (words.some((w) => hay.includes(w))) topics.add(topic);
+  }
+  return [...topics];
+}
+
 /** Builds one burst signal per topic cluster at/above the burst floor. Pure - unit-tested. */
 export function buildGdeltSignals(
   articles: GdeltArticle[],
@@ -20,7 +42,7 @@ export function buildGdeltSignals(
 ): PressureSignal[] {
   const byTopic = new Map<TrackedTopic, GdeltArticle[]>();
   for (const article of articles) {
-    for (const topic of matchTrackedTopics(article.title)) {
+    for (const topic of matchGeoTopics(article.title)) {
       const list = byTopic.get(topic) ?? [];
       list.push(article);
       byTopic.set(topic, list);
