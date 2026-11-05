@@ -53,6 +53,7 @@ import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import type { RouteCheckRequest } from "@/data/schemas/smart-path";
 import type { DutyLog, FuelPurchase, Load, Truck } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
+import { buildCorridor, etaAtMile } from "@/lib/smart-path-corridor";
 
 export interface RouteCheckProviders {
   geocoding: GeocodingProvider;
@@ -493,6 +494,23 @@ export async function runRouteCheck(
       });
     }
   }
+  // --- corridor (intelligence Phase 1): points along the loaded route with the time he reaches each ---
+  const built = buildCorridor(route.geometry);
+  const deadheadMiles = deadheadRoute?.distanceMiles ?? 0;
+  const corridor: RouteCheckResponse["corridor"] = built.ok
+    ? {
+        totalMiles: Math.round(built.corridor.totalMiles * 10) / 10,
+        spacingMiles: built.corridor.spacingMiles,
+        points: built.corridor.points.map((pt) => ({
+          mile: Math.round(pt.mileFromStart * 10) / 10,
+          lat: pt.lat,
+          lng: pt.lng,
+          // Null (not a guess) when the plan can't be timed; deadhead miles come first when there is one.
+          etaAt: plan ? (etaAtMile(plan, departAt, deadheadMiles + pt.mileFromStart, combinedDistance)?.toISOString() ?? null) : null,
+        })),
+      }
+    : { unavailableReason: built.reason };
+
   const foodPlan = planFoodStops(foodCandidates, request.food_mode, truck?.appliances ?? []);
 
   return {
@@ -508,6 +526,7 @@ export async function runRouteCheck(
       ...(route.maneuvers ? { maneuvers: route.maneuvers } : {}),
     },
     clocks,
+    corridor,
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),

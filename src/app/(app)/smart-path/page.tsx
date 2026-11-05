@@ -510,6 +510,25 @@ function SmartPathInner() {
             </>
           )}
 
+          {result.corridor && "points" in result.corridor && result.corridor.points.length > 1 && (
+            <details>
+              <summary>Along the route — when you reach each stretch</summary>
+              <ul>
+                {result.corridor.points
+                  .filter((pt, i, all) => i === 0 || i === all.length - 1 || pt.mile % 50 === 0)
+                  .map((pt) => (
+                    <li key={pt.mile}>
+                      Mile {Math.round(pt.mile)}: {pt.etaAt ? formatEastern(new Date(pt.etaAt)) : "time unavailable"}
+                    </li>
+                  ))}
+              </ul>
+              <p className="row-sub">From the plan above (drive time, breaks and rests). Weather, fuel by region, state rules and road work will read this same line.</p>
+            </details>
+          )}
+          {result.corridor && "unavailableReason" in result.corridor && (
+            <p role="note">Along-the-route times unavailable: {result.corridor.unavailableReason}</p>
+          )}
+
           <h3>Legal</h3>
           {result.verdict.legalLines.map((line) => (
             <p key={line}>{line}</p>

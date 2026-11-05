@@ -53,6 +53,14 @@ export interface RouteCheckResponse {
    * The ELD remains the legal record (F-014).
    */
   clocks?: ClockState;
+  /**
+   * Intelligence Phase 1 (docs/design/smart-path-intelligence.md §1): evenly spaced
+   * points along the loaded route with the time he reaches each (null when the plan
+   * can't be timed), or the reason there is no corridor. The later layers read this.
+   */
+  corridor?:
+    | { totalMiles: number; spacingMiles: number; points: { mile: number; lat: number; lng: number; etaAt: string | null }[] }
+    | { unavailableReason: string };
   verdict: {
     status: RouteCheckStatus;
     assumedDriveMinutes: number;

@@ -3,7 +3,7 @@
 Status: **DRAFT for owner review** (written 2026-11-05 from the owner's standing order:
 "corridor geometry, regional fuel prices, weather and state laws on your actual route,
 then construction and road events; stale data always labeled, never silently used").
-Nothing here is built. Per CLAUDE.md the design is reviewed before code; the build
+**Phase 1 partly built (2026-11-05):** corridor points + ETA-at-mile (`lib/smart-path-corridor.ts`, `corridor` on the route-check response, an "Along the route" card on `/smart-path`). Not built yet: states-crossed (needs the bundled boundary asset) and everything in Phases 2–3. Per CLAUDE.md the design is reviewed before code; the build
 starts with Phase 1 once this is accepted (or amended). Extends
 `docs/design/driver-mvp.md` §8 (Smart Path v1, §8.5 truck-legal routing); it does not
 change the verdict's fixed priority: **legal first, rested second, paid third.**

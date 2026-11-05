@@ -174,6 +174,18 @@ describe("runRouteCheck - Piece 1 deadhead (P1-7)", () => {
     expect(response.deadhead).toBeNull();
     expect(response.verdict.leaveStartByAt).toBeNull();
   });
+
+  it("returns a corridor with a time at every point along the loaded route (intelligence Phase 1)", async () => {
+    const response = await runRouteCheck(fakeClient(), parseRequest({}), makeProviders(), NOW);
+    const corridor = response.corridor;
+    expect(corridor && "points" in corridor).toBe(true);
+    if (!corridor || !("points" in corridor)) return;
+    expect(corridor.points[0]!.mile).toBe(0);
+    expect(corridor.points[corridor.points.length - 1]!.mile).toBeCloseTo(corridor.totalMiles, 0);
+    const times = corridor.points.map((p) => p.etaAt && Date.parse(p.etaAt));
+    expect(times.every((t) => typeof t === "number")).toBe(true);
+    expect([...times].sort()).toEqual(times);
+  });
 });
 
 describe("runRouteCheck - reroute from the current position (audit D4)", () => {
