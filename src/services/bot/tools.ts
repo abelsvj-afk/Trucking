@@ -122,7 +122,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     {
       name: "money_summary",
       description:
-        "Expense and fuel totals from his records over the last N days (default 30), with an expense breakdown by category. Pass load_id to see the expenses recorded against one specific load (fuel purchases are not linked to loads in his records - say so if he asks for per-load fuel).",
+        "Expense and fuel totals from his records over the last N days (default 30), with an expense breakdown by category. Pass load_id to see the expenses AND the fuel he assigned to one specific load (fuel counts for a load only when he assigned it; unassigned fuel is in no load's figures - say so).",
       parameters: {
         type: "object",
         properties: {
@@ -175,7 +175,26 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         if (typeof args.load_id !== "string") {
           lines.push(moneyLine(`Fuel total (${fuelRows.length} purchases)`, fuelTotal));
         } else {
-          lines.push("Fuel purchases are not linked to individual loads in his records, so no per-load fuel figure exists.");
+          // Unit D (00068): only fuel he ASSIGNED to this load counts for it.
+          const assigned = await client
+            .from("fuel_purchases")
+            .select("total_cost_cents")
+            .eq("company_id", companyId)
+            .eq("load_id", args.load_id)
+            .is("deleted_at", null);
+          if (assigned.error) {
+            lines.push(
+              isMissingColumnError(assigned.error)
+                ? "Fuel can't be tied to loads yet (a database update is pending), so there is no per-load fuel figure."
+                : "Fuel assigned to this load couldn't be read just now.",
+            );
+          } else {
+            const rows = (assigned.data ?? []) as { total_cost_cents: number }[];
+            lines.push(
+              moneyLine(`Fuel he assigned to this load (${rows.length} purchase${rows.length === 1 ? "" : "s"}, any date)`, rows.reduce((t, r) => t + r.total_cost_cents, 0)),
+            );
+            lines.push("Fuel he did not assign to a load is in no load's figures.");
+          }
         }
         return lines.join("\n");
       },

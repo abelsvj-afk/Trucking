@@ -25,7 +25,7 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 
 ## B3. Reliability Unit D (design: `docs/reliability-wave1-design-package.md` Unit D)
 - BUILT + gated, NOT applied/deployed: D1 fuel `load_id` (migration **00068**, picker + never-auto "assign it?" suggestion on the fuel forms), D2 `GET /loads/[id]/economics`, D3 summary aggregates (migration **00069** replaces `financial_summary_snapshot`; "Fuel not assigned to a load" line on Money -> Summary; C.3 bridge property tested), D4 contribution-margin section on the load page + the "real profit" copy corrected (copy test added). Both migrations verified on a clean scratch Postgres 16 (all prior migrations, isolation 60/60, anon 0 grants, snapshot function checked on seeded data).
-- OWNER/KING: apply 00068 then 00069 (order matters); the Telegram bot's fuel tools do not set `load_id` (bot-lane follow-up).
+- OWNER/KING: apply 00068 then 00069 (order matters); Abel can now assign fuel to a load only when the owner says so (`update_fuel_purchase` takes an optional `load_id`; never guessed) and `money_summary` with a load reports the fuel he assigned; `create_fuel_purchase` and receipt-photo fuel still do not set a load.
 - Unit E BUILT + scratch-verified, NOT applied (`docs/tenant-integrity.md`): 00070 composite FKs (63, generated from the catalog; pre-flight aborts on any cross-company row - owner ruling then, no auto-repair), 00071 documents reference trigger (non-oracle), uniform 422 mapping, `tests/db/tenant-fk.sql` + `documents-trigger.sql`. Apply order 00068 -> 00069 -> 00070 -> 00071. The live pre-flight result is the real gate: King runs it (or just applies 00070 - it refuses safely).
 
 ## B2. Paper log (checked 2026-11-05)

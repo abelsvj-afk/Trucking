@@ -298,6 +298,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     // GAP-15: purchase state (IFTA).
     state: z.string().length(2).optional(),
     purchased_at: z.string().min(1).optional(),
+    // Unit D (00068): assigning fuel to a load is the owner's act - this tool only does it when he says so.
+    load_id: uuid.nullable().optional(),
   });
   tools.push({
     name: "update_fuel_purchase",
@@ -311,6 +313,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         location: { type: "string" },
         state: { type: "string", description: "Two-letter purchase state (IFTA)." },
         purchased_at: { type: "string", description: "ISO timestamp" },
+        load_id: { type: "string", description: "Assign this fuel to one load (uuid from list_loads), ONLY when he says it was for that load; null un-assigns. Never guess it from the date or truck." },
       },
       required: ["fuel_purchase_id"],
     },
@@ -335,6 +338,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       if (parsed.location !== undefined) patch.location = parsed.location;
       if (parsed.state !== undefined) patch.state = String(parsed.state).toUpperCase();
       if (parsed.purchased_at !== undefined) patch.purchased_at = parsed.purchased_at;
+      if (parsed.load_id !== undefined) patch.load_id = parsed.load_id;
       updateFuelPurchaseSchema.parse(patch);
       await patchLiveRow(client, "fuel_purchases", companyId, String(parsed.fuel_purchase_id), patch);
       return `Updated fuel purchase ${parsed.fuel_purchase_id} (${changedFields(parsed, "fuel_purchase_id")}).`;
