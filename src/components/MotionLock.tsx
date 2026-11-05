@@ -14,7 +14,17 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useVehicleMotion } from "@/lib/use-vehicle-motion";
+import { apiClient } from "@/lib/api-client";
+import { useHosWindow } from "@/lib/use-hos-window";
+import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
+import { decideLock, type DutyKnowledge } from "@/lib/motion-lock-policy";
+import type { DutyStatus } from "@/types/entities";
+
+const STATUS_WORDS: Record<Exclude<DutyStatus, "driving">, string> = {
+  on_duty: "On duty (not driving)",
+  off_duty: "Off duty",
+  sleeper: "Sleeper",
+};
 
 /**
  * Make every form inside `root` inert / restore them - AND every editable
@@ -53,30 +63,79 @@ export function setFormsInert(root: ParentNode, inert: boolean): number {
 }
 
 function Watcher() {
-  const motion = useVehicleMotion();
-  const moving = motion === "moving";
+  const { state: motion, speedMph } = useVehicleMotionDetail();
+  const { state: hos, refresh } = useHosWindow();
+  // The latest logged status (rows come ascending). No rows / not loaded / error: unknown -> the lock stays.
+  const duty: DutyKnowledge =
+    hos.status === "loaded" && hos.data.length > 0 ? hos.data[hos.data.length - 1]!.duty_status : "unknown";
+  const decision = decideLock(motion, duty, speedMph);
+  const locked = decision.kind === "lock";
+  const mismatchStatus = decision.kind === "mismatch" ? decision.status : null;
   const pathname = usePathname();
+  // Dismissed prompt -> slim persistent banner; forgotten once the mismatch ends.
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+
+  // Derived reset (React's "adjust state during render" pattern): once the mismatch ends, forget the dismissal.
+  if (mismatchStatus === null && dismissedFor !== null) setDismissedFor(null);
 
   useEffect(() => {
     const main = document.getElementById("main-content");
     if (!main) return;
-    setFormsInert(main, moving);
-    if (!moving) return;
-    // Forms that mount while moving (a new page, a sheet) are locked too.
+    setFormsInert(main, locked);
+    if (!locked) return;
+    // Forms that mount while locked (a new page, a sheet) are locked too.
     const observer = new MutationObserver(() => setFormsInert(main, true));
     observer.observe(main, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
       setFormsInert(main, false);
     };
-  }, [moving, pathname]);
+  }, [locked, pathname]);
 
-  if (!moving) return null;
-  return (
-    <p role="status" className="motion-lock-banner">
-      You&apos;re moving — forms and editing are locked until you stop. Reading is still on.
-    </p>
-  );
+  async function switchToDriving() {
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      await apiClient.create("duty-logs", { duty_status: "driving", started_at: new Date().toISOString() });
+      refresh(); // the status becomes Driving -> the lock engages
+    } catch {
+      setSwitchError("Couldn't switch your status. Try again.");
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  if (locked) {
+    return (
+      <p role="status" className="motion-lock-banner">
+        You&apos;re moving — forms and editing are locked until you stop. Reading is still on.
+      </p>
+    );
+  }
+  if (mismatchStatus) {
+    const label = STATUS_WORDS[mismatchStatus];
+    if (dismissedFor === mismatchStatus) {
+      return (
+        <p role="status" className="motion-lock-banner motion-lock-slim">
+          Truck is moving; your log says {label}.{" "}
+          <button type="button" onClick={() => setDismissedFor(null)}>Review</button>
+        </p>
+      );
+    }
+    return (
+      <div role="alert" className="motion-lock-banner">
+        <p>The truck is moving, but your status says <strong>{label}</strong>. Switch to Driving?</p>
+        <button type="button" onClick={() => void switchToDriving()} disabled={switching}>
+          {switching ? "Switching…" : "Switch to Driving"}
+        </button>{" "}
+        <button type="button" onClick={() => setDismissedFor(mismatchStatus)}>Not now</button>
+        {switchError && <p role="alert">{switchError}</p>}
+      </div>
+    );
+  }
+  return null;
 }
 
 export default function MotionLock() {

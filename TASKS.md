@@ -258,3 +258,4 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Documents per trip + trailer assignment 2026-11-05: Load page Documents section (thumbnails by type, preview, upload inside a form so the driving lock covers it); trailer on drivers and loads (migration 00066 NOT applied), pickers, Abel tools. Truck assignment and photos already existed.
 - [x] SAF-1 motion lock now covers editable controls outside forms (audit Wave 4). AI kill switches exempt (decision recorded; owner may overrule).
 - [x] Wave 4: tests/db/rls-isolation.sql covers every company_id table (0 violations on scratch; mutation-checked). King runs it live (D-3).
+- [x] Duty-aware MotionLock 2026-11-05 (item 1 of King's relay): lib/motion-lock-policy + prompt; all status x motion x speed tested; HUD/Drive unchanged.

@@ -87,6 +87,14 @@ source exists).
   under 45 s old (`GET /api/v1/position`). Honest limit: it only works while he
   is sharing; with no share there is no background tracking.
 
+### Duty-aware app-wide lock (owner request 2026-11-05, relayed by King)
+
+`MotionLock` (forms and editable controls) now looks at the logged duty status too (`lib/motion-lock-policy.ts`):
+- **Driving, or no/unknown status** + moving -> locked (unchanged).
+- **On duty (not driving), Off duty, Sleeper** + moving **slowly** (< 15 mph) -> no hard lock: a prompt says "the truck is moving, but your status says X — Switch to Driving?" (one tap logs Driving now and the lock follows); "Not now" leaves forms open under a slim persistent banner.
+- The same non-driving status at **15 mph or more, or with no speed reading** -> still locked. This is the one deliberate narrowing of the request: a mislogged status must not unlock a truck at road speed. The owner may change `MISMATCH_MAX_MPH`.
+- **Unchanged and still strictly fail-closed:** the Home HUD status sheet and Drive Mode (`StoppedGate`, `DriveGlance`). `DriveStatusPrompt` already offers only statuses other than the current one and appears only on the preview/parked screens, so it needed no change.
+
 ### GPS "fidget" fix and the bubble (owner report 2026-11-05)
 
 Parked, the phone's position wanders and its speed flickers (and some phones

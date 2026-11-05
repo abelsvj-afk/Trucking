@@ -65,6 +65,8 @@ export interface MotionEstimate {
   lastGoodFixMs: number | null;
   /** True until movement has been observed in this session (cold start). */
   neverMoved: boolean;
+  /** The phone's most recent reported speed from a usable fix (null when it gave none). */
+  lastSpeedMph: number | null;
   /** The point to DRAW: pinned to the anchor while parked, so the icon doesn't jitter. */
   displayPoint: { lat: number; lng: number } | null;
 }
@@ -77,6 +79,7 @@ export const NO_ESTIMATE: MotionEstimate = {
   fastCount: 0,
   lastGoodFixMs: null,
   neverMoved: true,
+  lastSpeedMph: null,
   displayPoint: null,
 };
 
@@ -88,7 +91,7 @@ function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: n
   return haversineMiles(a, b) * METERS_PER_MILE;
 }
 
-export function stepMotion(prev: MotionEstimate, fix: MotionFix): MotionEstimate {
+function stepMotionCore(prev: MotionEstimate, fix: MotionFix): Omit<MotionEstimate, "lastSpeedMph"> & Partial<Pick<MotionEstimate, "lastSpeedMph">> {
   // A poor fix is no evidence either way: it neither starts nor ends a stop.
   if (!Number.isFinite(fix.accuracyM) || fix.accuracyM > MAX_USABLE_ACCURACY_M) return prev;
 
@@ -190,4 +193,13 @@ export function motionState(est: MotionEstimate, nowMs: number): MotionState {
   if (est.stoppedSinceMs === null) return "unknown";
   const hold = est.neverMoved ? COLD_START_SETTLE_MS : STOP_SETTLE_MS;
   return nowMs - est.stoppedSinceMs >= hold ? "stopped" : "moving";
+}
+
+/** Steps the estimate and remembers the usable fix's reported speed (used to tell a dock creep from road speed). */
+export function stepMotion(prev: MotionEstimate, fix: MotionFix): MotionEstimate {
+  const next = stepMotionCore(prev, fix);
+  // A poor fix returns `prev` untouched; only a usable fix updates the speed.
+  if (next === (prev as unknown)) return prev;
+  const speed = fix.speedMph !== null && Number.isFinite(fix.speedMph) && fix.speedMph >= 0 ? fix.speedMph : null;
+  return { ...next, lastSpeedMph: speed };
 }

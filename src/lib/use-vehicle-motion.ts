@@ -23,6 +23,8 @@ export interface VehicleMotionDetail {
   state: MotionState;
   /** The latest fix, or null when there isn't one (never a stale guess presented as live). */
   position: VehiclePosition | null;
+  /** The latest usable fix's reported speed, or null when none/none given. */
+  speedMph: number | null;
 }
 
 /** Motion state only (the safety decision). */
@@ -33,6 +35,7 @@ export function useVehicleMotion(): MotionState {
 export function useVehicleMotionDetail(): VehicleMotionDetail {
   const [state, setState] = useState<MotionState>("unknown");
   const [position, setPosition] = useState<VehiclePosition | null>(null);
+  const [speedMph, setSpeedMph] = useState<number | null>(null);
   // The bubble estimator (lib/motion-estimator): wander inside the bubble
   // around where he stopped is not movement; see that file for the rules.
   const estimateRef = useRef<MotionEstimate>(NO_ESTIMATE);
@@ -57,6 +60,7 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
             speedMph: s !== null && s >= 0 ? s * MPS_TO_MPH : null,
           });
           estimateRef.current = next;
+          setSpeedMph(next.lastSpeedMph);
           // A poor fix leaves the estimate untouched; the position shown is the
           // estimate's (pinned while parked), not the raw wobbling reading.
           const shown = next.displayPoint ?? { lat: fix.coords.latitude, lng: fix.coords.longitude };
@@ -66,6 +70,7 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
         () => {
           estimateRef.current = NO_ESTIMATE;
           setPosition(null);
+          setSpeedMph(null);
           evaluate();
         },
         // High accuracy: the network-based fix a "low accuracy" request gets can
@@ -87,6 +92,7 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
         stop();
         estimateRef.current = NO_ESTIMATE;
         setPosition(null);
+        setSpeedMph(null);
         setState("unknown");
       } else {
         start();
@@ -100,5 +106,5 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
     };
   }, []);
 
-  return { state, position };
+  return { state, position, speedMph };
 }

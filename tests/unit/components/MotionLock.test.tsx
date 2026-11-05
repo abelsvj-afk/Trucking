@@ -9,13 +9,26 @@ afterEach(() => {
   delete navigator.permissions;
 });
 
-const motionHolder: { state: "moving" | "stopped" | "unknown" } = { state: "stopped" };
+const motionHolder: { state: "moving" | "stopped" | "unknown"; speed: number | null; duty: string | null } = { state: "stopped", speed: 40, duty: "driving" };
 const motionHookCalls = vi.fn();
+const createCalls: unknown[] = [];
 vi.mock("@/lib/use-vehicle-motion", () => ({
-  useVehicleMotion: () => {
+  useVehicleMotionDetail: () => {
     motionHookCalls();
-    return motionHolder.state;
+    return { state: motionHolder.state, position: null, speedMph: motionHolder.speed };
   },
+}));
+vi.mock("@/lib/use-hos-window", () => ({
+  useHosWindow: () => ({
+    state: motionHolder.duty === "loading"
+      ? { status: "loading" }
+      : { status: "loaded", data: motionHolder.duty ? [{ duty_status: motionHolder.duty, started_at: "2026-11-05T10:00:00Z" }] : [], hos: {} },
+    refresh: vi.fn(),
+    retry: vi.fn(),
+  }),
+}));
+vi.mock("@/lib/api-client", () => ({
+  apiClient: { create: vi.fn(async (r: string, b: unknown) => (createCalls.push({ r, b }), {})) },
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/money/expenses/new" }));
 
@@ -56,7 +69,10 @@ async function mount(ui: React.ReactElement) {
 
 beforeEach(() => {
   motionHolder.state = "stopped";
+  motionHolder.speed = 40;
+  motionHolder.duty = "driving"; // existing tests assume a Driving log (today's lock)
   motionHookCalls.mockClear();
+  createCalls.length = 0;
 });
 
 describe("MotionLock (app-wide driving lock)", () => {
@@ -163,5 +179,69 @@ describe("MotionLock (app-wide driving lock)", () => {
     );
     await act(async () => {});
     expect(screen.getByLabelText("Loose editor").hasAttribute("inert")).toBe(false);
+  });
+
+  // ---- duty-aware lock (owner request 2026-11-05) -----------------------------
+  describe("duty-aware: every status x motion x speed", () => {
+    const run = async (duty: string | null, state: "moving" | "stopped" | "unknown", speed: number | null) => {
+      setPermission("granted");
+      motionHolder.duty = duty;
+      motionHolder.state = state;
+      motionHolder.speed = speed;
+      await mount(<Page />);
+      return screen.getByRole("form", { name: "Expense" }).hasAttribute("inert");
+    };
+
+    it("Driving + moving: locked (today's behavior)", async () => {
+      expect(await run("driving", "moving", 5)).toBe(true);
+      cleanup();
+      expect(await run("driving", "moving", 60)).toBe(true);
+    });
+
+    it("no status, unknown status or a not-yet-loaded window + moving: locked (nothing is assumed)", async () => {
+      expect(await run(null, "moving", 5)).toBe(true);
+      cleanup();
+      expect(await run("loading", "moving", 5)).toBe(true);
+    });
+
+    for (const duty of ["on_duty", "off_duty", "sleeper"] as const) {
+      it(`${duty} + moving SLOWLY: no hard lock - forms stay open and the app asks`, async () => {
+        expect(await run(duty, "moving", 4)).toBe(false);
+        expect(screen.getByRole("alert").textContent).toMatch(/truck is moving, but your status says/i);
+        expect(screen.getByText("Switch to Driving")).toBeTruthy();
+      });
+
+      it(`${duty} + moving at road speed or with no speed reading: still locked (a mislogged status can't unlock a moving truck)`, async () => {
+        expect(await run(duty, "moving", 30)).toBe(true);
+        cleanup();
+        expect(await run(duty, "moving", null)).toBe(true);
+      });
+
+      it(`${duty} + stopped or unknown motion: nothing`, async () => {
+        expect(await run(duty, "stopped", 0)).toBe(false);
+        expect(screen.queryByRole("alert")).toBeNull();
+        cleanup();
+        expect(await run(duty, "unknown", null)).toBe(false);
+      });
+    }
+
+    it("'Switch to Driving' logs Driving now with one tap", async () => {
+      await run("on_duty", "moving", 3);
+      await act(async () => {
+        screen.getByText("Switch to Driving").click();
+      });
+      expect(createCalls).toHaveLength(1);
+      expect(createCalls[0]).toMatchObject({ r: "duty-logs", b: { duty_status: "driving" } });
+    });
+
+    it("'Not now' leaves forms open under a slim persistent banner", async () => {
+      await run("off_duty", "moving", 3);
+      await act(async () => {
+        screen.getByText("Not now").click();
+      });
+      expect(screen.getByRole("form", { name: "Expense" }).hasAttribute("inert")).toBe(false);
+      expect(screen.getByRole("status").textContent).toMatch(/Truck is moving; your log says Off duty/);
+      expect(screen.queryByText("Switch to Driving")).toBeNull();
+    });
   });
 });
