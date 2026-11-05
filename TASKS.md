@@ -260,3 +260,4 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Wave 4: tests/db/rls-isolation.sql covers every company_id table (0 violations on scratch; mutation-checked). King runs it live (D-3).
 - [x] Duty-aware MotionLock 2026-11-05 (item 1 of King's relay): lib/motion-lock-policy + prompt; all status x motion x speed tested; HUD/Drive unchanged.
 - [x] Isolation follow-through 2026-11-05: 00067 revokes anon writes; rls-isolation.sql complete-row probes + anon claim cleared + replication-role reset wrapped; anon-privileges.sql. The 'four anon-writable tables' reproduced as a test artifact (claim left set).
+- OPEN WORK QUEUE (never drop): see docs/work-queue.md
