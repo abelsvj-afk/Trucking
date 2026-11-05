@@ -967,3 +967,22 @@ Wave 0 item.
 Reconciliation ranges in §1, §6 and Phase 6 that end at migration 00061
 should read **00045–00063**: 00061 is trip intake, 00062 is load stops,
 00063 is employer pay profiles.
+
+### 11.8 Postscript (King, 2026-11-05) — §11.1/§11.2 items closed
+
+- The §11.2 required fix landed: the seed insert and the "owner-approved
+  seed" header claim were removed from `00063_employer_pay_profiles.sql`
+  (commit `5c1ce508`); the file on main is structure-only.
+- King applied 00063 on 2026-11-05 (probe-verified) and created the
+  current employer's profile **as live data** (55 cents/mile, effective
+  2026-11-03; mile_basis, worker_type and fuel_paid_by NULL/unset). No
+  employer name or rate exists in the repository.
+- Migration 00064 (thread role rewrite, from the employer-agnostic code
+  pass) was applied by King the same day; verification counts show zero
+  stored person-named role values in `forward_threads` and
+  `forward_thread_messages`.
+- The live migration ledger is therefore complete: every migration file
+  on main (00001–00064) is applied and verified. Since this audit's
+  baseline, the employer-agnostic code pass (`03db21f6`, `d59a0048`) and
+  the Wave 1–3 documentation reconciliation (`36ee0cbd`, `3fbd5b3f`,
+  `fcc7573d`) have also landed.
