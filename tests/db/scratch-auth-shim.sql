@@ -6,5 +6,3 @@ create or replace function auth.uid() returns uuid language sql stable as $$
 $$;
 grant usage on schema auth, private to anon, authenticated;
 grant execute on function auth.uid() to anon, authenticated;
-grant select, insert, update, delete on all tables in schema public to authenticated;
-grant select on all tables in schema public to anon;
