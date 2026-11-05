@@ -103,6 +103,21 @@ begin
       end if;
     end loop;
 
+    -- Tables with an "exactly one of truck_id / trailer_id" CHECK need one of them in a complete row
+    -- (they were the four unseedable tables; FK triggers are off while seeding, and an own-company
+    -- insert that then fails the composite FK is tolerated above - it is not an RLS refusal).
+    if exists (select 1 from pg_constraint k where k.conrelid = format('public.%I', t)::regclass and k.contype = 'c'
+               and k.conname like '%exactly_one_vehicle') then
+      cols := cols || ', truck_id';
+      vals_tpl := vals_tpl || ', gen_random_uuid()';
+    end if;
+    -- maintenance_schedules also needs "an interval" (miles or days).
+    if exists (select 1 from pg_constraint k where k.conrelid = format('public.%I', t)::regclass and k.contype = 'c'
+               and k.conname like '%has_an_interval') then
+      cols := cols || ', interval_days';
+      vals_tpl := vals_tpl || ', 1';
+    end if;
+
     -- seed a company-B row (superuser only; FK triggers off). Never aborts the run.
     seeded := false;
     begin

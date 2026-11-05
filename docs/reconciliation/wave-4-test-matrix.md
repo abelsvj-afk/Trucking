@@ -88,7 +88,7 @@ Each path below runs with RLS bypassed and scopes to a company only in code. For
 5. `financial-summary-pool` and `industry-briefing-pool` roles: least-privilege grants (list the exact grants; prove no write outside intended tables).
 6. `driver_positions` upsert is keyed `(company_id, source)`; a second company never overwrites the first.
 
-**Status (2026-11-05):** item 1 is covered at the *query* level by `tests/unit/services/bot/store-company-scope.test.ts` - a recording client drives every method of the brain store AND every bot tool and asserts each executed query is scoped to the configured company (reads/updates/deletes carry `company_id`, writes stamp it). Mutation check: removing one `.eq("company_id", ...)` from `loadMemories` fails it. It does not read a real database, so it proves no query *asks* for another company's rows, not that two seeded companies stay separate end to end; items 2-6 remain open.
+**Status (2026-11-05):** item 1 is covered at the *query* level by `tests/unit/services/bot/store-company-scope.test.ts` - a recording client drives every method of the brain store AND every bot tool and asserts each executed query is scoped to the configured company (reads/updates/deletes carry `company_id`, writes stamp it). Mutation check: removing one `.eq("company_id", ...)` from `loadMemories` fails it. It does not read a real database, so it proves no query *asks* for another company's rows, not that two seeded companies stay separate end to end; item 6 is covered by `tests/db/driver-positions.sql`, item 4 by the existing internal-route tests; items 2, 3 and 5 remain open. The seeders for the four vehicle tables are fixed (60/60 tables now seeded in `rls-isolation.sql`).
 
 ## 4. Other Wave 4 gates to design (from the audit)
 
