@@ -17,6 +17,9 @@ export const createFuelPurchaseSchema = z.object({
   // GAP-07: client-generated id for safe offline replay (see expenses).
   id: z.string().uuid().optional(),
   truck_id: z.string().uuid(),
+  // Reliability Unit D (F-023, D-02, migration 00068): the ONE load this fuel was for.
+  // Assigned only by the owner's act - never inferred from date or truck.
+  load_id: z.string().uuid().nullable().optional(),
   location: z.string().optional(),
   // GAP-15: purchase state (IFTA) — two-letter, upper-cased by callers.
   state: z.string().length(2).optional(),

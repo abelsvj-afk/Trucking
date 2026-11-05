@@ -6,9 +6,9 @@
 // load's facts up top, everything recorded against it below (the
 // expenses/duty-logs list endpoints now whitelist ?load_id=, so each
 // section is one exact-match query), and the route check one tap
-// away. Fuel is deliberately NOT here: fuel_purchases has no load_id
-// in the data model (fuel is recorded per truck), so a per-load fuel
-// figure would be invented, not computed.
+// away. Fuel appears only as the fuel the owner ASSIGNED to this load
+// (fuel_purchases.load_id, migration 00068, via the contribution-margin
+// section) - it is never inferred from date or truck.
 //
 // Reliability Unit A (F-016/F-028): this screen is also where a load's
 // record is actually maintained - the edit form below PATCHes through
@@ -22,6 +22,7 @@ import { use, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
+import LoadEconomicsSection from "@/components/LoadEconomicsSection";
 import { ListLoading, ListError } from "@/components/ListStates";
 import LoadDocuments from "@/components/LoadDocuments";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
@@ -468,12 +469,14 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
         onCompleted={() => window.location.reload()}
       />
 
+      <LoadEconomicsSection loadId={load.id} />
+
       <section aria-label="Expenses on this load">
         <h2>Expenses on this load</h2>
         {expenseRows.length === 0 ? (
           <p className="row-sub">
             No expenses recorded against this load yet — tolls, lumpers, scales belong here so the load&apos;s
-            real profit shows.
+            contribution margin counts them.
           </p>
         ) : (
           <ul>

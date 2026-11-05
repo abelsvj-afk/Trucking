@@ -157,6 +157,7 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | id | uuid | no | |
 | company_id | uuid | no | |
 | truck_id | uuid | no | references `trucks.id` |
+| load_id | uuid | yes | references `loads.id` (00068); the one load this fuel was for, set only by the owner; null = "fuel not assigned to a load" |
 | location | text | yes | |
 | gallons | numeric(8,3) | no | |
 | price_per_gallon_cents | integer | no | |
@@ -1116,3 +1117,9 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 ### Columns added by 00066 (trailer assignment)
 - 00066 `drivers.assigned_trailer_id` uuid references trailers (id)
 - 00066 `loads.trailer_id` uuid references trailers (id)
+
+### Columns added by 00068 (Unit D: fuel ↔ load link)
+- 00068 `fuel_purchases.load_id` uuid references loads (id) — nullable, no backfill; partial index `fuel_purchases_load_idx`
+
+### Function changed by 00069 (Unit D)
+- 00069 `public.financial_summary_snapshot(...)` gains keys `assigned_fuel` and `unassigned_fuel_in_period_cents` (existing keys unchanged).

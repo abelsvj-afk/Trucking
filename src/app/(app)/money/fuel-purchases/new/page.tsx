@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { offlineOutbox } from "@/lib/offline-outbox";
 import { usePickerList } from "@/lib/use-picker-list";
+import FuelLoadPicker from "@/components/FuelLoadPicker";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
@@ -31,6 +32,7 @@ export default function NewFuelPurchasePage() {
   usePageTitle("Add fuel purchase");
   const router = useRouter();
   const [truckId, setTruckId] = useState("");
+  const [loadId, setLoadId] = useState("");
   const [location, setLocation] = useState("");
   const [gallons, setGallons] = useState("");
   const [pricePerGallonDollars, setPricePerGallonDollars] = useState("");
@@ -63,6 +65,7 @@ export default function NewFuelPurchasePage() {
     const body = {
       submission_id: submissionId,
       truck_id: truckId,
+      ...(loadId ? { load_id: loadId } : {}),
       location: location || undefined,
       gallons: gallonsValue,
       price_per_gallon_cents: priceCents,
@@ -106,6 +109,8 @@ export default function NewFuelPurchasePage() {
             </option>
           ))}
         </select>
+
+        <FuelLoadPicker id="load_id" value={loadId} onChange={setLoadId} truckId={truckId} purchasedAt={purchasedAt} />
 
         <label htmlFor="location">Location (optional)</label>
         <input id="location" value={location} onChange={(event) => setLocation(event.target.value)} />

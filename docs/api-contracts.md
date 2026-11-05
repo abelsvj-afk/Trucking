@@ -521,6 +521,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/load-tasks` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/loads/[id]/detention-stamps` | GET,POST | custom (see section / design doc) |
 | `/api/v1/loads/[id]/paperwork` | GET | custom (see section / design doc) |
+| `/api/v1/loads/[id]/economics` | GET | custom (see section / design doc) |
 | `/api/v1/loads/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/loads/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/loads` | GET,POST | generic CRUD (contract above) |
@@ -592,3 +593,8 @@ All below: auth = session; company scope by RLS; errors use the standard envelop
 ### Trailer assignment and trip documents (2026-11-05)
 - `drivers` create/update accept `assigned_trailer_id` (uuid or null); `loads` create/update accept `trailer_id` (uuid or null) — migration 00066 (**unapplied until King applies it**; the UI sends these fields only when the owner changes them, and Abel's `create_load` folds `trailer_id` into notes if the column is missing).
 - Trip documents use the existing `GET /api/v1/documents?related_entity_type=load&related_entity_id=<load>` and `POST /api/v1/documents` (multipart with `related_entity_type=load`). Photos he sends Abel are filed against the load only once linked (a BOL proposal he approves links it); an unlinked Telegram photo stays filed under the company until then.
+
+### Unit D — fuel ↔ load link and per-load economics (migrations 00068, 00069)
+- `fuel-purchases` create/update accept optional `load_id` (uuid | null): the ONE load the fuel was for, set only by the owner (the forms offer a picker and a "same truck, same day — assign it?" suggestion that never assigns by itself). Null = not assigned.
+- `GET /api/v1/loads/[id]/economics` → `{ data: { revenueCents, directExpensesCents, directFuelCents, contributionMarginCents, provisional, excluded, caveat } }`. Margin = load rate − expenses carrying this load's id − fuel carrying this load's id; `provisional` until the load is completed with a delivery date; `excluded` always names what it leaves out (truck overhead, unassigned fuel); never called "profit". 404 for another company's load (RLS).
+- `GET /api/v1/financial-summary` `measures.fuelNotAssigned` (cents): the period's fuel assigned to no load. The aggregate contribution margin now includes load-assigned fuel; the C.3 bridge still holds exactly.

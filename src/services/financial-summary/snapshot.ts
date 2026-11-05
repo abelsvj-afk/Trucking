@@ -135,6 +135,10 @@ export interface SummarySnapshotData {
    * the measures' direct-cost input. */
   assignedExpenses: { load_id: string; amount_cents: number; expense_date: string }[];
   unassignedExpensesInPeriodCents: number;
+  /** Unit D (00068/00069): fuel assigned to a load, any date. Empty when 00069 is not applied - then all fuel reads as unassigned, as before. */
+  assignedFuel: { load_id: string; amount_cents: number; purchased_at: string }[];
+  /** The period's fuel assigned to no load. null = the snapshot predates 00069 (all period fuel is then treated as unassigned). */
+  unassignedFuelInPeriodCents: number | null;
 }
 
 function asComponentTotal(raw: unknown, component: string): ComponentTotal {
@@ -209,6 +213,13 @@ export async function readSummarySnapshot(
     unassignedExpensesInPeriodCents: Number(
       snapshot.unassigned_expenses_in_period_cents ?? 0,
     ),
+    assignedFuel: Array.isArray(snapshot.assigned_fuel)
+      ? (snapshot.assigned_fuel as SummarySnapshotData["assignedFuel"])
+      : [],
+    unassignedFuelInPeriodCents:
+      snapshot.unassigned_fuel_in_period_cents === undefined || snapshot.unassigned_fuel_in_period_cents === null
+        ? null
+        : Number(snapshot.unassigned_fuel_in_period_cents),
   };
 }
 

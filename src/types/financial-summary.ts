@@ -66,6 +66,8 @@ export interface FinancialSummary {
     recognizedRevenue: number;
     periodOperatingResult: number;
     aggregateContributionMargin: number;
+    /** Fuel bought in the period and assigned to no load (Unit D, D-02) - in the operating result, in no load's margin. */
+    fuelNotAssigned?: number;
   };
 }
 

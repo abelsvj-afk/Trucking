@@ -157,6 +157,12 @@ export default function FinancialSummaryPage() {
             <dd>{formatDollars(summary.measures.periodOperatingResult)}</dd>
             <dt>Contribution margin — loads delivered in this period</dt>
             <dd>{formatDollars(summary.measures.aggregateContributionMargin)}</dd>
+            {summary.measures.fuelNotAssigned !== undefined && (
+              <>
+                <dt>Fuel not assigned to a load</dt>
+                <dd>{formatDollars(summary.measures.fuelNotAssigned)}</dd>
+              </>
+            )}
             <dt>Pipeline — booked, not yet delivered</dt>
             <dd>
               {formatDollars(summary.pipeline.total_cents)} ({summary.pipeline.row_count}{" "}

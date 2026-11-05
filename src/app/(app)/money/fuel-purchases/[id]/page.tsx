@@ -13,6 +13,7 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { usePickerList } from "@/lib/use-picker-list";
+import FuelLoadPicker from "@/components/FuelLoadPicker";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatDollars } from "@/lib/truck-fund";
 import { formatDate } from "@/lib/time";
@@ -129,6 +130,7 @@ function FuelPurchaseEditForm({
   onSaved: (purchase: FuelPurchase) => void;
 }) {
   const [truckId, setTruckId] = useState(purchase.truck_id);
+  const [loadId, setLoadId] = useState(purchase.load_id ?? "");
   const [location, setLocation] = useState(purchase.location ?? "");
   const [gallons, setGallons] = useState(purchase.gallons.toString());
   const [pricePerGallonDollars, setPricePerGallonDollars] = useState(
@@ -170,6 +172,7 @@ function FuelPurchaseEditForm({
     try {
       const updated = await apiClient.update<FuelPurchase>("fuel-purchases", purchase.id, {
         truck_id: truckId,
+        load_id: loadId || null,
         location: location || null,
         gallons: parseFloat(gallons || "0"),
         price_per_gallon_cents: Math.round(parseFloat(pricePerGallonDollars || "0") * 100),
@@ -209,6 +212,8 @@ function FuelPurchaseEditForm({
             </option>
           ))}
         </select>
+
+        <FuelLoadPicker id="edit-load_id" value={loadId} onChange={setLoadId} truckId={truckId} purchasedAt={purchasedAt} />
 
         <label htmlFor="edit-location">Location</label>
         <input id="edit-location" value={location} onChange={(event) => setLocation(event.target.value)} />

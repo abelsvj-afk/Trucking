@@ -41,7 +41,7 @@ export const RESTORE_PARENTS: Record<string, RestoreParent[]> = {
     { field: "customer_id", parentTable: "customers", parentLabel: "customer" },
   ],
   expenses: [TRUCK, LOAD, DRIVER],
-  fuel_purchases: [TRUCK],
+  fuel_purchases: [TRUCK, LOAD],
   maintenance_events: [TRUCK],
   maintenance_schedules: [TRUCK, TRAILER],
   equipment_checklist_items: [TRUCK, TRAILER],

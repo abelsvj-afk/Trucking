@@ -247,6 +247,8 @@ export interface Expense extends BaseRow {
 
 export interface FuelPurchase extends BaseRow {
   truck_id: string;
+  /** Migration 00068 (Unit D): the one load this fuel was for; null = not assigned to a load. */
+  load_id?: string | null;
   location: string | null;
   /** GAP-15 (migration 00053): purchase state, for the IFTA worksheet. */
   state: string | null;

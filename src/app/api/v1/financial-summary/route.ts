@@ -82,7 +82,7 @@ export const GET = createApiHandler(async (req, ctx) => {
     throw err;
   }
 
-  const measures = computeSummaryMeasures(data, range);
+  const measures = computeSummaryMeasures(data, range, window);
   const { revenue, expenses, fuel, maintenance } = data.components;
 
   return NextResponse.json({
@@ -103,6 +103,8 @@ export const GET = createApiHandler(async (req, ctx) => {
       recognizedRevenue: measures.recognizedRevenueCents,
       periodOperatingResult: measures.periodOperatingResultCents,
       aggregateContributionMargin: measures.aggregateContributionMarginCents,
+      // Unit D: the period's fuel assigned to no load (all of it until 00069 is applied).
+      fuelNotAssigned: data.unassignedFuelInPeriodCents ?? fuel.total_cents,
     },
   });
 });
