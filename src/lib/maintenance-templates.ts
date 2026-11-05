@@ -3,7 +3,7 @@
 // and owned by nobody's database row. These are STARTING POINTS
 // from typical manufacturer / fleet guidance for a Class 8 diesel,
 // and every surface that presents them says exactly that. They are
-// never represented as Steven's carrier's figures or as the
+// never represented as his carrier's figures or as the
 // truck's own manual speaking.
 //
 // A schedule row created from a template carries template_key +

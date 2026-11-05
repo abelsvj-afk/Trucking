@@ -137,7 +137,7 @@ export async function loadBotContext(
   store: BotBrainStore,
   userText: string,
 ): Promise<Omit<BotChatInput, "userText">> {
-  const [history, snapshot, instructions, retrieval, summary, payPin, lifePhaseOverride, openLoops] = await Promise.all([
+  const [history, snapshot, instructions, retrieval, summary, payPin, lifePhaseOverride, openLoops, activeEmployer] = await Promise.all([
     store.loadConversationHistory(12),
     store.loadSnapshot(),
     store.loadInstructionMemories(),
@@ -151,6 +151,7 @@ export async function loadBotContext(
     // assembled in code from the same records, never model-elected.
     store.loadLifePhaseOverride(),
     store.listThreads({ openOnly: true, unansweredOnly: true, limit: 3 }),
+    store.loadActiveEmployer ? store.loadActiveEmployer() : Promise.resolve(null),
   ]);
   return {
     history,
@@ -162,7 +163,7 @@ export async function loadBotContext(
       ? `EARLIER CONVERSATION SUMMARY (week of ${summary.weekStart} - built from his actual past turns, which remain stored in full):\n${summary.summary}`
       : null,
     payPinText: formatPayPinLine(payPin),
-    lifePhaseText: buildLifePhaseText(payPin, lifePhaseOverride),
+    lifePhaseText: buildLifePhaseText(payPin, lifePhaseOverride, activeEmployer),
     openLoopsText: formatOpenLoopsBlock(openLoops),
   };
 }

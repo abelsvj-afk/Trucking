@@ -125,7 +125,7 @@ export default function DispatchHelperPage() {
           id="context"
           value={context}
           onChange={(event) => setContext(event.target.value)}
-          placeholder="e.g. This is from Steven, the truck owner"
+          placeholder="e.g. This is from the truck owner I drive for"
         />
 
         {error && <p role="alert">{error}</p>}

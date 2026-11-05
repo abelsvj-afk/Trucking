@@ -18,15 +18,15 @@
 import { z } from "zod";
 import type { AiProvider } from "./provider";
 
-export const threadRoleSchema = z.enum([
-  "carrier_dispatch",
-  "steven",
-  "broker",
-  "shipper",
-  "receiver",
-  "owner",
-  "other",
-]);
+/**
+ * "truck_owner" is a ROLE (the person who owns the truck he drives); who that
+ * is lives in the participant's name and his people records. Threads stored
+ * with the old named-person role value are rewritten by migration 00064; the
+ * code never branches on a thread role other than "owner" and "other", so a
+ * not-yet-migrated row only displays its old label until then.
+ */
+export const THREAD_ROLES = ["carrier_dispatch", "truck_owner", "broker", "shipper", "receiver", "owner", "other"] as const;
+export const threadRoleSchema = z.enum(THREAD_ROLES);
 
 export const threadLanguageSchema = z.enum(["en", "es", "unknown"]);
 
@@ -73,7 +73,7 @@ export type ThreadMessageDraft = ThreadExtraction["messages"][number];
 const SYSTEM_PROMPT = `You read the TEXT of a trucking work conversation the driver forwarded or pasted (dispatch, broker, shipper, or the truck owner he drives for). Turn it into a structured thread record.
 
 Extract:
-- participants: every person who speaks or is clearly a party, with a role: carrier_dispatch (the carrier's dispatch), steven (the truck owner Steven - only when the person IS Steven), broker, shipper, receiver, owner (the driver himself, Sajacous), or other when the conversation doesn't establish a role.
+- participants: every person who speaks or is clearly a party, with a role: carrier_dispatch (the carrier's dispatch), truck_owner (the person who owns the truck he drives - assign it by the role the person plays in the conversation, whatever their name; the name goes in the participant's name field), broker, shipper, receiver, owner (the driver himself, Sajacous), or other when the conversation doesn't establish a role.
 - messages: the timeline, in order. sender = the participant's name as shown. body = the message EXACTLY as written. language = that message's own language (en / es / unknown).
 - the_ask: if someone is asking for something (a confirmation, an ETA, a document, a decision), state it in one plain English sentence. ask_of = who must answer it. deadline_text = any deadline or appointment time in play, as written.
 - unanswered: true when the ask is still waiting for an answer at the end of this conversation.

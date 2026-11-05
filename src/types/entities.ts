@@ -51,7 +51,7 @@ export interface Truck extends BaseRow {
   truck_type: string | null;
   photo_document_id: string | null;
   // Truck profile (migration 00017). All optional until captured -
-  // the first real profile is Steven's truck, entered by the owner.
+  // the first real profile is the owner's own truck, entered by him.
   height_in: number | null;
   length_in: number | null;
   weight_lbs: number | null;

@@ -26,7 +26,7 @@ import { refreshConversationSummaries, type SummarizeTurns } from "./summaries";
 
 export const MEMORY_CONSOLIDATION_CAPABILITY = "memory_consolidation";
 
-/** Candidate similarity bands: at/above DUP = already known, drop; at/above UPDATE (but different text) = stage as an update proposal; below = a genuinely new fact. UPDATE sits at 0.4 because the design's canonical update - "Steven settles on Fridays" -> "...on Thursdays" - scores exactly 0.5 under Jaccard (3 content tokens, 1 changed); the band must contain it. */
+/** Candidate similarity bands: at/above DUP = already known, drop; at/above UPDATE (but different text) = stage as an update proposal; below = a genuinely new fact. UPDATE sits at 0.4 because the design's canonical update - "Maria settles on Fridays" -> "...on Thursdays" - scores exactly 0.5 under Jaccard (3 content tokens, 1 changed); the band must contain it. */
 export const DUPLICATE_SIMILARITY = 0.9;
 export const UPDATE_SIMILARITY = 0.4;
 

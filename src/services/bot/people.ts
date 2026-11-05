@@ -9,7 +9,7 @@
 // The CONTENT is one structured line in a fixed format, so profiles
 // are parseable, mergeable, and readable verbatim in any surface:
 //
-//   PERSON — Steven | role: truck owner | Pays on Fridays. Runs a
+//   PERSON — Maria Lopez | role: truck owner | Pays on Fridays. Runs a
 //   second truck leased on to the carrier. Prefers Spanish.
 //
 //   BUSINESS — How this carrier pays | Percentage of gross, settled

@@ -41,8 +41,8 @@ export function memorySubjectKey(kind: string, content: string): string | null {
  * parsers extract exactly two identity attributes - name and role -
  * so identity is confirmed only when BOTH match (case-insensitive)
  * and both roles are present. A name alone confirms nothing: a
- * second Steven (a broker, a cousin) must never silently close the
- * first Steven's profile.
+ * second person with the same first name (a broker, a cousin) must never
+ * silently close the first one's profile.
  */
 export function personIdentityConfirmed(newContent: string, existingContent: string): boolean {
   const a = parsePersonProfile(newContent);

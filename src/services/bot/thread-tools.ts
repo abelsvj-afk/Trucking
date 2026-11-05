@@ -16,10 +16,11 @@ import type { AgentTool } from "@/services/ai/agent-loop";
 import type { BotBrainStore } from "./store";
 import { validateWith } from "./tool-helpers";
 import { buildPersonModel } from "./threads";
+import { THREAD_ROLES, threadRoleSchema } from "@/services/ai/thread-extraction";
 
 const participantArgs = z.object({
   name: z.string().min(1),
-  role: z.enum(["carrier_dispatch", "steven", "broker", "shipper", "receiver", "owner", "other"]),
+  role: threadRoleSchema,
 });
 
 const recordThreadArgs = z.object({
@@ -78,7 +79,7 @@ export function buildThreadTools(store: BotBrainStore): AgentTool[] {
               type: "object",
               properties: {
                 name: { type: "string" },
-                role: { type: "string", enum: ["carrier_dispatch", "steven", "broker", "shipper", "receiver", "owner", "other"] },
+                role: { type: "string", enum: [...THREAD_ROLES] },
               },
               required: ["name", "role"],
             },

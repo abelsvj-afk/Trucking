@@ -20,7 +20,10 @@ export const LIFE_PHASE_SUBJECT = "Life phase";
  * "Life phase" business_fact when one is current; otherwise the
  * default lease-on learning-seat framing is derived (pin-aware).
  */
-export function buildLifePhaseText(pin: PayPin, override: string | null): string {
+export function buildLifePhaseText(pin: PayPin, override: string | null, employer: string | null = null): string {
+  // The employer comes from his stored pay terms (the active employer_pay_profiles
+  // row); with none stored, the wording stays neutral. No one is named in code.
+  const who = employer?.trim() || null;
   if (override) {
     return (
       `LIFE PHASE (his words, current): ${override} ` +
@@ -29,9 +32,13 @@ export function buildLifePhaseText(pin: PayPin, override: string | null): string
   }
   const pinNote = isPinned(pin)
     ? `His pay structure is pinned (${pin.model}${pin.rate != null ? ` at ${pin.rate}` : ""}) - the money lessons run on the real model.`
-    : "His pay structure is NOT pinned yet - pinning it down is one of the phase's open lessons, and every settlement or Steven message is evidence toward it.";
+    : `His pay structure is NOT pinned yet - pinning it down is one of the phase's open lessons, and every settlement or message from ${who ?? "his carrier"} is evidence toward it.`;
   return (
-    "LIFE PHASE: He is in the lease-on learning seat - driving Steven's second truck under the carrier Steven is leased to. " +
+    `LIFE PHASE: He is in the lease-on learning seat - ${
+      who
+        ? `driving for ${who}, under the carrier that truck is leased to`
+        : "driving a truck owned by the truck owner he drives for, under the carrier it is leased to"
+    }. ` +
     "He is NOT a W-2 fleet driver and NOT yet an owner-operator; this seat is deliberately business school: he is learning how money moves " +
     "(carrier cut, truck share, his pay) from inside real loads, while saving toward his own truck and his own authority. " +
     pinNote +

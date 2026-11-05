@@ -299,7 +299,11 @@ async function loadContext(store: TelegramStore, chatId: number, text: string): 
     // override wins) + open loops from recorded threads.
     const lifePhaseText =
       payPin && store.loadLifePhaseOverride
-        ? buildLifePhaseText(payPin, await store.loadLifePhaseOverride())
+        ? buildLifePhaseText(
+            payPin,
+            await store.loadLifePhaseOverride(),
+            store.loadActiveEmployer ? await store.loadActiveEmployer() : null,
+          )
         : null;
     const openLoopsText = store.listThreads
       ? formatOpenLoopsBlock(

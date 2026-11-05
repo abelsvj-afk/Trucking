@@ -23,29 +23,29 @@ const P = (name: string, role: ThreadParticipant["role"]): ThreadParticipant => 
 
 describe("append matching (code, conservative)", () => {
   it("the owner never counts as a match; counterparties do", () => {
-    expect(sharedCounterparties([P("Sajacous", "owner"), P("Steven", "steven")], [P("Sajacous", "owner")])).toEqual([]);
+    expect(sharedCounterparties([P("Sajacous", "owner"), P("Steven", "truck_owner")], [P("Sajacous", "owner")])).toEqual([]);
     expect(
-      sharedCounterparties([P("Steven", "steven")], [P("steven", "steven"), P("Dispatch", "carrier_dispatch")]),
+      sharedCounterparties([P("Steven", "truck_owner")], [P("steven", "truck_owner"), P("Dispatch", "carrier_dispatch")]),
     ).toEqual(["steven"]);
   });
 
   it("picks the open thread with the most shared counterparties; recency breaks ties; no share = new thread", () => {
     const threads = [
-      { id: "t-old", participants: [P("Steven", "steven")], updatedAt: "2026-11-01T00:00:00Z" },
-      { id: "t-new", participants: [P("Steven", "steven"), P("Maria", "carrier_dispatch")], updatedAt: "2026-11-02T00:00:00Z" },
+      { id: "t-old", participants: [P("Steven", "truck_owner")], updatedAt: "2026-11-01T00:00:00Z" },
+      { id: "t-new", participants: [P("Steven", "truck_owner"), P("Maria", "carrier_dispatch")], updatedAt: "2026-11-02T00:00:00Z" },
     ];
-    expect(matchThreadForAppend(threads, [P("Steven", "steven"), P("Maria", "carrier_dispatch")])).toBe("t-new");
-    expect(matchThreadForAppend(threads, [P("Steven", "steven")])).toBe("t-new"); // tie on 1 share -> most recent
+    expect(matchThreadForAppend(threads, [P("Steven", "truck_owner"), P("Maria", "carrier_dispatch")])).toBe("t-new");
+    expect(matchThreadForAppend(threads, [P("Steven", "truck_owner")])).toBe("t-new"); // tie on 1 share -> most recent
     expect(matchThreadForAppend(threads, [P("Broker Bob", "broker")])).toBeNull();
-    expect(matchThreadForAppend([], [P("Steven", "steven")])).toBeNull();
+    expect(matchThreadForAppend([], [P("Steven", "truck_owner")])).toBeNull();
   });
 
   it("normalizes names (case, punctuation, spacing) for matching", () => {
     expect(normalizeName("  Steven  R. ")).toBe("steven r");
     expect(
       matchThreadForAppend(
-        [{ id: "t1", participants: [P("STEVEN", "steven")], updatedAt: "2026-11-01T00:00:00Z" }],
-        [P("steven", "steven")],
+        [{ id: "t1", participants: [P("STEVEN", "truck_owner")], updatedAt: "2026-11-01T00:00:00Z" }],
+        [P("steven", "truck_owner")],
       ),
     ).toBe("t1");
   });
@@ -55,10 +55,10 @@ describe("mergeParticipants", () => {
   it("unions by name; a real role upgrades 'other', an established role is never overwritten", () => {
     const merged = mergeParticipants(
       [P("Steven", "other"), P("Maria", "carrier_dispatch")],
-      [P("steven", "steven"), P("Maria", "broker"), P("New Guy", "shipper")],
+      [P("steven", "truck_owner"), P("Maria", "broker"), P("New Guy", "shipper")],
     );
     expect(merged).toHaveLength(3);
-    expect(merged.find((p) => p.name === "Steven")?.role).toBe("steven");
+    expect(merged.find((p) => p.name === "Steven")?.role).toBe("truck_owner");
     expect(merged.find((p) => p.name === "Maria")?.role).toBe("carrier_dispatch");
   });
 });
@@ -113,7 +113,7 @@ describe("buildPersonModel (evidence + confidence, never overstated)", () => {
   it("a confirmed profile outranks the model and is quoted as his words", () => {
     const model = buildPersonModel("Steven", {
       confirmedProfile: { name: "Steven", role: "truck owner", facts: ["Pays on Fridays."] },
-      threads: [{ title: "t", role: "steven", messagesFromThem: 20, lastActiveAt: "2026-11-01T00:00:00Z" }],
+      threads: [{ title: "t", role: "truck_owner", messagesFromThem: 20, lastActiveAt: "2026-11-01T00:00:00Z" }],
       messageBodies: Array(20).fill("settlement friday settlement"),
       exchangeMentions: 3,
     });
@@ -156,5 +156,23 @@ describe("buildLifePhaseText", () => {
     const overridden = buildLifePhaseText(pin, "Own truck bought 2027-01-15; running under his own authority now.");
     expect(overridden).toContain("Own truck bought 2027-01-15");
     expect(overridden).not.toContain("learning seat");
+  });
+
+  it("names the employer only from stored data; with none stored the wording is neutral", () => {
+    const neutral = buildLifePhaseText(UNKNOWN_PIN, null);
+    expect(neutral).toContain("the truck owner he drives for");
+    expect(neutral).toContain("message from his carrier");
+    const named = buildLifePhaseText(UNKNOWN_PIN, null, "Acme Freight");
+    expect(named).toContain("driving for Acme Freight");
+    expect(named).toContain("message from Acme Freight");
+    expect(named).not.toContain("the truck owner he drives for");
+  });
+});
+
+describe("thread roles name roles, not people", () => {
+  it("accepts truck_owner and offers no named-person role", async () => {
+    const { threadRoleSchema, THREAD_ROLES } = await import("@/services/ai/thread-extraction");
+    expect(threadRoleSchema.safeParse("truck_owner").success).toBe(true);
+    expect([...THREAD_ROLES]).toEqual(["carrier_dispatch", "truck_owner", "broker", "shipper", "receiver", "owner", "other"]);
   });
 });

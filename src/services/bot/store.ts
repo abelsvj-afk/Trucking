@@ -258,6 +258,8 @@ export interface BotBrainStore extends TelegramStore {
   loadPersonEvidence(name: string): Promise<import("./threads").PersonEvidence>;
   /** The owner's "Life phase" business_fact override text, when he has set one (Phase C life-phase block). */
   loadLifePhaseOverride(): Promise<string | null>;
+  /** The employer on his active pay-terms row (migration 00063), or null when none is stored - the situation text reads this instead of naming anyone in code. */
+  loadActiveEmployer(): Promise<string | null>;
   // --- Abel Intelligence Upgrade, Phase E (voice + twin) ---
   /** The voice_transcription kill switch (Settings), same convention as every capability: no row = off. */
   isVoiceTranscriptionEnabled(): Promise<boolean>;
@@ -1265,6 +1267,21 @@ export function createBotStore(
         messageBodies: bodies,
         exchangeMentions: (exchangeRows ?? []).length,
       };
+    },
+
+    async loadActiveEmployer() {
+      const { data, error } = await supabase
+        .from("employer_pay_profiles")
+        .select("employer_name")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .is("effective_to", null)
+        .order("effective_from", { ascending: false })
+        .limit(1);
+      // Before 00063 (or on any read trouble) there is simply no stored employer.
+      if (error) return null;
+      const name = ((data ?? []) as { employer_name: string }[])[0]?.employer_name?.trim();
+      return name ? name : null;
     },
 
     async loadLifePhaseOverride() {

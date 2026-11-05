@@ -2,7 +2,7 @@
 
 // Smart Path v1 (docs/design/driver-mvp.md §8.2). The truck-profile
 // editor: pick a truck, capture its size/speed/appliance inventory.
-// This is the page the owner uses on the first run to record Steven's
+// This is the page the owner uses on the first run to record his
 // truck - the food route and the plan's speed math read exactly
 // these fields. Saves through the standard PATCH /api/v1/trucks/[id].
 //

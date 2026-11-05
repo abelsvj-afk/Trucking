@@ -128,7 +128,7 @@ const SEGMENT_1: ThreadRecordInput = {
   title: "Dispatch — Dallas load confirmation",
   participants: [
     { name: "Maria", role: "carrier_dispatch" },
-    { name: "Steven", role: "steven" },
+    { name: "Steven", role: "truck_owner" },
     { name: "Sajacous", role: "owner" },
   ],
   messages: [
