@@ -20,7 +20,7 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 
 ## B2. Paper log (checked 2026-11-05)
 - Built and gated: in-app review (`/fleet/hos/paper`, migration 00059), Telegram reader, by-hand entry, carrier-cycle before/after line, naming condition for faint stretches.
-- ONE engineering item left, and it is a ruling, not code: **D-13 (B7)** - a dropped/unreadable mid-day stretch in a Telegram paper-log batch is still carried by the previous status in the app's clocks once he approves (a duty row runs until the next row; the model cannot store "unknown"). Today the approval prompt names the stretch and says so (informed yes). Options: (a) stop-at-gap - stage only up to the first gap and send him to the app review screen for the rest (recommended; no schema change, nothing guessed); (b) by-word fill before approval; (c) keep the informed yes. Not changed without the owner's pick.
+- D-13 (B7) RULED by the owner 2026-11-05: option (a), stop-at-gap. Implemented (`capAtFirstGap` in `services/fleet/paper-logs.ts`, tests added); design note in `driver-hud.md` §6. Gated with the next push; not deployed.
 - Owner acceptance: his own photographed sheet vs his reading - outstanding (needs the deploy).
 
 ## C. Built but incomplete / parked ideas the owner raised

@@ -129,12 +129,16 @@ silently absorbed into the previous status when that batch is approved. Its
 and partial days MAY book via Telegram; the approval prompt itself names every
 flagged stretch (status and times) - implemented in `stagePaperLogDay`.
 Sub-0.80 stretches stay dropped and named, never staged; partial days stay
-labeled partial. **Still open for a ruling:** "never filled" holds for what is
-*staged*, but because a duty row runs until the next one, approving a batch
-with a dropped or missing span mid-day still lets the previous status run
-across that span in the app's clocks. The app review screen avoids it by
-refusing to save an unresolved day; the Telegram path would need either a
-by-word fill before approval or a stop-at-the-gap rule.
+labeled partial. **Owner ruling D-13 (2026-11-05, option a - stop at the gap), implemented in
+`stagePaperLogDay` via `capAtFirstGap`:** the Telegram batch stages only the
+segments that end at or before the first unread stretch; nothing after it is
+staged, and a gap whose place on the clock is unknown holds back the whole day.
+The reply says where it stopped, what was held back, and that - because a duty
+row runs until the next row - the last staged status keeps running in the app's
+clocks until he finishes the day on the app's Paper log screen (which refuses to
+save an unresolved day) or tells Abel in words. Residual, stated plainly: that
+carry-over now lasts until he finishes the day rather than until the next staged
+segment; the prompt says so.
 
 ## 7. Telegram as the logging companion
 

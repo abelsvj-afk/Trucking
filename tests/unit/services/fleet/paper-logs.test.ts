@@ -231,7 +231,7 @@ describe("stagePaperLogDay", () => {
     expect(text).toContain("6:30 PM");
     expect(text).toContain("missing from what I could read");
     expect(text).toContain("marked partial");
-    expect(saved.filter((a) => a.toolName === "log_duty_status")).toHaveLength(3);
+    expect(saved.filter((a) => a.toolName === "log_duty_status")).toHaveLength(2);
     expect((db.documents![0]!.extracted_fields as Row).paper_log_complete).toBe(false);
   });
 
@@ -353,9 +353,9 @@ describe("stagePaperLogDay", () => {
     expect(saved.filter((a) => a.toolName === "log_duty_status")).toHaveLength(4);
   });
 
-  it("the approval prompt says what an unread stretch does to his clocks - an informed yes", async () => {
+  it("D-13 stop-at-gap: nothing after an unread stretch is staged, and the prompt says what the last status does", async () => {
     const db = baseDb();
-    const { store } = fakeStore(db);
+    const { store, saved } = fakeStore(db);
     const gap: PaperLogExtraction = {
       ...CLEAN_DAY,
       totals: null,
@@ -368,8 +368,11 @@ describe("stagePaperLogDay", () => {
     };
     const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: gap });
     const prompt = lines.find((l) => l.startsWith("Say yes"))!;
-    expect(prompt).toContain("I did not read 3 PM–6:30 PM");
-    expect(prompt).toContain("clocks will treat the status just before that stretch as running through it");
+    // D-13 stop-at-gap: the batch ends where the unread stretch begins.
+    expect(prompt).toContain("I stopped at 3 PM");
+    expect(prompt).toContain("1 later change held back");
+    expect(prompt).toContain("treat the last status I staged as still running");
+    expect(saved.filter((a) => a.toolName === "log_duty_status").map((a) => a.args.duty_status)).toEqual(["off_duty", "driving"]);
     // a clean day carries no such clause
     const clean = await stagePaperLogDay({ store: fakeStore(baseDb()).store, documentId: DOC_ID, extraction: CLEAN_DAY });
     expect(clean.lines.find((l) => l.startsWith("Say yes"))).not.toContain("I did not read");
@@ -390,9 +393,22 @@ describe("stagePaperLogDay", () => {
     const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: low });
     const text = lines.join("\n");
     expect(text).toContain("left it out rather than guess");
-    expect(saved.filter((a) => a.toolName === "log_duty_status").map((a) => a.args.duty_status)).toEqual(["off_duty", "off_duty"]);
+    expect(saved.filter((a) => a.toolName === "log_duty_status").map((a) => a.args.duty_status)).toEqual(["off_duty"]);
     expect(lines.find((l) => l.startsWith("Say yes"))).not.toContain("faint");
     expect(text).toContain("marked partial");
+  });
+
+  it("D-13: an unread stretch at the very start stages nothing and sends him to the app review screen", async () => {
+    const { store, saved } = fakeStore(baseDb());
+    const early: PaperLogExtraction = {
+      ...CLEAN_DAY,
+      totals: null,
+      segments: [{ status: "off_duty", start: "08:00", end: "24:00", confidence: 0.99 }],
+      unreadable: [{ description: "smudged", start: "00:00", end: "08:00" }],
+    };
+    const { lines } = await stagePaperLogDay({ store, documentId: DOC_ID, extraction: early });
+    expect(saved.filter((a) => a.toolName === "log_duty_status")).toHaveLength(0);
+    expect(lines.join("\n")).toContain("Finish the day on the Paper log screen");
   });
 
   it("an undated sheet stages nothing and asks for the date in words", async () => {

@@ -21,6 +21,7 @@ import { zonedInstant } from "@/lib/zoned-day";
 import { PAPER_REMARK_LINE } from "@/lib/paper-day";
 import type { DutyLog, Load } from "@/types/entities";
 import type { BotBrainStore } from "@/services/bot/store";
+import type { PaperLogDayAnalysis } from "@/services/ai/paper-log-extraction";
 import { buildBotTools } from "@/services/bot/tools";
 import {
   analyzePaperLogDay,
@@ -86,10 +87,32 @@ interface ExistingSpan {
   endMs: number;
 }
 
+/**
+ * Mutates the analysis so only segments that END at or before the first unread
+ * stretch stay staged; returns what was held back. An unread stretch whose place
+ * on the clock is unknown (startMin < 0) holds back the whole day.
+ */
+export function capAtFirstGap(analysis: PaperLogDayAnalysis): { heldBack: PaperLogDayAnalysis["staged"]; gapStartMin: number | null } {
+  const starts = [
+    ...analysis.dropped.map((d) => d.startMin),
+    ...analysis.missingSpans.map((m) => (m.startMin < 0 ? 0 : m.startMin)),
+  ];
+  if (starts.length === 0) return { heldBack: [], gapStartMin: null };
+  const gapStartMin = Math.min(...starts);
+  const kept = analysis.staged.filter((segment) => segment.endMin <= gapStartMin);
+  const heldBack = analysis.staged.filter((segment) => segment.endMin > gapStartMin);
+  analysis.staged = kept;
+  return { heldBack, gapStartMin };
+}
+
 export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines: string[] }> {
   const { store, documentId, extraction } = deps;
   const { client, companyId } = store;
   const analysis = analyzePaperLogDay(extraction);
+  // Owner ruling D-13 (2026-11-05): stop at the first gap. Nothing after an
+  // unread stretch is staged; the rest of the day is finished on the app's
+  // review screen, where an unresolved day cannot be saved.
+  const { heldBack, gapStartMin } = capAtFirstGap(analysis);
   const lines: string[] = [];
 
   if (!extraction.log_date) {
@@ -285,6 +308,11 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
       `Adding this day changes your ${cycleLabel}: on duty in the cycle goes from ${formatHours(beforeMinutes)} to ${formatHours(afterMinutes)} of ${cycleLimitText}.`,
     );
   }
+  if (stagedCount === 0 && gapStartMin !== null) {
+    lines.push(
+      `Nothing before the first unread stretch could be staged, so I staged nothing for ${label}. Finish the day on the Paper log screen in the app — it shows the photo beside the day and won't save until every hour is yours.`,
+    );
+  }
   if (stagedCount > 0) {
     // Owner ruling 2026-11-04 (naming condition): flagged stretches may
     // book on his yes, but the approval prompt itself names every one.
@@ -296,21 +324,14 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
       flagged.length > 0
         ? ` Your yes includes ${flagged.length} faint stretch${flagged.length === 1 ? "" : "es"} I read below the clean bar: ${flaggedNames}. Check ${flagged.length === 1 ? "it" : "them"} against the sheet before you say yes.`
         : "";
-    // A duty row runs until the NEXT row, so an unread stretch can't be
-    // stored as "unknown": until he tells me what he did there, the app's
-    // clocks carry the status before it across that stretch. Say so in
-    // the approval prompt itself, so his yes is an informed one.
-    const gaps = [
-      ...analysis.dropped.map((segment) => ({ startMin: segment.startMin, endMin: segment.endMin })),
-      ...analysis.missingSpans.filter((span) => span.startMin >= 0),
-    ].sort((x, y) => x.startMin - y.startMin);
+    // D-13 (stop-at-gap): the batch ends where the unread stretch begins. A duty
+    // row runs until the NEXT row, so the last status staged keeps running in the
+    // app's clocks until he finishes the day - say so in the prompt itself.
     const gapClause =
-      gaps.length > 0
-        ? ` One thing to know before you say yes: I did not read ${gaps
-            .map((g) => `${formatClock(g.startMin)}–${formatClock(g.endMin)}`)
-            .join(", ")}, so until you tell me what you were doing then, your app's clocks will treat the status just before ${
-            gaps.length === 1 ? "that stretch" : "each stretch"
-          } as running through it. Tell me in words and I'll put it right.`
+      gapStartMin !== null
+        ? ` I stopped at ${formatClock(gapStartMin)} — the first stretch I could not read — and staged nothing after it${
+            heldBack.length > 0 ? ` (${heldBack.length} later change${heldBack.length === 1 ? "" : "s"} held back)` : ""
+          }. Until you finish the rest of ${label} on the Paper log screen in the app (or tell me in words), your app's clocks will treat the last status I staged as still running.`
         : "";
     lines.push(
       (analysis.complete
