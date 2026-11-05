@@ -1,4 +1,4 @@
-# Employer Pay Profile — design (spec; not built)
+# Employer Pay Profile — design (BUILT 2026-11-06; migration 00063 NOT applied)
 
 Status: DESIGN, 2026-11-06. Nothing here is implemented. Owner decisions are
 marked **DECIDE**; defaults are stated so work can proceed once confirmed.
@@ -63,3 +63,23 @@ company+employer where effective_to is null and deleted_at is null).
 
 migration + RLS + tests → schema/service/route → Settings UI with unset chips
 → pay-advisor reads it → Abel proposal tool → docs/state.
+
+## 7. Decided and built
+
+Owner picks (2026-11-05): (1) per company; (2) seed in the migration — "Steven",
+55 cents per mile, `mile_basis` and `worker_type` left NULL (visibly UNSET);
+(3) "migration 00061" — that number was already taken by trip intake (00061) and
+load stops (00062), so it shipped as **`00063_employer_pay_profiles.sql`**, the
+next free number, which is what the pick meant.
+
+Built: table + RLS + seed (every company with no profile) + one-open-row-per-
+employer index; `/api/v1/pay-profiles`; Settings → "Pay terms" (rate in dollars
+shown/entered, stored as integer cents; Not set chips and a plain note that
+nothing is calculated from unset fields; "Save correction" edits in place;
+"Terms changed — start new terms" closes the old row then starts a dated new
+one; earlier terms listed); Abel `set_pay_terms` (always a proposal for the
+owner's yes; omitted fields keep their value, unset stays unset). The pay pin
+falls back to the profile ONLY when no remembered pin exists and only once
+`mile_basis` is loaded or all — an unset basis is never turned into a pin.
+Not built: the payroll-tax math selecting by worker type beyond what the pin
+already carries.

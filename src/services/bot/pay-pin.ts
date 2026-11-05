@@ -184,3 +184,35 @@ export function formatPayPinLine(pin: PayPin): string {
     `${pin.employment === "1099" ? `; tax set-aside ${pin.taxSetasidePercent}% in the weekly report` : ""}.`
   );
 }
+
+
+/** The columns of an employer_pay_profiles row the pin cares about. */
+export interface PayProfileRow {
+  employer_name: string;
+  rate_cents_per_mile: number;
+  mile_basis: "loaded" | "all" | "practical" | null;
+  worker_type: "w2" | "1099" | null;
+  fuel_paid_by: "employer" | "driver" | null;
+  effective_from: string;
+}
+
+/**
+ * A pin derived from the owner's pay-terms profile (migration 00063) - used
+ * only when no "Pay structure" memory pin exists. It is a pin ONLY when the
+ * miles basis is set to one the pay math can use (loaded / all): an unset (or
+ * "practical", which is carrier-computed) basis stays UNKNOWN, because a rate
+ * per mile means nothing without knowing which miles. Unset worker type and
+ * fuel stay UNKNOWN too - nothing is inferred.
+ */
+export function payPinFromProfile(row: PayProfileRow | null | undefined): PayPin {
+  if (!row || (row.mile_basis !== "loaded" && row.mile_basis !== "all")) return UNKNOWN_PIN;
+  return {
+    ...UNKNOWN_PIN,
+    model: row.mile_basis === "loaded" ? "cpm_loaded" : "cpm_all_miles",
+    rate: row.rate_cents_per_mile / 100,
+    employment: row.worker_type ?? "UNKNOWN",
+    fuelPaidBy: row.fuel_paid_by === "employer" ? "owner" : row.fuel_paid_by === "driver" ? "driver" : "unknown",
+    source: `pay terms: ${row.employer_name}, since ${row.effective_from}`,
+    pinnedAt: row.effective_from,
+  };
+}

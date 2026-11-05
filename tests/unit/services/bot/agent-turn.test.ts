@@ -442,6 +442,25 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(db.loads![0]).not.toHaveProperty("trip_number");
   });
 
+  it("set_pay_terms: a yes closes the old terms and starts new dated ones; omitted fields keep their value (unset stays unset)", async () => {
+    const seed = baseSeed(true);
+    seed.employer_pay_profiles = [
+      { id: "p0", company_id: COMPANY, employer_name: "Steven", rate_cents_per_mile: 55, mile_basis: null, worker_type: null, fuel_paid_by: null, effective_from: "2026-10-01", effective_to: null, deleted_at: null },
+    ];
+    seed.bot_pending_actions = [
+      { id: "t", company_id: COMPANY, channel: "telegram", tool_name: "set_pay_terms", arguments: { employer_name: "steven", worker_type: "1099" }, summary: "Pay terms for steven: 1099 (starts new dated terms)", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("Done");
+    const rows = db.employer_pay_profiles!;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.effective_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(rows[1]).toMatchObject({ employer_name: "Steven", rate_cents_per_mile: 55, worker_type: "1099", mile_basis: null, fuel_paid_by: null });
+    expect(rows[1]!.effective_to ?? null).toBeNull();
+  });
+
   it("drops the proposal on no - nothing is ever written", async () => {
     const { client, db } = fakeClient(baseSeed(true));
     const store = telegramStore(client);

@@ -23,6 +23,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import HosCarrierSettings from "@/components/settings/HosCarrierSettings";
+import PayTermsSettings from "@/components/settings/PayTermsSettings";
 import { useToast } from "@/components/Toast";
 import {
   applyThemeChoice,
@@ -156,6 +157,8 @@ export default function AccountSettingsPage() {
       </section>
 
       <HosCarrierSettings />
+
+      <PayTermsSettings />
       <section aria-label="Appearance">
         <h2>Appearance</h2>
         <p>

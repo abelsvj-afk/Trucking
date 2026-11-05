@@ -77,3 +77,21 @@ describe("formatPayPinLine (the context block)", () => {
     expect(line).toContain("source: Settlement dated 2026-10-24");
   });
 });
+
+import { payPinFromProfile } from "@/services/bot/pay-pin";
+
+describe("payPinFromProfile (owner pay terms, migration 00063)", () => {
+  const row = { employer_name: "Steven", rate_cents_per_mile: 55, mile_basis: null, worker_type: null, fuel_paid_by: null, effective_from: "2026-10-01" } as const;
+  it("an unset miles basis is NOT a pin - nothing is inferred from 55 cents", () => {
+    expect(payPinFromProfile(row).model).toBe("UNKNOWN");
+    expect(payPinFromProfile(null).model).toBe("UNKNOWN");
+    expect(payPinFromProfile({ ...row, mile_basis: "practical" }).model).toBe("UNKNOWN");
+  });
+  it("loaded / all miles become a cents-per-mile pin; unset worker type and fuel stay unknown", () => {
+    const loaded = payPinFromProfile({ ...row, mile_basis: "loaded" });
+    expect(loaded).toMatchObject({ model: "cpm_loaded", rate: 0.55, employment: "UNKNOWN", fuelPaidBy: "unknown" });
+    expect(payPinFromProfile({ ...row, mile_basis: "all", worker_type: "1099", fuel_paid_by: "employer" })).toMatchObject({
+      model: "cpm_all_miles", employment: "1099", fuelPaidBy: "owner",
+    });
+  });
+});

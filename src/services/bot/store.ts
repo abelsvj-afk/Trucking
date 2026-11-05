@@ -33,7 +33,7 @@ import type { BotChatTurn } from "@/services/ai/bot-chat";
 import type { TelegramStore } from "@/services/telegram/store";
 import type { BotMemoryRow, CompanySnapshot } from "@/services/telegram/context";
 import type { DutyLog } from "@/types/entities";
-import { findPayPin, type PayPin } from "./pay-pin";
+import { findPayPin, isPinned, payPinFromProfile, type PayPin, type PayProfileRow } from "./pay-pin";
 import { parseBusinessFact, parsePersonProfile } from "./people";
 import { LIFE_PHASE_SUBJECT } from "./life-phase";
 import {
@@ -856,7 +856,20 @@ export function createBotStore(
       let result = await run(true);
       if (result.error && isMissingColumnError(result.error)) result = await run(false);
       if (result.error) throw new Error(result.error.message);
-      return findPayPin((result.data ?? []) as { content: string }[]);
+      const remembered = findPayPin((result.data ?? []) as { content: string }[]);
+      if (isPinned(remembered)) return remembered;
+      // No remembered pin: fall back to the owner's pay-terms profile (00063).
+      // A missing table or no usable profile is simply "still unknown".
+      const profile = await supabase
+        .from("employer_pay_profiles")
+        .select("employer_name, rate_cents_per_mile, mile_basis, worker_type, fuel_paid_by, effective_from")
+        .eq("company_id", company)
+        .is("deleted_at", null)
+        .is("effective_to", null)
+        .order("effective_from", { ascending: false })
+        .limit(1);
+      if (profile.error) return remembered;
+      return payPinFromProfile(((profile.data ?? []) as PayProfileRow[])[0]);
     },
 
     async recordSettlement(input: SettlementRecordInput) {

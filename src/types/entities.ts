@@ -802,3 +802,15 @@ export interface LoadStop extends BaseRow {
   approved_at: string | null;
   notes: string | null;
 }
+
+/** Migration 00063: one employer's pay terms for a date range. null on basis/worker/fuel = UNSET. */
+export interface EmployerPayProfile extends BaseRow {
+  employer_name: string;
+  rate_cents_per_mile: number;
+  mile_basis: "loaded" | "all" | "practical" | null;
+  worker_type: "w2" | "1099" | null;
+  fuel_paid_by: "employer" | "driver" | null;
+  effective_from: string;
+  effective_to: string | null;
+  notes: string | null;
+}
