@@ -39,9 +39,9 @@ Levels: 1 observe · 2 recommend · 3 prepare action · 4 human approves then ex
 | `voice_transcription` | `voice_transcription` | **2** | turns a voice note into text, then works it like a typed message (audio goes to the transcription provider) | the same yes/no as typed |
 | `driver_twin` | `driver_twin` (default **off**) | **3** | drafts replies using his own past sent replies; tracks edit distance | sending (never automatic) |
 | Paper-log reader | `photo_intelligence` + review screen | **4** | reads a sheet photo into a draft | the reviewed save (atomic, owner-acknowledged replacement); Telegram booking only per §4 rule 3 |
-| **Live Location** (Telegram, `driver_positions`) | **none — see Gap G1** | **3** | stores his latest position; derives speed/episodes; stages a duty-status **proposal** with the time the movement began | every status change (cooldown 30 min) |
+| **Live Location** (Telegram, `driver_positions`) | `live_location` (default **on**; explicit off stops it) — G1 closed 2026-11-05 | **3** | stores his latest position; derives speed/episodes; stages a duty-status **proposal** with the time the movement began | every status change (cooldown 30 min) |
 | **Rerouting** (Drive) | none (no AI; user is in Drive Mode) | n/a | asks the route provider for a new route; applies it **only if truck-checked**, otherwise keeps the old plan and says so | n/a |
-| **News images** (server fetch) | none — see Gap G2 | n/a | fetches a stored https image URL server-side (SSRF-guarded), re-encodes it | n/a |
+| **News images** (server fetch) | rides `deep_research` (off = no fetch) — G2 closed 2026-11-05 | n/a | fetches a stored https image URL server-side (SSRF-guarded), re-encodes it | n/a |
 
 ## 3. Unattended jobs (what runs with nobody watching)
 
@@ -85,7 +85,7 @@ Wave 4 proposes a drift test that fails if a tool is added without a row here.
 
 ## 7. Revocation and stop-verification matrix (design; execution is Wave 4 / King)
 
-For each switch row above the test must show: (a) global off → the job/feature does nothing at its next run; (b) per-capability off → only that one stops; (c) off takes effect without the AI's cooperation; (d) the Settings UI shows the true state. Not yet evidenced for: Live Location (no switch), news-image fetch (no switch), rerouting (no switch), pay report (rides `bot_chat`).
+For each switch row above the test must show: (a) global off → the job/feature does nothing at its next run; (b) per-capability off → only that one stops; (c) off takes effect without the AI's cooperation; (d) the Settings UI shows the true state. Now switched: Live Location (`live_location`), news-image fetch (`deep_research`). Not yet evidenced by test against the live system: every row. No switch by design: rerouting (no AI; user in Drive). Pay report rides `bot_chat`.
 
 ## 8. Service-role and tenant scoping (security model pointer)
 
@@ -93,8 +93,10 @@ The Telegram webhook, the schedulers and `/api/internal/*` use the service-role 
 
 ## 9. Gaps and decisions raised by this classification
 
-- **G1 Live Location has no capability switch.** It stores his position and stages proposals; today only the Telegram allowlist gates it. Recommendation: add `live_location` (default on, since he opts in by sharing) so the owner can stop storage.
-- **G2 News-image fetch has no switch** and makes outbound server requests to publisher hosts. Recommendation: gate it under `deep_research` (the source of the signals).
+- **G1 (CLOSED 2026-11-05) Live Location had no capability switch** — now `live_location`.
+- ~~(original text)~~ **G1 Live Location has no capability switch.** It stores his position and stages proposals; today only the Telegram allowlist gates it. Recommendation: add `live_location` (default on, since he opts in by sharing) so the owner can stop storage.
+- **G2 (CLOSED 2026-11-05)** news-image fetch now requires `deep_research`.
+- ~~(original text)~~ **G2 News-image fetch has no switch** and makes outbound server requests to publisher hosts. Recommendation: gate it under `deep_research` (the source of the signals).
 - **G3 Direct-order detection is model-judged.** Recommendation: keep, but record in the audit trail which tool calls ran as direct orders, and add an eval case for forwarded-text injection.
 - **G4 Audit trail:** every automated write is traceable to a pending-action row or a tool log line, but there is no single owner-visible activity log. Recommendation: design one (Wave 3).
 - **G5 `governance.md` states "AI layer does not exist; current state Level 1."** Corrected in the same change; the per-capability table above replaces the single global level.

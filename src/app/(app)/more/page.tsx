@@ -28,6 +28,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/more/documents", label: "Documents", desc: "BOLs, permits, and photos, filed against the record they belong to." },
   { href: "/more/customers", label: "Customers", desc: "The shippers you haul for." },
   { href: "/more/brokers", label: "Brokers", desc: "The brokers you book through — MC numbers and contacts." },
+  { href: "/more/credentials", label: "Credentials", desc: "CDL, medical card, inspection, registration, insurance — with the days left on each." },
   { href: "/more/facilities", label: "Facilities", desc: "The places you run to — check-in, parking, and detention, remembered per place." },
   { href: "/more/industry-intelligence", label: "Industry intelligence", desc: "Briefings on fuel, rules, and the market that affect your lanes." },
   { href: "/more/research", label: "Research", desc: "Deep research engine — watches fuel, rules & news; briefs you when pressure hits." },

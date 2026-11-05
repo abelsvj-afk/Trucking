@@ -32,6 +32,7 @@ import {
 import { runAgentTurn } from "@/services/bot/agent-turn";
 import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
+import { createRateLimiter } from "@/services/telegram/rate-limit";
 import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
@@ -125,6 +126,8 @@ async function answerTelegramCallbackQuery(
   }
 }
 
+const webhookLimiter = createRateLimiter();
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const config = getTelegramConfig();
 
@@ -153,6 +156,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { error: { code: "VALIDATION_ERROR", message: "Request body must be valid JSON." } },
       { status: 400 },
     );
+  }
+
+  // D-10: bound how fast any one chat can drive the webhook. Dropped updates
+  // are acknowledged (200) so Telegram does not redeliver them.
+  const chatForLimit =
+    update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+  const kind = update.edited_message?.location || update.message?.location ? "location" : "message";
+  if (!webhookLimiter.allow(String(chatForLimit ?? "unknown"), kind, Date.now())) {
+    console.warn("[telegram] rate limit hit - update dropped", { kind });
+    return NextResponse.json({ ok: true });
   }
 
   const botToken = config.botToken;

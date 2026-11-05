@@ -22,6 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEmbeddingProvider, toVectorLiteral, type EmbeddingProvider } from "./embeddings";
 import { isMissingColumnError } from "./tool-helpers";
 import { tokenSimilarity } from "./memory-lifecycle";
+import { retireOldMessages } from "./retention";
 import { refreshConversationSummaries, type SummarizeTurns } from "./summaries";
 
 export const MEMORY_CONSOLIDATION_CAPABILITY = "memory_consolidation";
@@ -173,6 +174,13 @@ export async function runConsolidation(deps: ConsolidationDeps): Promise<Consoli
 
   const embedded = embedder ? await embedUnembedded(client, companyId, embedder) : 0;
   const summariesRefreshed = await refreshConversationSummaries(client, companyId, deps.summarize, deps.now);
+  // D-8: messages older than 12 months are retired (soft-deleted), after the
+  // summaries above have had their chance to cover them. Never fatal.
+  try {
+    await retireOldMessages(client, companyId, deps.now ?? new Date());
+  } catch (err) {
+    console.error("[consolidation] retention sweep failed:", err);
+  }
 
   // Candidates from recent conversation (the turns since yesterday,
   // bounded) - facts he stated in chat but never saved as memories.

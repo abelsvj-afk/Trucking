@@ -461,6 +461,25 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(rows[1]!.effective_to ?? null).toBeNull();
   });
 
+  it("'forget this' is a delete PROPOSAL for the memory (D-9): nothing is forgotten until his yes, then it is soft-deleted", async () => {
+    const MEM = "77777777-7777-4777-8777-777777777777";
+    const seed = baseSeed(true);
+    seed.bot_memories = [{ id: MEM, company_id: COMPANY, kind: "fact", content: "My old route was Savannah to Atlanta", source: "telegram", created_at: "2026-10-01T00:00:00Z", deleted_at: null }];
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "c1", name: "delete_record", arguments: JSON.stringify({ entity: "memory", record_id: MEM, confirmation: "execute" }) }] },
+      { text: "I can forget that - want me to?", toolCalls: [] },
+    ]);
+    const first = await runAgentTurn(provider, store, input("forget the old route thing"));
+    expect(first.reply).toContain("NOT recorded");
+    expect(db.bot_memories![0]!.deleted_at).toBeNull(); // always-propose, even when "ordered"
+    const { provider: noModel } = neverCalledProvider();
+    const second = await runAgentTurn(noModel, store, input("yes"));
+    expect(second.reply).toContain("Done");
+    expect(db.bot_memories![0]!.deleted_at).toBeTruthy();
+  });
+
   it("drops the proposal on no - nothing is ever written", async () => {
     const { client, db } = fakeClient(baseSeed(true));
     const store = telegramStore(client);

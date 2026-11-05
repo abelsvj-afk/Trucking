@@ -74,7 +74,7 @@ Beyond the v0.1 MVP, the roadmap sketched in `My idea` (section 16) — to be fo
 
 **Future (unchanged intent):** own truck and authority, small fleet, multi-customer product. These remain distinct from the current single-owner internal tool.
 
-**Success metrics — proposals for the owner to accept, change or reject** (the original says "not yet defined"; none of these is adopted until he says so):
+**Success metrics — ACCEPTED by the owner 2026-11-05 (D-5)** (drafted as proposals; adopted as written; targets, not yet measured):
 1. A forwarded dispatch assignment becomes a correct saved load with one confirmation (target: ≥ 95% of structured trip messages with no field correction after the first week of use).
 2. No stale or wrong-target confirmation: zero executions of a proposal the owner did not just see (measured from the pending-action log).
 3. Paper-log day recreated to matching times from his own photographed sheet (his acceptance test, pass/fail).

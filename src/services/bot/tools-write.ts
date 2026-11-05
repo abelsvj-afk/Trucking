@@ -1625,6 +1625,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     maintenance_schedule: { table: "maintenance_schedules", label: (r: Row) => `maintenance schedule "${r.description}"` },
     checklist_item: { table: "equipment_checklist_items", label: (r: Row) => `checklist item "${r.item_name}"` },
     pretrip_inspection: { table: "pretrip_inspections", label: (r: Row) => `pre-trip inspection from ${String(r.inspected_at).slice(0, 10)}` },
+    memory: { table: "bot_memories", label: (r: Row) => `memory "${String(r.content ?? "").slice(0, 120)}"` },
     duty_log: { table: "duty_logs", label: (r: Row) => `duty log entry (${r.duty_status} from ${r.started_at})` },
   } as const;
   type DeleteEntity = keyof typeof DELETE_TARGETS;

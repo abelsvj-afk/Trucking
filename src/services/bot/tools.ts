@@ -252,6 +252,20 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
     },
     {
+      name: "list_memories",
+      description:
+        "List what Abel currently remembers about him, WITH ids - newest first, current (not superseded) memories only. Use it when he asks to forget something: find the memory here, then propose delete_record with entity \"memory\" and that id (always a proposal for his yes). Optional query filters by words in the memory.",
+      parameters: { type: "object", properties: { query: { type: "string" } } },
+      access: "read",
+      async run(args) {
+        const query = String(args.query ?? "").trim().toLowerCase();
+        const rows = await store.listMemories({ limit: 200 });
+        const hits = rows.filter((m) => !query || m.content.toLowerCase().includes(query)).slice(0, 25);
+        if (hits.length === 0) return query ? `No current memory contains "${query}".` : "No current memories.";
+        return hits.map((m) => `- [${m.id}] (${m.kind}) ${m.content}`).join("\n");
+      },
+    },
+    {
       name: "search_memories",
       description: "Alias of search_memory (hybrid search over memories, past turns, and documents). Prefer search_memory.",
       parameters: {

@@ -33,7 +33,11 @@ Status: 2026-11-05, read from `main`. Answers the audit's Phase 7 gap ("no curre
 | Auth / account | `security.md`, `runtime.md` | login, forgot, reset, settings | Supabase auth | user_profiles | built | e2e recovery | change-password flow unevidenced |
 | API / internal | `api-contracts.md` (route inventory appendix) | — | 115 route files | — | documented | — | drift check |
 
-## 3. Features with no UI (CLAUDE.md "no backend-only delivery")
+## 3. Features with no UI (CLAUDE.md "no backend-only delivery") — RULED 2026-11-05 (D-1)
+
+**Update:** credentials and invoices/receivables now have screens (More → Credentials, Money → Invoices). The four below are documented **bot-only by design** (owner-approved exception): recurring obligations, broker follow-ups, IFTA worksheet, tax packet.
+
+Original finding:
 
 Resources with an API and Abel tools but **no page** that consumes them: `credentials` (credential watch), `load-invoices` + receivables/cash calendar, `recurring-obligations`, `broker-followups`, `ifta` worksheet, `tax-packet`. They are reachable only by asking Abel. The standing rule says user-facing functionality must ship a reachable interface. **Owner decision D-1:** classify each as *bot-only by design* (documented exception) or schedule screens.
 

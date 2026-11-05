@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, ListError } from "@/components/ListStates";
+import { todayEastern } from "@/lib/eastern-date";
 import type { EmployerPayProfile } from "@/types/entities";
 
 const BASIS: Array<{ value: string; label: string }> = [
@@ -30,11 +31,6 @@ const FUEL: Array<{ value: string; label: string }> = [
 
 const label = (opts: Array<{ value: string; label: string }>, v: string | null) =>
   opts.find((o) => o.value === (v ?? ""))?.label ?? "Not set";
-
-/** Today as a calendar date in the owner's zone - never a UTC date. */
-function todayEastern(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-}
 
 const dollarsFromCents = (c: number) => (c / 100).toFixed(2);
 function centsFromDollars(text: string): number | null {
