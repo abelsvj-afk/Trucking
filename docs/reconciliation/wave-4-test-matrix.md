@@ -90,6 +90,11 @@ Each path below runs with RLS bypassed and scopes to a company only in code. For
 
 **Status (2026-11-05):** item 1 is covered at the *query* level by `tests/unit/services/bot/store-company-scope.test.ts` - a recording client drives every method of the brain store AND every bot tool and asserts each executed query is scoped to the configured company (reads/updates/deletes carry `company_id`, writes stamp it). Mutation check: removing one `.eq("company_id", ...)` from `loadMemories` fails it. It does not read a real database, so it proves no query *asks* for another company's rows, not that two seeded companies stay separate end to end; item 6 is covered by `tests/db/driver-positions.sql`, item 4 by the existing internal-route tests; items 2, 3 and 5 remain open. The seeders for the four vehicle tables are fixed (60/60 tables now seeded in `rls-isolation.sql`).
 
+## 4a. AI evals - what is covered (2026-11-05)
+- **Forwarded-text injection (G3), code half:** `tests/unit/services/ai/injection-authority.test.ts` - a scripted, hijacked model that claims `confirmation: "execute"` on `delete_record` (or merely suggests a write) cannot delete or run anything; both are staged as proposals and no write reaches the database. This proves the authority boundary does not depend on model judgment. The model-judgment half (does it refuse the injected instruction in its wording?) needs a live model and is NOT tested here.
+- Bare-yes targeting, cancel != delete, failed-write re-stage: covered by `tests/unit/services/bot/agent-turn.test.ts` and `telegram-claims.test.ts` (existing).
+- Still open: language gate, same-name people, memory supersession as model-behavior evals.
+
 ## 4. Other Wave 4 gates to design (from the audit)
 
 - E2E for critical journeys: dispatch→load→trip tasks; paper-log photo→review→save; Drive start→off-route→reroute; pay terms add/change.
