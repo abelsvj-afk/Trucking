@@ -114,6 +114,8 @@ function makeCreateTool(
     confirm: (args: Row, id: string) => string;
     /** Optional post-insert hook (mileage propagation, schedule completion): returns a sentence appended to the confirmation, or void. Runs after the row exists; its own failures must be reported in its sentence, never thrown over the landed write. */
     afterCreate?: (args: Row, id: string) => Promise<string | void>;
+    /** Columns added by a migration that may not be applied yet: if the insert is refused for a missing column, the row is saved without them (their values folded into notes) and the reply says so. */
+    newerColumns?: string[];
   },
 ): AgentTool {
   const { client, companyId } = store;
@@ -126,12 +128,24 @@ function makeCreateTool(
     summarize: (args) => spec.summarize(args as Row),
     async run(args) {
       const parsed = spec.botSchema.parse(args) as Row;
-      const row = spec.rowSchema.parse(spec.toRow(parsed)) as Row;
-      const id = await insertRow(client, spec.table, companyId, row);
+      let row = spec.rowSchema.parse(spec.toRow(parsed)) as Row;
+      let id: string;
       let note = "";
+      try {
+        id = await insertRow(client, spec.table, companyId, row);
+      } catch (err) {
+        const carried = (spec.newerColumns ?? []).filter((c) => row[c] !== undefined);
+        if (carried.length === 0 || !isMissingColumnError({ message: err instanceof Error ? err.message : "" })) throw err;
+        const folded = carried.map((c) => `${c.replace(/_/g, " ")}: ${String(row[c])}`).join("; ");
+        const rest = { ...row };
+        for (const c of carried) delete rest[c];
+        row = { ...rest, notes: [typeof rest.notes === "string" ? rest.notes : "", folded].filter(Boolean).join("\n") };
+        id = await insertRow(client, spec.table, companyId, row);
+        note = " The database hasn't had the trip-fields update applied yet, so the trip details were saved in the notes instead of their own fields.";
+      }
       if (spec.afterCreate) {
         try {
-          note = (await spec.afterCreate(parsed, id)) ?? "";
+          note += (await spec.afterCreate(parsed, id)) ?? "";
         } catch (err) {
           console.error(`[tools-write] ${spec.name} afterCreate failed:`, err);
           note = " (One follow-on update didn't go through - the record itself is saved.)";
@@ -342,6 +356,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         required: ["origin", "destination"],
       },
       botSchema: createLoadBot,
+      newerColumns: ["trip_number", "broker_reference", "deadhead_miles", "loaded_miles", "pickup_tz", "delivery_tz"],
       afterCreate: async (args, id) => {
         const tasks = Array.isArray(args.tasks) ? (args.tasks as string[]) : [];
         const stops = Array.isArray(args.stops) ? (args.stops as Row[]) : [];

@@ -405,6 +405,43 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(db.bot_memories ?? []).toHaveLength(0);
   });
 
+  it("before migration 00061 is applied the load still saves, trip fields go to notes, and the reply says so", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [];
+    seed.bot_pending_actions = [
+      { id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load", arguments: { origin: "Van Buren, AR", destination: "Fort Pierce, FL", trip_number: "1852", broker_reference: "ACCENT12558481" }, summary: "Load (trip 1852)", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const real = client.from.bind(client);
+    const wrapped = {
+      ...client,
+      from: (table: string) => {
+        const q = real(table) as unknown as Record<string, unknown>;
+        if (table !== "loads") return q;
+        return new Proxy(q, {
+          get(target, prop) {
+            if (prop === "insert") {
+              return (payload: Record<string, unknown>) =>
+                "trip_number" in payload
+                  ? { select: () => ({ single: async () => ({ data: null, error: { message: 'column "trip_number" of relation "loads" does not exist' } }) }) }
+                  : (target.insert as (p: unknown) => unknown)(payload);
+            }
+            const v = target[prop as string];
+            return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+          },
+        });
+      },
+    } as unknown as SupabaseClient;
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(wrapped), input("yes"));
+    expect(out.reply).toContain("Done");
+    expect(out.reply).toContain("saved in the notes");
+    expect(db.loads).toHaveLength(1);
+    expect(String(db.loads![0]!.notes)).toContain("trip number: 1852");
+    expect(String(db.loads![0]!.notes)).toContain("broker reference: ACCENT12558481");
+    expect(db.loads![0]).not.toHaveProperty("trip_number");
+  });
+
   it("drops the proposal on no - nothing is ever written", async () => {
     const { client, db } = fakeClient(baseSeed(true));
     const store = telegramStore(client);
