@@ -48,12 +48,14 @@ import {
   type Place,
   type PlacesProvider,
 } from "@/services/integrations/places";
+import { getRegionalDiesel, type RegionalDiesel } from "@/services/smart-path/regional-fuel";
 import { getDieselPriceEstimate } from "@/services/smart-path/fuel-price-estimate";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import type { RouteCheckRequest } from "@/data/schemas/smart-path";
 import type { DutyLog, FuelPurchase, Load, Truck } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
 import { buildCorridor, etaAtMile } from "@/lib/smart-path-corridor";
+import { PADD_BY_STATE, stateAt, statesAlongRoute } from "@/lib/smart-path-states";
 
 export interface RouteCheckProviders {
   geocoding: GeocodingProvider;
@@ -61,6 +63,8 @@ export interface RouteCheckProviders {
   places: PlacesProvider;
   /** Piece 1 (P1-6): the EIA diesel estimate for map fuel candidates. */
   fuelPriceEstimate: () => Promise<{ cents: number; label: string } | null>;
+  /** Intelligence Phase 2a: the EIA weekly diesel average for a PADD region (optional seam; absent = national estimate only). */
+  regionalDiesel?: (paddCode: string, regionName: string) => Promise<RegionalDiesel | null>;
 }
 
 export const defaultProviders: RouteCheckProviders = {
@@ -68,6 +72,7 @@ export const defaultProviders: RouteCheckProviders = {
   routing: defaultRoutingProvider(),
   places: new OverpassPlacesProvider(),
   fuelPriceEstimate: () => getDieselPriceEstimate(),
+  regionalDiesel: (code, name) => getRegionalDiesel(code, name),
 };
 
 type RouteResult = Awaited<ReturnType<RoutingProvider["getRoute"]>>;
@@ -352,16 +357,37 @@ export async function runRouteCheck(
   } catch {
     estimate = null;
   }
+  // Phase 2a: price each map candidate by ITS region (one EIA read per region on the route),
+  // falling back to the national estimate. A stale regional snapshot is shown, not ranked on.
+  const regionalByPadd = new Map<string, RegionalDiesel | null>();
+  const regionalFor = async (lat: number, lng: number): Promise<RegionalDiesel | null> => {
+    if (!providers.regionalDiesel) return null;
+    const st = stateAt(lat, lng);
+    const padd = st ? PADD_BY_STATE[st] : undefined;
+    if (!padd) return null;
+    if (!regionalByPadd.has(padd.code)) {
+      let r: RegionalDiesel | null = null;
+      try {
+        r = await providers.regionalDiesel(padd.code, padd.name);
+      } catch {
+        r = null;
+      }
+      regionalByPadd.set(padd.code, r);
+    }
+    return regionalByPadd.get(padd.code) ?? null;
+  };
   for (const place of places) {
     if (place.kind !== "fuel") continue;
+    const regional = await regionalFor(place.lat, place.lng);
+    const usable = regional && regional.freshness !== "stale" ? regional : null;
     fuelCandidates.push({
       id: place.id,
       name: place.name,
       lat: place.lat,
       lng: place.lng,
       pricePerGallonCents: null,
-      estimatedPricePerGallonCents: estimate?.cents ?? null,
-      estimateLabel: estimate?.label ?? null,
+      estimatedPricePerGallonCents: usable?.cents ?? estimate?.cents ?? null,
+      estimateLabel: usable?.label ?? estimate?.label ?? null,
       source: "map",
       detourMiles: Math.round(distanceToRouteMiles(place, route.geometry) * 2 * 10) / 10,
     });
@@ -501,6 +527,13 @@ export async function runRouteCheck(
     ? {
         totalMiles: Math.round(built.corridor.totalMiles * 10) / 10,
         spacingMiles: built.corridor.spacingMiles,
+        // Approximate: coarse bundled outlines (see lib/smart-path-states.ts).
+        states: statesAlongRoute(built.corridor.points).map((st) => ({
+          state: st.state,
+          enterMile: Math.round(st.enterMile),
+          exitMile: Math.round(st.exitMile),
+          padd: st.state ? (PADD_BY_STATE[st.state] ?? null) : null,
+        })),
         points: built.corridor.points.map((pt) => ({
           mile: Math.round(pt.mileFromStart * 10) / 10,
           lat: pt.lat,
@@ -572,6 +605,9 @@ export async function runRouteCheck(
         stopMinutes: DEFAULT_FUEL_ASSUMPTIONS.stopMinutes,
         baselinePriceCents,
       },
+      regional: [...regionalByPadd.values()]
+        .filter((r): r is RegionalDiesel => r !== null)
+        .map((r) => ({ paddCode: r.paddCode, regionName: r.regionName, cents: r.cents, label: r.label, period: r.period, freshness: r.freshness })),
       candidates: rankedFuel,
       unavailableReason: placesUnavailable && fuelCandidates.length === 0 ? placesUnavailable : null,
     },

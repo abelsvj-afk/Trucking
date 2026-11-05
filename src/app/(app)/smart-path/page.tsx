@@ -512,7 +512,13 @@ function SmartPathInner() {
 
           {result.corridor && "points" in result.corridor && result.corridor.points.length > 1 && (
             <details>
-              <summary>Along the route — when you reach each stretch</summary>
+              <summary>Along the route — states and when you reach each stretch</summary>
+              <p>
+                {result.corridor.states
+                  .map((st) => `${st.state ?? "outside the map"} (mile ${st.enterMile}–${st.exitMile})`)
+                  .join(" → ")}
+                . State borders are approximate (a few miles).
+              </p>
               <ul>
                 {result.corridor.points
                   .filter((pt, i, all) => i === 0 || i === all.length - 1 || pt.mile % 50 === 0)
@@ -591,6 +597,17 @@ function SmartPathInner() {
             {result.fuel.candidates.some((candidate) => candidate.usedEstimate) &&
               " Prices marked est. are the EIA weekly U.S. average, not that station's price — your fuel log is the only real price here."}
           </p>
+          {result.fuel.regional && result.fuel.regional.length > 0 && (
+            <ul aria-label="Diesel by region">
+              {result.fuel.regional.map((r) => (
+                <li key={r.paddCode}>
+                  {r.regionName}: {dollars(r.cents)}/gal — {r.label}
+                  {r.freshness === "aging" && " (getting old)"}
+                  {r.freshness === "stale" && " — OLD DATA: shown for reference, not used to rank stops"}
+                </li>
+              ))}
+            </ul>
+          )}
           {result.fuel.unavailableReason && <p>{result.fuel.unavailableReason}</p>}
           {result.fuel.candidates.length === 0 && !result.fuel.unavailableReason && (
             <p>No fuel stops found near this route yet — your fuel log and the map data both feed this list.</p>

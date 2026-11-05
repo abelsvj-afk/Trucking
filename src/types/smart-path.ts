@@ -59,7 +59,13 @@ export interface RouteCheckResponse {
    * can't be timed), or the reason there is no corridor. The later layers read this.
    */
   corridor?:
-    | { totalMiles: number; spacingMiles: number; points: { mile: number; lat: number; lng: number; etaAt: string | null }[] }
+    | {
+        totalMiles: number;
+        spacingMiles: number;
+        /** States crossed, in order; border miles are approximate (coarse outlines). state null = outside every outline. */
+        states: { state: string | null; enterMile: number; exitMile: number; padd: { code: string; name: string } | null }[];
+        points: { mile: number; lat: number; lng: number; etaAt: string | null }[];
+      }
     | { unavailableReason: string };
   verdict: {
     status: RouteCheckStatus;
@@ -110,6 +116,12 @@ export interface RouteCheckResponse {
       stopMinutes: number;
       baselinePriceCents: number | null;
     };
+    /**
+     * Intelligence Phase 2a: EIA weekly diesel average for each PADD region where a
+     * map fuel candidate was priced. `freshness` "stale" snapshots are shown with
+     * their date but never used to rank. Region averages, not station prices.
+     */
+    regional?: { paddCode: string; regionName: string; cents: number; label: string; period: string; freshness: "fresh" | "aging" | "stale" }[];
     candidates: RankedFuelCandidate[];
     unavailableReason: string | null;
   };
