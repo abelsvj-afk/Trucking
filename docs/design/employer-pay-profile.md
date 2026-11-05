@@ -1,6 +1,6 @@
-# Employer Pay Profile — design (BUILT 2026-11-06; migration 00063 NOT applied)
+# Employer Pay Profile — design (BUILT 2026-11-05; migration 00063 NOT applied)
 
-Status: DESIGN, 2026-11-06. Nothing here is implemented. Owner decisions are
+Status: DESIGN, 2026-11-05. Nothing here is implemented. Owner decisions are
 marked **DECIDE**; defaults are stated so work can proceed once confirmed.
 
 ## 1. Why

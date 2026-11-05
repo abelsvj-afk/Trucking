@@ -1,13 +1,13 @@
 # Trip Intake and confirmation lifecycle — design (Phases A–C built; D partly)
 
-Status: 2026-11-06. Source: King's audit of the Trip 1852 transcript, with the
+Status: 2026-11-05. Source: King's audit of the Trip 1852 transcript, with the
 claims below re-verified against `main` before acting.
 
 ## 1. Verified defects
 
 | # | Claim | Verified in code | Status |
 |---|---|---|---|
-| 1 | A YES resolves the OLDEST pending action company-wide, any channel | `store.ts` `loadPendingRows`: `company_id` only, `created_at asc` | **FIXED (Phase B, owner-approved 2026-11-06)**: a bare yes/no targets the most recently shown proposal; with several open and none shown in the last 10 min it executes nothing and lists them |
+| 1 | A YES resolves the OLDEST pending action company-wide, any channel | `store.ts` `loadPendingRows`: `company_id` only, `created_at asc` | **FIXED (Phase B, owner-approved 2026-11-05)**: a bare yes/no targets the most recently shown proposal; with several open and none shown in the last 10 min it executes nothing and lists them |
 | 2 | Proposals are stored without `validateArgs`; a broker NAME reached a uuid field | `agent-loop.ts` stored `writeArgs` raw | **FIXED (Phase A)**: validated before staging; invalid → model told, nothing shown/stored |
 | 3 | `list_contacts` returned names only, so ids could not be found | `tools.ts` selected `name` | **FIXED (Phase A)**: returns `[id] name` |
 | 4 | A failed write discarded the proposal | `resolvePending` cleared first | **FIXED (Phase A)**: failure re-stages the same proposal and says so |
@@ -63,7 +63,7 @@ suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language
    `load_stops` + `load_tasks`).
 2. Approve "bare YES targets the last-shown proposal; ambiguity lists them".
 
-## 6. Built 2026-11-06 (owner approved both decisions)
+## 6. Built 2026-11-05 (owner approved both decisions)
 
 - Phase B: targeting + ambiguity listing + cancel-in-code (tests in `agent-turn.test.ts`).
   Failed writes keep their proposal. Expiry behavior unchanged (2 h).
@@ -77,7 +77,7 @@ suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language
   trigger that calls `create_load` with the trip fields is a prompt/extraction
   behavior and needs a real forwarded message to tune.
 
-## 7. Built 2026-11-06, round 2 (owner: "do all the still open things")
+## 7. Built 2026-11-05, round 2 (owner: "do all the still open things")
 
 - **Structured trip messages are read by code** (`lib/dispatch-trip.ts`): the
   Trip 1852 format ("NEW TRIP n HAS BEEN ASSIGNED", any number of STOP blocks,
