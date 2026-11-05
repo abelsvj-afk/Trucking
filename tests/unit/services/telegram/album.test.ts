@@ -47,10 +47,12 @@ describe("UH-14: album grouping", () => {
     expect(primary?.id).toBe("doc1");
     const count = await attachAlbumPage(client, COMPANY, primary!, new ArrayBuffer(3));
     expect(count).toBe(2);
-    expect(uploads[0]!.path).toBe("c/doc1.jpg.page2");
+    // DH-2: page paths carry a unique suffix so racing attaches can
+    // never overwrite each other's bytes.
+    expect(uploads[0]!.path).toMatch(/^c\/doc1\.jpg\.page2-[0-9a-f]{8}$/);
     expect((rows[0]!.extracted_fields as { album_pages: string[] }).album_pages).toEqual([
       "c/doc1.jpg",
-      "c/doc1.jpg.page2",
+      uploads[0]!.path,
     ]);
   });
   it("markAlbumPrimary stamps group + first page", async () => {

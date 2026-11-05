@@ -97,7 +97,9 @@ export async function handleTelegramPhotoIntelligent(
         if (!dl.ok) return dl.reply;
         const pageCount = await attachAlbumPage(deps.client, deps.companyId, primary, dl.bytes);
         if (pageCount != null) {
-          return `Added that as page ${pageCount} of the document you just sent — one document, pages together, so it reads as a single piece of paperwork.`;
+          // DH-6: honest scope - the pages are stored together, but
+          // extraction reads page 1; don't claim a combined read.
+          return `Added that as page ${pageCount} of the document you just sent — all its pages are stored together under that one document. I read the first page for its details; the rest are kept with it.`;
         }
       }
     } catch (err) {

@@ -138,6 +138,38 @@ export async function processUploadedDocument(
 
   if (Object.keys(updates).length === 0) return;
   try {
+    // Doc-intake hunt DH-1: extracted_fields is a SHARED jsonb column.
+    // The Telegram album writers keep their grouping keys there
+    // (media_group_id, album_pages), stamped BEFORE processing runs;
+    // a wholesale replace on extraction success would erase the group
+    // and silently split the album. Carry those two keys over from
+    // the row's current value. Failure-isolated: a failed read falls
+    // back to the plain replace rather than losing the whole write.
+    // (Web uploads never carry these keys - behavior unchanged there.)
+    if ("extracted_fields" in updates) {
+      try {
+        const { data } = await supabase
+          .from("documents")
+          .select("extracted_fields")
+          .eq("id", input.documentId)
+          .eq("company_id", input.companyId)
+          .maybeSingle();
+        const existing = (
+          data as { extracted_fields: Record<string, unknown> | null } | null
+        )?.extracted_fields;
+        if (existing && ("media_group_id" in existing || "album_pages" in existing)) {
+          const carried: Record<string, unknown> = {};
+          if ("media_group_id" in existing) carried.media_group_id = existing.media_group_id;
+          if ("album_pages" in existing) carried.album_pages = existing.album_pages;
+          updates.extracted_fields = {
+            ...(updates.extracted_fields as Record<string, unknown>),
+            ...carried,
+          };
+        }
+      } catch (readErr) {
+        console.error("Document album-key preservation read failed:", readErr);
+      }
+    }
     const { error } = await supabase
       .from("documents")
       .update(updates)

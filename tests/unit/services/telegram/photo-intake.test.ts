@@ -109,7 +109,8 @@ describe("handleTelegramPhoto", () => {
       contentType: "image/jpeg",
       size: 4,
     });
-    expect(storeArgs[1].fileName).toBe("telegram-photo-20261101043012.jpg");
+    // DH-7: the stamp is Eastern now - 04:30:12Z is 12:30:12 AM in New York.
+    expect(storeArgs[1].fileName).toBe("telegram-photo-20261101003012.jpg");
   });
 
   it("says plainly that extraction is off and the photo was stored unread", async () => {
