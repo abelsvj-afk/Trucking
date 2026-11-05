@@ -432,3 +432,153 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | POST | `/api/v1/paper-logs` | Body `{ document_id }`. Reads the stored sheet's grid now (gated by the `photo_intelligence` capability: `403 CAPABILITY_OFF` when off; `502 READ_FAILED` when the photo can't be read — the sheet stays stored), stores the read on the document (`extracted_fields.paper_log_read`, re-validated on every load), returns `{ data: PaperLogReview }` |
 | GET | `/api/v1/paper-logs/{documentId}` | `{ data: PaperLogReview }`: signed photo URLs, the editable day (`draft` — every minute 00:00–24:00 present; unreadable spans have `status: null`, under-floor reads are `origin: "low"`), the reader's cross-check `problems`, the sheet's `written_totals`, `conflicts` (rows from other sources starting inside the day) and `saved_rows` (from this sheet). `404` for a missing/other-company sheet |
 | POST | `/api/v1/paper-logs/{documentId}/save` | Body `{ log_date, segments: [{ status, start_min, end_min }], replace_ids }`. Re-validates that the segments tile 00:00–24:00 with a status each (`422` otherwise), then calls `save_paper_log_day` (migration 00059) in one transaction: refuses with `409 PAPER_LOG_CONFLICT` if any entry inside the day isn't in `replace_ids`; soft-deletes this sheet's earlier rows and the acknowledged entries; inserts the rows (`source = 'paper_photo'`, times placed in the carrier time zone); retires any Telegram proposal batch for the sheet. Response `{ data: { inserted } }` |
+
+
+---
+
+## Reconciliation appendix — complete route inventory (generated 2026-11-05 from `src/app/api/**/route.ts` on `main`)
+
+115 route files. "Generic CRUD" routes follow the contract in the sections above (standard list/error envelopes, Zod validation, soft-delete + `/restore` where the Unit A lifecycle applies). Every `/api/v1/*` route except `health` runs through `createApiHandler` (session auth, company scope, centralized error mapping). A drift check that fails when a route is not in this table is proposed for Wave 4.
+
+| Route | Methods | Kind / auth |
+|---|---|---|
+| `/api/internal/industry-briefing/run` | POST | internal invoker — secret header, no user session |
+| `/api/internal/research/run` | POST | internal invoker — secret header, no user session |
+| `/api/telegram/webhook` | POST | Telegram webhook — secret token + chat allowlist, fails closed |
+| `/api/v1/account-snapshots/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/account-snapshots/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/account-snapshots` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/ai-settings` | GET,PATCH | custom (see section / design doc) |
+| `/api/v1/assistant/chat` | GET,POST | custom (see section / design doc) |
+| `/api/v1/broker-followups/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/broker-followups` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/brokers/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/brokers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/brokers/[id]/scorecard` | GET | custom (see section / design doc) |
+| `/api/v1/brokers` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/business-ladder/[step_key]` | PATCH | custom (see section / design doc) |
+| `/api/v1/business-ladder` | GET | custom (see section / design doc) |
+| `/api/v1/credentials/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/credentials` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/customers/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/customers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/customers` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/day-wrap` | GET | custom (see section / design doc) |
+| `/api/v1/detention-stamps/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/detention-stamps` | GET | generic CRUD (contract above) |
+| `/api/v1/dispatch-exchanges/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/dispatch-exchanges/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/dispatch-exchanges` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/dispatch-suggest` | POST | custom (see section / design doc) |
+| `/api/v1/documents/[id]/restore` | POST | custom (see section / design doc) |
+| `/api/v1/documents/[id]` | DELETE | custom (see section / design doc) |
+| `/api/v1/documents/cleanup-incidents/[id]/retry` | POST | custom (see section / design doc) |
+| `/api/v1/documents/cleanup-incidents` | GET | custom (see section / design doc) |
+| `/api/v1/documents` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/drivers/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/drivers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/drivers` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/duty-logs/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/duty-logs/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/duty-logs` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/duty-logs/window` | GET | custom (see section / design doc) |
+| `/api/v1/equipment-checklist-items/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/equipment-checklist-items/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/equipment-checklist-items` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/expenses/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/expenses/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/expenses` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/facilities/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/facilities` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/financial-summary/detail` | GET | custom (see section / design doc) |
+| `/api/v1/financial-summary` | GET | custom (see section / design doc) |
+| `/api/v1/fuel-purchases/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/fuel-purchases/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/fuel-purchases` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/fund-entries/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/fund-entries/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/fund-entries` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/game-plan/promote` | POST | custom (see section / design doc) |
+| `/api/v1/game-plan/regame` | POST | custom (see section / design doc) |
+| `/api/v1/game-plan` | GET | custom (see section / design doc) |
+| `/api/v1/game-plan/what-if` | POST | custom (see section / design doc) |
+| `/api/v1/game-targets/[id]` | DELETE,GET,PATCH | custom (see section / design doc) |
+| `/api/v1/game-targets` | GET,POST | custom (see section / design doc) |
+| `/api/v1/health` | GET | health (public, no sensitive data) |
+| `/api/v1/hos-settings` | GET,PATCH | custom (see section / design doc) |
+| `/api/v1/ifta` | GET | custom (see section / design doc) |
+| `/api/v1/industry-briefings/[id]/dismiss` | POST | custom (see section / design doc) |
+| `/api/v1/industry-briefings` | GET | generic CRUD (contract above) |
+| `/api/v1/load-invoices/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/load-invoices` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/load-stops/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/load-stops` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/load-tasks/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/load-tasks` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/loads/[id]/detention-stamps` | GET,POST | custom (see section / design doc) |
+| `/api/v1/loads/[id]/paperwork` | GET | custom (see section / design doc) |
+| `/api/v1/loads/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/loads/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/loads` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/maintenance-events/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/maintenance-events/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/maintenance-events` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/maintenance-schedules/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/maintenance-schedules/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/maintenance-schedules` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/memories` | DELETE,GET,PATCH | custom (see section / design doc) |
+| `/api/v1/news-image` | GET | custom (see section / design doc) |
+| `/api/v1/paper-logs/[id]` | GET | custom (see section / design doc) |
+| `/api/v1/paper-logs/[id]/save` | POST | custom (see section / design doc) |
+| `/api/v1/paper-logs` | GET,POST | custom (see section / design doc) |
+| `/api/v1/pay-profiles/[id]` | GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/pay-profiles` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/position` | GET | custom (see section / design doc) |
+| `/api/v1/pretrip-inspections/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/pretrip-inspections/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/pretrip-inspections` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/recurring-obligations/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/recurring-obligations` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/research-briefings/[id]/dismiss` | POST | custom (see section / design doc) |
+| `/api/v1/research-briefings/[id]/read` | POST | custom (see section / design doc) |
+| `/api/v1/research-briefings/[id]` | GET | custom (see section / design doc) |
+| `/api/v1/research-briefings/check-wires` | POST | custom (see section / design doc) |
+| `/api/v1/research-briefings/research-now` | POST | custom (see section / design doc) |
+| `/api/v1/research-briefings` | GET | custom (see section / design doc) |
+| `/api/v1/smart-path/route-check` | POST | custom (see section / design doc) |
+| `/api/v1/tax-packet` | GET | custom (see section / design doc) |
+| `/api/v1/trailers/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/trailers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/trailers` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/truck-fund` | GET | custom (see section / design doc) |
+| `/api/v1/truck-fund/settings` | PATCH | custom (see section / design doc) |
+| `/api/v1/trucks/[id]/restore` | POST | generic CRUD (contract above) |
+| `/api/v1/trucks/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/trucks` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/vehicle-defects/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
+| `/api/v1/vehicle-defects` | GET,POST | generic CRUD (contract above) |
+
+
+## Reconciliation appendix — contracts added since this document was last updated
+
+All below: auth = session; company scope by RLS; errors use the standard envelope with no stack/path leakage.
+
+### `load-tasks` (migration 00061)
+`GET /api/v1/load-tasks?load_id=<uuid>` list · `POST` create `{load_id (uuid), text (non-empty), stop_kind? (pickup|delivery|every_stop|null), sort_order? (int)}` · `PATCH /{id}` `{text?, done_at? (ISO or null)}` · `DELETE /{id}` soft-delete. `done_at` is set only by the owner's tick; no endpoint infers completion.
+
+### `load-stops` (migration 00062)
+`GET /api/v1/load-stops?load_id=` · `POST {load_id, seq (int ≥ 1), kind? (pickup|delivery|other), name?, address?, appointment_at? (ISO instant), appointment_tz? (IANA)}` · `PATCH /{id} {arrived_at?, departed_at?, approved_at?, notes?}` (each ISO or null to clear a mis-tap) · `DELETE /{id}`. Progress fields are owner taps only; `approved_at` means "the dispatcher approved leaving", recorded by the owner, never assumed.
+
+### `pay-profiles` (migration 00063; **unapplied live**)
+`GET /api/v1/pay-profiles[?employer_name=]` · `POST {employer_name, rate_cents_per_mile (int ≥ 0), mile_basis? (loaded|all|practical|null), worker_type? (w2|1099|null), fuel_paid_by? (employer|driver|null), effective_from?, notes?}` · `PATCH /{id}` (corrections, or `effective_to` to close terms). A second open-ended row for the same employer is refused by the database (partial unique index). `null` basis/worker/fuel means UNSET and nothing is computed from it. No DELETE route; history is kept.
+
+### `news-image`
+`GET /api/v1/news-image?signal=<uuid>&i=<0-9>` → `image/jpeg` (re-encoded, ≤ 640 px edge, metadata stripped; `Cache-Control: private, max-age=86400`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`). The caller names a stored signal and an index, never a URL. Failures are a **bare status** with no body: 404 (no such signal/image), 502 (lookup/fetch/decode failed), 503 (too many concurrent fetches). The server fetches through an SSRF-guarded fetcher (public IPs only, re-checked at connection time, ≤ 2 redirects, size/time caps, magic-bytes must match jpeg/png/webp).
+
+### `position` (migration 00060)
+`GET /api/v1/position` → `{ position: null }` or `{ position: { lat, lng, accuracyM, headingDeg, speedMph, recordedAt, ageSeconds } }`, `Cache-Control: no-store`. The caller must treat a fix older than its own freshness bound as absent (Drive uses 45 s). Table absent (pre-00060) → `{ position: null }`.
+
+### Changed existing contracts
+- `loads` (create/update, API and bot tool): adds `trip_number`, `broker_reference`, `deadhead_miles`, `loaded_miles` (numeric, 2 dp), `pickup_tz`, `delivery_tz`; `miles` remains the integer total. The bot `create_load` additionally accepts `tasks[]` and `stops[]` saved in the same confirmation (see `docs/design/trip-intake.md`).
+- `smart-path/route-check`: request adds `already_picked_up?: boolean`; with `start_point` it routes from the truck's position with no pickup geocode and no deadhead (reroute).
+- `telegram` webhook: also accepts `edited_message` / `message.location` (Live Location fixes; processed after the allowlist + dedup claim, never answered in chat).

@@ -109,10 +109,17 @@ Contribution margin / operating result, never "profit". Provisional HOS carrier
 settings are labeled wherever the cycle is stated. A clock or total that cannot
 be computed says so. Times are the viewer's/carrier's, never UTC.
 
-## 8. Open, with owners
+## 8. Open, with owners (reconciled 2026-11-05)
 
-- Image-led news: `news-banner-images.md` (needs the owner's call on source + proxy).
-- Telegram paper-log approval across an unreadable gap (needs a ruling).
-- Background GPS / rerouting / voice maneuvers (product decisions).
-- Motion gate on the remaining forms; Drive tab / navigation decision.
-- DST changeover day graph offsets; live NV-3 proof; the rest of the visual audit (King).
+Built and removed from this list: image-led news, rerouting, background position
+(via Telegram Live Location), spoken turns, Drive clocks, the app-wide motion
+lock, DST-correct day graph.
+
+Still open:
+- Proactive Telegram logging reminders (hud §7) — owner decision on when/what.
+- Home map card (hud §8) — owner decision.
+- Telegram paper-log approval across an unreadable gap — **ruled** 2026-11-04 (flagged stretches book; unreadable are dropped and named); keep as a regression test.
+- Motion gate coverage on every remaining form (SAF-1 test) — Wave 4.
+- Drive tab / navigation placement decision.
+- Live NV-3 isolation proof; refresh of the visual audit after deploy (King).
+- Owner acceptance: paper-log reader against his own photographed sheet; a real drive with Live Location shared.

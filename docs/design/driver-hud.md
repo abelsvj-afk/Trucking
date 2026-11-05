@@ -4,8 +4,12 @@ Status: APPROVED TO BUILD by the owner (chat orders 2026-11-04: "Start the HUD
 build now", then the live layer, the paper-log review screen and the day view,
 in that order). Built so far: §2 HUD (Home), §3 day view, §4 live layer,
 §5 driving lockout (Home HUD + Drive Mode), §6 paper-log review, §12 popups.
-NOT built: §7 Telegram logging reminders, §8 map card on Home, Drive-Mode
-clocks alongside the route, image-led news, rerouting, background tracking.
+NOT built (reconciled 2026-11-05): §7 *proactive* Telegram logging reminders
+(Abel does not yet message him to remind him to log; Live Location status
+*proposals* and chat-staged duty changes do exist) and §8 the Home map card.
+Built since this header was first written: Drive-Mode clocks alongside the
+route, the Home active-load cockpit, image-led news, rerouting (truck-checked
+only), and screen-off position via Telegram Live Location.
 Covers Missions 2 (paper log in-app review), 3 (live layer) and Stage 9
 (driver usability) of the handoff.
 
@@ -237,7 +241,7 @@ count as moving.
 | HUD spec still DRAFT | Yes | Status updated |
 | `m3-hud-b` is 12 behind main, no PR | Was true; superseded | Current work is `m4-reanchor`, up to date with main |
 | "Revenue"/"Net" labels regress Unit C | No on `m4-reanchor` | Unit C files kept verbatim in the re-anchor |
-| Banner is text-only, no images | Yes, by design | Needs a spec + a free image source + privacy review before building |
-| Home lacks an active-load cockpit | Yes | Needs a design pass; not built |
-| No rerouting / background tracking | Yes | Product decision; not built |
-| Spoken turn instructions missing | Not verified | Open |
+| Banner is text-only, no images | Yes, by design | **Superseded 2026-11-05: built** (server-side fetch + re-encode; `news-banner-images.md`) |
+| Home lacks an active-load cockpit | Yes | **Superseded: built** (`ActiveLoadCard`) |
+| No rerouting / background tracking | Yes | **Superseded 2026-11-05: built** (truck-checked rerouting; Telegram Live Location — works only while he shares it) |
+| Spoken turn instructions missing | Not verified | **Superseded: built** (half-mile + close tiers, `drive-maneuver-speech`) |

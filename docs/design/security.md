@@ -48,3 +48,16 @@ Per `CLAUDE.md` and the workflow doc's Phase 17: authn/authz correctness, secret
 ---
 
 *This document assumes the architecture in `docs/architecture.md` (Supabase-managed Postgres/Auth/Storage) as given. If that choice changes, this document needs to be revisited, not silently left stale.*
+
+---
+
+## Reconciliation addendum — security model as built, 2026-11-05 (DRAFT; live proof is Wave 0/4, not asserted)
+
+1. **Tenancy has three enforcement paths, not one** (see `docs/architecture.md` addendum): RLS for user-session routes; code-level company scoping on the service-role Telegram/scheduler paths; narrow-role pools. RLS tests alone do not cover paths 2–3.
+2. **Global (non-tenant) tables:** `companies` (own-row policies), `research_watcher_state` and `research_runner_heartbeat` (no `company_id`; world-readable `select` by design — watcher health, no business data), plus research tables where the job role has `using (true)`. Every other table has `company_id` and a tenant policy (generated matrix in the Wave 4 doc). No table lacks RLS.
+3. **Secrets:** webhook secret, cron secrets (`RESEARCH_RUN_CRON_SECRET`, industry-briefing secret, compared with `timingSafeEqual`, fail-closed when unset), `TELEGRAM_BOT_TOKEN`, service-role key, pool URLs live in Fly secrets / Supabase Vault; none in git (public repo). Real trip/person/account data must not appear in fixtures, docs or screenshots in the repo — the 2026-11-05 sanitization replaced a real trip in tests; the earlier values remain in git history (owner decision D-6).
+4. **Inbound untrusted text:** forwarded messages, RSS, GDELT, OpenStates and images are validated/escaped and never treated as instructions; proposals are validated against the tool's own schema **before** being shown; direct-order detection is model-judged (gap G3).
+5. **Outbound fetch (SSRF):** only `safe-image-fetch` fetches arbitrary publisher URLs: https only, public IPs, re-resolved at connection time, ≤ 2 manual redirects, 1.5 MB / 8 s caps, content-type/magic-bytes agreement, re-encode, no cookies.
+6. **Location data:** only the latest Telegram fix is stored (`driver_positions`); no history; readable via the company-scoped API; no capability switch yet (gap G1).
+7. **Retention:** soft delete + restore + document tombstones with cleanup incidents (Unit A); memory lifecycle (valid_to). A retention schedule for `telegram_messages`, `driver_positions` and research tables is **not defined** (owner decision D-8).
+8. **Threat-model rows to add:** SSRF via stored image URLs (mitigated, see 5); stale/misdirected confirmation (mitigated by last-shown targeting); location disclosure via the position endpoint (company-scoped, no-store); prompt injection via forwarded text (bounded by propose→yes + validation, residual risk G3).

@@ -128,3 +128,27 @@ Per `CLAUDE.md`: structured logs from API routes with no secrets or PII in them,
 ---
 
 *This document defines the system's shape. Exact schemas, API request/response formats, and error contracts are Phase 6 (`docs/api-contracts.md`, `docs/schemas.md`). Detailed screen-by-screen UI/UX design is Phase 7 (`docs/design/ui-ux.md`).*
+
+---
+
+## Reconciliation addendum — the system as built, 2026-11-05 (DRAFT for owner review)
+
+The sections above stay as the original architecture record; where they say "reserved / not implemented" about the AI layer, that is retired. Facts below were read from `main` at `3fbd5b3`; live state is King's lane (audit addendum §11).
+
+**Runtime.** One persistent Node process on Fly.io (Next.js 16, React 19, Tailwind 4), manual deploys only. Browser → Next route handlers (`/api/v1/*`, session auth) → Supabase (Postgres + RLS + Realtime + Storage). A second door: the Telegram webhook (`/api/telegram`, webhook secret + owner chat allowlist) and two secret-authenticated invokers (`/api/internal/*`, called hourly by pg_cron/pg_net and by the in-process schedulers started in `src/instrumentation.ts`).
+
+**Layers (and the rule that holds them):** UI (pages/components, no business logic) → `src/lib` (pure logic: money, HOS, motion, drive, parsing, live-motion, SSRF guard) → `src/services/*` (API handler/validation, db, ai, bot, telegram, research, game, fleet, documents, integrations, smart-path) → database. Pure logic is unit-tested without I/O; services take their clients/providers by injection.
+
+**Three data-access paths — this is the security-relevant fact:**
+1. *User session client* (anon key + cookie; RLS enforces tenancy) — every `/api/v1/*` route except health and the internal/telegram doors.
+2. *Service-role client* (`SUPABASE_SERVICE_ROLE_KEY`, **bypasses RLS**, company scope applied in code from `TELEGRAM_COMPANY_ID`) — the Telegram webhook, the Abel brain store, schedulers that message the owner (`services/telegram/store.ts`, `services/game/scheduler.ts`).
+3. *Direct Postgres pools* with narrow roles — the financial summary (`FINANCIAL_SUMMARY_DB_URL`) and the industry/research job role (`industry_briefing_job`, RLS policies `using (true)` on the global research tables).
+Paths 2–3 are why tenancy needs tests beyond RLS (matrix in `docs/reconciliation/wave-4-test-matrix.md`).
+
+**Data flows that did not exist in the original design:** dispatch message → (code parser or model) → validated proposal → pending action → owner yes → load + stops + tasks; position fix (Telegram Live Location) → `driver_positions` → proposal / Drive fallback; sheet photo → read → review → atomic save RPC; research watchers → signals → briefings → quiet-hours-aware Telegram delivery; Realtime `postgres_changes` → client re-fetch through the company-scoped API (payloads are never rendered).
+
+**External integrations (free-first):** GDELT, EIA, FRED (market snapshot), NWS (weather), OpenStates, Federal Register, FMCSA/FreightWaves/Overdrive RSS, geocoding/places/routing providers (Valhalla / OpenRouteService), OpenAI (chat, vision, transcription), Telegram. All responses are validated (Zod) and treated as untrusted. Outbound image fetches go through `lib/safe-image-fetch.ts` (SSRF-guarded) and are re-encoded with `sharp`.
+
+**Scheduled work:** six in-process schedulers + the hourly invoker (see `docs/ai-authority-matrix.md` §3). Due-ness comes from DB state, not memory, so a restarted machine does not double-run.
+
+**Known architectural risks (carried, not new):** service-role paths rely on code-level company scoping; single Fly machine; some files above the 300-line guideline (Drive page ~715, `store.ts`, `tools-write.ts` are the largest — decomposition continues only as owner-authorized).

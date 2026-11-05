@@ -623,3 +623,484 @@ Migration `00026` adds the game lookup indexes and widens the `bot_memories` kin
 ---
 
 *Column-level detail beyond what's needed to satisfy `docs/requirements.md`'s MVP scope is deliberately not included — e.g. no `documents` versioning, no `loads` rate-negotiation history. Add fields here, not silently in code, when a real need shows up.*
+
+
+---
+
+## Reconciliation appendix — tables added by migrations 00032–00063 that this document did not cover (generated 2026-11-05)
+
+Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (type + inline constraints). Each list is the table's real columns (a table has `company_id` / `deleted_at` only if shown); RLS policy per table is in `docs/reconciliation/wave-4-test-matrix.md` (generated). Migration numbers are the creating migration; **live status per audit addendum §11.1: applied through 00062, 00063/00064 unapplied.** A drift check (fails when a migration adds a table this file lacks) is proposed for Wave 4.
+
+
+### `conversation_summaries` — created in 00032
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `week_start` date not null
+- `summary` text not null
+- `source_message_ids` uuid[] not null default '{}'
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+- _unique (company_id, week_start)_
+
+### `consolidation_runs` — created in 00032
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `ran_at` timestamptz not null default now()
+- `report` text
+- `proposals_staged` int not null default 0
+- `created_at` timestamptz not null default now()
+
+### `telegram_processed_updates` — created in 00033
+
+- `company_id` uuid not null references companies (id)
+- `update_id` bigint not null
+- `processed_at` timestamptz not null default now()
+- _primary key (company_id, update_id)_
+
+### `research_runner_heartbeat` — created in 00040
+
+- `id` integer primary key check (id = 1)
+- `last_tick_at` timestamptz
+- `last_source` text
+- `last_detail` jsonb not null default '{}'::jsonb
+- `updated_at` timestamptz not null default now()
+
+### `research_health_alerts` — created in 00040
+
+- `issue_key` text primary key
+- `company_id` uuid references companies (id)
+- `first_seen_at` timestamptz not null default now()
+- `last_alerted_at` timestamptz
+- `last_seen_at` timestamptz not null default now()
+- `detail` text not null default ''
+- `active` boolean not null default true
+- `recovered_at` timestamptz
+
+### `research_corridor` — created in 00040
+
+- `company_id` uuid primary key references companies (id)
+- `load_id` uuid references loads (id)
+- `origin_state` text
+- `destination_state` text
+- `states` text[] not null default '{}'
+- `method` text not null default 'endpoints_only'
+- `trip_start` date
+- `trip_end` date
+- `updated_at` timestamptz not null default now()
+
+### `research_requests` — created in 00040
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_id` uuid references loads (id)
+- `kind` text not null check (kind in ('pretrip_photo'))
+- `detail` jsonb not null default '{}'::jsonb
+- `status` text not null default 'queued' check (status in ('queued', 'fulfilled', 'dismissed'))
+- `created_at` timestamptz not null default now()
+- `fulfilled_at` timestamptz
+
+### `cleanup_incidents` — created in 00041
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid references companies (id)
+- `storage_path` text not null
+- `kind` text not null
+- _constraint cleanup_incidents_kind_valid check (kind in ('upload_rollback', 'row_insert_failed'))_
+- `status` text not null default 'open'
+- _constraint cleanup_incidents_status_valid check (status in ('open', 'resolved', 'object_absent'))_
+- `detail` text
+- `created_at` timestamptz not null default now()
+- `resolved_at` timestamptz
+
+### `vehicle_defects` — created in 00046
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `truck_id` uuid references trucks (id)
+- `trailer_id` uuid references trailers (id)
+- `description` text not null
+- `source` text not null check (source in ('pretrip', 'photo', 'conversation'))
+- `source_inspection_id` uuid references pretrip_inspections (id)
+- `source_document_id` uuid references documents (id)
+- `status` text not null default 'open' check (status in ('open', 'acknowledged', 'closed', 'dismissed'))
+- `maintenance_event_id` uuid references maintenance_events (id)
+- `last_follow_up_at` timestamptz
+- `follow_up_count` integer not null default 0
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+- _constraint vehicle_defects_exactly_one_vehicle check ((truck_id is not null) <> (trailer_id is not null))_
+
+### `maintenance_watch_runs` — created in 00046
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `ran_at` timestamptz not null default now()
+- `reminders_sent` integer not null default 0
+- `detail` jsonb not null default '{}'::jsonb
+
+### `settlements` — created in 00048
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `issuer_name` text not null
+- `period_start` date not null
+- `period_end` date not null
+- `gross_cents` integer not null
+- `carrier_cut_cents` integer
+- `net_to_truck_cents` integer
+- `driver_pay_cents` integer not null
+- `miles_total` integer
+- `miles_loaded` integer
+- `duty_minutes` integer
+- `source_document_id` uuid references documents (id)
+- `pin_check` text not null default 'unpinned'
+- `pin_check_detail` text
+- `tax_setaside_cents` integer
+- `spendable_cents` integer
+- `effective_cpm_cents` integer
+- `effective_hourly_cents` integer
+- `other_model_pay_cents` integer
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+- _constraint settlements_period_order check (period_end >= period_start)_
+- _constraint settlements_pin_check_valid check (pin_check in ('fits', 'mismatch', 'unpinned', 'insufficient_data_
+
+### `settlement_lines` — created in 00048
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `settlement_id` uuid not null references settlements (id)
+- `kind` text not null default 'other_earning'
+- `amount_cents` integer not null
+- `label` text not null
+- `load_id` uuid references loads (id)
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+- _constraint settlement_lines_kind_valid check (kind in ( 'load_pay', 'carrier_cut', 'fuel', 'tolls', 'advance',_
+
+### `settlement_load_links` — created in 00048
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `settlement_id` uuid not null references settlements (id)
+- `load_id` uuid not null references loads (id)
+- `matched_by` text not null default 'line'
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+- _constraint settlement_load_links_matched_by_valid check (matched_by in ('line', 'owner'))_
+- _constraint settlement_load_links_unique unique (settlement_id, load_id)_
+
+### `pay_report_runs` — created in 00048
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `week_start` date not null
+- `sent` boolean not null default false
+- `figures` jsonb
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+- _constraint pay_report_runs_week_unique unique (company_id, week_start)_
+
+### `forward_threads` — created in 00049
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `title` text
+- `status` text not null default 'open' check (status in ('open', 'closed'))
+- `language` text check (language in ('en', 'es', 'mixed'))
+- `the_ask` text
+- `ask_of` text
+- `deadline_text` text
+- `participants` jsonb not null default '[]'::jsonb
+- `unanswered` boolean not null default false
+- `last_exchange_id` uuid references dispatch_exchanges (id)
+- `source` text not null default 'forward' check (source in ('forward', 'paste', 'photo', 'chat'))
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `forward_thread_messages` — created in 00049
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `thread_id` uuid not null references forward_threads (id)
+- `sender_name` text not null
+- `sender_role` text
+- `body` text not null
+- `language` text check (language in ('en', 'es', 'unknown'))
+- `sent_at` timestamptz
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `load_decisions` — created in 00050
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_id` uuid references loads (id)
+- `description` text not null
+- `decision` text not null check (decision in ('taken', 'passed'))
+- `outcome_note` text
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `detention_stamps` — created in 00052
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_id` uuid not null references loads (id)
+- `stamp_type` text not null constraint detention_stamps_type_valid check (stamp_type in ('arrival', 'door', 'loading_done', 
+- `stop_kind` text not null default 'delivery' constraint detention_stamps_stop_valid check (stop_kind in ('pickup', 'delive
+- `occurred_at` timestamptz not null
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `facilities` — created in 00053
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `name` text not null
+- `address` text
+- `city` text
+- `state` text
+- `kind` text not null default 'both' constraint facilities_kind_valid check (kind in ('shipper', 'receiver', 'both'))
+- _checkin_notes text_
+- `dock_notes` text
+- `parking_notes` text
+- `detention_notes` text
+- `hours_notes` text
+- `contact_name` text
+- `contact_phone` text
+- `visit_count` integer not null default 0
+- `last_visited_at` timestamptz
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `credentials` — created in 00054
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `kind` text not null constraint credentials_kind_valid check ( kind in ('cdl', 'medical_card', 'annual_inspection', '
+- `label` text not null
+- `driver_id` uuid references drivers (id)
+- `truck_id` uuid references trucks (id)
+- `expires_on` date not null
+- `document_id` uuid references documents (id)
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `load_invoices` — created in 00055
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_id` uuid not null references loads (id)
+- `broker_id` uuid references brokers (id)
+- `invoice_date` date not null
+- `due_date` date not null
+- `amount_cents` integer not null
+- `paid_amount_cents` integer not null default 0
+- `paid_on` date
+- `factored` boolean not null default false
+- `factor_fee_cents` integer
+- `factor_reserve_cents` integer
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `recurring_obligations` — created in 00056
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `name` text not null
+- `amount_cents` integer not null
+- `cadence` text not null constraint recurring_obligations_cadence_valid check ( cadence in ('weekly', 'biweekly', 'monthl
+- `day_of_month` integer
+- `weekday` integer
+- `anchor_date` date
+- `active` boolean not null default true
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `broker_followups` — created in 00057
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `broker_id` uuid not null references brokers (id)
+- `note` text not null
+- `due_on` date not null
+- `done_at` timestamptz
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `driver_positions` — created in 00060
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `source` text not null default 'telegram'
+- _constraint driver_positions_source_valid check (source in ('telegram'))_
+- `lat` double precision not null
+- `lng` double precision not null
+- `accuracy_m` double precision
+- `heading_deg` double precision
+- `speed_mph` double precision
+- `recorded_at` timestamptz not null
+- `moving_since` timestamptz
+- `stopped_since` timestamptz
+- `last_prompt_at` timestamptz
+- `last_prompt_kind` text
+- _constraint driver_positions_prompt_kind_valid check (last_prompt_kind is null or last_prompt_kind in ('start_d_
+- _constraint driver_positions_lat_range check (lat between -90 and 90)_
+- _constraint driver_positions_lng_range check (lng between -180 and 180)_
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- _unique (company_id, source)_
+
+### `load_tasks` — created in 00061
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_id` uuid not null references loads (id)
+- `text` text not null check (length(btrim(text)) > 0)
+- `stop_kind` text constraint load_tasks_stop_valid check (stop_kind is null or stop_kind in ('pickup', 'delivery', 'every_s
+- `sort_order` integer not null default 0
+- `done_at` timestamptz
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `load_stops` — created in 00062
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_id` uuid not null references loads (id)
+- `seq` integer not null check (seq >= 1)
+- `kind` text not null default 'other' constraint load_stops_kind_valid check (kind in ('pickup', 'delivery', 'other'))
+- `name` text
+- `address` text
+- `appointment_at` timestamptz
+- `appointment_tz` text
+- `arrived_at` timestamptz
+- `departed_at` timestamptz
+- `approved_at` timestamptz
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `employer_pay_profiles` — created in 00063
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `employer_name` text not null check (length(btrim(employer_name)) > 0)
+- `rate_cents_per_mile` integer not null check (rate_cents_per_mile >= 0)
+- `mile_basis` text constraint employer_pay_profiles_basis_valid check (mile_basis is null or mile_basis in ('loaded', 'all',
+- `worker_type` text constraint employer_pay_profiles_worker_valid check (worker_type is null or worker_type in ('w2', '1099')
+- `fuel_paid_by` text constraint employer_pay_profiles_fuel_valid check (fuel_paid_by is null or fuel_paid_by in ('employer', '
+- `effective_from` date not null default current_date
+- `effective_to` date
+- _constraint employer_pay_profiles_dates_ordered check (effective_to is null or effective_to >= effective_from)_
+- `notes` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+
+### Columns added to already-documented tables since 00032
+
+- 00033 `documents.caption` text
+- 00033 `documents.extracted_tsv` tsvector generated always as ( to_tsvector('english'
+- 00040 `research_briefings.delivery_class` text not null default 'routine' check (delivery_class in ('urgent'
+- 00040 `research_briefings.delivery_held_until` timestamptz
+- 00041 `trucks.submission_id` uuid
+- 00041 `trucks.submission_payload_hash` text
+- 00041 `trailers.submission_id` uuid
+- 00041 `trailers.submission_payload_hash` text
+- 00041 `drivers.submission_id` uuid
+- 00041 `drivers.submission_payload_hash` text
+- 00041 `brokers.submission_id` uuid
+- 00041 `brokers.submission_payload_hash` text
+- 00041 `customers.submission_id` uuid
+- 00041 `customers.submission_payload_hash` text
+- 00041 `loads.submission_id` uuid
+- 00041 `loads.submission_payload_hash` text
+- 00041 `expenses.submission_id` uuid
+- 00041 `expenses.submission_payload_hash` text
+- 00041 `fuel_purchases.submission_id` uuid
+- 00041 `fuel_purchases.submission_payload_hash` text
+- 00041 `duty_logs.submission_id` uuid
+- 00041 `duty_logs.submission_payload_hash` text
+- 00041 `maintenance_events.submission_id` uuid
+- 00041 `maintenance_events.submission_payload_hash` text
+- 00041 `maintenance_schedules.submission_id` uuid
+- 00041 `maintenance_schedules.submission_payload_hash` text
+- 00041 `pretrip_inspections.submission_id` uuid
+- 00041 `pretrip_inspections.submission_payload_hash` text
+- 00041 `equipment_checklist_items.submission_id` uuid
+- 00041 `equipment_checklist_items.submission_payload_hash` text
+- 00041 `account_snapshots.submission_id` uuid
+- 00041 `account_snapshots.submission_payload_hash` text
+- 00041 `dispatch_exchanges.submission_id` uuid
+- 00041 `dispatch_exchanges.submission_payload_hash` text
+- 00041 `fund_entries.submission_id` uuid
+- 00041 `fund_entries.submission_payload_hash` text
+- 00041 `documents.deleted_at` timestamptz
+- 00041 `documents.retention_status` text
+- 00041 `documents.retention_error` text
+- 00041 `documents.purged_at` timestamptz
+- 00042 `companies.hos_cycle` text not null default '70/8'
+- 00042 `companies.hos_period_anchor` text not null default '00:00'
+- 00042 `companies.hos_restart_enabled` boolean not null default true
+- 00042 `companies.hos_carrier_timezone` text not null default 'America/New_York'
+- 00043 `fuel_purchases.adjustment_cents` integer not null default 0
+- 00043 `fuel_purchases.adjustment_reason` text
+- 00045 `documents.photo_purpose` text check (photo_purpose in ('paperwork'
+- 00045 `documents.photo_purpose_source` text check (photo_purpose_source in ('vision'
+- 00045 `documents.photo_purpose_confidence` numeric
+- 00045 `trucks.current_mileage_source` text check (current_mileage_source in ('odometer_photo'
+- 00045 `trucks.current_mileage_at` timestamptz
+- 00045 `fuel_purchases.odometer` integer check (odometer is null or odometer >= 0)
+- 00046 `maintenance_schedules.template_key` text
+- 00046 `maintenance_schedules.origin` text not null default 'owner' check (origin in ('template'
+- 00046 `maintenance_schedules.last_reminded_at` timestamptz
+- 00046 `maintenance_schedules.last_reminder_key` text
+- 00047 `duty_logs.source` text not null default 'app'
+- 00047 `duty_logs.source_document_id` uuid references public.documents(id)
+- 00050 `dispatch_exchanges.edit_distance_ratio` numeric
+- 00050 `dispatch_exchanges.reply_captured_at` timestamptz
+- 00052 `loads.pickup_window_start` timestamptz
+- 00052 `loads.pickup_window_end` timestamptz
+- 00052 `loads.delivery_window_start` timestamptz
+- 00052 `loads.delivery_window_end` timestamptz
+- 00052 `loads.detention_free_minutes` integer constraint loads_detention_free_nonnegative check (detention_free_minutes is null 
+- 00052 `loads.detention_rate_cents_per_hour` integer constraint loads_detention_rate_nonnegative check (detention_rate_cents_per_hour i
+- 00052 `loads.weight_lbs` integer constraint loads_weight_nonnegative check (weight_lbs is null or weight_lbs > 0)
+- 00053 `loads.pickup_facility_id` uuid references facilities (id)
+- 00053 `loads.delivery_facility_id` uuid references facilities (id)
+- 00053 `loads.origin_state` text
+- 00053 `loads.destination_state` text
+- 00053 `fuel_purchases.state` text
+- 00057 `brokers.payment_terms_days` integer
+- 00057 `brokers.setup_notes` text
+- 00057 `dispatch_exchanges.broker_id` uuid references brokers (id)
+- 00057 `dispatch_exchanges.load_id` uuid references loads (id)
+- 00061 `loads.trip_number` text
+- 00061 `loads.broker_reference` text
+- 00061 `loads.deadhead_miles` numeric(8, 2) (>= 0)
+- 00061 `loads.loaded_miles` numeric(8, 2) (>= 0)
+- 00061 `loads.pickup_tz` text
+- 00061 `loads.delivery_tz` text

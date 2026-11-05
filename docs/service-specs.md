@@ -94,3 +94,28 @@ No further detail is specified here — the real spec for whatever gets built fi
 ---
 
 *These specs assume `docs/architecture.md`'s service boundaries and `docs/schemas.md`/`docs/api-contracts.md`'s contracts as given. A change to any of those requires revisiting this document, not letting it go stale.*
+
+---
+
+## Reconciliation addendum — service/module map as built, 2026-11-05 (DRAFT)
+
+`services/ai` is no longer "reserved": it exists. Responsibilities by module (inputs/outputs/errors are in each file's header comment and in the design doc named):
+
+| Module | Responsibility | Key contracts / design |
+|---|---|---|
+| `services/api` | `createApiHandler` (session auth, company scope, error mapping), generic CRUD routes, Zod validation, load transitions, idempotent submission, the one server-side HOS window read | `api-contracts.md`, `time-and-hos.md` |
+| `services/db` | server/browser Supabase clients; narrow pg pools | `design/security.md` |
+| `services/auth` | session → company | — |
+| `services/ai` | provider abstraction + agent loop (tools, proposals, grounding guard, validate-before-propose), dispatch helper + language gate, extraction (documents, photos, paper logs, settlements, threads), schedulers (industry briefing) | `ai-authority-matrix.md`, `design/ai-architecture.md` |
+| `services/bot` | Abel: context assembly, store (memory, pending actions, threads, pay pin, settlements), 109 tools, stage-recordables (code-read trips), consolidation + pay-report schedulers | `design/driver-mvp.md` §8–12, `design/trip-intake.md` |
+| `services/telegram` | webhook dispatch (`dispatch-bot`), photo/voice intake, purpose asks, Live Location, notifier, brain store | `design/driver-mvp.md` §4 |
+| `services/research` | watchers (EIA, NWS, GDELT, OpenStates, Federal Register, RSS…), scoring, triggers, delivery with quiet hours, news-image fetch/re-encode, scheduler | `design/research-engine.md`, `news-banner-images.md` |
+| `services/game` | Game Plan evaluation, checkpoints, scheduler | `design/gaming-system.md` |
+| `services/fleet` | paper-log review/save, maintenance watch, mileage propagation, paper-log staging | `design/driver-hud.md` |
+| `services/documents` | upload pipeline, extraction hook, document proposals | `driver-mvp.md` §10 |
+| `services/financial-summary`, `services/fund` | money truth; truck fund | `money-and-revenue.md` |
+| `services/integrations` | thin validated clients for each external source | per-file headers |
+| `services/smart-path` | truck-aware route check, reroute origin handling | `driver-mvp.md` §8 |
+| `src/lib` | ~57 pure modules (money, HOS cycle/periods, zoned-day, vehicle-motion, live-motion, drive*, dispatch-trip, safe-image-fetch, news-banner…) | unit tests under `tests/unit/lib` |
+
+Largest files to review for responsibility (guideline 300 lines): Drive page, `services/bot/store.ts`, `services/bot/tools-write.ts`, `services/telegram/dispatch-bot.ts`. Not a defect by itself; flagged for Wave 5 task sizing.

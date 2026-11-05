@@ -1,4 +1,6 @@
-# Image-led news banner — design (not built; needs the owner's decisions)
+# Image-led news banner — design and as-built record
+
+> **Reconciled 2026-11-05.** Everything below the status paragraph is the **original plan** (§1–§6) and is kept as history; where it conflicts with the status paragraph (a stored-image data contract, a migration, owner decisions still open), **the status paragraph and the as-built code win**. The as-built contract is also in `docs/api-contracts.md` (`news-image`).
 
 Status: ALL PHASES BUILT 2026-11-05, differently from §3 below: no storage and no migration. The image URL (publisher `socialimage` from GDELT, https only, validated) rides inside `research_signals.items`; the server fetches it on demand through an SSRF-safe fetcher (`lib/safe-image-fetch.ts`: public IPs only, checked again at connection time, <=2 manual redirects, size/time caps, magic-bytes must match jpeg/png/webp), re-encodes it with sharp (640 px max, metadata stripped, always a fresh JPEG; `services/research/news-image.ts`), and serves it from `GET /api/v1/news-image?signal=<id>&i=<n>` — the browser can name a stored signal and an index, never a URL. Failure falls back to the topic tile. Earlier status: phase (a) BUILT 2026-11-04 (deeper queue: 12 items, 4 signals, max 3 per topic; per-topic visual tile; headline word-reveal). Phases (b) and (c), the images themselves, are DESIGN ONLY and need the owner's decisions in §5. Original status: DESIGN ONLY, 2026-11-04. The owner wants a rotating, image-led news
 strip on Home. Today `NewsBanner` is text-only by design: its data
@@ -23,7 +25,7 @@ pretending to be the story). Parked screens only; honors reduced motion.
 - Nothing may be invented, generated, or substituted for a real article image.
   An article with no image gets the topic tile.
 
-## 3. Data contract (additive migration, later number than 00059)
+## 3. Data contract — ORIGINAL PLAN, superseded (no migration was needed; see status)
 
 `research_signals.items[]` and a new `research_briefing_images` (or an
 `image_url`/`image_source` pair on the source objects): `image_url` (https only,
@@ -48,7 +50,7 @@ topic so one story can't take the strip).
 4. Failure is visible: an unreadable/oversized/blocked image becomes the topic
    tile and is logged in the run's skip reasons, like the watchers do.
 
-## 5. Decisions needed from the owner
+## 5. Decisions needed from the owner — RESOLVED by the as-built approach (free GDELT `socialimage`, server-side fetch, no third-party tracking)
 
 1. Image source: publisher `socialimage` via GDELT (free), or text-only plus a
    topic tile (zero privacy surface). Recommendation: topic tiles first (ship
@@ -59,7 +61,7 @@ topic so one story can't take the strip).
    company prefix.
 3. Whether a news tap opens the article in the app browser or the system one.
 
-## 6. Build order once decided
+## 6. Build order — completed
 
 (a) larger queue + topic tiles + transition (no images, no new surface);
 (b) migration + engine-side safe fetch + storage; (c) banner image rendering;

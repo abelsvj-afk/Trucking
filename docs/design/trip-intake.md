@@ -13,7 +13,7 @@ claims below re-verified against `main` before acting.
 | 4 | A failed write discarded the proposal | `resolvePending` cleared first | **FIXED (Phase A)**: failure re-stages the same proposal and says so |
 | 5 | "No, remove that" became a delete-load proposal | prompt had no cancel≠delete rule | **FIXED**: a leading "No" cancels the waiting proposal in code and any `delete_record` proposed in that turn is discarded |
 | 6 | English dispatch got a Spanish reply draft | model-selected language trusted | **FIXED**: for an English message the reply language is forced to English in code and a Spanish draft (by label or by reading the text) is dropped |
-| 7 | Load has no trip number / broker reference / deadhead+loaded miles / per-stop state | schema | **BUILT (Phase C, migration 00061 — NOT applied)**: trip_number, broker_reference, deadhead/loaded miles (numeric 2dp), pickup_tz/delivery_tz, `load_tasks`. Per-stop arrival/departure already exist as detention stamps; a separate per-stop dispatcher-approval record is NOT built — approval is never assumed and stays a task the owner ticks |
+| 7 | Load has no trip number / broker reference / deadhead+loaded miles / per-stop state | schema | **BUILT (Phase C, migration 00061 — applied live per audit addendum §11.1)**: trip_number, broker_reference, deadhead/loaded miles (numeric 2dp), pickup_tz/delivery_tz, `load_tasks`. Per-stop arrival/departure already exist as detention stamps; a separate per-stop dispatcher-approval record is NOT built — approval is never assumed and stays a task the owner ticks |
 
 Not verified here: live `bot_pending_actions` rows and which commit Fly runs.
 
@@ -47,8 +47,8 @@ isolating channels.
   failure names the exact field and keeps the same trip in context.
 - Data model (needs migration + owner approval): `loads.trip_number`,
   `loads.broker_reference`, `loads.deadhead_miles`, `loads.loaded_miles`
-  (numeric(8,2)), `load_stops` (kind, facility, address, appointment_at +
-  appointment_tz, arrived_at, departed_at, approval_status), `load_tasks`.
+  (numeric(8,2)), `load_stops` (kind, name, address, appointment_at +
+  appointment_tz, arrived_at, departed_at, **approved_at** — set only by the owner's tap, never inferred), `load_tasks`. (As built; the plan's "approval_status" became the owner-tapped `approved_at`. Per-stop detention clocks remain separate `detention_stamps`.)
 - Abel reminds and drafts the BOL message to the dispatch group but never sends to
   third parties (existing boundary).
 
@@ -57,7 +57,7 @@ isolating channels.
 Reply language is forced to the sender's detected language in code; regression
 suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language.
 
-## 5. Decide
+## 5. Decide — RULED by the owner (2026-11-05): both approved; kept for the record
 
 1. Approve Phase C's migration shape (trip number/reference/miles columns +
    `load_stops` + `load_tasks`).
@@ -89,7 +89,7 @@ suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language
   requirements before the one yes. Other formats (Amazon Relay, free text) still
   go through the model extraction, which now knows the same fields and a
   `stops` list; add a parser per format once real messages are available.
-- **Stops** (migration `00062_load_stops.sql`, NOT applied): any number per
+- **Stops** (migration `00062_load_stops.sql`; applied live per audit addendum §11.1): any number per
   load, each with its appointment in its own zone; arrived / dispatcher-approved
   / left are set only by the owner's tap on the load page.
 - **Expired proposals** are dropped silently at the start of each turn (the one
