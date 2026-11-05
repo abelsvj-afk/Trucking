@@ -10,7 +10,7 @@ Legend: ✅ done (docs/code evidence in repo) · 🟡 partly · ⬜ not started 
 |---|---|---|---|
 | 1 | Every page and major feature has a named design doc and acceptance criteria | 🟡 | Wave 3 matrix names the design of record for all 18 families. Remaining: per-page acceptance criteria; `ui-ux.md` screen-by-screen rewrite (needs King's post-deploy visual walkthrough). |
 | 2 | Every API route and schema has a consumer classification and contract | 🟡 | 115-route inventory + new contracts done. Remaining: consumer column (UI / bot / internal) per route; per-route request/response detail for generic CRUD resources beyond the worked example. |
-| 3 | Migrations reconciled against `schemas.md` and the live ledger | ✅/🔑 | Appendix covers 00032–00065 tables/columns; ledger complete through 00064 per King; 00065 pending apply. Remaining: drift check (Wave 4). |
+| 3 | Migrations reconciled against `schemas.md` and the live ledger | ✅/🔑 | Appendix covers 00032–00066 tables/columns; ledger complete through 00064 per King; 00065 pending apply. Remaining: drift check (Wave 4). |
 | 4 | Governance describes every AI capability, tool, scheduled action, approval rule, revocation path | ✅ | `ai-authority-matrix.md`; G1/G2 closed with switches; G3 (direct-order detection model-judged) kept + eval pending; G4 owner-visible activity log not designed. |
 | 5 | Architecture and service specs match the implementation | 🟡 | Addenda written. Remaining: owner review; keep current as code lands. |
 | 6 | All contradictory built/not-built/open statements resolved | 🟡 | Fixed in news-banner, HUD, usability, trip-intake, pay-profile docs. Remaining: sweep `PROJECT_STATE.md` history, `TASKS.md`, `automation.md`, `repository-structure.md`, research-engine for stale statuses. |

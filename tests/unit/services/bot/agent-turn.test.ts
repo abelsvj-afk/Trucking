@@ -480,6 +480,19 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(db.bot_memories![0]!.deleted_at).toBeTruthy();
   });
 
+  it("create_load carries the trailer; before migration 00066 it still saves with the trailer folded into notes", async () => {
+    const TR = "88888888-8888-4888-8888-888888888888";
+    const seed = baseSeed(true);
+    seed.loads = [];
+    seed.bot_pending_actions = [
+      { id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load", arguments: { origin: "A, MO", destination: "B, FL", trailer_id: TR }, summary: "Load", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
+    ];
+    const ok = fakeClient(seed);
+    const out = await runAgentTurn(neverCalledProvider().provider, telegramStore(ok.client), input("yes"));
+    expect(out.reply).toContain("Done");
+    expect(ok.db.loads![0]).toMatchObject({ trailer_id: TR });
+  });
+
   it("drops the proposal on no - nothing is ever written", async () => {
     const { client, db } = fakeClient(baseSeed(true));
     const store = telegramStore(client);

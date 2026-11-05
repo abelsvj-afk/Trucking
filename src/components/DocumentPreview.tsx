@@ -11,7 +11,7 @@ import type { DocumentWithSignedUrl } from "@/types/entities";
 
 const IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|heic|heif)$/i;
 
-const DOC_TYPE_LABELS: Record<string, string> = {
+export const DOC_TYPE_LABELS: Record<string, string> = {
   bol: "Bill of lading",
   rate_confirmation: "Rate confirmation",
   scale_ticket: "Scale ticket",

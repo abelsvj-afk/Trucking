@@ -1112,3 +1112,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `kind` text not null check (kind in ('hos', 'stale_status'))
 - `sent_at` timestamptz not null default now()
 - _unique (company_id, dedupe_key)_ — tenant isolation RLS policy.
+
+### Columns added by 00066 (trailer assignment)
+- 00066 `drivers.assigned_trailer_id` uuid references trailers (id)
+- 00066 `loads.trailer_id` uuid references trailers (id)

@@ -18,7 +18,7 @@ import DriverProfileFields, {
   driverProfileToPayload,
   type DriverProfileValues,
 } from "@/components/DriverProfileFields";
-import type { Driver, Truck } from "@/types/entities";
+import type { Driver, Trailer, Truck } from "@/types/entities";
 
 export default function NewDriverPage() {
   usePageTitle("Add driver");
@@ -26,6 +26,7 @@ export default function NewDriverPage() {
   const router = useRouter();
   const [values, setValues] = useState<DriverProfileValues>(EMPTY_DRIVER_PROFILE);
   const trucks = usePickerList<Truck>("trucks");
+  const trailers = usePickerList<Trailer>("trailers");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,7 +55,7 @@ export default function NewDriverPage() {
         purpose="A full driver profile — how to reach them, their CDL, and their truck — so loads and logs can tie to a person, not just a name."
       />
       <form onSubmit={handleSubmit}>
-        <DriverProfileFields values={values} onChange={setValues} trucks={trucks} />
+        <DriverProfileFields values={values} onChange={setValues} trucks={trucks} trailers={trailers} />
 
         <p className="row-sub">
           After saving, you&apos;ll land on the driver&apos;s page — add their photo there.

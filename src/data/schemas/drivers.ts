@@ -24,6 +24,8 @@ export const createDriverSchema = z.object({
   // The documents row holding this driver's photo (migration 00027).
   photo_document_id: z.string().uuid().nullable().optional(),
   assigned_truck_id: z.string().uuid().nullable().optional(),
+  // Migration 00066.
+  assigned_trailer_id: z.string().uuid().nullable().optional(),
   status: driverStatusSchema.optional(),
 });
 

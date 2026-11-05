@@ -25,7 +25,7 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
-import type { Broker, Customer, Driver, Facility, Load, LoadStatus, Truck } from "@/types/entities";
+import type { Broker, Customer, Driver, Facility, Load, LoadStatus, Trailer, Truck } from "@/types/entities";
 
 const STATUS_OPTIONS: { label: string; value: LoadStatus }[] = [
   { label: "Draft", value: "draft" },
@@ -64,6 +64,8 @@ export default function NewLoadPage() {
   const submissionId = useSubmissionId();
 
   const trucks = usePickerList<Truck>("trucks");
+  const trailers = usePickerList<Trailer>("trailers");
+  const [trailerId, setTrailerId] = useState("");
   const drivers = usePickerList<Driver>("drivers");
   const brokers = usePickerList<Broker>("brokers");
   const customers = usePickerList<Customer>("customers");
@@ -98,6 +100,7 @@ export default function NewLoadPage() {
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : undefined,
         status,
         truck_id: truckId || null,
+        ...(trailerId ? { trailer_id: trailerId } : {}),
         driver_id: driverId || null,
         broker_id: brokerId || null,
         customer_id: customerId || null,
@@ -224,6 +227,16 @@ export default function NewLoadPage() {
           {trucks.map((truck) => (
             <option key={truck.id} value={truck.id}>
               {truck.unit_number}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="trailer_id">Trailer (optional)</label>
+        <select id="trailer_id" value={trailerId} onChange={(event) => setTrailerId(event.target.value)}>
+          <option value="">Unassigned</option>
+          {trailers.map((trailer) => (
+            <option key={trailer.id} value={trailer.id}>
+              {trailer.unit_number}
             </option>
           ))}
         </select>

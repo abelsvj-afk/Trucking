@@ -16,13 +16,17 @@ import {
   DeletedListSection,
 } from "@/components/RecordLifecycle";
 import { driverRoleLabel } from "@/lib/fleet-display";
-import type { Driver, Truck } from "@/types/entities";
+import type { Driver, Trailer, Truck } from "@/types/entities";
 
 export default function DriversListPage() {
   usePageTitle("Drivers");
   const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<Driver>("drivers");
   const trucks = useApiList<Truck>("trucks");
+  const trailers = useApiList<Trailer>("trailers");
+  const trailerUnits = new Map(
+    trailers.state.status === "loaded" ? trailers.state.result.data.map((t) => [t.id, t.unit_number]) : [],
+  );
   const truckUnits = new Map(
     trucks.state.status === "loaded" ? trucks.state.result.data.map((t) => [t.id, t.unit_number]) : [],
   );
@@ -69,6 +73,7 @@ export default function DriversListPage() {
               role,
               driver.phone,
               truckUnit ? `Truck ${truckUnit}` : driver.assigned_truck_id ? "Assigned truck" : "No truck assigned",
+              driver.assigned_trailer_id ? `Trailer ${trailerUnits.get(driver.assigned_trailer_id) ?? ""}`.trim() : null,
             ]
               .filter(Boolean)
               .join(" · ");

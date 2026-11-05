@@ -582,3 +582,7 @@ All below: auth = session; company scope by RLS; errors use the standard envelop
 - `loads` (create/update, API and bot tool): adds `trip_number`, `broker_reference`, `deadhead_miles`, `loaded_miles` (numeric, 2 dp), `pickup_tz`, `delivery_tz`; `miles` remains the integer total. The bot `create_load` additionally accepts `tasks[]` and `stops[]` saved in the same confirmation (see `docs/design/trip-intake.md`).
 - `smart-path/route-check`: request adds `already_picked_up?: boolean`; with `start_point` it routes from the truck's position with no pickup geocode and no deadhead (reroute).
 - `telegram` webhook: also accepts `edited_message` / `message.location` (Live Location fixes; processed after the allowlist + dedup claim, never answered in chat).
+
+### Trailer assignment and trip documents (2026-11-05)
+- `drivers` create/update accept `assigned_trailer_id` (uuid or null); `loads` create/update accept `trailer_id` (uuid or null) — migration 00066 (**unapplied until King applies it**; the UI sends these fields only when the owner changes them, and Abel's `create_load` folds `trailer_id` into notes if the column is missing).
+- Trip documents use the existing `GET /api/v1/documents?related_entity_type=load&related_entity_id=<load>` and `POST /api/v1/documents` (multipart with `related_entity_type=load`). Photos he sends Abel are filed against the load only once linked (a BOL proposal he approves links it); an unlinked Telegram photo stays filed under the company until then.

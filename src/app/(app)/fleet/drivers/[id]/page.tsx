@@ -21,7 +21,7 @@ import { usePageTitle } from "@/lib/use-page-title";
 import { useToast } from "@/components/Toast";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { driverRoleLabel } from "@/lib/fleet-display";
-import type { Driver, Truck } from "@/types/entities";
+import type { Driver, Trailer, Truck } from "@/types/entities";
 
 export default function DriverDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -136,6 +136,7 @@ function DriverEditForm({ driver, onSaved }: { driver: Driver; onSaved: (driver:
   const toast = useToast();
   const [values, setValues] = useState<DriverProfileValues>(() => driverProfileFromDriver(driver));
   const trucks = usePickerList<Truck>("trucks");
+  const trailers = usePickerList<Trailer>("trailers");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -159,7 +160,7 @@ function DriverEditForm({ driver, onSaved }: { driver: Driver; onSaved: (driver:
 
   return (
     <form onSubmit={handleSubmit}>
-      <DriverProfileFields values={values} onChange={setValues} trucks={trucks} />
+      <DriverProfileFields values={values} onChange={setValues} trucks={trucks} trailers={trailers} />
 
       {error && <p role="alert">{error}</p>}
       {saved && <p role="status">Saved.</p>}

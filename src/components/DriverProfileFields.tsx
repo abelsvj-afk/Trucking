@@ -6,7 +6,7 @@
 // a real profile needs (migration 00027) had no form at all.
 
 import { DRIVER_ROLE_OPTIONS } from "@/lib/fleet-display";
-import type { Driver, DriverRole, Truck } from "@/types/entities";
+import type { Driver, DriverRole, Trailer, Truck } from "@/types/entities";
 
 export interface DriverProfileValues {
   name: string;
@@ -15,6 +15,9 @@ export interface DriverProfileValues {
   cdlNumber: string;
   cdlExpiresOn: string;
   assignedTruckId: string;
+  assignedTrailerId: string;
+  /** True once the trailer select was touched: only then is the field sent (an untouched profile never writes the column). */
+  trailerChanged?: boolean;
   status: string;
 }
 
@@ -25,6 +28,7 @@ export const EMPTY_DRIVER_PROFILE: DriverProfileValues = {
   cdlNumber: "",
   cdlExpiresOn: "",
   assignedTruckId: "",
+  assignedTrailerId: "",
   status: "active",
 };
 
@@ -36,6 +40,7 @@ export function driverProfileFromDriver(driver: Driver): DriverProfileValues {
     cdlNumber: driver.cdl_number ?? "",
     cdlExpiresOn: driver.cdl_expires_on ?? "",
     assignedTruckId: driver.assigned_truck_id ?? "",
+    assignedTrailerId: driver.assigned_trailer_id ?? "",
     status: driver.status,
   };
 }
@@ -46,6 +51,7 @@ export function driverProfileToPayload(values: DriverProfileValues): Record<stri
     assigned_truck_id: values.assignedTruckId || null,
     status: values.status,
   };
+  if (values.trailerChanged) payload.assigned_trailer_id = values.assignedTrailerId || null;
   if (values.phone.trim()) payload.phone = values.phone.trim();
   if (values.role) payload.role = values.role as DriverRole;
   if (values.cdlNumber.trim()) payload.cdl_number = values.cdlNumber.trim();
@@ -57,10 +63,12 @@ export default function DriverProfileFields({
   values,
   onChange,
   trucks,
+  trailers = [],
 }: {
   values: DriverProfileValues;
   onChange: (values: DriverProfileValues) => void;
   trucks: Truck[];
+  trailers?: Trailer[];
 }) {
   const set = (patch: Partial<DriverProfileValues>) => onChange({ ...values, ...patch });
 
@@ -113,6 +121,20 @@ export default function DriverProfileFields({
         {trucks.map((truck) => (
           <option key={truck.id} value={truck.id}>
             {truck.unit_number}
+          </option>
+        ))}
+      </select>
+
+      <label htmlFor="assigned_trailer_id">Assigned trailer</label>
+      <select
+        id="assigned_trailer_id"
+        value={values.assignedTrailerId}
+        onChange={(e) => set({ assignedTrailerId: e.target.value, trailerChanged: true })}
+      >
+        <option value="">Unassigned</option>
+        {trailers.map((trailer) => (
+          <option key={trailer.id} value={trailer.id}>
+            {trailer.unit_number}
           </option>
         ))}
       </select>

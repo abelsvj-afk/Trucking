@@ -42,6 +42,8 @@ const loadFieldsSchema = z.object({
   miles: z.number().int().nonnegative("miles must not be negative.").optional(),
   status: loadStatusSchema.optional(),
   notes: z.string().optional(),
+  // Migration 00066: the trailer on this trip.
+  trailer_id: z.string().uuid().nullable().optional(),
   // Trip intake (migration 00061)
   trip_number: z.string().min(1).optional(),
   broker_reference: z.string().min(1).optional(),

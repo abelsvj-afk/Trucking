@@ -23,12 +23,13 @@ import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
+import LoadDocuments from "@/components/LoadDocuments";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { useApiList } from "@/lib/use-api-list";
 import { useLiveVersion } from "@/lib/use-live";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Truck } from "@/types/entities";
+import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Trailer, Truck } from "@/types/entities";
 import type { DetentionSummary } from "@/lib/detention";
 import type { PaperworkState } from "@/lib/paperwork";
 
@@ -333,6 +334,8 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
   const [load, setLoad] = useState<Load | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const assignedTrucks = usePickerList<Truck>("trucks");
+  const assignedTrailers = usePickerList<Trailer>("trailers");
   const expenses = useApiList<Expense>("expenses", { load_id: id });
   const duty = useApiList<DutyLog>("duty-logs", { load_id: id });
   // Live layer: a change to loads (Abel, another tab) re-reads this one.
@@ -390,6 +393,17 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
         <h2>The load</h2>
         <dl>
           {load.trip_number && (<><dt>Trip</dt><dd>{load.trip_number}</dd></>)}
+          {(load.truck_id || load.trailer_id) && (
+            <>
+              <dt>Equipment</dt>
+              <dd>
+                {[
+                  load.truck_id ? `Truck ${assignedTrucks.find((t) => t.id === load.truck_id)?.unit_number ?? ""}`.trim() : null,
+                  load.trailer_id ? `Trailer ${assignedTrailers.find((t) => t.id === load.trailer_id)?.unit_number ?? ""}`.trim() : null,
+                ].filter(Boolean).join(" · ")}
+              </dd>
+            </>
+          )}
           {load.broker_reference && (<><dt>Broker ref</dt><dd>{load.broker_reference}</dd></>)}
           <dt>Rate</dt>
           <dd>{load.rate_cents != null ? formatDollars(load.rate_cents) : "—"}</dd>
@@ -446,6 +460,8 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
       <TripTasksSection loadId={load.id} />
 
       <DetentionSection load={load} />
+
+      <LoadDocuments loadId={load.id} />
 
       <PaperworkSection
         load={load}
@@ -597,6 +613,7 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
   const [miles, setMiles] = useState(load.miles != null ? load.miles.toString() : "");
   const [notes, setNotes] = useState(load.notes ?? "");
   const [truckId, setTruckId] = useState(load.truck_id ?? "");
+  const [trailerId, setTrailerId] = useState(load.trailer_id ?? "");
   const [driverId, setDriverId] = useState(load.driver_id ?? "");
   const [brokerId, setBrokerId] = useState(load.broker_id ?? "");
   const [customerId, setCustomerId] = useState(load.customer_id ?? "");
@@ -606,6 +623,7 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
   const [submitting, setSubmitting] = useState(false);
 
   const trucks = usePickerList<Truck>("trucks");
+  const trailers = usePickerList<Trailer>("trailers");
   const drivers = usePickerList<Driver>("drivers");
   const brokers = usePickerList<Broker>("brokers");
   const customers = usePickerList<Customer>("customers");
@@ -626,6 +644,8 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
         miles: miles ? Math.round(parseFloat(miles)) : null,
         notes: notes || null,
         truck_id: truckId || null,
+        // Only when changed: an untouched trailer never writes the column.
+        ...(trailerId !== (load.trailer_id ?? "") ? { trailer_id: trailerId || null } : {}),
         driver_id: driverId || null,
         broker_id: brokerId || null,
         customer_id: customerId || null,
@@ -701,6 +721,16 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
           {trucks.map((truck) => (
             <option key={truck.id} value={truck.id}>
               {truck.unit_number}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="edit-trailer_id">Trailer</label>
+        <select id="edit-trailer_id" value={trailerId} onChange={(event) => setTrailerId(event.target.value)}>
+          <option value="">Unassigned</option>
+          {trailers.map((trailer) => (
+            <option key={trailer.id} value={trailer.id}>
+              {trailer.unit_number}
             </option>
           ))}
         </select>

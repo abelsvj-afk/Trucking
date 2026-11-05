@@ -220,6 +220,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
 
   const loadBotFields = {
     truck_id: uuid.nullable().optional(),
+    trailer_id: uuid.nullable().optional(),
     driver_id: uuid.nullable().optional(),
     broker_id: uuid.nullable().optional(),
     customer_id: uuid.nullable().optional(),
@@ -316,6 +317,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     broker_id: { type: "string" },
     customer_id: { type: "string" },
     truck_id: { type: "string" },
+    trailer_id: { type: "string", description: "Trailer id (uuid) on this trip - from list_trailers." },
     driver_id: { type: "string" },
     notes: { type: "string" },
     trip_number: { type: "string", description: "The dispatcher's trip/assignment number (e.g. 1234). NOT the broker's name and NOT the reference." },
@@ -356,7 +358,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         required: ["origin", "destination"],
       },
       botSchema: createLoadBot,
-      newerColumns: ["trip_number", "broker_reference", "deadhead_miles", "loaded_miles", "pickup_tz", "delivery_tz"],
+      newerColumns: ["trailer_id", "trip_number", "broker_reference", "deadhead_miles", "loaded_miles", "pickup_tz", "delivery_tz"],
       afterCreate: async (args, id) => {
         const tasks = Array.isArray(args.tasks) ? (args.tasks as string[]) : [];
         const stops = Array.isArray(args.stops) ? (args.stops as Row[]) : [];
@@ -885,6 +887,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     name: { type: "string" },
     cdl_number: { type: "string" },
     assigned_truck_id: { type: "string", description: "Truck id (uuid), or null to unassign." },
+    assigned_trailer_id: { type: "string", description: "Trailer id (uuid) he normally pulls, or null to unassign." },
     status: { type: "string", enum: ["active", "inactive"] },
   };
   tools.push(

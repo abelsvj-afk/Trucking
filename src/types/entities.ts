@@ -82,6 +82,8 @@ export interface Driver extends BaseRow {
   cdl_expires_on: string | null;
   photo_document_id: string | null;
   assigned_truck_id: string | null;
+  /** Migration 00066: the trailer he normally pulls; null/absent until assigned. */
+  assigned_trailer_id?: string | null;
   status: "active" | "inactive";
 }
 
@@ -175,6 +177,8 @@ export interface Load extends BaseRow {
   status: LoadStatus;
   notes: string | null;
   // Trip intake (migration 00061): null until captured.
+  /** Migration 00066: the trailer on this trip. */
+  trailer_id?: string | null;
   trip_number?: string | null;
   broker_reference?: string | null;
   deadhead_miles?: number | null;

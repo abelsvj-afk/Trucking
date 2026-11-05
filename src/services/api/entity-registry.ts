@@ -30,10 +30,12 @@ export const RESTORE_PARENTS: Record<string, RestoreParent[]> = {
   trailers: [PHOTO],
   drivers: [
     { field: "assigned_truck_id", parentTable: "trucks", parentLabel: "truck" },
+    { field: "assigned_trailer_id", parentTable: "trailers", parentLabel: "trailer" },
     PHOTO,
   ],
   loads: [
     TRUCK,
+    TRAILER,
     DRIVER,
     { field: "broker_id", parentTable: "brokers", parentLabel: "broker" },
     { field: "customer_id", parentTable: "customers", parentLabel: "customer" },
