@@ -49,6 +49,7 @@ import {
   type PlacesProvider,
 } from "@/services/integrations/places";
 import { buildWeatherSection, defaultWeatherFetchers, type WeatherFetchers } from "@/services/smart-path/route-weather";
+import { buildRoadWorkSection } from "@/services/smart-path/route-roadwork";
 import { getRegionalDiesel, type RegionalDiesel } from "@/services/smart-path/regional-fuel";
 import { getDieselPriceEstimate } from "@/services/smart-path/fuel-price-estimate";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
@@ -69,6 +70,8 @@ export interface RouteCheckProviders {
   /** Intelligence Phase 2a: the EIA weekly diesel average for a PADD region (optional seam; absent = national estimate only). */
   /** Intelligence Phase 2b: NWS forecast/alert fetchers (optional seam; absent = no weather section). */
   weather?: WeatherFetchers;
+  /** Intelligence Phase 3: build the road-work section (optional seam; absent = no section). Default reads the WZDx feed registry. */
+  roadWork?: typeof buildRoadWorkSection;
   regionalDiesel?: (paddCode: string, regionName: string) => Promise<RegionalDiesel | null>;
 }
 
@@ -79,6 +82,7 @@ export const defaultProviders: RouteCheckProviders = {
   fuelPriceEstimate: () => getDieselPriceEstimate(),
   regionalDiesel: (code, name) => getRegionalDiesel(code, name),
   weather: defaultWeatherFetchers,
+  roadWork: buildRoadWorkSection,
 };
 
 type RouteResult = Awaited<ReturnType<RoutingProvider["getRoute"]>>;
@@ -552,6 +556,15 @@ export async function runRouteCheck(
 
   const crossed = corridor && "states" in corridor ? corridor.states.map((st) => st.state).filter((c): c is string => c !== null) : [];
   const stateRules = crossed.length > 0 ? stateRuleLines(crossed, STATE_TRUCK_RULES, truck ?? null, now) : undefined;
+  const roadWork =
+    providers.roadWork && crossed.length > 0 && corridor && "points" in corridor
+      ? await providers.roadWork(
+          crossed,
+          corridor.points.map((pt) => ({ mile: pt.mile, lat: pt.lat, lng: pt.lng, etaAt: pt.etaAt })),
+          truck?.height_in ?? null,
+          { now },
+        )
+      : undefined;
   const weather =
     providers.weather && corridor && "points" in corridor
       ? await buildWeatherSection(
@@ -579,6 +592,7 @@ export async function runRouteCheck(
     corridor,
     ...(weather ? { weather } : {}),
     ...(stateRules ? { stateRules } : {}),
+    ...(roadWork ? { roadWork } : {}),
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),

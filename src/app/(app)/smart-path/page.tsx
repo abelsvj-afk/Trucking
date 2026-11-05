@@ -559,6 +559,25 @@ function SmartPathInner() {
             </details>
           )}
 
+          {result.roadWork && (
+            <details open={result.roadWork.items.some((i) => i.exceedsTruck)}>
+              <summary>
+                Road work{result.roadWork.items.length > 0 ? ` — ${result.roadWork.items.length} near the route` : ""}
+                {result.roadWork.status !== "ok" && ` (${result.roadWork.status})`}
+              </summary>
+              <ul>
+                {result.roadWork.items.map((w, i) => (
+                  <li key={`${w.mile}-${i}`}>
+                    {w.exceedsTruck ? "⚠ " : ""}Mile {Math.round(w.mile)} (about {formatEastern(new Date(w.etaAt))}): {w.text}
+                  </li>
+                ))}
+              </ul>
+              {result.roadWork.notes.map((n) => (
+                <p key={n} className="row-sub">{n}</p>
+              ))}
+              <p className="row-sub">From state work-zone feeds, as of {formatEastern(new Date(result.roadWork.asOf))}. Advisory — it never says a road is open or closed.</p>
+            </details>
+          )}
           {result.stateRules && result.stateRules.length > 0 && (
             <details open={result.stateRules.some((r) => r.kind === "exceeds")}>
               <summary>State truck rules on this route</summary>

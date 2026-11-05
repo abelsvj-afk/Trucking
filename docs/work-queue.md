@@ -20,7 +20,7 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
-- NEXT: Phase 3 road work (WZDx feeds; each outbound host to be checked from Fly once).
+- Phase 3 road-work machinery BUILT (WZDx parser, corridor+ETA filter, section); feed registry EMPTY until a feed is verified from the deploy network (King: pick states, verify each feed once).
 - NEEDS OWNER/KING: verified state-rule rows (his common states first); answers to the spec's open questions (corridor width, wind trigger, first states for work-zone feeds); swap the state-outline asset for an official Census file if provenance matters.
 
 ## B2. Paper log (checked 2026-11-05)

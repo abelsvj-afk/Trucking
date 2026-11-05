@@ -80,6 +80,13 @@ export interface RouteCheckResponse {
   };
   /** Intelligence Phase 2c: verified state truck rules for the states crossed vs. his truck profile; states with no verified row say "no rule on file". Advisory. */
   stateRules?: { state: string; kind: "exceeds" | "info" | "no_rule_on_file"; text: string; sourceUrl: string | null; verifiedOn: string | null; old: boolean }[];
+  /** Intelligence Phase 3: work zones near the route and active when he gets there, from registered state WZDx feeds. A state with no feed, or a feed that is down, is named in `notes` - never reported as clear. Advisory. */
+  roadWork?: {
+    status: "ok" | "partial" | "unavailable";
+    items: { mile: number; etaAt: string; text: string; exceedsTruck: boolean; startsAt: string | null; endsAt: string | null }[];
+    notes: string[];
+    asOf: string;
+  };
   verdict: {
     status: RouteCheckStatus;
     assumedDriveMinutes: number;
