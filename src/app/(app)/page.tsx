@@ -19,6 +19,7 @@ import NewsBanner from "@/components/NewsBanner";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
 import ActiveLoadCard from "@/components/ActiveLoadCard";
+import PayPreviewCard from "@/components/PayPreviewCard";
 import DayWrapCard from "@/components/DayWrapCard";
 import Reveal from "@/components/Reveal";
 import NumberTicker from "@/components/NumberTicker";
@@ -167,6 +168,8 @@ export default function HomePage() {
       </Reveal>
 
       <ActiveLoadCard />
+
+      <PayPreviewCard />
 
       <ActivePlanCard />
 
