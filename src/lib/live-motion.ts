@@ -73,6 +73,16 @@ export function stepEpisode(state: MotionEpisode, speedMph: number | null, atMs:
 
 // ---- when to propose ---------------------------------------------------------
 
+/**
+ * The per-capability switch for Telegram Live Location (ai-authority-matrix
+ * gap G1). DEFAULT ON when no row exists: the feature is opt-in by the act of
+ * sharing his live location in Telegram, and an absent row must not silently
+ * break it. An explicit "off" row stops all storage and proposals.
+ */
+export const LIVE_LOCATION_CAPABILITY = "live_location";
+/** Capabilities that are on unless a row says off (every other capability: no row = off). */
+export const DEFAULT_ON_CAPABILITIES: ReadonlySet<string> = new Set([LIVE_LOCATION_CAPABILITY]);
+
 /** Moving this long while not logged driving earns a proposal. */
 export const MOVING_PROPOSAL_AFTER_MS = 2 * 60_000;
 /** Stopped this long while logged driving earns a proposal to go on/off duty. */

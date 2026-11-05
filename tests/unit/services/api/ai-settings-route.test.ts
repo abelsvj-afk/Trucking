@@ -46,7 +46,7 @@ import { createClient } from "@/services/db/server";
 import { GET, PATCH } from "@/app/api/v1/ai-settings/route";
 
 describe("GET /api/v1/ai-settings", () => {
-  it("defaults every known capability to false when no rows exist", async () => {
+  it("defaults every known capability to false (except opt-in live_location, default on) when no rows exist", async () => {
     vi.mocked(createClient).mockResolvedValue(mockSupabase({}) as never);
 
     const res = await GET(new NextRequest("http://localhost/api/v1/ai-settings"));
@@ -55,7 +55,7 @@ describe("GET /api/v1/ai-settings", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual({
       globally_disabled: false,
-      capabilities: { industry_intelligence: false, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false },
+      capabilities: { industry_intelligence: false, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false, live_location: true },
     });
   });
 
@@ -72,8 +72,16 @@ describe("GET /api/v1/ai-settings", () => {
 
     expect(body).toEqual({
       globally_disabled: true,
-      capabilities: { industry_intelligence: true, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false },
+      capabilities: { industry_intelligence: true, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false, live_location: true },
     });
+  });
+
+  it("an explicit live_location off row turns it off", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ capabilitiesResult: { data: [{ capability: "live_location", enabled: false }] } }) as never,
+    );
+    const body = await (await GET(new NextRequest("http://localhost/api/v1/ai-settings"))).json();
+    expect(body.capabilities.live_location).toBe(false);
   });
 });
 

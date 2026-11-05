@@ -50,6 +50,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   voice_transcription: "Voice transcription (Abel turns your Telegram voice notes into text and works them like typed messages — audio goes to the transcription provider; typical cost is under a cent per note, or free when a free-tier provider is configured)",
   driver_twin: "Driver twin (on Telegram, Abel drafts dispatch replies using your own past sent replies as examples, and tracks how much you edit his drafts — web dispatch drafts don't use the twin yet; off means no examples in drafts and no edit tracking)",
   photo_intelligence: "Photo understanding (when you send Abel a photo, he figures out what it's for — paperwork, the truck, a trailer, the dash, a pre-trip — and asks you with one tap when he isn't sure; off means photos are just filed as documents, like before)",
+  live_location: "Live Location (when you share your live location with Abel in Telegram, he keeps only your latest position and may ASK whether to change your duty status — he never changes it on his own; on by default because you start it by sharing; off means nothing is stored and nothing is proposed)",
   maintenance_watch: "Maintenance reminders (Abel watches your maintenance schedules and open defects in the background and messages you when something is due, overdue, or going stale — one digest a day at most, urgent safety/legal items right away; off means he only answers when you ask)",
 };
 

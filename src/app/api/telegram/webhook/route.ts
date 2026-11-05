@@ -167,6 +167,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     handleLocation: brainStore
       ? async (loc, atMs) => {
           const chatId = Number(config.allowedChatId);
+          // The live_location switch: off (or unverifiable) = nothing is stored or proposed.
+          if (!(await brainStore.isLiveLocationEnabled())) return;
           await handleLiveLocation(createBrainLiveLocationStore(brainStore), loc, atMs, {
             sendMessage: (text) => sendTelegramMessage(botToken, chatId, text),
             formatTime: (t) =>

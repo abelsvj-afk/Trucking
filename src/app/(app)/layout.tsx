@@ -24,6 +24,7 @@ import PageTransition from "@/components/PageTransition";
 import AbelDrop from "@/components/AbelDrop";
 import LiveDataProvider from "@/components/live/LiveDataProvider";
 import MotionLock from "@/components/MotionLock";
+import LocationPrompt from "@/components/LocationPrompt";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -57,6 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </ul>
         </nav>
         <AbelDrop />
+        <LocationPrompt />
       </div>
     </LiveDataProvider>
   );

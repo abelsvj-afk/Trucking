@@ -562,3 +562,18 @@ describe("same brain, two windows (§8)", () => {
     expect(memories[0]).toMatchObject({ source: "web" });
   });
 });
+
+describe("live_location switch (authority-matrix G1)", () => {
+  it("is ON with no row (opt-in by sharing), OFF with an explicit off row or the global switch", async () => {
+    const none = fakeClient(baseSeed(true));
+    expect(await telegramStore(none.client).isLiveLocationEnabled()).toBe(true);
+
+    const offSeed = baseSeed(true);
+    offSeed.ai_capability_settings!.push({ id: "cs-2", company_id: COMPANY, capability: "live_location", enabled: false, deleted_at: null });
+    expect(await telegramStore(fakeClient(offSeed).client).isLiveLocationEnabled()).toBe(false);
+
+    const globalSeed = baseSeed(true);
+    globalSeed.companies = [{ id: COMPANY, ai_globally_disabled: true, deleted_at: null }];
+    expect(await telegramStore(fakeClient(globalSeed).client).isLiveLocationEnabled()).toBe(false);
+  });
+});

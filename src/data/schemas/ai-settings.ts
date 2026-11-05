@@ -10,6 +10,7 @@ import { VOICE_TRANSCRIPTION_CAPABILITY } from "@/services/ai/transcription";
 import { DRIVER_TWIN_CAPABILITY } from "@/services/bot/voice-corpus";
 import { PHOTO_INTELLIGENCE_CAPABILITY } from "@/services/ai/photo-classification";
 import { MAINTENANCE_WATCH_CAPABILITY } from "@/services/fleet/maintenance-watch";
+import { LIVE_LOCATION_CAPABILITY } from "@/lib/live-motion";
 
 // Every capability that has a kill switch (docs/governance.md). Extend
 // this as each new capability is built - an unknown capability name in a
@@ -27,6 +28,7 @@ export const KNOWN_CAPABILITIES = [
   DRIVER_TWIN_CAPABILITY,
   PHOTO_INTELLIGENCE_CAPABILITY,
   MAINTENANCE_WATCH_CAPABILITY,
+  LIVE_LOCATION_CAPABILITY,
 ] as const;
 
 export const aiSettingsPatchSchema = z.object({

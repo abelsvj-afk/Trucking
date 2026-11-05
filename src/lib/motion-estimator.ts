@@ -23,6 +23,14 @@
 import { haversineMiles } from "./live-motion";
 import { FIX_STALE_MS, STOP_SETTLE_MS, type MotionState } from "./vehicle-motion";
 
+/**
+ * Opening the app while already parked: no movement has been seen, so the
+ * 10 s "a lull in traffic is not parked" hold would only lock a parked driver
+ * out for 10 s on every open. With no movement ever seen, steady stopped
+ * evidence held this long is enough.
+ */
+export const COLD_START_SETTLE_MS = 3_000;
+
 export const BUBBLE_MIN_M = 30;
 export const BUBBLE_ACCURACY_FACTOR = 1.5;
 /** A fix worse than this can't support a position-based conclusion. */
@@ -55,6 +63,8 @@ export interface MotionEstimate {
   outsideCount: number;
   fastCount: number;
   lastGoodFixMs: number | null;
+  /** True until movement has been observed in this session (cold start). */
+  neverMoved: boolean;
   /** The point to DRAW: pinned to the anchor while parked, so the icon doesn't jitter. */
   displayPoint: { lat: number; lng: number } | null;
 }
@@ -66,6 +76,7 @@ export const NO_ESTIMATE: MotionEstimate = {
   outsideCount: 0,
   fastCount: 0,
   lastGoodFixMs: null,
+  neverMoved: true,
   displayPoint: null,
 };
 
@@ -94,6 +105,7 @@ export function stepMotion(prev: MotionEstimate, fix: MotionFix): MotionEstimate
       outsideCount: 0,
       fastCount: 0,
       lastGoodFixMs: fix.atMs,
+      neverMoved: !(speed !== null && speed >= STOPPED_BELOW_MPH),
       displayPoint: here,
     };
   }
@@ -118,6 +130,7 @@ export function stepMotion(prev: MotionEstimate, fix: MotionFix): MotionEstimate
       outsideCount,
       fastCount,
       lastGoodFixMs: fix.atMs,
+      neverMoved: false,
       displayPoint: here,
     };
   }
@@ -136,6 +149,7 @@ export function stepMotion(prev: MotionEstimate, fix: MotionFix): MotionEstimate
       outsideCount: 0,
       fastCount: 0,
       lastGoodFixMs: fix.atMs,
+      neverMoved: false,
       displayPoint: here,
     };
   }
@@ -174,5 +188,6 @@ export function motionState(est: MotionEstimate, nowMs: number): MotionState {
   if (est.lastGoodFixMs === null || nowMs - est.lastGoodFixMs > FIX_STALE_MS) return "unknown";
   if (est.moving) return "moving";
   if (est.stoppedSinceMs === null) return "unknown";
-  return nowMs - est.stoppedSinceMs >= STOP_SETTLE_MS ? "stopped" : "moving";
+  const hold = est.neverMoved ? COLD_START_SETTLE_MS : STOP_SETTLE_MS;
+  return nowMs - est.stoppedSinceMs >= hold ? "stopped" : "moving";
 }

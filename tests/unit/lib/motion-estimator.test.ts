@@ -75,6 +75,22 @@ describe("real movement is still caught quickly", () => {
   });
 });
 
+describe("cold start", () => {
+  it("opened while already parked: stopped after ~3 s of steady fixes, not the 10 s traffic-lull hold", () => {
+    let est = stepMotion(NO_ESTIMATE, fix(0, 0, 0, 0));
+    est = stepMotion(est, fix(2, 1, 3, 0));
+    expect(motionState(est, T0 + 2_000)).toBe("moving");
+    expect(motionState(est, T0 + 3_500)).toBe("stopped");
+  });
+  it("once movement has been seen, the full 10 s hold applies again", () => {
+    let est = stepMotion(NO_ESTIMATE, fix(0, 0, 0, 30));
+    est = stepMotion(est, fix(50, 0, 3, 0));
+    expect(est.neverMoved).toBe(false);
+    expect(motionState(est, T0 + 8_000)).toBe("moving");
+    expect(motionState(est, T0 + 14_000)).toBe("stopped");
+  });
+});
+
 describe("fail closed", () => {
   it("no fix, a stale fix, or only poor fixes are unknown - never stopped", () => {
     expect(motionState(NO_ESTIMATE, T0)).toBe("unknown");

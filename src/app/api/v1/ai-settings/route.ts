@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createApiHandler } from "@/services/api/handler";
 import { validateBody } from "@/services/api/validate";
 import { createClient } from "@/services/db/server";
+import { DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
 import { aiSettingsPatchSchema, KNOWN_CAPABILITIES } from "@/data/schemas/ai-settings";
 
 async function getAiSettings(supabase: SupabaseClient, companyId: string) {
@@ -29,7 +30,10 @@ async function getAiSettings(supabase: SupabaseClient, companyId: string) {
   // A capability with no row is off - fails closed, per CLAUDE.md and
   // docs/schemas.md's ai_capability_settings note.
   const capabilities = Object.fromEntries(
-    KNOWN_CAPABILITIES.map((capability) => [capability, enabledByCapability.get(capability) ?? false]),
+    KNOWN_CAPABILITIES.map((capability) => [
+      capability,
+      enabledByCapability.get(capability) ?? DEFAULT_ON_CAPABILITIES.has(capability),
+    ]),
   );
 
   return {

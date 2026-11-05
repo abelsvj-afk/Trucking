@@ -65,6 +65,7 @@ describe("useVehicleMotion", () => {
 
   it("a lull in traffic doesn't unlock: speed back above the threshold restarts the stop clock", async () => {
     await act(async () => void render(<Probe />));
+    act(() => send({ speed: mph(40) })); // he was driving
     act(() => send({ speed: 0 }));
     await act(async () => {
       vi.advanceTimersByTime(8_000);
@@ -89,6 +90,17 @@ describe("useVehicleMotion", () => {
     await act(async () => void render(<Probe />));
     act(() => send({ speed: null }));
     expect(screen.getByText("unknown")).toBeTruthy();
+  });
+
+  it("opening the app already parked is not a 10 s lock-out: steady stopped evidence settles in ~3 s", async () => {
+    await act(async () => void render(<Probe />));
+    act(() => send({ speed: 0 }));
+    expect(screen.getByText("moving")).toBeTruthy(); // one fix: not yet
+    await act(async () => {
+      vi.advanceTimersByTime(3_500);
+    });
+    act(() => send({ speed: 0 }));
+    expect(screen.getByText("stopped")).toBeTruthy();
   });
 
   it("a phone that gives NO speed while parked reads stopped from steady fixes, not unknown forever", async () => {
