@@ -10,7 +10,7 @@ Legend: ✅ done (docs/code evidence in repo) · 🟡 partly · ⬜ not started 
 |---|---|---|---|
 | 1 | Every page and major feature has a named design doc and acceptance criteria | 🟡 | Wave 3 matrix names the design of record for all 18 families. Remaining: per-page acceptance criteria; `ui-ux.md` screen-by-screen rewrite (needs King's post-deploy visual walkthrough). |
 | 2 | Every API route and schema has a consumer classification and contract | 🟡 | 115-route inventory + new contracts done. Remaining: consumer column (UI / bot / internal) per route; per-route request/response detail for generic CRUD resources beyond the worked example. |
-| 3 | Migrations reconciled against `schemas.md` and the live ledger | ✅/🔑 | Appendix covers 00032–00066 tables/columns; ledger complete through 00064 per King; 00065 pending apply. Remaining: drift check (Wave 4). |
+| 3 | Migrations reconciled against `schemas.md` and the live ledger | ✅/🔑 | Appendix covers 00032–00066 tables/columns; ledger applied through 00065 (King, verified; 00066 landing via his watch; **00067 new, unapplied**). Drift tests built. |
 | 4 | Governance describes every AI capability, tool, scheduled action, approval rule, revocation path | ✅ | `ai-authority-matrix.md`; G1/G2 closed with switches; G3 (direct-order detection model-judged) kept + eval pending; G4 owner-visible activity log not designed. |
 | 5 | Architecture and service specs match the implementation | 🟡 | Addenda written. Remaining: owner review; keep current as code lands. |
 | 6 | All contradictory built/not-built/open statements resolved | 🟡 | Fixed in news-banner, HUD, usability, trip-intake, pay-profile docs. Remaining: sweep `PROJECT_STATE.md` history, `TASKS.md`, `automation.md`, `repository-structure.md`, research-engine for stale statuses. |
@@ -18,10 +18,27 @@ Legend: ✅ done (docs/code evidence in repo) · 🟡 partly · ⬜ not started 
 | 8 | RLS tests cover every tenant-scoped table; separate service-role isolation tests | 🟡 | `tests/db/rls-isolation.sql` now covers ALL 60 company_id tables (complete-row probes so RLS is what refuses; cross-company insert, read-only-for-tenants, anon with the claim cleared, read/update/delete of a seeded B row); scratch Postgres with Supabase-like grants and all 67 migrations: 60/60 cross-company and 60/60 anon refusals proven by RLS, 0 unproven, 0 violations; mutation-checked. Migration 00067 revokes anonymous write privileges everywhere (`tests/db/anon-privileges.sql` checks it). 🔑 Live run is King's (D-3) — paste the file in the SQL editor, it rolls back. Remaining: seeders for 4 tables, service-role path tests (webhook store, schedulers, internal invokers). |
 | 9 | Critical workflows have passing unit, integration, E2E and AI-eval evidence | 🟡 | Unit coverage strong (1750+). Remaining: E2E for dispatch→load, paper-log, Drive reroute, pay terms; AI evals (grounding, language, proposal identity, stale/multiple, cancel≠delete, injection). |
 | 10 | Accessibility and performance gates executed and recorded | ⬜ | Contrast guard exists. Remaining: keyboard/screen-reader pass, phone-width perf budget run (targets accepted D-5). |
-| 11 | Production SHA, migrations, secrets, schedulers, Realtime, webhook, rollback verified | 🔑 | King: v48 verified; migrations through 00064 verified; secrets/schedulers/Realtime/webhook/rollback proof outstanding. |
+| 11 | Production SHA, migrations, secrets, schedulers, Realtime, webhook, rollback verified | 🔑 | King: v48 verified; migrations through 00065 applied and verified (00066 pending his watch, 00067 new); v48 does NOT contain current `main`; secrets/schedulers/Realtime/webhook/rollback proof outstanding. |
 | 12 | ROADMAP.md, TASKS.md, PROJECT_STATE.md agree | 🟡 | `ROADMAP.md` EXISTS (my earlier line saying it didn't was wrong — caught by ChatGPT's re-check 2026-11-05) but described only the original MVP stages; a reconciled "where the product is now" section was added 2026-11-05. Remaining: reconcile `TASKS.md` (258 lines, mixed history) into small dependency-ordered tasks; CHANGELOG.md only after owner approval; keep PROJECT_STATE current. |
 | 13 | Reviewer independently accepted the documentation and evidence | 🔑 | King's review of Waves 1–3 outstanding. |
 | 14 | Owner approved the next implementation scope | 👤 | Waves 4–6 scope below awaits approval per work unit. |
+
+## Every original finding: status, evidence, owner (audit section 5; refreshed 2026-11-05 at `main` 3144aa7)
+
+| Finding | Status | Evidence | Owner |
+|---|---|---|---|
+| P0 privacy exposure closure | **OPEN** | Branch deleted (King, verified); GitHub Support purge of `cf356393…` and the real-trip commits (`ac2099d`, `630a67d`, `7672671`) NOT yet requested | owner / King |
+| P1 canonical product docs stale | Addressed, pending review | addenda in idea/vision/requirements/user-stories; superseded markers added to testing, service-specs, architecture, ai-architecture | owner review |
+| P1 AI authority not represented | Addressed | `ai-authority-matrix.md`; governance corrected; G1/G2 closed; G3 open (model-judged direct orders) | owner (D-2 ratified) |
+| P1 DB/API contracts out of sync | Addressed + drift-tested | schemas/api appendices; `tests/unit/docs-drift.test.ts` | — |
+| P1 tenant isolation evidence | Partly proven | `tests/db/rls-isolation.sql` 60/60 on scratch; 00067 anon revoke; live run + service-role tests OPEN | King (live), Claude (service-role tests) |
+| P1 driver safety on every form | **Partly; one open decision** | loose controls locked; duty-aware policy; GPS bubble; HUD/Drive fail-closed. **D-12 open:** unknown/stale location does not lock the app-wide forms (documented, deliberate); real-browser E2E not built | owner (D-12), Claude (E2E) |
+| P1 production state not established | **OPEN** | v48 verified; does not contain current `main`; deployed SHA unprovable; schedulers/Realtime/webhook proof outstanding | King |
+| P2 UI/UX design covers full app | **OPEN** | coverage matrix done; screen-by-screen + visual walkthrough outstanding | King (walkthrough), Claude |
+| P2 API-only features classified | Addressed | credentials/invoices screens; 4 bot-only by design (owner-approved) | — |
+| P2 large files | Addressed for the four named files; others (store.ts, tools-write.ts, dispatch-bot.ts) flagged | decomposition commits | Claude |
+| P2 test strategy/evidence | Partly | drift tests, SQL isolation, estimator/policy tests; AI evals, E2E, accessibility, performance OPEN | Claude |
+| P3 onboarding artifacts | OPEN | README refresh, `.env.example` check not done | Claude |
 
 ## Evidence levels (never conflate)
 Every item is one of: **documented** · **code gate passed** (tsc, eslint, vitest, build on a named tree) · **applied** (migration on the live project, King) · **deployed** (a named release) · **verified live / on a real phone**. Current tree with a passing code gate: `181b16e` (docs-only commits since). Applied through 00064; 00065/00066 pending. Deployed: v48 (source SHA unprovable; does not contain everything on `main`). Real-phone verification: none yet.

@@ -996,3 +996,8 @@ check time. Fly does not label releases with a source commit, so the
 exact source SHA is not provable from the dashboard; every commit after
 the last code commit (`209b5511`) is documentation-only, so production
 is running current code, including the employer-agnostic pass.
+
+### 11.8 Builder addendum — Claude (2026-11-05, at `main` 3144aa7)
+
+Added by the Builder after the reconciliation work; additive, nothing above is edited. Findings are tracked with status, evidence and owner in `docs/reconciliation/audit-closure-checklist.md` (table "Every original finding"). Corrections to this document's own premises: `ROADMAP.md` exists (reconciled with a current-state section); migrations through 00065 are applied and 00067 (revoke anonymous writes) is new; Fly v48 does not contain current `main`; unknown/stale location deliberately does not lock app-wide forms (decision D-12 open). The audit remains OPEN.
+

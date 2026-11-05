@@ -88,7 +88,7 @@ Safety class: **M** = usable while moving (glance/voice only) · **P** = parked 
 | REQ-05 | Paper-log photo → review → atomic save; day graph; Telegram approval rule | `driver-hud.md` §6 | P/V | built (owner acceptance pending) |
 | REQ-06 | Home HUD with live clocks and act-in-place popups | `driver-hud.md`, `driver-usability.md` | M | built |
 | REQ-07 | Live layer: screens current without refresh | `driver-hud.md` §4 | S | built |
-| REQ-08 | Driving safety lock: app-wide form lock when moving/unknown; Drive glance only | `driver-usability.md` §4 | M | built |
+| REQ-08 | Driving safety lock: app-wide form lock when positively moving (duty-aware); HUD status sheet and Drive fail closed on unknown; Drive glance only | `driver-usability.md` §4 | M | built |
 | REQ-09 | Smart Path route check + Drive Mode (spoken turns, rerouting only to truck-checked routes) | `docs/design/driver-mvp.md` §8 | M | built |
 | REQ-10 | Screen-off position via Telegram Live Location; duty-status proposals only | `driver-usability.md` §4 | S/V | built (no switch — G1) |
 | REQ-11 | Money truth: integer cents, revenue on delivery, month bounds in viewer zone | `docs/money-and-revenue.md` | P | built |

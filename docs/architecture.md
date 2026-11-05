@@ -4,7 +4,7 @@ Phase 5 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`. T
 
 ## System overview
 
-A single web application: a phone-friendly frontend for entering and viewing trucking business data, backed by a managed Postgres database, with no AI layer built yet (Governance Level 1 — observe only, per `docs/governance.md`). One codebase, one deployment, one database — deliberately, because a solo founder maintaining multiple services has more to manage than the business itself justifies at this scale.
+A single web application: a phone-friendly frontend for entering and viewing trucking business data, backed by a managed Postgres database, with no AI layer built yet *(historical: written at MVP; superseded 2026-11-05 - the AI layer is built, see the as-built addendum below and `docs/ai-authority-matrix.md`)* (Governance Level 1 — observe only, per `docs/governance.md`). One codebase, one deployment, one database — deliberately, because a solo founder maintaining multiple services has more to manage than the business itself justifies at this scale.
 
 ## Component architecture
 
@@ -38,7 +38,7 @@ src/
 │   ├── db/         # Supabase/Postgres access — the only layer allowed to touch the database
 │   ├── auth/       # authentication/authorization logic
 │   ├── api/        # shared request middleware: auth check, validation, error handling
-│   └── ai/         # reserved, empty until Governance Level 2+ — see Service boundaries
+│   └── ai/         # (historical: was reserved/empty; now implemented - see the as-built addendum below)
 ├── data/
 │   └── schemas/    # data contracts (Phase 6)
 ├── lib/            # small shared utilities

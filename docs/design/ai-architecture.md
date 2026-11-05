@@ -2,6 +2,8 @@
 
 Phase 9 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`. `docs/vision.md` lists roughly nine future AI capabilities (decision engine, load profitability, fuel intelligence, industry intelligence, email AI, home-time engine, and more). Designing each one's prompt architecture and safety controls from a blank page would mean redoing the same work nine times, inconsistently — so this document defines **one reusable pattern every future AI capability conforms to**, then works it through fully for the capability most concretely specified so far: the industry-intelligence engine. This is the same "one worked example, everyone else follows the pattern" approach `docs/api-contracts.md` already used for API resources.
 
+> **Reconciliation note 2026-11-05:** the AI layer is built and classified per capability in `docs/ai-authority-matrix.md`; the sentence below is the original MVP-era status and is superseded by that matrix and the reconciled `docs/governance.md`.
+
 Nothing here authorizes building anything — Governance stays at Level 1 (per `docs/governance.md`) until a specific capability actually goes through its own remaining phases (Service Specs, Automation & Autonomy) and gets explicitly turned on.
 
 ## The pattern every AI capability follows

@@ -1,6 +1,6 @@
 # Service Specifications
 
-Phase 8 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`, defining the exact behavior of each service module established in `docs/architecture.md`'s "Service / module boundaries." Deterministic logic first — none of these services use AI; `services/ai` stays a reserved, unimplemented boundary until Phase 9 gives it something real to do.
+Phase 8 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`, defining the exact behavior of each service module established in `docs/architecture.md`'s "Service / module boundaries." Deterministic logic first. *(**Historical sentence, superseded 2026-11-05:** it said none of these services use AI and `services/ai` was reserved/unimplemented. AI exists now - see the reconciliation addendum at the end of this file for the as-built module map.)*
 
 ## services/db
 
@@ -80,9 +80,9 @@ Phase 8 deliverable per `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW`, d
 
 **Testing requirements:** per `docs/design/testing.md` — full create/read/update/soft-delete round-trips per resource, validation-rejection tests, and the auth-required test from `services/auth` above.
 
-## services/ai (reserved — not implemented)
+## services/ai (reserved — not implemented) — SUPERSEDED: implemented; see the addendum at the end
 
-**Status:** Governance Level 1 (per `docs/governance.md`) — nothing here is built. This entry exists only to record the constraints it must satisfy *when* it is built (Phase 9, Intelligence Design), so they aren't decided ad hoc at that point:
+**Status (HISTORICAL - superseded 2026-11-05; `services/ai` is implemented, see the addendum at the end and `docs/ai-authority-matrix.md`):** Governance Level 1 (per `docs/governance.md`) — nothing here is built. This entry exists only to record the constraints it must satisfy *when* it is built (Phase 9, Intelligence Design), so they aren't decided ad hoc at that point:
 
 - Reads only through `services/db` — never a direct database connection, never a shortcut around RLS.
 - Any write path it eventually needs goes through the same `services/auth` → validation → `services/db` pipeline every other write uses — no special case for AI-originated writes.

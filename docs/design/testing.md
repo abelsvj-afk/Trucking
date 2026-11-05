@@ -34,11 +34,15 @@ Drive the actual UI (`docs/design/ui-ux.md`) in a browser, covering the workflow
 
 ## Performance tests
 
-Not a priority yet. `docs/architecture.md` already decided against caching and against a high-concurrency target at MVP scale (one user, growing to a small fleet) — building a performance test suite for a load profile that doesn't exist would be testing a hypothetical. Revisit if real usage ever shows an actual slow path.
+> **SUPERSEDED 2026-11-05 (kept as history).** Owner-accepted targets (D-5): first meaningful paint < 3 s on 4G; Drive map update < 1 s per fix. They are **not yet measured**; the phone-width performance run is an open Wave 4 item (`docs/reconciliation/audit-closure-checklist.md`).
+
+Original (MVP-era) text: not a priority yet. `docs/architecture.md` already decided against caching and against a high-concurrency target at MVP scale (one user, growing to a small fleet) — building a performance test suite for a load profile that doesn't exist would be testing a hypothetical. Revisit if real usage ever shows an actual slow path.
 
 ## AI evaluation
 
-Not applicable yet. No AI capability exists (Governance Level 1, per `docs/governance.md`); an evaluation strategy gets defined alongside the AI capability itself in Phase 9 (Intelligence Design), not speculated here.
+> **SUPERSEDED 2026-11-05 (kept as history).** AI capabilities exist and are classified in `docs/ai-authority-matrix.md`. Evaluation today: `tests/eval/` (a harness and a golden set) plus unit tests of the agent loop, proposal lifecycle, language gate and grounding guard. Still to build: evals for confirmation targeting, cancel-vs-delete, forwarded-text injection (gap G3), memory supersession and same-name people.
+
+Original text: not applicable yet. No AI capability exists (Governance Level 1, per `docs/governance.md`); an evaluation strategy gets defined alongside the AI capability itself in Phase 9 (Intelligence Design), not speculated here.
 
 ---
 
