@@ -56,6 +56,8 @@ import type { RouteCheckRequest } from "@/data/schemas/smart-path";
 import type { DutyLog, FuelPurchase, Load, Truck } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
 import { buildCorridor, etaAtMile } from "@/lib/smart-path-corridor";
+import { STATE_TRUCK_RULES } from "@/data/state-truck-rules";
+import { stateRuleLines } from "@/lib/smart-path-state-rules";
 import { PADD_BY_STATE, stateAt, statesAlongRoute } from "@/lib/smart-path-states";
 
 export interface RouteCheckProviders {
@@ -548,6 +550,8 @@ export async function runRouteCheck(
       }
     : { unavailableReason: built.reason };
 
+  const crossed = corridor && "states" in corridor ? corridor.states.map((st) => st.state).filter((c): c is string => c !== null) : [];
+  const stateRules = crossed.length > 0 ? stateRuleLines(crossed, STATE_TRUCK_RULES, truck ?? null, now) : undefined;
   const weather =
     providers.weather && corridor && "points" in corridor
       ? await buildWeatherSection(
@@ -574,6 +578,7 @@ export async function runRouteCheck(
     clocks,
     corridor,
     ...(weather ? { weather } : {}),
+    ...(stateRules ? { stateRules } : {}),
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),

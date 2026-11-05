@@ -78,6 +78,8 @@ export interface RouteCheckResponse {
     notes: string[];
     asOf: string;
   };
+  /** Intelligence Phase 2c: verified state truck rules for the states crossed vs. his truck profile; states with no verified row say "no rule on file". Advisory. */
+  stateRules?: { state: string; kind: "exceeds" | "info" | "no_rule_on_file"; text: string; sourceUrl: string | null; verifiedOn: string | null; old: boolean }[];
   verdict: {
     status: RouteCheckStatus;
     assumedDriveMinutes: number;

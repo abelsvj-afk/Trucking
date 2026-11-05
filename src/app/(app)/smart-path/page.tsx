@@ -559,6 +559,26 @@ function SmartPathInner() {
             </details>
           )}
 
+          {result.stateRules && result.stateRules.length > 0 && (
+            <details open={result.stateRules.some((r) => r.kind === "exceeds")}>
+              <summary>State truck rules on this route</summary>
+              <ul>
+                {result.stateRules.map((r, i) => (
+                  <li key={`${r.state}-${i}`}>
+                    {r.kind === "exceeds" ? "⚠ " : ""}{r.text}
+                    {r.sourceUrl && (
+                      <>
+                        {" "}
+                        <a href={r.sourceUrl} rel="noopener noreferrer" target="_blank">source</a>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="row-sub">Only rules someone verified against the state&apos;s own source are listed. A state with none on file is not &quot;unrestricted&quot; — check the posted signs and your carrier.</p>
+            </details>
+          )}
+
           <h3>Legal</h3>
           {result.verdict.legalLines.map((line) => (
             <p key={line}>{line}</p>

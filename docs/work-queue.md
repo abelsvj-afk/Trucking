@@ -18,6 +18,11 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 - Wave 6: remediation only per owner-approved unit (G4 owner-visible activity log; retention beyond messages).
 - P3: README refresh, `.env.example` check.
 
+## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
+- BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
+- NEXT: Phase 3 road work (WZDx feeds; each outbound host to be checked from Fly once).
+- NEEDS OWNER/KING: verified state-rule rows (his common states first); answers to the spec's open questions (corridor width, wind trigger, first states for work-zone feeds); swap the state-outline asset for an official Census file if provenance matters.
+
 ## B2. Paper log (checked 2026-11-05)
 - Built and gated: in-app review (`/fleet/hos/paper`, migration 00059), Telegram reader, by-hand entry, carrier-cycle before/after line, naming condition for faint stretches.
 - D-13 (B7) RULED by the owner 2026-11-05: option (a), stop-at-gap. Implemented (`capAtFirstGap` in `services/fleet/paper-logs.ts`, tests added); design note in `driver-hud.md` §6. Gated with the next push; not deployed.
