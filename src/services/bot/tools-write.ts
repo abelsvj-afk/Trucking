@@ -246,6 +246,20 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       destination: z.string().min(1, "destination is required."),
       // The dispatcher's requirements, saved with the load in the same yes.
       tasks: z.array(z.string().trim().min(1)).max(30).optional(),
+      // Every stop of the trip, with its appointment in the zone it was written in.
+      stops: z
+        .array(
+          z.object({
+            seq: z.number().int().min(1),
+            kind: z.enum(["pickup", "delivery", "other"]),
+            name: z.string().optional(),
+            address: z.string().optional(),
+            appointment_at: z.string().optional(),
+            appointment_tz: z.string().optional(),
+          }),
+        )
+        .max(40)
+        .optional(),
     })
     .refine(
       (d) => !d.pickup_date || !d.delivery_date || d.delivery_date >= d.pickup_date,
@@ -258,8 +272,9 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       { message: "delivery_date must not be before pickup_date.", path: ["delivery_date"] },
     );
   const loadToRow = (args: Row): Row => {
-    const { rate_dollars, detention_rate_dollars, tasks: _tasks, ...rest } = definedOnly(args);
+    const { rate_dollars, detention_rate_dollars, tasks: _tasks, stops: _stops, ...rest } = definedOnly(args);
     void _tasks;
+    void _stops;
     const row: Row = { ...rest };
     if (rate_dollars !== undefined) row.rate_cents = Math.round(Number(rate_dollars) * 100);
     if (detention_rate_dollars !== undefined) {
@@ -306,6 +321,22 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         type: "object",
         properties: {
           ...loadParams,
+          stops: {
+            type: "array",
+            description: "Every stop of the trip in order (any number). appointment_at is an ISO instant; appointment_tz the IANA zone it was written in.",
+            items: {
+              type: "object",
+              properties: {
+                seq: { type: "number" },
+                kind: { type: "string", enum: ["pickup", "delivery", "other"] },
+                name: { type: "string" },
+                address: { type: "string" },
+                appointment_at: { type: "string" },
+                appointment_tz: { type: "string" },
+              },
+              required: ["seq", "kind"],
+            },
+          },
           tasks: { type: "array", items: { type: "string" }, description: "Dispatcher requirements for this trip, one per item (photos, seal, signed BOL, status at every stop, wait for approval before leaving). Only what the message states." },
         },
         required: ["origin", "destination"],
@@ -313,13 +344,25 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       botSchema: createLoadBot,
       afterCreate: async (args, id) => {
         const tasks = Array.isArray(args.tasks) ? (args.tasks as string[]) : [];
-        if (tasks.length === 0) return;
-        const { error } = await store.client.from("load_tasks").insert(
-          tasks.map((text, i) => ({ company_id: store.companyId, load_id: id, text, sort_order: i })),
-        );
-        return error
-          ? " The load is saved but its task list was not (" + error.message + ") - say so and offer to retry."
-          : ` Saved ${tasks.length} trip task${tasks.length === 1 ? "" : "s"}.`;
+        const stops = Array.isArray(args.stops) ? (args.stops as Row[]) : [];
+        const notes: string[] = [];
+        if (stops.length > 0) {
+          const { error } = await store.client.from("load_stops").insert(
+            stops.map((st) => ({
+              company_id: store.companyId, load_id: id, seq: st.seq, kind: st.kind,
+              name: st.name ?? null, address: st.address ?? null,
+              appointment_at: st.appointment_at ?? null, appointment_tz: st.appointment_tz ?? null,
+            })),
+          );
+          notes.push(error ? ` The load is saved but its stops were not (${error.message}) - say so and offer to retry.` : ` Saved ${stops.length} stop${stops.length === 1 ? "" : "s"}.`);
+        }
+        if (tasks.length > 0) {
+          const { error } = await store.client.from("load_tasks").insert(
+            tasks.map((text, i) => ({ company_id: store.companyId, load_id: id, text, sort_order: i })),
+          );
+          notes.push(error ? ` The load is saved but its task list was not (${error.message}) - say so and offer to retry.` : ` Saved ${tasks.length} trip task${tasks.length === 1 ? "" : "s"}.`);
+        }
+        return notes.join("") || undefined;
       },
       table: "loads",
       label: "load",
@@ -331,6 +374,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         `${args.pickup_window_start ? `, pickup appt ${args.pickup_window_start}${args.pickup_tz ? ` (${args.pickup_tz})` : ""}` : ""}` +
         `${args.delivery_window_start ? `, delivery appt ${args.delivery_window_start}${args.delivery_tz ? ` (${args.delivery_tz})` : ""}` : ""}` +
         `${typeof args.deadhead_miles === "number" || typeof args.loaded_miles === "number" ? `, miles: deadhead ${args.deadhead_miles ?? "?"} + loaded ${args.loaded_miles ?? "?"}${typeof args.miles === "number" ? ` = ${args.miles} total` : ""}` : ""}` +
+        `${Array.isArray(args.stops) && args.stops.length > 2 ? `, ${args.stops.length} stops` : ""}` +
         `${Array.isArray(args.tasks) && args.tasks.length > 0 ? `, ${args.tasks.length} trip task(s)` : ""}` +
         `${args.pickup_date ? `, pickup ${args.pickup_date}` : ""}` +
         `${args.delivery_date ? `, delivery ${args.delivery_date}` : ""}` +

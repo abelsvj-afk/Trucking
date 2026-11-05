@@ -160,8 +160,9 @@ describe("migration 00058 (+ later additions)", () => {
     const sql = readFileSync("supabase/migrations/00058_realtime_live_layer.sql", "utf8");
     const listed = [...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).filter((t) => t !== "supabase_realtime" && t !== "public");
     // Tables added to the publication by later migrations (each guarded the same way).
-    const later = ["load_tasks"]; // 00061_trip_intake.sql
+    const later = ["load_tasks", "load_stops"]; // 00061_trip_intake.sql, 00062_load_stops.sql
     expect(readFileSync("supabase/migrations/00061_trip_intake.sql", "utf8")).toContain("tablename = 'load_tasks'");
+    expect(readFileSync("supabase/migrations/00062_load_stops.sql", "utf8")).toContain("tablename = 'load_stops'");
     expect(new Set([...listed, ...later])).toEqual(new Set(LIVE_TABLES));
   });
 });

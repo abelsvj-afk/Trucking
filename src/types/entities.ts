@@ -787,3 +787,18 @@ export interface LoadTask extends BaseRow {
   /** Set only when the owner records it done. */
   done_at: string | null;
 }
+
+/** Migration 00062: one stop of a load; progress fields are set only by the owner's tap. */
+export interface LoadStop extends BaseRow {
+  load_id: string;
+  seq: number;
+  kind: "pickup" | "delivery" | "other";
+  name: string | null;
+  address: string | null;
+  appointment_at: string | null;
+  appointment_tz: string | null;
+  arrived_at: string | null;
+  departed_at: string | null;
+  approved_at: string | null;
+  notes: string | null;
+}

@@ -101,6 +101,8 @@ function fakeStore(world: FakeWorld, pending: PendingAction | null) {
     channel: "telegram",
     loadPendingAction: vi.fn().mockResolvedValue(pending),
     loadPendingBatch: vi.fn().mockResolvedValue([]),
+    loadOpenPendingGroups: vi.fn().mockResolvedValue([]),
+    dropExpiredPending: vi.fn().mockResolvedValue(0),
     clearPendingAction: vi.fn(async (id: string) => {
       cleared.push(id);
     }),

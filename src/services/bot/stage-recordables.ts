@@ -18,6 +18,8 @@
 // is queued, not yet awaiting his yes.
 
 import { buildBotTools } from "./tools";
+import { parseDispatchTrip, tripToCreateLoadArgs, type ParsedTrip } from "@/lib/dispatch-trip";
+import { randomUUID } from "node:crypto";
 import {
   formatBatchProposal,
   validateDumpItems,
@@ -33,6 +35,27 @@ export interface StageRecordablesResult {
   blockedByPending: boolean;
   /** True when a proposal was already waiting and this batch was queued behind it. */
   queuedBehindPending: boolean;
+  /** A readable review of a parsed trip assignment (stops, appointments, miles, tasks), when the message was one. */
+  review?: string;
+}
+
+/** The clean review the owner sees before his one yes: everything read, and what is missing. */
+export function tripReview(trip: ParsedTrip, brokerResolved: boolean): string {
+  const lines = [`NEW TRIP ${trip.tripNumber} — ready for your review`];
+  if (trip.brokerName || trip.brokerReference) {
+    lines.push(`Broker: ${trip.brokerName ?? "not given"}${brokerResolved ? "" : trip.brokerName ? " (not on file yet — saved without a broker link)" : ""} · Ref: ${trip.brokerReference ?? "not given"}`);
+  }
+  for (const st of trip.stops) {
+    lines.push(
+      `Stop ${st.seq} · ${st.kind === "pickup" ? "PICKUP" : st.kind === "delivery" ? "DELIVERY" : "STOP"}: ${st.name ?? "(no name)"}`,
+      `  ${st.address ?? "(no address)"}`,
+      `  Appointment: ${st.appointmentText ?? "not given"}${st.appointmentAt ? "" : st.appointmentText ? " (zone not recognized — saved as text only, no time set)" : ""}`,
+    );
+  }
+  const mi = (n: number | null) => (n === null ? "not given" : `${n.toLocaleString("en-US", { minimumFractionDigits: 2 })} mi`);
+  lines.push(`Miles: deadhead ${mi(trip.deadheadMiles)} · loaded ${mi(trip.loadedMiles)} · total ${mi(trip.totalMiles)}`);
+  if (trip.tasks.length > 0) lines.push("Requirements:", ...trip.tasks.map((t) => `  • ${t}`));
+  return lines.join("\n");
 }
 
 export async function stageRecordables(
@@ -40,7 +63,15 @@ export async function stageRecordables(
   userText: string,
   rawItems: unknown,
 ): Promise<StageRecordablesResult> {
-  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+  // A structured trip assignment is read by CODE (lib/dispatch-trip), not by
+  // the model: the model path missed origin/destination on exactly this
+  // message. Its create_load replaces any create_load the model proposed.
+  const trip = parseDispatchTrip(userText);
+  const tripArgs = trip ? tripToCreateLoadArgs(trip) : null;
+  const modelItems = (Array.isArray(rawItems) ? rawItems : []).filter(
+    (item) => !(tripArgs && (item as { tool_name?: unknown } | null)?.tool_name === "create_load"),
+  );
+  if (!tripArgs && modelItems.length === 0) {
     return { proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false };
   }
 
@@ -52,7 +83,33 @@ export async function stageRecordables(
       .filter((tool) => tool.access === "write")
       .map((tool) => [tool.name, tool] as const),
   );
-  const { proposals, rejected } = validateDumpItems(userText, rawItems, writeRegistry);
+  const { proposals, rejected } = modelItems.length > 0
+    ? validateDumpItems(userText, modelItems, writeRegistry)
+    : { proposals: [] as ProposedWrite[], rejected: [] as RejectedDumpItem[] };
+
+  let review: string | undefined;
+  if (trip && tripArgs) {
+    const createLoad = writeRegistry.get("create_load");
+    const brokerId = trip.brokerName ? await findBrokerId(store, trip.brokerName) : null;
+    if (brokerId) tripArgs.broker_id = brokerId;
+    const checked = createLoad?.validateArgs ? createLoad.validateArgs(tripArgs) : { ok: true as const, args: tripArgs };
+    if (createLoad && checked.ok) {
+      proposals.unshift({
+        tool: "create_load",
+        args: checked.args,
+        summary: createLoad.summarize ? createLoad.summarize(checked.args) : "Create load",
+        batchId: randomUUID(),
+        sourceQuote: `NEW TRIP ${trip.tripNumber}`,
+        confidence: "high",
+      });
+      review = tripReview(trip, Boolean(brokerId));
+    } else {
+      rejected.push({
+        summary: `Trip ${trip.tripNumber}`,
+        reason: checked.ok ? "create_load is unavailable" : `not saved - ${checked.error}`,
+      } as RejectedDumpItem);
+    }
+  }
 
   let itemNumber = 0;
   for (const proposal of proposals) {
@@ -68,7 +125,20 @@ export async function stageRecordables(
     });
   }
 
-  return { proposals, rejected, blockedByPending: false, queuedBehindPending };
+  return { proposals, rejected, blockedByPending: false, queuedBehindPending, review };
+}
+
+/** Broker NAME -> id, by code (exact, case-insensitive). Ambiguous or missing -> null, never a guess. */
+async function findBrokerId(store: BotBrainStore, name: string): Promise<string | null> {
+  const { data, error } = await store.client
+    .from("brokers")
+    .select("id, name")
+    .eq("company_id", store.companyId)
+    .is("deleted_at", null)
+    .ilike("name", name.trim());
+  if (error) return null;
+  const rows = ((data ?? []) as { id: string; name: string }[]).filter((r) => r.name.trim().toLowerCase() === name.trim().toLowerCase());
+  return rows.length === 1 ? rows[0]!.id : null;
 }
 
 /**
@@ -80,7 +150,7 @@ export async function stageRecordables(
  * named rejections (never silent).
  */
 export function formatRecordableOutcome(result: StageRecordablesResult): string {
-  let out = "";
+  let out = result.review ? `\n\n${result.review}` : "";
   if (result.queuedBehindPending && result.proposals.length > 0) {
     const lines = result.proposals.map((p, i) => `${i + 1}. ${p.summary}`).join("\n");
     out +=

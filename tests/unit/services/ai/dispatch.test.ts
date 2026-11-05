@@ -227,4 +227,23 @@ describe("enforceLanguageGate", () => {
     expect(gated.suggested_reply).toBeNull();
     expect(formatDispatchSuggestion(gated)).not.toContain("Suggested reply");
   });
+
+  it("an English message never gets a Spanish reply draft (Trip 1852 audit)", () => {
+    const base = {
+      likely_sender_role: "dispatcher" as const, sender_reasoning: "x", whats_being_asked: "y", meaning_notes: null,
+      translation_en: null, recordable_items: [],
+    };
+    const spanish = enforceLanguageGate(
+      { ...base, suggested_reply: "He recibido los detalles del viaje y seguiré las instrucciones. Gracias.", suggested_reply_language: "es" },
+      "en",
+    );
+    expect(spanish.suggested_reply).toBeNull();
+    expect(spanish.suggested_reply_language).toBeNull();
+    // mislabeled: Spanish text claimed as English is still caught by reading the text
+    expect(
+      enforceLanguageGate({ ...base, suggested_reply: "Recibido, gracias. Seguiré las instrucciones del viaje.", suggested_reply_language: "en" }, "en").suggested_reply,
+    ).toBeNull();
+    const english = enforceLanguageGate({ ...base, suggested_reply: "Received, I will follow the instructions.", suggested_reply_language: null }, "en");
+    expect(english.suggested_reply_language).toBe("en");
+  });
 });

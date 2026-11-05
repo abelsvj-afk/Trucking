@@ -17,6 +17,7 @@
 // model never decides what to fetch. With no store configured the bot
 // degrades honestly to dispatch-only replies with no context.
 
+import { parseDispatchTrip } from "@/lib/dispatch-trip";
 import {
   formatDispatchSuggestion,
   type DispatchSuggestion,
@@ -547,7 +548,7 @@ async function processTextItems(
         );
         let reply = formatDispatchSuggestion(suggestion);
         // §11: recordables ride the same propose->yes discipline.
-        if (deps.stageRecordables && suggestion.recordable_items.length > 0) {
+        if (deps.stageRecordables && (suggestion.recordable_items.length > 0 || parseDispatchTrip(combinedForward))) {
           try {
             const outcome = await deps.stageRecordables(combinedForward, suggestion.recordable_items);
             reply += formatRecordableOutcome(outcome);

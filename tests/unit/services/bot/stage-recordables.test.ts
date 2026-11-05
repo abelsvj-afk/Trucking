@@ -51,6 +51,22 @@ class FakePendingQuery {
   }
 }
 
+// A broker lookup fake: the trip path resolves the broker NAME to an id in code.
+function makeStoreWithBrokers(brokers: Row[], seed: Row[] = []) {
+  const rows = [...seed];
+  const client = {
+    from: (table: string) => {
+      if (table === "bot_pending_actions") return new FakePendingQuery(rows);
+      if (table === "brokers") {
+        const q = { select: () => q, eq: () => q, is: () => q, ilike: async () => ({ data: brokers, error: null }) };
+        return q;
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  } as unknown as SupabaseClient;
+  return { store: createBotStore(client, COMPANY, "telegram"), rows };
+}
+
 function makeStore(seed: Row[] = []): { store: BotBrainStore; rows: Row[] } {
   const rows = [...seed];
   const client = {
@@ -160,5 +176,54 @@ describe("stageRecordables", () => {
     const result = await stageRecordables(store, MESSAGE, []);
     expect(result).toEqual({ proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false });
     expect(rows).toHaveLength(0);
+  });
+
+  it("a structured trip assignment is read by code: one proposal with trip fields, broker id, stops, tasks, and a clean review", async () => {
+    const BROKER = "55555555-5555-4555-8555-555555555555";
+    const { store, rows } = makeStoreWithBrokers([{ id: BROKER, name: "AmeriLux Logistics" }]);
+    const msg = `NEW TRIP 1852 HAS BEEN ASSIGNED
+STOP 1
+SHIPPER/CONSIGNEE: Bekaert
+ADDRESS: 810 South 28th Street BLDG C, Van Buren, AR 72956
+APPT: 11/04/2026 00:00 CST
+TYPE: Pickup Stop
+STOP 2
+SHIPPER/CONSIGNEE: St. Lucie County Solid Waste
+ADDRESS: 6120 Glades Cut Off Road , Fort Pierce, FL 34981
+APPT: 11/05/2026 00:00 EST
+TYPE: Delivery Stop
+TRIP DETAILS
+BROKER: AmeriLux Logistics
+REF #: ACCENT12558481
+DEADHEAD: 120.00 mi
+LOADED DISTANCE: 1,213.91 mi
+TOTAL DISTANCE: 1,333.91 mi
+❗️SEND SEAL PICTURE`;
+    // The model proposed a broken create_load (no origin) - code replaces it.
+    const result = await stageRecordables(store, msg, [{ tool_name: "create_load", args: {}, source_quote: "NEW TRIP 1852", confidence: "low" }]);
+    expect(result.rejected).toEqual([]);
+    expect(result.proposals).toHaveLength(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.arguments).toMatchObject({
+      origin: "Van Buren, AR", destination: "Fort Pierce, FL", trip_number: "1852", broker_id: BROKER,
+      broker_reference: "ACCENT12558481", deadhead_miles: 120, loaded_miles: 1213.91,
+    });
+    expect((rows[0]!.arguments as { stops: unknown[] }).stops).toHaveLength(2);
+    expect(result.review).toContain("NEW TRIP 1852");
+    expect(result.review).toContain("Bekaert");
+    expect(result.review).toContain("11/04/2026 00:00 CST");
+    expect(result.review).toContain("SEND SEAL PICTURE");
+  });
+
+  it("an unknown broker is saved without a broker link and the review says so - never a name in an id field", async () => {
+    const { store, rows } = makeStoreWithBrokers([]);
+    const result = await stageRecordables(
+      store,
+      "NEW TRIP 9 HAS BEEN ASSIGNED\nSTOP 1\nSHIPPER/CONSIGNEE: A\nADDRESS: 1 Main St, Dallas, TX 75001\nAPPT: 12/01/2026 08:00 CST\nTYPE: Pickup Stop\nSTOP 2\nSHIPPER/CONSIGNEE: B\nADDRESS: 2 Main St, Tulsa, OK 74101\nAPPT: 12/01/2026 14:00 CST\nTYPE: Delivery Stop\nTRIP DETAILS\nBROKER: Nobody Freight\nREF #: X1",
+      [],
+    );
+    expect(result.proposals).toHaveLength(1);
+    expect((rows[0]!.arguments as Record<string, unknown>).broker_id).toBeUndefined();
+    expect(result.review).toContain("not on file yet");
   });
 });

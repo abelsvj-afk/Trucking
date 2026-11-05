@@ -12,7 +12,7 @@ claims below re-verified against `main` before acting.
 | 3 | `list_contacts` returned names only, so ids could not be found | `tools.ts` selected `name` | **FIXED (Phase A)**: returns `[id] name` |
 | 4 | A failed write discarded the proposal | `resolvePending` cleared first | **FIXED (Phase A)**: failure re-stages the same proposal and says so |
 | 5 | "No, remove that" became a delete-load proposal | prompt had no cancel≠delete rule | **FIXED**: a leading "No" cancels the waiting proposal in code and any `delete_record` proposed in that turn is discarded |
-| 6 | English dispatch got a Spanish reply draft | model-selected language trusted | OPEN (Phase D) |
+| 6 | English dispatch got a Spanish reply draft | model-selected language trusted | **FIXED**: for an English message the reply language is forced to English in code and a Spanish draft (by label or by reading the text) is dropped |
 | 7 | Load has no trip number / broker reference / deadhead+loaded miles / per-stop state | schema | **BUILT (Phase C, migration 00061 — NOT applied)**: trip_number, broker_reference, deadhead/loaded miles (numeric 2dp), pickup_tz/delivery_tz, `load_tasks`. Per-stop arrival/departure already exist as detention stamps; a separate per-stop dispatcher-approval record is NOT built — approval is never assumed and stays a task the owner ticks |
 
 Not verified here: live `bot_pending_actions` rows and which commit Fly runs.
@@ -76,3 +76,22 @@ suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language
   dispatch message); a structured multi-stop (3+) model; a forwarded-dispatch
   trigger that calls `create_load` with the trip fields is a prompt/extraction
   behavior and needs a real forwarded message to tune.
+
+## 7. Built 2026-11-06, round 2 (owner: "do all the still open things")
+
+- **Structured trip messages are read by code** (`lib/dispatch-trip.ts`): the
+  Trip 1852 format ("NEW TRIP n HAS BEEN ASSIGNED", any number of STOP blocks,
+  TRIP DETAILS, the dispatcher's ❗ lines). The model path had failed on this
+  exact message ("origin: expected string"). The parser's `create_load` replaces
+  any the model proposed; the broker NAME is resolved to an id in code (exact,
+  case-insensitive; unknown = saved without a broker link and the review says
+  so); the review shows every stop, appointment as written, miles and
+  requirements before the one yes. Other formats (Amazon Relay, free text) still
+  go through the model extraction, which now knows the same fields and a
+  `stops` list; add a parser per format once real messages are available.
+- **Stops** (migration `00062_load_stops.sql`, NOT applied): any number per
+  load, each with its appointment in its own zone; arrived / dispatcher-approved
+  / left are set only by the owner's tap on the load page.
+- **Expired proposals** are dropped silently at the start of each turn (the one
+  exception: if only an expired one remains and he answers yes/no, he is told).
+- Pay profile migration number is now 00063.

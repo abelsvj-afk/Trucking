@@ -343,6 +343,7 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     const seed = baseSeed(true);
     seed.loads = [];
     seed.load_tasks = [];
+    seed.load_stops = [];
     seed.bot_pending_actions = [
       {
         id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load",
@@ -352,6 +353,10 @@ describe("runAgentTurn - write approval flow (§8)", () => {
           deadhead_miles: 120, loaded_miles: 1213.91, miles: 1334,
           pickup_tz: "America/Chicago", delivery_tz: "America/New_York",
           tasks: ["Send trailer and seal photos at each stop", "Send signed BOL to the dispatch group"],
+          stops: [
+            { seq: 1, kind: "pickup", name: "Bekaert", appointment_at: "2026-11-04T06:00:00.000Z", appointment_tz: "America/Chicago" },
+            { seq: 2, kind: "delivery", name: "St. Lucie County Solid Waste", appointment_at: "2026-11-05T05:00:00.000Z", appointment_tz: "America/New_York" },
+          ],
         },
         summary: "Load (trip 1852): Van Buren, AR → Fort Pierce, FL", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null,
       },
@@ -364,8 +369,40 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(db.loads).toHaveLength(1);
     expect(db.loads![0]).toMatchObject({ trip_number: "1852", broker_reference: "ACCENT12558481", deadhead_miles: 120, loaded_miles: 1213.91, pickup_tz: "America/Chicago" });
     expect(db.load_tasks).toHaveLength(2);
+    expect(db.load_stops).toHaveLength(2);
+    expect(db.load_stops![0]).toMatchObject({ load_id: db.loads![0]!.id, seq: 1, kind: "pickup", appointment_tz: "America/Chicago" });
+    expect(db.load_stops!.every((st) => !st.arrived_at && !st.approved_at)).toBe(true);
     expect(db.load_tasks![0]).toMatchObject({ load_id: db.loads![0]!.id });
     expect(db.load_tasks!.every((t) => !t.done_at)).toBe(true);
+  });
+
+  it("expired proposals never answer or hijack a new request: they are dropped silently", async () => {
+    const seed = baseSeed(true);
+    const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    seed.bot_pending_actions = [
+      { id: "s1", company_id: COMPANY, channel: "telegram", tool_name: "save_memory", arguments: { kind: "fact", content: "I drive for ITS" }, summary: "Remember: I drive for ITS", created_at: ago(500), deleted_at: null },
+      { id: "s2", company_id: COMPANY, channel: "telegram", tool_name: "save_memory", arguments: { kind: "fact", content: "old" }, summary: "Remember: old", created_at: ago(300), deleted_at: null },
+      { id: "live", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: ago(2), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("$88.00");
+    expect(out.reply).not.toContain("expired");
+    expect(db.expenses).toHaveLength(1);
+    expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
+  });
+
+  it("when only an expired proposal is left, a bare yes still gets the honest expiry answer", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "old", company_id: COMPANY, channel: "telegram", tool_name: "save_memory", arguments: { kind: "fact", content: "x" }, summary: "Remember: x", created_at: new Date(Date.now() - 300 * 60_000).toISOString(), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("expired");
+    expect(db.bot_memories ?? []).toHaveLength(0);
   });
 
   it("drops the proposal on no - nothing is ever written", async () => {

@@ -177,7 +177,15 @@ export function enforceLanguageGate(
   parsed: z.infer<typeof dispatchSuggestionSchema>,
   detected: MessageLanguage,
 ): DispatchSuggestion {
-  const suggestedReply = parsed.suggested_reply ?? null;
+  let suggestedReply = parsed.suggested_reply ?? null;
+  // Trip 1852 audit: an English message got a Spanish reply draft. The
+  // reply must match what the sender wrote, decided here in code - a Spanish
+  // draft to an English sender is dropped, not trusted and not translated.
+  if (suggestedReply && detected === "en") {
+    if (parsed.suggested_reply_language === "es" || detectMessageLanguage(suggestedReply) === "es") {
+      suggestedReply = null;
+    }
+  }
   return {
     likely_sender_role: parsed.likely_sender_role,
     sender_reasoning: parsed.sender_reasoning,
@@ -186,7 +194,9 @@ export function enforceLanguageGate(
     translation_en: detected === "en" ? null : (parsed.translation_en ?? null),
     suggested_reply: suggestedReply,
     suggested_reply_language: suggestedReply
-      ? (parsed.suggested_reply_language ?? (detected === "en" ? "en" : "es"))
+      ? detected === "en"
+        ? "en"
+        : (parsed.suggested_reply_language ?? "es")
       : null,
     recordable_items: parsed.recordable_items ?? [],
     source_language: detected,

@@ -164,6 +164,8 @@ export interface BotBrainStore extends TelegramStore {
   saveConversationMessage(role: "user" | "assistant", text: string): Promise<void>;
   /** The TARGET of a bare yes/no: the most recently shown pending proposal (not the oldest). */
   loadPendingAction(): Promise<PendingAction | null>;
+  /** Silently drops proposals created before the cutoff (never photo asks, which expire by their own rule), except the group with `keepKey`. Returns how many rows were dropped. */
+  dropExpiredPending(cutoffIso: string, keepKey?: string | null): Promise<number>;
   /** Every open proposal (a dump batch counts once), oldest first - used to ask "which one?" when it is unclear. */
   loadOpenPendingGroups(): Promise<{ key: string; toolName: string; summary: string; createdAt: string }[]>;
   /** §9: every pending item of the oldest pending dump batch (empty when the oldest pending proposal is a single, or none is pending). */
@@ -604,6 +606,15 @@ export function createBotStore(
       const first = group?.[0];
       if (!first || !first.batch_id) return [];
       return group!;
+    },
+
+    async dropExpiredPending(cutoffIso, keepKey) {
+      const rows = (await loadPendingRows()).filter(
+        (r) => r.tool_name !== "photo_purpose" && r.created_at < cutoffIso && (r.batch_id ?? r.id) !== keepKey,
+      );
+      if (rows.length === 0) return 0;
+      await this.clearPendingActions(rows.map((r) => r.id));
+      return rows.length;
     },
 
     async loadOpenPendingGroups() {

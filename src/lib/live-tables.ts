@@ -18,6 +18,7 @@ export const LIVE_TABLES = [
   "documents",
   "detention_stamps",
   "load_tasks",
+  "load_stops",
   // Home's cards: proposals waiting for his yes, and the news banner.
   "bot_pending_actions",
   "research_briefings",

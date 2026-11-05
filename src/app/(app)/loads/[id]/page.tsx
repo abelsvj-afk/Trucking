@@ -28,7 +28,7 @@ import { useApiList } from "@/lib/use-api-list";
 import { useLiveVersion } from "@/lib/use-live";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, LoadTask, Truck } from "@/types/entities";
+import type { Broker, Customer, DetentionStamp, Driver, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Truck } from "@/types/entities";
 import type { DetentionSummary } from "@/lib/detention";
 import type { PaperworkState } from "@/lib/paperwork";
 
@@ -46,6 +46,59 @@ function formatInZone(iso: string, zone: string | null | undefined) {
   } catch {
     return formatStampTime(iso);
   }
+}
+
+/** Each stop with its appointment in the facility's zone, and progress the owner records by tapping. */
+function StopsSection({ loadId }: { loadId: string }) {
+  const version = useLiveVersion(["load_stops"]);
+  const [stops, setStops] = useState<LoadStop[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .list<LoadStop>("load-stops", { load_id: loadId })
+      .then((r) => { if (!cancelled) setStops([...r.data].sort((a, b) => a.seq - b.seq)); })
+      .catch(() => { if (!cancelled) setNote("Couldn't load the stops."); });
+    return () => { cancelled = true; };
+  }, [loadId, version]);
+  if (note) return <p role="alert">{note}</p>;
+  if (!stops || stops.length === 0) return null;
+  async function mark(stop: LoadStop, field: "arrived_at" | "departed_at" | "approved_at") {
+    setNote(null);
+    try {
+      const updated = await apiClient.update<LoadStop>("load-stops", stop.id, { [field]: stop[field] ? null : new Date().toISOString() });
+      setStops((prev) => (prev ? prev.map((s) => (s.id === stop.id ? { ...s, ...updated } : s)) : prev));
+    } catch {
+      setNote("Couldn't save that. Try again.");
+    }
+  }
+  const when = (iso: string | null) => (iso ? formatStampTime(iso) : null);
+  return (
+    <section aria-label="Stops">
+      <h2>Stops</h2>
+      <ol className="record-list">
+        {stops.map((s) => (
+          <li key={s.id}>
+            <strong>{s.kind === "pickup" ? "Pickup" : s.kind === "delivery" ? "Delivery" : "Stop"} {s.seq}</strong>
+            {s.name ? ` — ${s.name}` : ""}
+            {s.address && <div className="row-sub">{s.address}</div>}
+            {s.appointment_at && <div className="row-sub">Appointment {formatInZone(s.appointment_at, s.appointment_tz)}</div>}
+            <div className="row-sub">
+              {s.arrived_at ? `Arrived ${when(s.arrived_at)}` : "Not arrived"} ·{" "}
+              {s.approved_at ? `Dispatcher approved ${when(s.approved_at)}` : "No dispatcher approval recorded"} ·{" "}
+              {s.departed_at ? `Left ${when(s.departed_at)}` : "Not left"}
+            </div>
+            <div>
+              <button type="button" onClick={() => void mark(s, "arrived_at")}>{s.arrived_at ? "Undo arrived" : "I arrived"}</button>{" "}
+              <button type="button" onClick={() => void mark(s, "approved_at")}>{s.approved_at ? "Undo approval" : "Dispatcher approved"}</button>{" "}
+              <button type="button" onClick={() => void mark(s, "departed_at")}>{s.departed_at ? "Undo left" : "I left"}</button>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p className="row-sub">These are set only when you tap them. Approval is never assumed.</p>
+    </section>
+  );
 }
 
 /** The dispatcher's requirements for this trip; a task is done only when he marks it. */
@@ -387,6 +440,8 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
       </section>
 
       <LoadStatusSection key={`status-${load.id}-${load.status}`} load={load} onChanged={setLoad} />
+
+      <StopsSection loadId={load.id} />
 
       <TripTasksSection loadId={load.id} />
 

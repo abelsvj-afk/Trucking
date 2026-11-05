@@ -347,6 +347,21 @@ export async function runAgentTurn(
   // before any model call - deterministic, auditable, cheap.
   // §9: a pending dump batch has its own grammar (approve all /
   // by number / drop the rest), resolved the same way.
+  // Expired proposals are dropped silently so a pile of stale memory
+  // prompts can never answer (or hijack) a new request. The one exception:
+  // if the ONLY thing waiting is an expired proposal and he answers
+  // yes/no, the newest one is kept so he is told it expired.
+  {
+    const cutoff = new Date(Date.now() - PENDING_EXPIRY_MS).toISOString();
+    const groups = (await store.loadOpenPendingGroups()).filter((g) => g.toolName !== PHOTO_PURPOSE_TOOL);
+    const live = groups.filter((g) => g.createdAt >= cutoff);
+    const expired = groups.filter((g) => g.createdAt < cutoff);
+    if (expired.length > 0) {
+      const bare = classifyConfirmation(input.userText) !== "other" || parseBatchCommand(input.userText).kind !== "other";
+      const newestExpired = expired[expired.length - 1]!;
+      await store.dropExpiredPending(cutoff, live.length === 0 && bare ? newestExpired.key : null);
+    }
+  }
   const pending = await store.loadPendingAction();
   // Trip 1852 audit (P1): a bare yes/no targets what was most recently
   // shown. If several proposals are open and the newest was NOT shown
