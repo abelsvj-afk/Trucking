@@ -49,6 +49,14 @@ describe("DriveGlance - the moving surface", () => {
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["I'm parked"]);
   });
 
+  it("shows the reroute status in words, and nothing when there is none", () => {
+    render(<DriveGlance {...base} routeNotice="You're off the planned route. Getting a new route." />);
+    expect(screen.getByRole("status").textContent).toContain("Getting a new route");
+    cleanup();
+    render(<DriveGlance {...base} routeNotice={null} />);
+    expect(screen.queryByText(/new route/)).toBeNull();
+  });
+
   it("says in words when it is treating the truck as moving because there is no GPS speed", () => {
     render(<DriveGlance {...base} speedUnknown />);
     expect(screen.getByText(/No GPS speed — treating the truck as moving/)).toBeTruthy();

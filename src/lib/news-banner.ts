@@ -28,6 +28,12 @@ export interface BannerItem {
   unread: boolean;
   deliveryClass: ResearchDeliveryClass | null;
   magnitude: number | null;
+  /**
+   * The story's image, served by OUR endpoint (the browser never loads a
+   * publisher URL): /api/v1/news-image?signal=<id>&i=<n>. Null when there is
+   * no usable image - the banner then shows the topic tile.
+   */
+  imageSrc: string | null;
 }
 
 const BRIEFING_WINDOW_MS = 14 * 24 * 3600 * 1000;
@@ -62,7 +68,15 @@ function briefingItem(briefing: ResearchBriefing): BannerItem {
     unread: briefing.read_at === null,
     deliveryClass: briefing.delivery_class,
     magnitude: null,
+    imageSrc: null, // briefings carry no image yet (design phase c)
   };
+}
+
+/** First item (of the first ten the endpoint will serve) that has a stored image URL. */
+function signalImageSrc(signal: ResearchSignal): string | null {
+  const items = Array.isArray(signal.items) ? signal.items.slice(0, 10) : [];
+  const index = items.findIndex((item) => typeof item?.imageUrl === "string" && item.imageUrl.length > 0);
+  return index >= 0 ? `/api/v1/news-image?signal=${encodeURIComponent(signal.id)}&i=${index}` : null;
 }
 
 function signalItem(signal: ResearchSignal): BannerItem {
@@ -76,6 +90,7 @@ function signalItem(signal: ResearchSignal): BannerItem {
     unread: false,
     deliveryClass: null,
     magnitude: signal.magnitude,
+    imageSrc: signalImageSrc(signal),
   };
 }
 

@@ -9,6 +9,8 @@ export interface ResearchSourceItem {
   url: string;
   publishedAt: string | null;
   summary: string | null;
+  /** Publisher preview image (valid https URL, validated at ingestion); served only via /api/v1/news-image. */
+  imageUrl?: string | null;
 }
 
 /** A normalized pressure signal, ready to insert into research_signals. */

@@ -2369,3 +2369,15 @@ form[data-motion-locked="true"] {
 .news-tile-market {
   background: var(--color-success-light);
 }
+
+/* News banner image (served by /api/v1/news-image, re-encoded server-side). */
+.news-banner-tile {
+  overflow: hidden;
+}
+
+.news-banner-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

@@ -41,8 +41,25 @@ describe("fetchGdeltArticles", () => {
         url: "https://example.com/story",
         domain: "example.com",
         seenDate: "20261103T120000Z",
+        imageUrl: null,
       },
     ]);
+  });
+
+  it("keeps the publisher's preview image only when it is a safe https URL; anything else becomes null", async () => {
+    const body = {
+      articles: [
+        { title: "ok", url: "https://a.example/1", socialimage: "https://cdn.a.example/p.jpg" },
+        { title: "http", url: "https://a.example/2", socialimage: "http://cdn.a.example/p.jpg" },
+        { title: "private", url: "https://a.example/3", socialimage: "https://169.254.169.254/latest/meta-data" },
+        { title: "internal", url: "https://a.example/4", socialimage: "https://intranet/p.jpg" },
+        { title: "junk", url: "https://a.example/5", socialimage: "javascript:alert(1)" },
+        { title: "none", url: "https://a.example/6" },
+      ],
+    };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, body));
+    const articles = await fetchGdeltArticles("48h", 75, fetchFn as never, undefined, 0, 0, 0);
+    expect(articles.map((a) => a.imageUrl)).toEqual(["https://cdn.a.example/p.jpg", null, null, null, null, null]);
   });
 
   it("retries once after a 429 (GDELT's one-per-5-seconds rule) and succeeds", async () => {

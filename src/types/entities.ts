@@ -578,6 +578,8 @@ export interface ResearchSignalItem {
   url: string;
   publishedAt: string | null;
   summary: string | null;
+  /** Publisher preview image URL (validated https); the browser never loads it directly. */
+  imageUrl?: string | null;
 }
 
 /**

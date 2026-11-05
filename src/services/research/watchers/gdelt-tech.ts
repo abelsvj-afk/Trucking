@@ -179,6 +179,7 @@ export function buildTechSignals(
         url: a.url,
         publishedAt: a.seenDate,
         summary: a.domain,
+        ...(a.imageUrl ? { imageUrl: a.imageUrl } : {}),
       })),
       data: { itemCount: cluster.length, deploymentCount, subtheme },
       dedupeKey: `tech_burst:${subtheme}:${day}`,

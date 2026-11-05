@@ -128,8 +128,10 @@ export async function runRouteCheck(
   // --- geocode + route -------------------------------------------------
   let originPoint: LatLng | null;
   let destinationPoint: LatLng | null;
+  // Reroute: the pickup is behind him; the run starts at his position.
+  const pickedUp = Boolean(request.already_picked_up && request.start_point);
   try {
-    originPoint = await providers.geocoding.geocode(load.origin);
+    originPoint = pickedUp ? (request.start_point as LatLng) : await providers.geocoding.geocode(load.origin);
     destinationPoint = await providers.geocoding.geocode(load.destination);
   } catch (err) {
     if (err instanceof GeocodingUnavailableError) {
@@ -178,7 +180,7 @@ export async function runRouteCheck(
   // --- with the same provider chain and vehicle as the loaded leg --
   let startPoint: LatLng | null = null;
   let deadheadRoute: RouteResult | null = null;
-  if (request.start_point || request.start_location) {
+  if (!pickedUp && (request.start_point || request.start_location)) {
     if (request.start_point) {
       startPoint = request.start_point;
     } else {
@@ -224,6 +226,9 @@ export async function runRouteCheck(
   // fine print: which engine answered and what was skipped or fell
   // back is stated to the owner (§8.5).
   warnings.push(...route.providerNotes);
+  if (pickedUp) {
+    warnings.push("Rerouted from the truck's current position straight to the destination (the pickup is already behind you).");
+  }
   if (route.truckLegal) {
     warnings.push(
       `Route geometry came from ${route.providerName} - a truck routing engine that applies the truck restrictions recorded in OpenStreetMap data (height/weight limits, truck-prohibited roads)${vehicle ? " plus this truck's captured dimensions where the map records a limit" : ""}. OpenStreetMap's restriction data is incomplete: a road with no recorded limit is treated as passable, so check the route against the truck's own nav/ELD before rolling.`,

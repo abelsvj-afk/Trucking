@@ -45,10 +45,22 @@ import {
   type DriveFix,
   type DrivePlanSnapshot,
   type DriveSession,
+  serializeActivePlan,
 } from "@/lib/drive";
 import { browserSpeaker, type Speaker } from "@/lib/drive-speech";
 import { classifyMotion, isRestricted, settleMotion } from "@/lib/vehicle-motion";
 import { maneuverAnnouncement } from "@/lib/drive-maneuver-speech";
+import {
+  INITIAL_OFF_ROUTE,
+  REROUTE_COPY,
+  buildRerouteRequest,
+  distanceToRouteMiles,
+  evaluateRerouteResult,
+  mayRequestReroute,
+  reroutedSpeech,
+  stepOffRoute,
+  type OffRouteState,
+} from "@/lib/drive-reroute";
 import DriveGlance from "@/components/drive/DriveGlance";
 import DriveClocks from "@/components/drive/DriveClocks";
 import DriveStatusPrompt from "@/components/drive/DriveStatusPrompt";
@@ -100,6 +112,12 @@ const MANEUVER_ARROWS = {
   arrive: "⚑",
 } as const;
 
+/** No fix of the page's own for this long -> try Telegram Live Location's. */
+const OWN_FIX_STALE_MS = 20_000;
+/** A Telegram fix older than this is not "where he is now". */
+const TELEGRAM_FIX_MAX_AGE_MS = 45_000;
+const FALLBACK_POLL_MS = 10_000;
+
 export default function DrivePage() {
   usePageTitle("Drive");
   const [mode, setMode] = useState<Mode>("loading");
@@ -126,6 +144,8 @@ export default function DrivePage() {
   const [session, setSession] = useState<DriveSession | null>(null);
 
   const sessionRef = useRef<DriveSession | null>(null);
+  const lastOwnFixMsRef = useRef(0);
+  const fallbackIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const planRef = useRef<DrivePlanSnapshot | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const tickIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -133,6 +153,11 @@ export default function DrivePage() {
   const speakerRef = useRef<Speaker | null>(null);
   // Maneuver announcements already made this run (so none repeats).
   const spokenManeuversRef = useRef<Set<string>>(new Set());
+  // Rerouting (audit D4): off-route episode, pacing, and the one in-flight request.
+  const offRouteRef = useRef<OffRouteState>(INITIAL_OFF_ROUTE);
+  const lastRerouteRef = useRef<number | null>(null);
+  const rerouteBusyRef = useRef(false);
+  const [routeNotice, setRouteNotice] = useState<string | null>(null);
   const lastCheckpointWriteRef = useRef(0);
   const modeRef = useRef<Mode>("loading");
   useEffect(() => {
@@ -252,9 +277,68 @@ export default function DrivePage() {
       for (const key of announcement.keys) spokenManeuversRef.current.add(key);
       speaker().speak(announcement.line);
     }
+    // Off the planned line? (distance, sustained, good fix only) -> say so
+    // once, then ask for a truck-checked route from here, at most every 2 min.
+    if (fix) {
+      const step = stepOffRoute(offRouteRef.current, {
+        distanceMiles: distanceToRouteMiles(fix.point, currentPlan.geometry),
+        accuracyM: fix.accuracyM,
+        nowMs: nowMsValue,
+      });
+      offRouteRef.current = step.state;
+      if (step.justDetected) {
+        speaker().speak(REROUTE_COPY.offRoute);
+        setRouteNotice(REROUTE_COPY.offRoute);
+      }
+      if (step.offRoute && !rerouteBusyRef.current && mayRequestReroute(lastRerouteRef.current, nowMsValue)) {
+        void requestReroute(fix.point, currentPlan);
+      }
+    }
     writeCheckpoint();
     setNowMs(nowMsValue);
     setRenderTick((tick) => tick + 1);
+  };
+
+  // A new route from where he is - accepted ONLY if the provider says it is
+  // truck-checked (lib/drive-reroute.ts). A car route never replaces the
+  // plan: the old one stays and he is told plainly.
+  const requestReroute = async (point: { lat: number; lng: number }, currentPlan: DrivePlanSnapshot) => {
+    rerouteBusyRef.current = true;
+    lastRerouteRef.current = Date.now();
+    setRouteNotice(REROUTE_COPY.working);
+    try {
+      const res = await fetch("/api/v1/smart-path/route-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRerouteRequest(currentPlan, point, new Date().toISOString())),
+      });
+      const body = res.ok ? ((await res.json()) as RouteCheckResponse) : null;
+      const outcome = evaluateRerouteResult(body, new Date());
+      if (!outcome.ok) {
+        const text = outcome.reason === "car-route" ? REROUTE_COPY.failedCar : REROUTE_COPY.failedNoRoute;
+        setRouteNotice(text);
+        speaker().speak(text);
+        return;
+      }
+      if (!sessionRef.current) return; // the run ended while we were asking
+      const now = Date.now();
+      writeStorage(ACTIVE_PLAN_STORAGE_KEY, serializeActivePlan(body!, now));
+      setSourceResult(body!);
+      planRef.current = outcome.plan;
+      setPlan(outcome.plan);
+      syncSession(newDriveSession(outcome.plan, now));
+      spokenManeuversRef.current = new Set();
+      offRouteRef.current = INITIAL_OFF_ROUTE;
+      setRouteNotice("Rerouted — new truck-checked route.");
+      speaker().speak(reroutedSpeech(outcome.milesToGo));
+      writeCheckpoint();
+      setRenderTick((tick) => tick + 1);
+    } catch {
+      setRouteNotice(REROUTE_COPY.failedNoRoute);
+      speaker().speak(REROUTE_COPY.failedNoRoute);
+    } finally {
+      rerouteBusyRef.current = false;
+    }
   };
 
   const startWatching = () => {
@@ -265,6 +349,7 @@ export default function DrivePage() {
     }
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
+        lastOwnFixMsRef.current = Date.now();
         handleFix(
           {
             point: { lat: position.coords.latitude, lng: position.coords.longitude },
@@ -291,9 +376,31 @@ export default function DrivePage() {
       { enableHighAccuracy: true, maximumAge: 2_000, timeout: 20_000 },
     );
     tickIdRef.current = setInterval(() => handleFix(null, Date.now()), 1_000);
+    // Background fallback: when this page has had no fix of its own for a
+    // while (screen off / tab frozen), take Telegram Live Location's latest
+    // fix - only if it is itself fresh. Never invents a position.
+    fallbackIdRef.current = setInterval(() => {
+      if (Date.now() - lastOwnFixMsRef.current < OWN_FIX_STALE_MS) return;
+      void fetch("/api/v1/position", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: { position?: { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; ageSeconds: number } | null } | null) => {
+          const p = body?.position;
+          if (!p || p.ageSeconds * 1000 > TELEGRAM_FIX_MAX_AGE_MS) return;
+          const now = Date.now();
+          handleFix(
+            { point: { lat: p.lat, lng: p.lng }, accuracyM: p.accuracyM ?? 50, speedMph: p.speedMph, headingDeg: p.headingDeg, atMs: now - p.ageSeconds * 1000 },
+            now,
+          );
+        })
+        .catch(() => {});
+    }, FALLBACK_POLL_MS);
   };
 
   const stopWatching = () => {
+    if (fallbackIdRef.current !== null) {
+      clearInterval(fallbackIdRef.current);
+      fallbackIdRef.current = null;
+    }
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -517,6 +624,11 @@ export default function DrivePage() {
               : "—"}
           </p>
           <p>{DRIVE_COPY.coverageCaveat}</p>
+          <p>
+            Screen off? In Telegram, tap the paperclip → Location → Share My Live Location with Abel
+            for 8 hours. Drive then keeps your place from it, and Abel will ask before changing your
+            log — he never books anything on his own.
+          </p>
           <p>{DRIVE_COPY.hoursSmallPrint}</p>
           <p>
             {plan.maneuvers.length > 0
@@ -658,6 +770,19 @@ export default function DrivePage() {
                 </p>
               )}
               <DriveClocks />
+              {routeNotice && (
+                <p role="status" style={{ fontWeight: 700 }}>
+                  {routeNotice}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => lastFix && void requestReroute(lastFix.point, plan)}
+                disabled={!lastFix || routeNotice === REROUTE_COPY.working}
+                style={{ minHeight: "56px", padding: "0 16px", fontWeight: 700 }}
+              >
+                Re-plan from here
+              </button>
               {projection ? (
                 <p>
                   Drive time left: {formatMinutes(Math.max(0, Math.round(projection.driveLeftMin)))} (projection
@@ -790,6 +915,7 @@ export default function DrivePage() {
                 projection ? `Drive left ${formatMinutes(Math.max(0, Math.round(projection.driveLeftMin)))}` : null
               }
               gpsBanner={session.gpsBannerOn ? DRIVE_COPY.gpsLostBanner : null}
+              routeNotice={routeNotice}
               speedUnknown={motion === "unknown"}
               onSkip={handleSkip}
               onParked={handleParked}

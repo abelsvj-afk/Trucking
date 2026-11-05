@@ -42,6 +42,7 @@ export function buildGdeltSignals(
         url: a.url,
         publishedAt: a.seenDate,
         summary: a.domain,
+        ...(a.imageUrl ? { imageUrl: a.imageUrl } : {}),
       })),
       data: { itemCount: cluster.length },
       dedupeKey: `geo_burst:${topic}:${day}`,

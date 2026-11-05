@@ -30,6 +30,10 @@ export const routeCheckRequestSchema = z.object({
     .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
     .optional(),
   start_at: isoTimestamp.optional(),
+  // Reroute (audit D4, 2026-11-05): the load is already picked up, so with
+  // a start_point the run is routed from HERE straight to the destination
+  // - no pickup leg. Ignored without a start_point.
+  already_picked_up: z.boolean().optional(),
   // Piece 1 (P1-9): per-request life preferences - sleep window and
   // a workout break the planner should try to fit. Absent = today's
   // behavior with today's defaults.

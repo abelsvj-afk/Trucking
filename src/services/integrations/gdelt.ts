@@ -30,6 +30,7 @@
 //   HTTP errors are not retried. The final failure keeps the visible
 //   "GDELT request failed: ..." shape, cause included.
 
+import { validateImageUrl } from "@/lib/safe-image-fetch";
 import { z } from "zod";
 
 export const GDELT_USER_AGENT = "TruckingResearchEngine/1.0 (owner-operator research bot)";
@@ -52,6 +53,8 @@ const gdeltResponseSchema = z.object({
       url: z.string(),
       domain: z.string().optional(),
       seendate: z.string().optional(),
+      // The publisher's own preview image (optional; untrusted until validated).
+      socialimage: z.string().optional(),
     }),
   ),
 });
@@ -61,6 +64,8 @@ export interface GdeltArticle {
   url: string;
   domain: string | null;
   seenDate: string | null;
+  /** A valid https image URL (services/research/news-image.ts fetches it server-side); absent/null when the article has none. */
+  imageUrl?: string | null;
 }
 
 export const GDELT_QUERY =
@@ -143,6 +148,7 @@ export async function fetchGdeltArticles(
       url: a.url,
       domain: a.domain ?? null,
       seenDate: a.seendate ?? null,
+      imageUrl: a.socialimage && validateImageUrl(a.socialimage) ? a.socialimage : null,
     }));
   }
 

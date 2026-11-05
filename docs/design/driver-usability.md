@@ -65,10 +65,27 @@ source exists).
   truck moving, every form in the app is inert with a banner saying why (only
   with location permission already granted; unknown speed does not lock the
   whole app - the HUD and Drive ask "I'm parked" instead).
-- **Not built (product decisions):** background GPS (impossible in a web tab —
-  keep the screen on; a native wrapper would be a different product) and
-  rerouting (Drive follows a checked plan and never replans; a recalculated
-  route would need the truck-routing provider and the owner's OK).
+- **Rerouting** (`lib/drive-reroute.ts`): sustained >0.3 mi off the planned line
+  on a good fix (>=25 s, accuracy <=100 m) says so aloud and asks the route-check
+  for a route from HERE to the destination (`already_picked_up`, no pickup
+  detour). The answer replaces the plan ONLY if the provider marks it
+  truck-checked; otherwise the old plan stays and he is told plainly to use the
+  truck's own navigation. At most one request per 2 minutes; "Re-plan from here"
+  is also a button.
+- **Screen-off tracking** (`services/telegram/live-location.ts`, migration 00060):
+  a web tab cannot read GPS with the screen off, so Telegram's own app does it —
+  he shares Live Location with Abel (paperclip → Location → Share My Live
+  Location, up to 8 hours) and each position arrives as an `edited_message`.
+  The server keeps only the LATEST fix (`driver_positions`), derives speed from
+  consecutive fixes (no speed from noisy, far-apart or inaccurate fixes; a few
+  metres of wander is zero), and tracks movement/stop episodes
+  (`lib/live-motion.ts`). Moving 2+ min while the log is not Driving, or stopped
+  20+ min while it says Driving, makes Abel PROPOSE the change, carrying the time
+  the movement really began; it waits for his yes like any pending action, with
+  a 30-minute cooldown. Nothing is ever booked automatically. Drive falls back to
+  this position only when its own GPS has gone quiet and the Telegram fix is
+  under 45 s old (`GET /api/v1/position`). Honest limit: it only works while he
+  is sharing; with no share there is no background tracking.
 
 ## 5. Animation, where it earns its place
 

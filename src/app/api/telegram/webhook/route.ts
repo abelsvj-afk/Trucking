@@ -32,6 +32,7 @@ import {
 import { runAgentTurn } from "@/services/bot/agent-turn";
 import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
+import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
 export const runtime = "nodejs";
@@ -161,6 +162,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const brainStore = createTelegramBrainStore(config.companyId);
   const photoCompanyId = config.companyId;
   await handleTelegramUpdate(update, config, {
+    // Live Location: position fixes feed movement detection; proposals
+    // (never bookings) go out through the same chat.
+    handleLocation: brainStore
+      ? async (loc, atMs) => {
+          const chatId = Number(config.allowedChatId);
+          await handleLiveLocation(createBrainLiveLocationStore(brainStore), loc, atMs, {
+            sendMessage: (text) => sendTelegramMessage(botToken, chatId, text),
+            formatTime: (t) =>
+              new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(t)),
+          });
+        }
+      : undefined,
     sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
     // Lazy provider construction: bootstrap/ignored updates must work
     // even if the AI key is missing, and must never pay for a provider

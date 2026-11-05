@@ -170,6 +170,33 @@ describe("buildBannerItems", () => {
     expect(items).toHaveLength(3);
   });
 
+  it("a signal with an image points at OUR endpoint (never the publisher) at the right item index; briefings and image-less signals get none", () => {
+    const items = buildBannerItems(
+      {
+        data: [briefing({ id: "b1", topic: "weather" })],
+        signals: [
+          signal({
+            id: "11111111-1111-4111-8111-111111111111",
+            topic: "market",
+            items: [
+              { title: "t0", url: "https://x.example/0", publishedAt: null, summary: null },
+              { title: "t1", url: "https://x.example/1", publishedAt: null, summary: null, imageUrl: "https://cdn.x.example/1.jpg" },
+            ],
+          }),
+          signal({ id: "22222222-2222-4222-8222-222222222222", topic: "rates", items: [{ title: "t", url: "https://x.example/0", publishedAt: null, summary: null }] }),
+        ],
+      },
+      NOW,
+    );
+    expect(items.find((i) => i.id === "11111111-1111-4111-8111-111111111111")!.imageSrc).toBe(
+      "/api/v1/news-image?signal=11111111-1111-4111-8111-111111111111&i=1",
+    );
+    expect(items.find((i) => i.id === "22222222-2222-4222-8222-222222222222")!.imageSrc).toBeNull();
+    expect(items.find((i) => i.id === "b1")!.imageSrc).toBeNull();
+    // no publisher URL ever appears in what the banner renders
+    expect(JSON.stringify(items)).not.toContain("cdn.x.example");
+  });
+
   it("maps the item anatomy: briefing sub + unread, signal summary with no sub", () => {
     const items = buildBannerItems(
       {

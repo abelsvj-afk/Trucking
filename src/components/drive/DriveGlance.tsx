@@ -31,6 +31,8 @@ interface Props {
   upcoming: GlanceManeuver | null;
   driveLeftText: string | null;
   gpsBanner: string | null;
+  /** Reroute status in words (off route / getting a new route / switched / couldn't). */
+  routeNotice?: string | null;
   /** The reading behind this screen is missing/stale - said in words, never silently. */
   speedUnknown: boolean;
   onSkip: () => void;
@@ -44,6 +46,7 @@ export default function DriveGlance({
   upcoming,
   driveLeftText,
   gpsBanner,
+  routeNotice = null,
   speedUnknown,
   onSkip,
   onParked,
@@ -70,6 +73,11 @@ export default function DriveGlance({
         {gpsBanner && (
           <p role="alert" style={{ fontWeight: 700, fontSize: "1.1rem", margin: 0 }}>
             {gpsBanner}
+          </p>
+        )}
+        {routeNotice && (
+          <p role="status" style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>
+            {routeNotice}
           </p>
         )}
         {speedUnknown && (

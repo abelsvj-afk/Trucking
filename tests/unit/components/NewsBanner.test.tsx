@@ -176,6 +176,35 @@ describe("NewsBanner", () => {
     expect(container.querySelector(".news-banner-tagrow")!.textContent).toMatch(/WEATHER · 2h ago/);
   });
 
+  it("shows a signal's image from our own endpoint, and falls back to the topic tile if it fails to load", async () => {
+    vi.useFakeTimers();
+    vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(
+      page({
+        data: [],
+        signals: [
+          signal({
+            id: "33333333-3333-4333-8333-333333333333",
+            topic: "fuel",
+            summary: "Diesel pressure rising",
+            items: [{ title: "t", url: "https://x.example/0", publishedAt: null, summary: null, imageUrl: "https://cdn.x.example/p.jpg" }],
+          }),
+        ],
+      }),
+    );
+    const { container } = render(<NewsBanner />);
+    await act(async () => {});
+    const img = container.querySelector("img.news-banner-img") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("/api/v1/news-image?signal=33333333-3333-4333-8333-333333333333&i=0");
+    expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(img.getAttribute("alt")).toBe("");
+    expect(container.innerHTML).not.toContain("cdn.x.example");
+    act(() => {
+      img.dispatchEvent(new Event("error"));
+    });
+    expect(container.querySelector("img.news-banner-img")).toBeNull();
+    expect(container.querySelector(".news-banner-tile")!.textContent).toBe("⛽");
+  });
+
   it("rotates items every 6 seconds and links each into the in-app tab", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(

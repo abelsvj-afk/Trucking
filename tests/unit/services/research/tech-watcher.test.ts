@@ -75,6 +75,16 @@ describe("tech bursts (buildTechSignals)", () => {
     expect(signals[0]?.summary).toContain("real-world deployment or regulatory action");
   });
 
+  it("stored items carry the publisher image URL only where the article had a valid one", () => {
+    const withImages = deploymentTitles(4).map((title, i) => ({
+      title, url: `https://x.example/${i}`, domain: "x.example", seenDate: "20261031T000000Z",
+      imageUrl: i % 2 === 0 ? `https://cdn.x.example/${i}.jpg` : null,
+    }));
+    const items = buildTechSignals(withImages, config, OBSERVED)[0]!.items;
+    expect(items.map((it) => it.imageUrl)).toEqual(["https://cdn.x.example/0.jpg", undefined, "https://cdn.x.example/2.jpg", undefined]);
+    expect("imageUrl" in items[1]!).toBe(false); // absent, not null: nothing to serve
+  });
+
   it("below the burst floor there is no signal at all", () => {
     expect(buildTechSignals(articles(deploymentTitles(3)), config, OBSERVED)).toEqual([]);
   });

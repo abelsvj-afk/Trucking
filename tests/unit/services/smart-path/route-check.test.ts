@@ -176,6 +176,49 @@ describe("runRouteCheck - Piece 1 deadhead (P1-7)", () => {
   });
 });
 
+describe("runRouteCheck - reroute from the current position (audit D4)", () => {
+  const HERE = { lat: 31.2, lng: -83.1 };
+
+  it("with already_picked_up the run starts HERE and goes straight to the destination: no pickup leg, no deadhead", async () => {
+    const legs: { from: unknown; to: unknown }[] = [];
+    const providers = makeProviders();
+    const original = providers.routing.getRoute;
+    providers.routing.getRoute = (async (from: { lat: number; lng: number }, to: { lat: number; lng: number }, ...rest: unknown[]) => {
+      legs.push({ from, to });
+      return (original as (...a: unknown[]) => unknown)(from, to, ...rest);
+    }) as never;
+    const response = await runRouteCheck(fakeClient(), parseRequest({ start_point: HERE, already_picked_up: true }), providers, NOW);
+    expect(response.deadhead).toBeNull();
+    expect(response.route.originPoint).toEqual(HERE);
+    expect(response.route.destinationPoint).toEqual(ATLANTA);
+    expect(legs).toEqual([{ from: HERE, to: ATLANTA }]); // exactly one leg; Melbourne (the pickup) never routed
+    expect(response.warnings.join(" ")).toContain("pickup is already behind you");
+  });
+
+  it("does not even look up the pickup: an unresolvable pickup address can't block a reroute", async () => {
+    const providers = makeProviders();
+    const geocoded: string[] = [];
+    const inner = providers.geocoding.geocode;
+    providers.geocoding.geocode = async (place: string) => {
+      geocoded.push(place);
+      return inner(place);
+    };
+    await runRouteCheck(fakeClient(), parseRequest({ start_point: HERE, already_picked_up: true }), providers, NOW);
+    expect(geocoded).toEqual(["Atlanta, GA"]);
+  });
+
+  it("without a start_point the flag is ignored: the normal pickup-first behaviour is unchanged", async () => {
+    const response = await runRouteCheck(fakeClient(), parseRequest({ already_picked_up: true }), makeProviders(), NOW);
+    expect(response.route.originPoint).toEqual(MELBOURNE);
+  });
+
+  it("the ordinary deadhead behaviour is untouched when the flag is absent", async () => {
+    const response = await runRouteCheck(fakeClient(), parseRequest({ start_point: HERE }), makeProviders(), NOW);
+    expect(response.deadhead).not.toBeNull();
+    expect(response.route.originPoint).toEqual(MELBOURNE);
+  });
+});
+
 describe("runRouteCheck - Piece 1 fuel estimate (P1-6)", () => {
   const FUEL_PLACE: Place = {
     id: "node/1",

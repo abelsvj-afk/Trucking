@@ -39,13 +39,13 @@ end of the cycle. Nothing is visible in the app until the owner taps Deploy.
 - [x] C6 UX-08 — `NumberTicker` on Home money figures Number animation on Home money figures (reduced-motion safe).
 - [x] C7 UX-09 — `WordReveal` on the banner headline; also fixed WordReveal's screen-reader bug (aria-label on a span) News headline word-reveal transition (reduced-motion safe).
 - [x] C8a UX-05 phase (a): deeper queue (12 / 4 signals / 3 per topic) + per-topic tile. Done.
-- [ ] C8 UX-05 Image-led news (images themselves, phases b-c): **design written (`news-banner-images.md`); build needs the owner's OK on the image source + a safe image proxy** (see `docs/design/news-banner-images.md`).
+- [x] C8 UX-05 Image-led news (images, phases b-c): built 2026-11-05 — server-side on-demand fetch + re-encode, no storage/migration; see `news-banner-images.md`. Needs GDELT articles that carry an image; items without one keep the topic tile.
 
 ## D. Drive Mode
 - [x] D1 UX-03 — `DriveClocks` on the moving surface, full Drive screen and preview HOS clocks alongside the route (compact strip on the moving surface and the full screen).
 - [x] D2 Status prompt — `DriveStatusPrompt` offers, never books; behind the motion gate (never automatic): offer "Log Driving" at GO, "Off/On duty" when parked/ended.
-- [ ] D3 Background GPS — **cannot be built in a web app**: a browser tab stops GPS when the screen locks or the app is backgrounded. Drive holds a screen Wake Lock and says "keep the screen on". True background tracking needs a native/installed wrapper (a different product); decision for the owner.
-- [ ] D4 Rerouting — needs (1) off-route detection, (2) a fresh truck-legal route from the current position (the existing Valhalla/ORS route-check can do this server-side), (3) a rule that a recalculated route is never presented as truck-checked unless the provider said so. Not built: it changes the Drive contract ("never replans") and needs the owner's OK. Until then, missed turns recover the position only.
+- [x] D3 Background GPS: built 2026-11-05 as Telegram Live Location (migration 00060) — a web tab still cannot track with the screen off, so Telegram's own app streams the position to Abel, who proposes (never books) duty changes and Drive falls back to it. Works only while he shares Live Location; owner must try it on the road.
+- [x] D4 Rerouting: built 2026-11-05 (`lib/drive-reroute.ts`) — off-route detection, route from the current position, accepted ONLY if truck-checked; otherwise the old plan stays and he is told.
 - [x] D5 Spoken maneuver — `lib/drive-maneuver-speech.ts`: once ~half a mile out and once close in, never repeated, never stale instructions — unverified; investigate.
 
 ## E. Process and records

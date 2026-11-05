@@ -43,6 +43,8 @@ export default function NewsBanner() {
   const [now, setNow] = useState(() => new Date());
   const [checking, setChecking] = useState(false);
   const [wireResult, setWireResult] = useState<ReactNode | null>(null);
+  // Stories whose image failed to load: they fall back to the topic tile.
+  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
   const [manualHold, setManualHold] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -265,7 +267,20 @@ export default function NewsBanner() {
                   className="news-banner-item"
                 >
                   <span className={`news-banner-tile news-tile-${current.topic}`} aria-hidden="true">
-                    {topicEmoji(current.topic)}
+                    {current.imageSrc && !failedImages.has(current.id) ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- our own authenticated, re-encoded endpoint
+                      <img
+                        className="news-banner-img"
+                        src={current.imageSrc}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        onError={() => setFailedImages((prev) => new Set(prev).add(current.id))}
+                      />
+                    ) : (
+                      topicEmoji(current.topic)
+                    )}
                   </span>
                   <span className="news-banner-text">
                     <span className="news-banner-tagrow">

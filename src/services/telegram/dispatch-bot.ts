@@ -64,6 +64,14 @@ export function getTelegramConfig(env: NodeJS.ProcessEnv = process.env): Telegra
   };
 }
 
+export interface TelegramLocationFix {
+  latitude: number;
+  longitude: number;
+  horizontal_accuracy?: number;
+  heading?: number;
+  live_period?: number;
+}
+
 export interface TelegramUpdate {
   /** Telegram's delivery id - the dedup key (Lane 1, audit B-2): a redelivered update carries the same id. */
   update_id?: number;
@@ -92,6 +100,20 @@ export interface TelegramUpdate {
     forward_origin?: unknown;
     forward_from?: unknown;
     forward_date?: number;
+    date?: number;
+    /** A location share (also the first fix of a Live Location). */
+    location?: TelegramLocationFix;
+  };
+  /**
+   * Live Location (docs/design/driver-usability.md §4): every position
+   * update of a live share arrives as an edited message carrying the new
+   * fix - Telegram's own app sends it, even with the screen off.
+   */
+  edited_message?: {
+    chat?: { id?: number; type?: string };
+    location?: TelegramLocationFix;
+    date?: number;
+    edit_date?: number;
   };
   /**
    * Image Intelligence (§3.3): a tap on an inline-keyboard button
@@ -110,6 +132,11 @@ export interface TelegramUpdate {
 }
 
 export interface TelegramDeps {
+  /**
+   * Live Location fixes. Absent (no company configured) = fixes are
+   * ignored. Failures are logged and never reply into the chat.
+   */
+  handleLocation?: (loc: TelegramLocationFix, atMs: number) => Promise<void>;
   sendMessage: (chatId: number, text: string) => Promise<void>;
   getSuggestion: (message: string, context?: string) => Promise<DispatchSuggestion>;
   runChat: (input: BotChatInput) => Promise<BotChatOutput>;
@@ -222,6 +249,8 @@ export type TelegramHandleResult =
   | "voice_replied"
   | "callback_replied"
   | "callback_ignored"
+  | "location_recorded"
+  | "location_ignored"
   | "replied"
   | "remembered"
   | "instruction_saved"
@@ -759,7 +788,7 @@ async function processTelegramUpdate(
 
   // §3.3: a button tap carries its chat on the callback's message,
   // not on a message of its own - the same gates apply to it below.
-  const chat = update.message?.chat ?? update.callback_query?.message?.chat;
+  const chat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
   if (!chat || typeof chat.id !== "number") return "ignored_no_chat";
   const chatId = chat.id;
   if (chat.type !== "private") return "ignored_not_private";
@@ -803,6 +832,22 @@ async function processTelegramUpdate(
       console.error("[telegram] update claim failed", err);
     }
     if (!claimed) return "duplicate_ignored";
+  }
+
+  // Live Location: a position fix (the first share or an edit of it) is
+  // data, not conversation - it never gets a chat reply of its own.
+  const locationFix = update.edited_message?.location ?? update.message?.location;
+  if (locationFix) {
+    if (!deps.handleLocation) return "location_ignored";
+    const stamp = update.edited_message?.edit_date ?? update.edited_message?.date ?? update.message?.date;
+    const atMs = typeof stamp === "number" ? stamp * 1000 : Date.now();
+    try {
+      await deps.handleLocation(locationFix, atMs);
+    } catch (err) {
+      console.error("[telegram] live location failed", err);
+      return "location_ignored";
+    }
+    return "location_recorded";
   }
 
   // §3.3: a button tap is resolved here, after the same gates and
