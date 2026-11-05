@@ -81,7 +81,7 @@ describe("formatPayPinLine (the context block)", () => {
 import { payPinFromProfile } from "@/services/bot/pay-pin";
 
 describe("payPinFromProfile (owner pay terms, migration 00063)", () => {
-  const row = { employer_name: "Steven", rate_cents_per_mile: 55, mile_basis: null, worker_type: null, fuel_paid_by: null, effective_from: "2026-10-01" } as const;
+  const row = { employer_name: "Acme Freight", rate_cents_per_mile: 55, mile_basis: null, worker_type: null, fuel_paid_by: null, effective_from: "2026-10-01" } as const;
   it("an unset miles basis is NOT a pin - nothing is inferred from 55 cents", () => {
     expect(payPinFromProfile(row).model).toBe("UNKNOWN");
     expect(payPinFromProfile(null).model).toBe("UNKNOWN");

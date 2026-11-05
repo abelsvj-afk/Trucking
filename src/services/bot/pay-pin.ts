@@ -48,7 +48,7 @@ export interface PayPin {
   settlementDay: string | null;
   /** 1099 only: percent of his pay the weekly report tells him to set aside. */
   taxSetasidePercent: number;
-  /** Where the pin came from ("settlement 2026-10-24", "Steven's message 2026-11-03"). */
+  /** Where the pin came from ("settlement 2026-10-24", "the carrier's message 2026-11-03"). */
   source: string | null;
   /** ISO date the pin was pinned. */
   pinnedAt: string | null;
@@ -165,7 +165,7 @@ export function formatPayPinLine(pin: PayPin): string {
     return (
       "PAY STRUCTURE: NOT PINNED. His pay structure is still unknown - never state a single pay figure as his. " +
       "For any pay question, present the candidate models side by side (percentage of gross, CPM, flat) and say the structure itself is the open question. " +
-      "If a settlement or a message from Steven shows how he was actually paid, propose the pin with set_pay_pin (propose) showing which model the math fits."
+      "If a settlement or a message from his carrier shows how he was actually paid, propose the pin with set_pay_pin (propose) showing which model the math fits."
     );
   }
   const rateText =

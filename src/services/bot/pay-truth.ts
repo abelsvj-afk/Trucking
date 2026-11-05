@@ -422,7 +422,7 @@ export function buildWeeklyPayReport(input: {
 // Lease-on economics explainer (design §5.4, v1)
 // ---------------------------------------------------------------------------
 
-/** The typical lease-on carrier cut - GENERAL knowledge, labeled as such everywhere it appears; it is never presented as Steven's or this carrier's number. */
+/** The typical lease-on carrier cut - GENERAL knowledge, labeled as such everywhere it appears; it is never presented as his carrier's or this carrier's number. */
 export const TYPICAL_CARRIER_CUT_BAND = { lowPct: 20, highPct: 30 } as const;
 
 export interface LoadEconomics {

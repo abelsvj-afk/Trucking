@@ -5,8 +5,11 @@
 --
 -- mile_basis and worker_type are NULL until the owner (or Abel, with his
 -- yes) sets them - NULL means visibly UNSET, and nothing computes from an
--- unset basis or worker type. Owner-approved seed (2026-11-05): per company,
--- employer "Steven", 55 cents per mile, basis and worker type left unset.
+-- unset basis or worker type.
+--
+-- STRUCTURE ONLY (owner ruling 2026-11-05): no seed row, no employer name,
+-- no rate. The app is employer-agnostic all the way down; the current terms
+-- are entered as live data after deployment.
 -- (Numbered 00063: 00061 is trip intake and 00062 is load stops.)
 
 create table employer_pay_profiles (
@@ -39,9 +42,3 @@ alter table employer_pay_profiles enable row level security;
 create policy "tenant isolation" on employer_pay_profiles
   for all using (company_id = private.current_company_id())
   with check (company_id = private.current_company_id());
-
--- Seed: every existing company that has no profile yet.
-insert into employer_pay_profiles (company_id, employer_name, rate_cents_per_mile)
-select c.id, 'Steven', 55
-from companies c
-where not exists (select 1 from employer_pay_profiles p where p.company_id = c.id);

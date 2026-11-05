@@ -76,7 +76,7 @@ const setPayPinArgs = z.object({
   tolls_paid_by: z.enum(["owner", "driver"]).optional(),
   settlement_day: z.string().min(1).optional(),
   tax_setaside_percent: z.number().min(0).max(60).optional(),
-  /** Where this pin comes from, in words ("settlement 2026-10-24", "Steven's message today") - stored on the pin. */
+  /** Where this pin comes from, in words ("settlement 2026-10-24", "the carrier's message today") - stored on the pin. */
   source: z.string().min(1),
   source_kind: z.enum(["owner_stated", "document"]).default("owner_stated"),
 });
@@ -187,11 +187,11 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
               lines.push(`- ${c.model} at ${c.impliedRate}${c.model.startsWith("percentage") ? "%" : c.model.startsWith("cpm") ? "/mi" : ""} - ${c.note}`);
             }
             lines.push(
-              "Propose the pin with set_pay_pin (confirmation \"propose\") showing this working, or coach him to ask Steven the structure questions (percentage of what? W2 or 1099? who pays fuel/tolls? settle day?).",
+              "Propose the pin with set_pay_pin (confirmation \"propose\") showing this working, or coach him to ask his carrier the structure questions (percentage of what? W2 or 1099? who pays fuel/tolls? settle day?).",
             );
           } else {
             lines.push(
-              "No settlement is recorded yet either. One settlement photo (or Steven's answer about the structure) is enough to propose the pin.",
+              "No settlement is recorded yet either. One settlement photo (or his carrier's answer about the structure) is enough to propose the pin.",
             );
           }
         } else {

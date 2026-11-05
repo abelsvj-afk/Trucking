@@ -130,6 +130,66 @@ function ProfileEditor({ profile, onChanged }: { profile: EmployerPayProfile; on
   );
 }
 
+/** Starts the first (or an additional employer's) pay terms. Nothing is pre-filled: terms are entered by the owner. */
+function AddTerms({ onAdded }: { onAdded: () => void }) {
+  const [employer, setEmployer] = useState("");
+  const [rate, setRate] = useState("");
+  const [basis, setBasis] = useState("");
+  const [worker, setWorker] = useState("");
+  const [fuel, setFuel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      aria-label="Add pay terms"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const cents = centsFromDollars(rate);
+        if (!employer.trim()) return setError("Enter the employer's name.");
+        if (cents === null) return setError("Enter the rate as dollars per mile, for example 0.55.");
+        setBusy(true);
+        setError(null);
+        apiClient
+          .create<EmployerPayProfile>("pay-profiles", {
+            employer_name: employer.trim(),
+            rate_cents_per_mile: cents,
+            mile_basis: basis || null,
+            worker_type: worker || null,
+            fuel_paid_by: fuel || null,
+            effective_from: todayEastern(),
+          })
+          .then(() => {
+            setEmployer("");
+            setRate("");
+            onAdded();
+          })
+          .catch((err: unknown) => setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again."))
+          .finally(() => setBusy(false));
+      }}
+    >
+      <h3>Add pay terms</h3>
+      <label htmlFor="add-employer">Employer</label>
+      <input id="add-employer" value={employer} onChange={(e) => setEmployer(e.target.value)} />
+      <label htmlFor="add-rate">Pay per mile (dollars)</label>
+      <input id="add-rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
+      <label htmlFor="add-basis">Which miles are paid</label>
+      <select id="add-basis" value={basis} onChange={(e) => setBasis(e.target.value)}>
+        {BASIS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <label htmlFor="add-worker">Tax status</label>
+      <select id="add-worker" value={worker} onChange={(e) => setWorker(e.target.value)}>
+        {WORKER.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <label htmlFor="add-fuel">Fuel</label>
+      <select id="add-fuel" value={fuel} onChange={(e) => setFuel(e.target.value)}>
+        {FUEL.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      {error && <p role="alert">{error}</p>}
+      <button type="submit" disabled={busy}>Save pay terms</button>
+    </form>
+  );
+}
+
 export default function PayTermsSettings() {
   const [rows, setRows] = useState<EmployerPayProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,10 +218,11 @@ export default function PayTermsSettings() {
         Your pay terms for each employer. They are your data — change them whenever the deal changes. Fields shown
         as &quot;Not set&quot; stay unset until you set them.
       </p>
-      {current.length === 0 && <p>No pay terms yet.</p>}
+      {current.length === 0 && <p>No pay terms entered yet. Add your current deal below — nothing is assumed.</p>}
       {current.map((p) => (
         <ProfileEditor key={`${p.id}-${p.updated_at}`} profile={p} onChanged={load} />
       ))}
+      <AddTerms onAdded={load} />
       {history.length > 0 && (
         <details>
           <summary>Earlier terms</summary>

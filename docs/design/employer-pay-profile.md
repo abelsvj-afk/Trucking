@@ -20,7 +20,7 @@ delete, created/updated timestamps):
 |---|---|---|
 | id | uuid | |
 | company_id | uuid | RLS |
-| employer_name | text | required, e.g. "Steven" (seed) |
+| employer_name | text | required, entered by the owner |
 | rate_cents_per_mile | integer | money is integer cents; 55¢ = 55 (seed) |
 | mile_basis | text null | `loaded` / `all` / `practical` — **null = visibly UNSET** |
 | worker_type | text null | `w2` / `1099` — **null = visibly UNSET** |
@@ -46,17 +46,16 @@ company+employer where effective_to is null and deleted_at is null).
 
 ## 4. Safety / honesty
 
-- Seeded row: employer "Steven", 55¢, mile_basis and worker_type NULL.
+- NO SEED (owner ruling 2026-11-05, superseding the earlier seed pick): the migration creates structure only — no employer name, no rate. Current terms are entered as live data after deployment (Settings → Pay terms, or King in the database).
 - Terms are the owner's data, entered by him or confirmed via Abel; the app
   never infers them from a document without his confirmation.
-- Public repo: the seed lives in the migration only as the owner-approved
-  employer name and rate already stated in project docs; no personal data.
+- Public repo: nothing about any employer is in the code or the migration.
 
 ## 5. Decide
 
 1. Per company (recommended — one owner) vs per driver. Default: per company.
-2. Seed in the migration vs entered by the owner on first visit. Default: the
-   migration seeds Steven/55¢ for company rows that have none.
+2. Seed in the migration vs entered by the owner on first visit. RULED: no seed;
+   entered live.
 3. Migration number: next free after 00061 (00063; 00061 is trip intake, 00062 load stops).
 
 ## 6. Build order
@@ -66,20 +65,20 @@ migration + RLS + tests → schema/service/route → Settings UI with unset chip
 
 ## 7. Decided and built
 
-Owner picks (2026-11-05): (1) per company; (2) seed in the migration — "Steven",
-55 cents per mile, `mile_basis` and `worker_type` left NULL (visibly UNSET);
-(3) "migration 00061" — that number was already taken by trip intake (00061) and
-load stops (00062), so it shipped as **`00063_employer_pay_profiles.sql`**, the
-next free number, which is what the pick meant.
+Owner picks: (1) per company; (2) **no seed** — the migration creates structure
+only and the app is employer-agnostic all the way down (ruling of 2026-11-05,
+which replaced an earlier "seed" pick); (3) "migration 00061" — that
+number was already taken by trip intake (00061) and load stops (00062), so it
+ships as **`00063_employer_pay_profiles.sql`**, the next free number.
 
-Built: table + RLS + seed (every company with no profile) + one-open-row-per-
-employer index; `/api/v1/pay-profiles`; Settings → "Pay terms" (rate in dollars
-shown/entered, stored as integer cents; Not set chips and a plain note that
-nothing is calculated from unset fields; "Save correction" edits in place;
-"Terms changed — start new terms" closes the old row then starts a dated new
-one; earlier terms listed); Abel `set_pay_terms` (always a proposal for the
+Built: table + RLS + one-open-row-per-employer index; `/api/v1/pay-profiles`;
+Settings → "Pay terms" (empty until the owner adds terms; add form pre-fills
+nothing; rate in dollars, stored as integer cents; Not set chips and a plain
+note that nothing is calculated from unset fields; "Save correction" edits in
+place; "Terms changed — start new terms" closes the old row then starts a dated
+new one; earlier terms listed); Abel `set_pay_terms` (always a proposal for the
 owner's yes; omitted fields keep their value, unset stays unset). The pay pin
 falls back to the profile ONLY when no remembered pin exists and only once
-`mile_basis` is loaded or all — an unset basis is never turned into a pin.
-Not built: the payroll-tax math selecting by worker type beyond what the pin
-already carries.
+`mile_basis` is loaded or all. Abel's pay prompts no longer name any employer
+(they say "his carrier"). Not built: payroll-tax math selecting by worker type
+beyond what the pin already carries.
