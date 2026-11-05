@@ -29,7 +29,6 @@ import {
   buildDrivePlan,
   driveGate,
   driveReviewLines,
-  etaMinutesToStop,
   evaluateFix,
   goSummarySpeech,
   maneuverDirection,
@@ -63,7 +62,10 @@ import {
 } from "@/lib/drive-reroute";
 import DriveGlance from "@/components/drive/DriveGlance";
 import DriveClocks from "@/components/drive/DriveClocks";
-import DriveStatusPrompt from "@/components/drive/DriveStatusPrompt";
+import DriveRolling from "@/components/drive/DriveRolling";
+import DrivePreview from "@/components/drive/DrivePreview";
+import DriveParked from "@/components/drive/DriveParked";
+import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes } from "@/lib/smart-path";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -591,114 +593,16 @@ export default function DrivePage() {
       </h1>
 
       {mode === "preview" && (
-        <section aria-label="Drive preview">
-          {resumeAvailable && session && (
-            <div
-              style={{
-                border: "2px solid #2563eb",
-                borderRadius: "12px",
-                padding: "12px",
-                marginBottom: "12px",
-              }}
-            >
-              <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>
-                You were mid-run to {plan.destinationLabel}. Resume Drive?
-              </p>
-              <button
-                type="button"
-                onClick={handleGo}
-                style={{ minHeight: "56px", padding: "0 24px", fontSize: "1.1rem", fontWeight: 700 }}
-              >
-                Resume Drive
-              </button>{" "}
-              <button type="button" onClick={handleDiscardCheckpoint} style={{ minHeight: "56px", padding: "0 16px" }}>
-                Discard
-              </button>
-            </div>
-          )}
-          {permissionDenied && <p role="alert">{DRIVE_COPY.permissionDenied}</p>}
-          <p>
-            {Math.round(plan.totalMiles)} miles · planned arrival{" "}
-            {plan.arrivalAt
-              ? new Date(plan.arrivalAt).toLocaleString("en-US", { timeZone: "America/New_York" })
-              : "—"}
-          </p>
-          <p>{DRIVE_COPY.coverageCaveat}</p>
-          <p>
-            Screen off? In Telegram, tap the paperclip → Location → Share My Live Location with Abel
-            for 8 hours. Drive then keeps your place from it, and Abel will ask before changing your
-            log — he never books anything on his own.
-          </p>
-          <p>{DRIVE_COPY.hoursSmallPrint}</p>
-          <p>
-            {plan.maneuvers.length > 0
-              ? "Turn prompts are on for this run."
-              : "This plan has no turn prompts — Drive will guide by next stop only."}
-          </p>
-
-          <h2>The day</h2>
-          <ul>
-            {plan.timeline.map((segment) => (
-              <li key={`${segment.kind}-${segment.label}`}>
-                {segment.label}: {formatMinutes(segment.minutes)}
-              </li>
-            ))}
-          </ul>
-
-          <h2>Stops</h2>
-          <ol>
-            {plan.stops.map((stop, i) => (
-              <li key={stop.id}>
-                <strong>{stop.badge}</strong> {stop.name}
-                {session && session.stopStatus[i] !== "pending"
-                  ? ` — ${session.stopStatus[i]}`
-                  : ""}
-              </li>
-            ))}
-          </ol>
-
-          {DRIVE_SETTINGS.coachLayoutAvailable && (
-            <fieldset>
-              <legend>Layout</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="drive-layout"
-                  checked={layout === "map"}
-                  onChange={() => handleLayout("map")}
-                />{" "}
-                Map leads
-              </label>{" "}
-              <label>
-                <input
-                  type="radio"
-                  name="drive-layout"
-                  checked={layout === "coach"}
-                  onChange={() => handleLayout("coach")}
-                />{" "}
-                Coach — compact card, for running beside your ELD nav
-              </label>
-            </fieldset>
-          )}
-
-          {!resumeAvailable && (
-            <button
-              type="button"
-              onClick={handleGo}
-              style={{
-                minHeight: "72px",
-                padding: "0 32px",
-                fontSize: "1.5rem",
-                fontWeight: 800,
-                borderRadius: "12px",
-              }}
-            >
-              GO
-            </button>
-          )}
-          <DriveClocks />
-          <DriveStatusPrompt offer={["driving"]} />
-        </section>
+        <DrivePreview
+          plan={plan}
+          session={session}
+          resumeAvailable={resumeAvailable}
+          permissionDenied={permissionDenied}
+          layout={layout}
+          onGo={handleGo}
+          onDiscard={handleDiscardCheckpoint}
+          onLayout={handleLayout}
+        />
       )}
 
       {mode === "starting" && (
@@ -727,152 +631,31 @@ export default function DrivePage() {
           )}
 
           {mode === "rolling" && !rolling && (
-            <section aria-label="Drive">
-              <DriveMap
-                geometry={mapGeometry}
-                deadheadGeometry={mapDeadhead}
-                stops={plan.stops}
-                stopStatus={session.stopStatus}
-                position={lastFix?.point ?? null}
-                headingDeg={lastFix?.headingDeg ?? null}
-                positionQuality={positionQuality}
-                follow={follow}
-                onUserPan={() => setFollow(false)}
-                night={night}
-                height={layout === "coach" ? "22vh" : "46vh"}
-              />
-              {!follow && (
-                <button type="button" onClick={() => setFollow(true)} style={{ minHeight: "48px", padding: "0 16px" }}>
-                  Re-center on me
-                </button>
-              )}
-              {nextStop ? (
-                <div>
-                  <p style={{ fontSize: "1.8rem", fontWeight: 800 }}>
-                    Next: {nextStop.name}
-                  </p>
-                  <p style={{ fontSize: "1.25rem" }}>
-                    {Math.max(0, (nextStop.fraction - session.progressFraction) * plan.totalMiles).toFixed(1)} mi
-                    {(() => {
-                      const eta = etaMinutesToStop(plan, session, nextStop, lastFix);
-                      return eta !== null ? ` · about ${Math.round(eta)} min` : "";
-                    })()}
-                    {nextStop.lifeBadge ? ` · ${nextStop.lifeBadge}` : ""}
-                  </p>
-                </div>
-              ) : (
-                <p style={{ fontSize: "1.5rem", fontWeight: 700 }}>That&apos;s the run — every stop is done.</p>
-              )}
-              {upcoming && (
-                <p style={{ fontSize: "1.15rem" }}>
-                  {MANEUVER_ARROWS[maneuverDirection(upcoming.maneuver.instruction)]}{" "}
-                  {upcoming.maneuver.instruction} — {upcoming.milesAway.toFixed(1)} mi
-                </p>
-              )}
-              <DriveClocks />
-              {routeNotice && (
-                <p role="status" style={{ fontWeight: 700 }}>
-                  {routeNotice}
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={() => lastFix && void requestReroute(lastFix.point, plan)}
-                disabled={!lastFix || routeNotice === REROUTE_COPY.working}
-                style={{ minHeight: "56px", padding: "0 16px", fontWeight: 700 }}
-              >
-                Re-plan from here
-              </button>
-              {projection ? (
-                <p>
-                  Drive time left: {formatMinutes(Math.max(0, Math.round(projection.driveLeftMin)))} (projection
-                  {projection.fromLogs ? "" : " — fresh clocks assumed, no logs yet"})
-                </p>
-              ) : (
-                <p>No clocks ride with this plan — the drive-time chip needs a check made against your logs.</p>
-              )}
-              {lastFix && lastFix.accuracyM > 100 && (
-                <p>GPS weak — ±{Math.round(lastFix.accuracyM)} m</p>
-              )}
-              <p>{DRIVE_COPY.hoursSmallPrint}</p>
-              {session.stoppedOfferShown && (
-                <p>
-                  Looks like you&apos;re stopped — open the full plan?{" "}
-                  <button type="button" onClick={handleParked} style={{ minHeight: "48px", padding: "0 16px" }}>
-                    I&apos;m parked
-                  </button>
-                </p>
-              )}
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <button type="button" onClick={handleSkip} disabled={!nextStop} style={{ minHeight: "72px", padding: "0 20px", fontWeight: 700 }}>
-                  Skip stop
-                </button>
-                <Link
-                  href="/more/assistant"
-                  style={{
-                    minHeight: "72px",
-                    padding: "0 20px",
-                    fontWeight: 700,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    border: "1px solid currentColor",
-                    borderRadius: "8px",
-                  }}
-                >
-                  Talk to Abel
-                </Link>
-                <button type="button" onClick={handleParked} style={{ minHeight: "72px", padding: "0 20px", fontWeight: 700 }}>
-                  I&apos;m parked
-                </button>
-                <button type="button" onClick={handleMuteToggle} style={{ minHeight: "72px", padding: "0 20px" }}>
-                  {muted ? "Voice: off" : "Voice: on"}
-                </button>
-              </div>
-            </section>
+            <DriveRolling
+              plan={plan}
+              session={session}
+              lastFix={lastFix}
+              mapGeometry={mapGeometry}
+              mapDeadhead={mapDeadhead}
+              positionQuality={positionQuality}
+              follow={follow}
+              onFollow={setFollow}
+              night={night}
+              layout={layout}
+              nextStop={nextStop}
+              upcoming={upcoming}
+              projection={projection}
+              routeNotice={routeNotice}
+              muted={muted}
+              onReplan={() => lastFix && void requestReroute(lastFix.point, plan)}
+              onParked={handleParked}
+              onSkip={handleSkip}
+              onMuteToggle={handleMuteToggle}
+            />
           )}
 
           {mode === "parked" && (
-            <section aria-label="Parked">
-              <h2>Parked</h2>
-              <DriveClocks />
-              <DriveStatusPrompt offer={["off_duty", "on_duty"]} />
-              {(
-                <>
-                  <ol>
-                    {plan.stops.map((stop, i) => (
-                      <li key={stop.id}>
-                        <strong>{stop.badge}</strong> {stop.name} — {session.stopStatus[i]}
-                      </li>
-                    ))}
-                  </ol>
-                  <h3>How the day went</h3>
-                  {driveReviewLines(plan, session).map((line) => (
-                    <p key={line}>{line}</p>
-                  ))}
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <button type="button" onClick={handleStartDrive} style={{ minHeight: "56px", padding: "0 20px", fontWeight: 700 }}>
-                      Keep driving
-                    </button>
-                    <Link
-                      href="/smart-path"
-                      style={{
-                        minHeight: "56px",
-                        padding: "0 20px",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        border: "1px solid currentColor",
-                        borderRadius: "8px",
-                      }}
-                    >
-                      Open the full plan
-                    </Link>
-                    <button type="button" onClick={handleEndDrive} style={{ minHeight: "56px", padding: "0 20px" }}>
-                      End Drive
-                    </button>
-                  </div>
-                </>
-              )}
-            </section>
+            <DriveParked plan={plan} session={session} onStart={handleStartDrive} onEnd={handleEndDrive} />
           )}
 
           {rolling && (
@@ -925,22 +708,7 @@ export default function DrivePage() {
       )}
 
       {mode === "parked" && ended && (
-        <section aria-label="Run ended">
-          <h2>Run ended</h2>
-          <p>The run is closed and its checkpoint cleared.</p>
-          <DriveStatusPrompt offer={["off_duty", "on_duty"]} />
-          {finalReview.length > 0 && (
-            <>
-              <h3>How the day went</h3>
-              {finalReview.map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-            </>
-          )}
-          <p>
-            <Link href="/smart-path">Back to the plan</Link> · <Link href="/">Home</Link>
-          </p>
-        </section>
+        <DriveRunEnded plan={plan} finalReview={finalReview} />
       )}
     </div>
   );
