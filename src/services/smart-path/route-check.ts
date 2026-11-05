@@ -48,6 +48,7 @@ import {
   type Place,
   type PlacesProvider,
 } from "@/services/integrations/places";
+import { buildWeatherSection, defaultWeatherFetchers, type WeatherFetchers } from "@/services/smart-path/route-weather";
 import { getRegionalDiesel, type RegionalDiesel } from "@/services/smart-path/regional-fuel";
 import { getDieselPriceEstimate } from "@/services/smart-path/fuel-price-estimate";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
@@ -64,6 +65,8 @@ export interface RouteCheckProviders {
   /** Piece 1 (P1-6): the EIA diesel estimate for map fuel candidates. */
   fuelPriceEstimate: () => Promise<{ cents: number; label: string } | null>;
   /** Intelligence Phase 2a: the EIA weekly diesel average for a PADD region (optional seam; absent = national estimate only). */
+  /** Intelligence Phase 2b: NWS forecast/alert fetchers (optional seam; absent = no weather section). */
+  weather?: WeatherFetchers;
   regionalDiesel?: (paddCode: string, regionName: string) => Promise<RegionalDiesel | null>;
 }
 
@@ -73,6 +76,7 @@ export const defaultProviders: RouteCheckProviders = {
   places: new OverpassPlacesProvider(),
   fuelPriceEstimate: () => getDieselPriceEstimate(),
   regionalDiesel: (code, name) => getRegionalDiesel(code, name),
+  weather: defaultWeatherFetchers,
 };
 
 type RouteResult = Awaited<ReturnType<RoutingProvider["getRoute"]>>;
@@ -544,6 +548,15 @@ export async function runRouteCheck(
       }
     : { unavailableReason: built.reason };
 
+  const weather =
+    providers.weather && corridor && "points" in corridor
+      ? await buildWeatherSection(
+          corridor.points.map((pt) => ({ mile: pt.mile, lat: pt.lat, lng: pt.lng, etaAt: pt.etaAt })),
+          providers.weather,
+          now,
+        )
+      : undefined;
+
   const foodPlan = planFoodStops(foodCandidates, request.food_mode, truck?.appliances ?? []);
 
   return {
@@ -560,6 +573,7 @@ export async function runRouteCheck(
     },
     clocks,
     corridor,
+    ...(weather ? { weather } : {}),
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),

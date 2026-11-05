@@ -188,6 +188,18 @@ describe("runRouteCheck - Piece 1 deadhead (P1-7)", () => {
   });
 });
 
+describe("runRouteCheck - weather section (intelligence Phase 2b)", () => {
+  it("adds a weather section from the injected fetchers, advisory only (verdict unchanged)", async () => {
+    const base = await runRouteCheck(fakeClient(), parseRequest({}), makeProviders(), NOW);
+    expect(base.weather).toBeUndefined();
+    const providers = makeProviders();
+    providers.weather = { hourly: async () => { throw new Error("NWS down"); }, alerts: async () => [] };
+    const response = await runRouteCheck(fakeClient(), parseRequest({}), providers, NOW);
+    expect(response.weather?.status).toBe("unavailable");
+    expect(response.verdict.status).toBe(base.verdict.status);
+  });
+});
+
 describe("runRouteCheck - reroute from the current position (audit D4)", () => {
   const HERE = { lat: 31.2, lng: -83.1 };
 

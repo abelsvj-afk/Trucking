@@ -535,6 +535,30 @@ function SmartPathInner() {
             <p role="note">Along-the-route times unavailable: {result.corridor.unavailableReason}</p>
           )}
 
+          {result.weather && (
+            <details open={result.weather.items.some((i) => i.severe)}>
+              <summary>
+                Weather on the route{result.weather.items.length > 0 ? ` — ${result.weather.items.length} to know` : ""}
+                {result.weather.status !== "ok" && ` (${result.weather.status})`}
+              </summary>
+              {result.weather.items.length === 0 && result.weather.status !== "unavailable" && (
+                <p>Nothing in the National Weather Service forecast at the spots checked, for the times you&apos;d be there.</p>
+              )}
+              <ul>
+                {result.weather.items.map((w) => (
+                  <li key={`${w.kind}-${w.mile}-${w.text}`}>
+                    {w.severe ? "⚠ " : ""}Mile {Math.round(w.mile)}
+                    {w.endMile > w.mile ? `–${Math.round(w.endMile)}` : ""} (about {formatEastern(new Date(w.etaAt))}): {w.text}
+                  </li>
+                ))}
+              </ul>
+              {result.weather.notes.map((n) => (
+                <p key={n} className="row-sub">{n}</p>
+              ))}
+              <p className="row-sub">Forecast as of {formatEastern(new Date(result.weather.asOf))}. Advisory — it doesn&apos;t change the verdict; check conditions before you roll.</p>
+            </details>
+          )}
+
           <h3>Legal</h3>
           {result.verdict.legalLines.map((line) => (
             <p key={line}>{line}</p>

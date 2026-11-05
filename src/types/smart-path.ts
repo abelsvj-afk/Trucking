@@ -67,6 +67,17 @@ export interface RouteCheckResponse {
         points: { mile: number; lat: number; lng: number; etaAt: string | null }[];
       }
     | { unavailableReason: string };
+  /**
+   * Intelligence Phase 2b: NWS weather at the time he reaches each stretch. Advisory only -
+   * never changes the verdict. `status` says whether the source could be reached; a stretch
+   * it could not check is named in `notes`, never reported as clear.
+   */
+  weather?: {
+    status: "ok" | "partial" | "unavailable";
+    items: { mile: number; endMile: number; etaAt: string; kind: string; severe: boolean; text: string; source: "NWS" }[];
+    notes: string[];
+    asOf: string;
+  };
   verdict: {
     status: RouteCheckStatus;
     assumedDriveMinutes: number;
