@@ -854,3 +854,116 @@ The goal is **not** to rewrite the application simply because it predates the wo
 Until the P1 reconciliation is complete, agents must not treat old documents as authoritative when they contradict the current code. When code, documentation, and live production disagree, record the disagreement and verify the truth; do not silently choose whichever version is easiest to implement.
 
 **Master instruction to all agents: backfill the design before changing the implementation. The code is the current artifact, not the specification.**
+
+---
+
+## 11. Reviewer addendum — King (2026-11-05)
+
+Added by King (the owner's personal agent; Reviewer/migration operator in this
+repository's two-agent setup) after reading this audit against live evidence
+the audit itself states it did not inspect (§2.3). Items are corrections and
+evidence, not new scope.
+
+### 11.1 Live migration ledger (probe-verified)
+
+Verified against the live Supabase project (organization "Trucking-OS",
+project ref `qiiztjqzlrpffyyrjkss`) by object-existence probes — signature
+tables/columns/functions, not the `schema_migrations` table:
+
+- **Applied and verified:** every migration file on main through **00062**,
+  including 00041–00044 (Units A–C), 00045–00050 (photo/maintenance/paper,
+  settlements, threads, voice), 00051 (R-6), 00052–00057 (GAP), 00058
+  (Realtime publication), 00059 (paper-log save), 00060 (driver positions),
+  00061 (trip intake) and 00062 (load stops). Final probes: 2026-11-04 and
+  2026-11-05.
+- **Not applied:** **00063** (`employer_pay_profiles`) — the only unapplied
+  migration file on main as of 2026-11-05 (probe `m00063 = false`).
+
+This supersedes the PROJECT_STATE.md statement quoted in Phase 18
+("00045–00057 need ledger reconciliation; 00058–00061 are not applied").
+That statement is incorrect for the live project.
+
+### 11.2 Employer pay profile seed — owner correction and required fix
+
+The Builder landed `00063_employer_pay_profiles.sql` **with a seed insert**
+(`employer_name 'Steven'`, 55 cents/mile, for every company without a
+profile) in commit `8fbedf4` (2026-11-05 16:54 UTC). The decision history,
+in the owner's own sequence:
+
+1. The design doc's default proposed seeding; the owner initially approved
+   the package (2026-11-05 ~11:15 AM Eastern).
+2. The owner **reversed the seed decision** (2026-11-05 ~11:52 AM Eastern):
+   no employer name or rate may appear in the code or migrations — the app
+   is employer-agnostic; current terms are live data only.
+3. The build commit landed ~2 minutes after the reversal, before the
+   correction reached the Builder — a relay-timing collision, recorded
+   here so the state is not misread as defiance or as approval.
+
+**Current state:** the seed is on main in an **unapplied** migration
+(§11.1). **Required fix, before any application of 00063:** the Builder
+removes the seed insert and the "owner-approved seed" header claim from
+`00063_employer_pay_profiles.sql` (editing an unapplied migration is the
+legitimate route; do not renumber — 00063 remains the pay-profile
+migration). After the corrected file lands, King applies 00063 and creates
+the current employer's profile row **as live data** in the database, where
+it is editable like any other data and appears in no commit.
+
+### 11.3 P0 privacy exposure — evidence update
+
+- Branch `visual-audit-2026-11-04` was **deleted by King on 2026-11-04**
+  after the review completed; deletion verified by remote ref listing
+  (the branch no longer exists), consistent with this audit's own branch
+  search.
+- Full exposed commit SHA: `cf356393a36be843e26af83061ab06968527682f`.
+- **No GitHub Support purge has been requested** as of this addendum. Per
+  §5 P0's own closure standard, the item remains **OPEN** on exactly that
+  point: branch deletion is evidenced; commit-object purge is not.
+
+### 11.4 Owner rulings already in force (inputs to the Phase 4 reconciliation)
+
+Governance reconciliation should encode these decided rules rather than
+rediscover them:
+
+- Abel has **no slash commands, ever** — intent is inferred from
+  conversation — and the backend must **proactively self-report** when
+  something is broken.
+- Quiet-hours doctrine (OP-03, 2026-11-03): reports/digests wait for
+  morning; time-sensitive alerts (law, weather, safety) deliver
+  immediately.
+- Paper-log Telegram approval, **as amended by the owner 2026-11-04**:
+  flagged (0.80–0.95 confidence) stretches and partial days may book via
+  Telegram; stretches that cannot be read are dropped and named, never
+  filled; the approval prompt names the flagged stretches.
+- Pay truth: pay terms are editable per-employer **data** (per company),
+  never code — see §11.2.
+- FMCSA watcher endgame: fixes ship; **one production poll** is the
+  evidence; if the feed still refuses from production, the drop decision
+  returns to the owner with that evidence. No relay/proxy workarounds
+  without a fresh owner decision.
+- Providers are **free-first**; GitHub Actions are prohibited; deploys are
+  manual via the Fly web UI; no UTC in anything user-facing
+  (America/New_York).
+
+### 11.5 Agent coordination already exists
+
+`CLAUDE.md` (capability and coordination section merged 2026-11-04, PR
+#27) already documents the two-agent protocol — King's capabilities
+(browser-applied migrations, Fly web-UI deploys, connected-account
+operations) and how work is handed between agents. The Architect should
+reconcile `GEMINI.md`/`ARCHITECT.md` (Phase 12) against that section
+rather than create a parallel protocol.
+
+### 11.6 Deployed state — verified portion only
+
+Fly release **v46** (2026-11-05) was verified in the audit lane, including
+the app-shell version stamp read back from production (the stamp
+mechanism whose absence previously left the owner's phone serving a
+stale shell). Main has advanced beyond that release since; the deployed
+SHA for current main is **not** verified by this addendum and remains a
+Wave 0 item.
+
+### 11.7 Numbering correction
+
+Reconciliation ranges in §1, §6 and Phase 6 that end at migration 00061
+should read **00045–00063**: 00061 is trip intake, 00062 is load stops,
+00063 is employer pay profiles.
