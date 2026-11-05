@@ -254,3 +254,4 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Logging reminders designed + built 2026-11-05 (docs/design/logging-reminders.md; migration 00065 NOT applied; logging_reminders switch off by default).
 - [x] Research watchdog 2026-11-05: detectHealthIssues judges only watchers in the active registry (retired state rows such as stooq_market no longer alert; test added). FMCSA feed fix landed (headers + timeout + HTTP status in the error); production poll is the evidence.
 - [x] Projected pay 2026-11-05: lib/pay-projection (range while the miles basis is unset, never a quiet guess), Home preview card, Money → Projected pay. Next: documents per trip, truck/trailer assignment.
+- [ ] AUDIT CLOSURE (standing): see docs/reconciliation/audit-closure-checklist.md — worked alongside features; Waves 4–6 + §9 criteria tracked there.
