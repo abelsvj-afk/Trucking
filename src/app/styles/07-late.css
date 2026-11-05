@@ -182,7 +182,10 @@
   border-bottom: 3px solid var(--color-warning);
 }
 
-form[data-motion-locked="true"] {
+form[data-motion-locked="true"],
+input[data-motion-locked="true"],
+select[data-motion-locked="true"],
+textarea[data-motion-locked="true"] {
   opacity: 0.55;
 }
 

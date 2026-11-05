@@ -27,6 +27,7 @@ Legend: ✅ done (docs/code evidence in repo) · 🟡 partly · ⬜ not started 
 Every item is one of: **documented** · **code gate passed** (tsc, eslint, vitest, build on a named tree) · **applied** (migration on the live project, King) · **deployed** (a named release) · **verified live / on a real phone**. Current tree with a passing code gate: `181b16e` (docs-only commits since). Applied through 00064; 00065/00066 pending. Deployed: v48 (source SHA unprovable; does not contain everything on `main`). Real-phone verification: none yet.
 
 ## Done in Wave 4 so far
+- SAF-1 (motion lock) extended + tested: a scan found 16 files with editable controls outside any `<form>`, so the app-wide lock (forms only) left real editors live while moving (paper-log segment editor, day-edit panel, memory editing, photo pickers). `MotionLock` now also locks loose input/select/textarea, restores exactly what it locked, exempts the AI kill switches (`data-motion-exempt`; 👤 owner may overrule). Remaining for SAF-1: per-page E2E in a real browser, and non-input buttons (e.g. status taps) which are guarded by StoppedGate where they matter.
 - Drift tests (`tests/unit/docs-drift.test.ts`): routes ↔ api-contracts inventory, migration tables ↔ schemas.md, tools ↔ authority matrix, capabilities ↔ matrix. First run caught a real drift (`list_memories` missing from the registry), fixed.
 
 ## Remaining waves

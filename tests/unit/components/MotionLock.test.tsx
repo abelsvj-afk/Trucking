@@ -115,4 +115,53 @@ describe("MotionLock (app-wide driving lock)", () => {
     expect(root.querySelector("#a")!.hasAttribute("inert")).toBe(false);
     expect(root.querySelector("#b")!.hasAttribute("inert")).toBe(true); // was inert before; not ours to undo
   });
+
+  // SAF-1 (audit Wave 4): editable controls that are NOT inside a <form> (paper-log
+  // segment editor, day-edit panel, memory editing, photo pickers) are locked too.
+  it("locks editable controls outside any form, leaves exempt regions (the AI kill switches) alone, and restores exactly what it locked", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <form id="f"><input id="in-form" /></form>
+      <input id="loose-input" />
+      <select id="loose-select"></select>
+      <textarea id="loose-text"></textarea>
+      <input id="file" type="file" />
+      <section data-motion-exempt><input id="kill-switch" type="checkbox" /></section>
+      <div inert><input id="already" /></div>`;
+    setFormsInert(root, true);
+    const locked = (id: string) => root.querySelector(`#${id}`)!.getAttribute("data-motion-locked") === "true";
+    expect(locked("f")).toBe(true); // the form itself
+    expect(["loose-input", "loose-select", "loose-text", "file"].every(locked)).toBe(true);
+    expect(root.querySelector("#kill-switch")!.hasAttribute("inert")).toBe(false); // exempt
+    expect(locked("already")).toBe(false); // inside something already inert: not ours
+    setFormsInert(root, false);
+    expect(root.querySelectorAll('[data-motion-locked="true"]').length).toBe(0);
+    expect(root.querySelector("#loose-input")!.hasAttribute("inert")).toBe(false);
+    expect(root.querySelector("div[inert]")).toBeTruthy(); // the pre-existing inert stays
+  });
+
+  it("while moving, a loose input on the page is inert and comes back when he stops", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    const view = await mount(
+      <div>
+        <MotionLock />
+        <main id="main-content">
+          <input aria-label="Loose editor" />
+        </main>
+      </div>,
+    );
+    expect(screen.getByLabelText("Loose editor").hasAttribute("inert")).toBe(true);
+    motionHolder.state = "stopped";
+    view.rerender(
+      <div>
+        <MotionLock />
+        <main id="main-content">
+          <input aria-label="Loose editor" />
+        </main>
+      </div>,
+    );
+    await act(async () => {});
+    expect(screen.getByLabelText("Loose editor").hasAttribute("inert")).toBe(false);
+  });
 });

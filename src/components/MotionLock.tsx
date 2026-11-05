@@ -16,19 +16,37 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useVehicleMotion } from "@/lib/use-vehicle-motion";
 
-/** Make every form inside `root` inert / restore them. Returns how many were touched. */
+/**
+ * Make every form inside `root` inert / restore them - AND every editable
+ * control that sits OUTSIDE a form (audit Wave 4 / SAF-1: the paper-log
+ * segment editor, the day-edit panel, memory editing and photo pickers are not
+ * wrapped in <form>, so locking forms alone left them live while moving).
+ * A control or region marked `data-motion-exempt` is left alone: the AI kill
+ * switches stay reachable (turning authority off is a safety action and
+ * revocation must always work). Returns how many forms it touched.
+ */
 export function setFormsInert(root: ParentNode, inert: boolean): number {
   const forms = Array.from(root.querySelectorAll("form"));
-  for (const form of forms) {
+  const loose = Array.from(root.querySelectorAll("input, select, textarea")).filter(
+    (el) => !el.closest("form") && !el.closest("[data-motion-exempt]"),
+  );
+  for (const el of [...forms, ...loose]) {
     if (inert) {
-      // Already inert for another reason: not ours to lock - and so not
-      // ours to unlock later.
-      if (form.hasAttribute("inert")) continue;
-      form.setAttribute("inert", "");
-      form.setAttribute("data-motion-locked", "true");
-    } else if (form.getAttribute("data-motion-locked") === "true") {
-      form.removeAttribute("inert");
-      form.removeAttribute("data-motion-locked");
+      // Already inert for another reason (or inside something that is): not
+      // ours to lock - and so not ours to unlock later.
+      if (el.hasAttribute("inert") || el.closest("[inert]")) continue;
+      el.setAttribute("inert", "");
+      el.setAttribute("data-motion-locked", "true");
+    } else if (el.getAttribute("data-motion-locked") === "true") {
+      el.removeAttribute("inert");
+      el.removeAttribute("data-motion-locked");
+    }
+  }
+  // Restoring must also find locked controls that have since left their form's scope.
+  if (!inert) {
+    for (const el of Array.from(root.querySelectorAll('[data-motion-locked="true"]'))) {
+      el.removeAttribute("inert");
+      el.removeAttribute("data-motion-locked");
     }
   }
   return forms.length;

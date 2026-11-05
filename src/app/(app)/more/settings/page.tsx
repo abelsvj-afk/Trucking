@@ -181,7 +181,7 @@ export default function AccountSettingsPage() {
         </div>
       </section>
 
-      <section aria-label="AI authorization">
+      <section aria-label="AI authorization" data-motion-exempt>
         <h2>AI authorization</h2>
         <p>
           These control what the AI is allowed to run automatically. Turning a switch off takes
