@@ -23,3 +23,5 @@ What this does NOT cover: service-role code paths (the webhook, schedulers, inte
 `tenant-fk.sql` — Unit E (migration 00070): completeness (no single-column tenant FK remains; 63 composite `(company_id, fk) → (company_id, id)` FKs, all validated) and behavior (cross-company references refused with 23503 under a role that bypasses RLS; same-company accepted). Run as a privileged role. `documents-trigger.sql` — Unit E (migration 00071): bad document references rejected with byte-identical errors (no oracle), good ones accepted. Scratch results: 63/63 conversion, 7/7 refusals, 4/4 identical rejections; mutation check (reverting one FK to single-column) fails the completeness test; seeding one cross-company row makes `00070` abort in its pre-flight.
 
 `driver-positions.sql` — Wave 4 matrix item 6: `driver_positions` is one row per (company, source); company A's second fix replaces A's row and leaves B's untouched.
+
+`pool-role-grants.sql` — Wave 4 matrix item 5: `industry_briefing_job` holds exactly its 11 least-privilege grants (no DELETE/TRUNCATE, no business tables); fails on any drift.
