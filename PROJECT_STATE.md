@@ -1,5 +1,13 @@
 # Project State
 
+**REQUESTS FOR KING — 2026-11-05 (Claude cannot do these; each needs King's browser/GitHub/Supabase session; owner-approved in chat):**
+1. **URGENT — public-repo privacy:** delete branch `visual-audit-2026-11-04` via the GitHub web UI, then open a GitHub support request to purge commit `cf356393061 ...` (14 real-data screenshots; the raw URLs returned 200 without login). Branch deletion alone leaves the SHA fetchable. Claude holds its own copy outside the repo.
+2. **Supabase (SQL editor, project-identity check first):** confirm the live migration ledger, then apply in order: any of 00045–00057 not yet applied, **00058** (realtime — never applied), **00059** (paper-log save — never applied), and the new migration(s) listed in `TASKS.md` under "Not-done list round 2" once merged. Report which were already applied.
+3. **Fly secret:** confirm `FINANCIAL_SUMMARY_DB_URL` exists (Unit C's money summary says "couldn't be verified" without it).
+4. **NV-3:** run the two-company isolation proof against the real project for the live channel and the new read paths.
+5. **Visual audit refresh:** capture the pages the 2026-11-04 set missed (Drive Mode, forms, detail pages, HUD / day view / paper-log screens, banner states) AFTER the next deploy, and keep them out of the public repo.
+6. **Adversarial review** of `main` at the head recorded below, when convenient (owner has said building continues in the meantime).
+
 **RECONCILED STATUS — 2026-11-04 (supersedes the "NOT merged" notes below; verified against `main` history, not memory):**
 - **On `main` (516ad19):** Reliability Unit A (PR #20), Unit B (PR #21), Unit C (PR #26 — money truth, migrations 00043/00044), KR-1 (#24), KR-2 (#25), watcher fixes (#22, #23, #28), the wave's steps 1–5 (tech watcher, Abel eval harness, R-6 Abel research access, Drive Mode D1, GAP register builds). Migrations through 00042 were applied to the live database before this date; King reported applying 00043/00044 on 2026-11-04 — verify against the live ledger before relying on it.
 - **Built, gated, NOT merged / NOT deployed / migrations NOT applied:** branch `m4-reanchor` (fast-forward over `main`): wave steps 6–10 (news banner with the never-silent states, Abel stack, photo + paper logs, UI/UX pass, Telegram repairs), the Home HUD with live clock rings, the live layer (Realtime, migration 00058), the paper-log review screen (00059) and day view, the one server-side HOS read (carrier cycle) for Abel/Smart Path, and the driving-safety lockout (fail-closed on unknown speed). Migrations 00045–00059 are unapplied. The owner's merge tap and King's review gate it.
