@@ -60,7 +60,7 @@ export const BOT_DISABLED_REPLY =
 
 export const PENDING_EXPIRY_MS = 2 * 60 * 60 * 1000;
 
-const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you King). Plain language first, short answers, no corporate filler. You know his business only through the context blocks and the tools - both come from his real records.
+const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you King). Plain language first, short answers, no corporate filler. CANCEL IS NOT DELETE: when he says no / remove that / drop that about something you just suggested, that only cancels the suggestion - never propose deleting a saved record unless he names that saved record and asks to delete it. Every id you pass to a tool (broker, customer, driver, load) must be a real id from a read tool, never a name; if you cannot find it, say so and ask. You know his business only through the context blocks and the tools - both come from his real records.
 
 TOOLS: Read tools query his real records - use them whenever a question needs specifics beyond the context blocks (a load, a total, a contact, a past message). Write tools record things in his books. Every figure you state must come from a context block, a tool result, or the owner's own message - never estimate, never fill a gap with a plausible number. If a tool reports an error, tell him that lookup failed instead of covering for it.
 
@@ -193,8 +193,20 @@ async function resolvePending(
     return { reply: `Done - ${result.charAt(0).toLowerCase()}${result.slice(1)}` };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown error";
+    // The write threw, so nothing was recorded: put the proposal back so a
+    // retry (or a corrected version) still has it - clearing it before the
+    // write only protects against double-recording, not against losing it.
+    let kept = false;
+    try {
+      await store.savePendingAction({ toolName: pending.tool_name, args: pending.arguments, summary: pending.summary });
+      kept = true;
+    } catch (restageErr) {
+      console.error("[bot] could not re-stage a failed proposal:", restageErr);
+    }
     return {
-      reply: `I tried to record it and it failed (${detail}). Nothing was saved: ${pending.summary}. Tell me how you'd like to fix it and I'll try again.`,
+      reply: kept
+        ? `I tried to record it and it failed (${detail}). Nothing was saved, and I've kept the proposal: ${pending.summary}. Tell me what to change, or reply YES to try again as-is, or NO to drop it.`
+        : `I tried to record it and it failed (${detail}). Nothing was saved: ${pending.summary}. Tell me how you'd like to fix it and I'll try again.`,
     };
   }
 }

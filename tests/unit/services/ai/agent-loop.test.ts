@@ -180,4 +180,25 @@ describe("runAgentLoop", () => {
     expect(toolMessage && "content" in toolMessage ? toolMessage.content : "").toContain("database unavailable");
     expect(out.reply).toContain("failed");
   });
+
+  it("a proposal whose arguments would be refused is never staged, and the model is told why", async () => {
+    const strictTool: AgentTool = {
+      ...expenseTool(vi.fn()),
+      name: "create_load_like",
+      validateArgs: (args) =>
+        typeof args.broker_id === "string" && /^[0-9a-f-]{36}$/.test(args.broker_id)
+          ? { ok: true, args }
+          : { ok: false, error: "broker_id: Invalid uuid" },
+    };
+    const { provider, calls } = scriptedProvider([
+      toolCall("c1", "create_load_like", { broker_id: "AmeriLux Logistics", category: "x", amount_dollars: 1 }),
+      textTurn("I need the broker's id first."),
+    ]);
+    const out = await runAgentLoop({ ...baseInput, provider, tools: [strictTool] });
+    expect(out.proposals).toEqual([]);
+    expect(out.toolLog[0]).toMatchObject({ outcome: "error" });
+    const toolMsg = calls[1]!.messages.find((m) => m.role === "tool");
+    expect(JSON.stringify(toolMsg)).toContain("NOT PROPOSED");
+    expect(JSON.stringify(toolMsg)).toContain("broker_id: Invalid uuid");
+  });
 });

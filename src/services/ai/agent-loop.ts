@@ -274,8 +274,28 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
           continue;
         }
 
-        const summary = tool.summarize ? tool.summarize(writeArgs) : `${tool.name} (proposed)`;
-        proposals.push({ tool: tool.name, args: writeArgs, summary });
+        // Validate BEFORE anything is shown or stored: a proposal that
+        // could not execute (a broker NAME where a uuid belongs) must
+        // never reach the owner as something to approve. The error goes
+        // back to the model so it can resolve the field and try again.
+        let proposedArgs = writeArgs;
+        if (tool.validateArgs) {
+          const checked = tool.validateArgs(writeArgs);
+          if (!checked.ok) {
+            log({ tool: tool.name, access: "write", outcome: "error", detail: `invalid proposal: ${checked.error}` });
+            messages.push({
+              role: "tool",
+              toolCallId: call.id,
+              content:
+                `NOT PROPOSED - these arguments would be refused: ${checked.error}. Nothing was staged. ` +
+                "Look up the real value with a read tool (ids come from list_contacts / the list tools, never a name) or ask the owner for the missing field, then propose again.",
+            });
+            continue;
+          }
+          proposedArgs = checked.args;
+        }
+        const summary = tool.summarize ? tool.summarize(proposedArgs) : `${tool.name} (proposed)`;
+        proposals.push({ tool: tool.name, args: proposedArgs, summary });
         log({ tool: tool.name, access: "write", outcome: "proposed", detail: summary });
         const content =
           `PROPOSED, not recorded: ${summary}. It will only be recorded if the owner replies YES. ` +

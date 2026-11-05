@@ -264,6 +264,27 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
   });
 
+  it("a failed write keeps the proposal so a retry or a correction still has it", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      {
+        id: "p1", company_id: COMPANY, channel: "telegram", tool_name: "create_expense",
+        arguments: { category: "repairs", amount_dollars: "not a number" },
+        summary: "Expense: broken", created_at: new Date().toISOString(), deleted_at: null,
+      },
+    ];
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, store, input("yes"));
+    expect(out.reply).toContain("failed");
+    expect(out.reply).toContain("kept the proposal");
+    expect(db.expenses ?? []).toHaveLength(0);
+    const open = db.bot_pending_actions!.filter((r) => !r.deleted_at);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ tool_name: "create_expense", summary: "Expense: broken" });
+  });
+
   it("drops the proposal on no - nothing is ever written", async () => {
     const { client, db } = fakeClient(baseSeed(true));
     const store = telegramStore(client);

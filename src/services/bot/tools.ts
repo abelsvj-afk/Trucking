@@ -182,7 +182,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "list_contacts",
-      description: "List his contacts of one kind: brokers, customers, or drivers - names and total count.",
+      description: "List his contacts of one kind: brokers, customers, or drivers - id, name, and total count. Use the id (uuid) when a write needs a broker_id/customer_id/driver_id; never pass a name as an id.",
       parameters: {
         type: "object",
         properties: { kind: { type: "string", enum: ["brokers", "customers", "drivers"] } },
@@ -193,13 +193,13 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         const kind = args.kind as "brokers" | "customers" | "drivers";
         const { data, error, count } = await client
           .from(kind)
-          .select("name", { count: "exact" })
+          .select("id, name", { count: "exact" })
           .eq("company_id", companyId)
           .is("deleted_at", null)
           .order("name", { ascending: true })
           .limit(50);
         if (error) throw new Error(error.message);
-        const names = ((data ?? []) as { name: string }[]).map((r) => r.name);
+        const names = ((data ?? []) as { id: string; name: string }[]).map((r) => `[${r.id}] ${r.name}`);
         return `${kind} on file (${count ?? names.length}): ${names.join(", ") || "none"}`;
       },
     },
@@ -763,7 +763,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       parameters: {
         type: "object",
         properties: {
-          broker_id: { type: "string", description: "Broker id (uuid) — from list_brokers." },
+          broker_id: { type: "string", description: "Broker id (uuid) — from list_contacts (kind brokers)." },
         },
         required: ["broker_id"],
       },
