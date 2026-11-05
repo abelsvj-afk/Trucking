@@ -261,3 +261,11 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Duty-aware MotionLock 2026-11-05 (item 1 of King's relay): lib/motion-lock-policy + prompt; all status x motion x speed tested; HUD/Drive unchanged.
 - [x] Isolation follow-through 2026-11-05: 00067 revokes anon writes; rls-isolation.sql complete-row probes + anon claim cleared + replication-role reset wrapped; anon-privileges.sql. The 'four anon-writable tables' reproduced as a test artifact (claim left set).
 - OPEN WORK QUEUE (never drop): see docs/work-queue.md
+- [x] Paycheck check + HOS cost + Home card 2026-11-05 (items 2-4 of King's relay; `f83996b`): `GET /api/v1/pay-summary`, Money -> Paychecks, Home Pay-and-hours card, loaded/deadhead miles on load forms, hours-cost line in `explain_load_pay`. FMCSA feed URL + failure cause shipped (production poll pending).
+- [x] Paper-log D-13 2026-11-05 (owner ruling): Telegram batches stop at the first unread stretch.
+- [x] Smart Path intelligence 2026-11-05 (`docs/design/smart-path-intelligence.md`): corridor + ETA + states, regional diesel, NWS weather, state-rule and WZDx machinery (data tables empty by design - need verified rows / verified feeds).
+- [x] Reliability Unit D 2026-11-05: fuel<->load link (00068), per-load contribution margin, summary aggregates (00069). NOT applied live.
+- [x] Reliability Unit E 2026-11-05: composite tenant FKs (00070, pre-flight aborts on cross-company rows), documents reference trigger (00071), `docs/tenant-integrity.md`. NOT applied live.
+- [x] Decomposition 2026-11-05 (behavior-preserving): `store.ts` 1664 -> 949, `tools-write.ts` 1780 -> 1153, `dispatch-bot.ts` 1104 -> 1051.
+- [x] Wave 4 tests 2026-11-05: service-role company-scope (brain store + every bot tool), injection-authority, driver_positions per-company, isolation seeders 60/60, tenant-fk + documents-trigger SQL tests.
+- [ ] Remaining: see docs/work-queue.md (apply 00068-00071 live; state-rule rows; WZDx feeds; further decomposition; Wave 4 items 2/3/5, E2E, real-browser a11y/performance; Wave 6 units only on owner approval).
