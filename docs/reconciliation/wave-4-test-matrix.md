@@ -95,6 +95,9 @@ Each path below runs with RLS bypassed and scopes to a company only in code. For
 - Bare-yes targeting, cancel != delete, failed-write re-stage: covered by `tests/unit/services/bot/agent-turn.test.ts` and `telegram-claims.test.ts` (existing).
 - Still open: language gate, same-name people, memory supersession as model-behavior evals.
 
+## 4b. Accessibility - static baseline (2026-11-05)
+A scan of `src/**/*.tsx` found: every `<img>` has an `alt` (the news-banner thumbnail is decorative `alt=""` by design); no click handlers on non-interactive `div`/`span`; every `<input>` is either label-associated (`htmlFor`/`id`, or wrapped in its `<label>`) or a labeled control inside a `<fieldset>`/`<legend>`. This is a code-level baseline only. The real pass - axe (or equivalent) against the rendered pages at phone width, keyboard-only traversal of the HUD/status sheet/paper-log editor, contrast in both themes - needs the deployed app and is a King post-deploy item; no new dependency was added for it.
+
 ## 4. Other Wave 4 gates to design (from the audit)
 
 - E2E for critical journeys: dispatch→load→trip tasks; paper-log photo→review→save; Drive start→off-route→reroute; pay terms add/change.
