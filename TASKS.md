@@ -257,3 +257,4 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [ ] AUDIT CLOSURE (standing): see docs/reconciliation/audit-closure-checklist.md — worked alongside features; Waves 4–6 + §9 criteria tracked there.
 - [x] Documents per trip + trailer assignment 2026-11-05: Load page Documents section (thumbnails by type, preview, upload inside a form so the driving lock covers it); trailer on drivers and loads (migration 00066 NOT applied), pickers, Abel tools. Truck assignment and photos already existed.
 - [x] SAF-1 motion lock now covers editable controls outside forms (audit Wave 4). AI kill switches exempt (decision recorded; owner may overrule).
+- [x] Wave 4: tests/db/rls-isolation.sql covers every company_id table (0 violations on scratch; mutation-checked). King runs it live (D-3).
