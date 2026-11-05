@@ -73,11 +73,33 @@ export async function attachAlbumPage(
   bytes: ArrayBuffer,
   contentType = "image/jpeg",
 ): Promise<number | null> {
-  const fields = (primary.extracted_fields ?? {}) as Record<string, unknown>;
+  // Doc-intake hunt DH-2: `primary` is a snapshot from find time. Page
+  // 1's own processing may have written extracted_fields since (the
+  // fields now also carry the extraction result) - spreading the stale
+  // snapshot would revert that write. Re-read the row's CURRENT fields
+  // and merge onto them; the snapshot is only the fallback when the
+  // re-read itself fails.
+  let fields = (primary.extracted_fields ?? {}) as Record<string, unknown>;
+  try {
+    const { data } = await client
+      .from("documents")
+      .select("extracted_fields")
+      .eq("id", primary.id)
+      .eq("company_id", companyId)
+      .maybeSingle();
+    const fresh = (data as { extracted_fields: Record<string, unknown> | null } | null)
+      ?.extracted_fields;
+    if (fresh) fields = fresh;
+  } catch (err) {
+    console.error("[telegram] album attach re-read failed; using snapshot fields", err);
+  }
   const pages = Array.isArray(fields.album_pages)
     ? (fields.album_pages as string[])
     : [primary.storage_path];
-  const pagePath = `${primary.storage_path}.page${pages.length + 1}`;
+  // A unique suffix per page: two attaches racing off the same page
+  // list must never share a path (the upload is upsert - a shared
+  // path would overwrite one page's bytes with the other's).
+  const pagePath = `${primary.storage_path}.page${pages.length + 1}-${crypto.randomUUID().slice(0, 8)}`;
   const { error: uploadError } = await client.storage
     .from("documents")
     .upload(pagePath, bytes, { contentType, upsert: true });

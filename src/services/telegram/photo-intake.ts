@@ -149,7 +149,22 @@ export function pickLargestPhoto(photos: TelegramPhotoSize[]): TelegramPhotoSize
 }
 
 export function photoFileName(now: Date): string {
-  const stamp = now.toISOString().slice(0, 19).replace(/[-:T]/g, "");
+  // Doc-intake hunt DH-7: the stamp is quoted back to the owner in
+  // the intake reply, so it is built on his wall clock
+  // (America/New_York) - never a UTC stamp on a user-facing surface
+  // (standing rule; src/lib/eastern-date.ts is the date-only kin).
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const stamp = `${part("year")}${part("month")}${part("day")}${part("hour")}${part("minute")}${part("second")}`;
   return `telegram-photo-${stamp}.jpg`;
 }
 
@@ -305,7 +320,9 @@ export async function handleTelegramPhoto(
       if (primary) {
         const pageCount = await album.attachPage(primary, download.bytes);
         if (pageCount != null) {
-          return `Added that as page ${pageCount} of the document you just sent — one document, pages together, so it reads as a single piece of paperwork.`;
+          // DH-6: honest scope - the pages are stored together, but
+          // extraction reads page 1; don't claim a combined read.
+          return `Added that as page ${pageCount} of the document you just sent — all its pages are stored together under that one document. I read the first page for its details; the rest are kept with it.`;
         }
         // Attach failed — fall through and store it as its own
         // document rather than losing the photo.
