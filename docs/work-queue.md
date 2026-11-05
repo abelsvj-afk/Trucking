@@ -3,7 +3,7 @@
 Kept in the repo so it survives context loss and interruptions. If a newer request pushes something aside, it stays on this list with a note of what displaced it. Updated 2026-11-05 at `main` `bc1be1c`. Order = the order I work them unless the owner reorders.
 
 ## A. Owner's active orders (in this order)
-1. **Isolation follow-through** — DONE (00067, complete-row probes, tolerance fix; pushed `3144aa7`). Waiting on King to re-run live.
+1. **Isolation follow-through** — DONE (00067, complete-row probes, tolerance fix; pushed `3144aa7`). King reports (relayed, 2026-11-05) 00067 applied and the live isolation checks run; not re-verified by me.
 2. **FMCSA** — CODE DONE, gated with the next push (not yet deployed/verified live): switch `rss.ts` to the taxonomy Newsroom URL `https://www.fmcsa.dot.gov/taxonomy/term/191/feed`; carry the captured HTTP status into the partial-coverage message (today it shows failed source names only); King's production-poll check stays armed until it deploys. Boundary: if it still 403s from Fly, the drop decision returns to the owner.
 3. **King's four-item work order** (relayed owner requirements, dictated on the road):
    - 1 duty-aware MotionLock — DONE (`5e8d180`).
@@ -30,4 +30,4 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 
 ## D. Waiting on someone else (not mine to do)
 - **Owner:** deploy everything since Fly v48; switch `logging_reminders` on; real-phone checks (GPS, lock prompt, documents, trailer, Live Location); D-12; GitHub Support purge request (with King).
-- **King:** apply 00067 (00066 via his watch); live isolation + anon-privileges run; deployed SHA; production proof (schedulers, Realtime, webhook, rollback); independent review of Waves 1–4; the Telegram document hunt (his lane).
+- **King:** (00067 + live isolation reported done); one FMCSA production poll after the owner deploys `f83996b` (if it still 403s from Fly, the drop decision returns to the owner; no more code churn first); deployed SHA; production proof (schedulers, Realtime, webhook, rollback); independent review of Waves 1–4; the Telegram document hunt (his lane).
