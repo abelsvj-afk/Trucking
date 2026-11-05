@@ -212,6 +212,35 @@ export async function clearPhotoPurposeAsk(
   if (error) console.error("[telegram] failed to clear photo purpose ask", error.message);
 }
 
+/**
+ * Doc-intake hunt DH-4: claims an ask ATOMICALLY and reports whether
+ * THIS caller won. The conditional update only lands while the row
+ * is still open, and the affected-row count names the winner: two
+ * taps on the same question arrive as distinct updates (the
+ * update_id dedup can't merge them), and the old load-then-clear
+ * sequence let both taps load the ask before either cleared it -
+ * settling twice, with duplicate staged proposals for one photo.
+ * A client that reports no count keeps the historical proceed
+ * behavior; PostgREST with count:"exact" always reports one.
+ */
+export async function claimPhotoPurposeAsk(
+  client: SupabaseClient,
+  companyId: string,
+  id: string,
+): Promise<boolean> {
+  const { error, count } = await client
+    .from("bot_pending_actions")
+    .update({ deleted_at: new Date().toISOString() }, { count: "exact" })
+    .eq("id", id)
+    .eq("company_id", companyId)
+    .is("deleted_at", null);
+  if (error) {
+    console.error("[telegram] failed to claim photo purpose ask", error.message);
+    return false;
+  }
+  return count !== 0;
+}
+
 // ---------------------------------------------------------------------------
 // Answer parsing (the numbered-text spine, §3.3)
 // ---------------------------------------------------------------------------
@@ -549,7 +578,12 @@ export async function resolvePhotoPurposeAskById(
   if (!ask) {
     return "That photo question is already settled (or it expired) — the photo itself is saved in your documents either way.";
   }
-  await clearPhotoPurposeAsk(deps.client, deps.companyId, pendingId);
+  // DH-4: claim before settling - the loser of a double-tap race
+  // gets the settled reply here and never reaches the pipelines.
+  const claimed = await claimPhotoPurposeAsk(deps.client, deps.companyId, pendingId);
+  if (!claimed) {
+    return "That photo question is already settled (or it expired) — the photo itself is saved in your documents either way.";
+  }
   if (Date.now() - new Date(ask.createdAt).getTime() > PHOTO_ASK_EXPIRY_MS) {
     return PHOTO_ASK_EXPIRED_REPLY;
   }

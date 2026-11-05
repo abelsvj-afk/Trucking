@@ -252,6 +252,7 @@ export type TelegramHandleResult =
   | "callback_ignored"
   | "location_recorded"
   | "location_ignored"
+  | "edit_ignored"
   | "replied"
   | "remembered"
   | "instruction_saved"
@@ -783,6 +784,27 @@ async function handleCallbackQuery(
   return "callback_replied";
 }
 
+/**
+ * Doc-intake hunt DH-3: sends the photo branch's reply without ever
+ * throwing. By the time the intake returns, the document store (and
+ * any staged proposals) has COMMITTED - if the reply send then threw,
+ * the CD-6 wrapper would release the update claim and Telegram's
+ * redelivery would run the intake again, storing the same photo a
+ * second time with a second proposal batch. A lost reply is the
+ * lesser harm (the document is in his app either way); a duplicated
+ * document is not. Loud log, swallowed error.
+ */
+async function sendPhotoReply(deps: TelegramDeps, chatId: number, text: string): Promise<void> {
+  try {
+    await deps.sendMessage(chatId, text);
+  } catch (err) {
+    console.error(
+      "[telegram] photo reply send failed after the photo was stored - keeping the update claim so redelivery cannot duplicate the document",
+      err,
+    );
+  }
+}
+
 async function processTelegramUpdate(
   update: TelegramUpdate,
   config: TelegramConfig,
@@ -855,6 +877,14 @@ async function processTelegramUpdate(
     return "location_recorded";
   }
 
+  // Doc-intake hunt DH-5: an edit-only update (he fixed a caption or
+  // a typo; Telegram re-delivers the message as an edit) carries no
+  // new message, photo, or tap to work. Falling through would land
+  // in the no-text branch and answer his edit with the boilerplate
+  // explainer - a junk reply to a non-message. Ignore it silently.
+  // (Live-location edits were already consumed above.)
+  if (!update.message && !update.callback_query) return "edit_ignored";
+
   // §3.3: a button tap is resolved here, after the same gates and
   // the same dedup claim as every other update kind (acceptance
   // A2: a double-tap or a Telegram retry of the tap hits the claim
@@ -918,7 +948,7 @@ async function processTelegramUpdate(
     }
     if (typeof result === "string") {
       reply = result;
-      await deps.sendMessage(chat.id, reply);
+      await sendPhotoReply(deps, chat.id, reply);
     } else {
       // §3.3: a purpose ask goes out with buttons when the surface
       // supports them; button delivery failing (or unsupported)
@@ -949,7 +979,7 @@ async function processTelegramUpdate(
             .join("\n");
           reply = `${result.text}\n\n${numbered}\n\n(Reply with a number — or just tell me what it is.)`;
         }
-        await deps.sendMessage(chat.id, reply);
+        await sendPhotoReply(deps, chat.id, reply);
       }
     }
     if (store) {
