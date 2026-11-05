@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { parseDispatchTrip, tripToCreateLoadArgs } from "@/lib/dispatch-trip";
 
-const MSG = `🚛 NEW TRIP 1852 HAS BEEN ASSIGNED
+const MSG = `🚛 NEW TRIP 1234 HAS BEEN ASSIGNED
 
 🏁 STOP 1
-SHIPPER/CONSIGNEE: Bekaert
-📍 ADDRESS: 810 South 28th Street BLDG C, Van Buren, AR 72956
+SHIPPER/CONSIGNEE: Example Steel Co
+📍 ADDRESS: 100 Example Way, Springfield, MO 65801
 APPT: 11/04/2026 00:00 CST
 TYPE: Pickup Stop
 
 =======================
 
 🏁 STOP 2
-SHIPPER/CONSIGNEE: St. Lucie County Solid Waste
-📍 ADDRESS: 6120 Glades Cut Off Road , Fort Pierce, FL 34981
+SHIPPER/CONSIGNEE: Sample County Recycling
+📍 ADDRESS: 200 Sample Road , Tampa, FL 33601
 APPT: 11/05/2026 00:00 EST
 TYPE: Delivery Stop
 
@@ -21,11 +21,11 @@ TYPE: Delivery Stop
 
 🧾 TRIP DETAILS
 
-BROKER: AmeriLux Logistics
-REF #: ACCENT12558481
+BROKER: Example Logistics
+REF #: REF123456
 DEADHEAD: 120.00 mi
-LOADED DISTANCE: 1,213.91 mi
-TOTAL DISTANCE: 1,333.91 mi
+LOADED DISTANCE: 900.50 mi
+TOTAL DISTANCE: 1,000.50 mi
 ===================================
 ❗️Send Picture of trailer in PU/DEL
 ❗️SEND SEAL PICTURE
@@ -37,20 +37,20 @@ TOTAL DISTANCE: 1,333.91 mi
 🚫NO SPEEDING at any time
 ✅ PLEASE CHECK AND CONFIRM`;
 
-describe("parseDispatchTrip - Trip 1852", () => {
+describe("parseDispatchTrip - Trip 1234", () => {
   const trip = parseDispatchTrip(MSG)!;
   it("reads the trip, broker, reference and exact miles", () => {
-    expect(trip.tripNumber).toBe("1852");
-    expect(trip.brokerName).toBe("AmeriLux Logistics");
-    expect(trip.brokerReference).toBe("ACCENT12558481");
-    expect([trip.deadheadMiles, trip.loadedMiles, trip.totalMiles]).toEqual([120, 1213.91, 1333.91]);
+    expect(trip.tripNumber).toBe("1234");
+    expect(trip.brokerName).toBe("Example Logistics");
+    expect(trip.brokerReference).toBe("REF123456");
+    expect([trip.deadheadMiles, trip.loadedMiles, trip.totalMiles]).toEqual([120, 900.5, 1000.5]);
   });
   it("reads both stops with facility-local appointments", () => {
     expect(trip.stops).toHaveLength(2);
-    expect(trip.stops[0]).toMatchObject({ kind: "pickup", name: "Bekaert", cityState: "Van Buren, AR", appointmentTz: "America/Chicago" });
+    expect(trip.stops[0]).toMatchObject({ kind: "pickup", name: "Example Steel Co", cityState: "Springfield, MO", appointmentTz: "America/Chicago" });
     // 00:00 CST on 11/04 = 06:00 UTC (Central is UTC-6 after DST ended 11/01)
     expect(trip.stops[0]!.appointmentAt).toBe("2026-11-04T06:00:00.000Z");
-    expect(trip.stops[1]).toMatchObject({ kind: "delivery", cityState: "Fort Pierce, FL", appointmentTz: "America/New_York" });
+    expect(trip.stops[1]).toMatchObject({ kind: "delivery", cityState: "Tampa, FL", appointmentTz: "America/New_York" });
     expect(trip.stops[1]!.appointmentAt).toBe("2026-11-05T05:00:00.000Z");
   });
   it("keeps the dispatcher's requirements, not the safety slogans", () => {
@@ -65,8 +65,8 @@ describe("parseDispatchTrip - Trip 1852", () => {
   it("builds create_load arguments with city/state, dates, zones, exact miles", () => {
     const args = tripToCreateLoadArgs(trip)!;
     expect(args).toMatchObject({
-      origin: "Van Buren, AR", destination: "Fort Pierce, FL", trip_number: "1852",
-      broker_reference: "ACCENT12558481", deadhead_miles: 120, loaded_miles: 1213.91, miles: 1334,
+      origin: "Springfield, MO", destination: "Tampa, FL", trip_number: "1234",
+      broker_reference: "REF123456", deadhead_miles: 120, loaded_miles: 900.5, miles: 1001,
       pickup_date: "2026-11-04", delivery_date: "2026-11-05", pickup_tz: "America/Chicago", delivery_tz: "America/New_York",
     });
     expect((args.stops as unknown[]).length).toBe(2);

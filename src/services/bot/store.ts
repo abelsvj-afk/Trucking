@@ -347,7 +347,7 @@ export function createBotStore(
    * Pending rows grouped into what the owner sees as ONE proposal (a dump
    * batch is one group; a single proposal is its own), ordered oldest first
    * by the group's newest row. A bare yes/no targets the LAST group - what
-   * was most recently shown - never the oldest (Trip 1852 audit, P1).
+   * was most recently shown - never the oldest (Trip 1234 audit, P1).
    */
   function groupPending(rows: PendingAction[]): PendingAction[][] {
     const groups = new Map<string, PendingAction[]>();

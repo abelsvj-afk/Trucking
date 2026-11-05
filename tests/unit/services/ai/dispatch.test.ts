@@ -228,7 +228,7 @@ describe("enforceLanguageGate", () => {
     expect(formatDispatchSuggestion(gated)).not.toContain("Suggested reply");
   });
 
-  it("an English message never gets a Spanish reply draft (Trip 1852 audit)", () => {
+  it("an English message never gets a Spanish reply draft (Trip 1234 audit)", () => {
     const base = {
       likely_sender_role: "dispatcher" as const, sender_reasoning: "x", whats_being_asked: "y", meaning_notes: null,
       translation_en: null, recordable_items: [],

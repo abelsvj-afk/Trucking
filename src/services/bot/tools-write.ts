@@ -318,11 +318,11 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     truck_id: { type: "string" },
     driver_id: { type: "string" },
     notes: { type: "string" },
-    trip_number: { type: "string", description: "The dispatcher's trip/assignment number (e.g. 1852). NOT the broker's name and NOT the reference." },
-    broker_reference: { type: "string", description: "The broker's reference/PRO number for this load (e.g. ACCENT12558481)." },
+    trip_number: { type: "string", description: "The dispatcher's trip/assignment number (e.g. 1234). NOT the broker's name and NOT the reference." },
+    broker_reference: { type: "string", description: "The broker's reference/PRO number for this load (e.g. REF123456)." },
     deadhead_miles: { type: "number", description: "Empty miles to the pickup, exact (e.g. 120.00)." },
-    loaded_miles: { type: "number", description: "Loaded miles pickup to delivery, exact (e.g. 1213.91). Set miles to the rounded total." },
-    pickup_tz: { type: "string", description: "IANA zone of the pickup appointment as written (e.g. America/Chicago for CST at Van Buren AR)." },
+    loaded_miles: { type: "number", description: "Loaded miles pickup to delivery, exact (e.g. 900.5). Set miles to the rounded total." },
+    pickup_tz: { type: "string", description: "IANA zone of the pickup appointment as written (e.g. America/Chicago for CST at Springfield MO)." },
     delivery_tz: { type: "string", description: "IANA zone of the delivery appointment as written (e.g. America/New_York)." },
   };
 

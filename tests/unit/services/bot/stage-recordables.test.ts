@@ -180,37 +180,37 @@ describe("stageRecordables", () => {
 
   it("a structured trip assignment is read by code: one proposal with trip fields, broker id, stops, tasks, and a clean review", async () => {
     const BROKER = "55555555-5555-4555-8555-555555555555";
-    const { store, rows } = makeStoreWithBrokers([{ id: BROKER, name: "AmeriLux Logistics" }]);
-    const msg = `NEW TRIP 1852 HAS BEEN ASSIGNED
+    const { store, rows } = makeStoreWithBrokers([{ id: BROKER, name: "Example Logistics" }]);
+    const msg = `NEW TRIP 1234 HAS BEEN ASSIGNED
 STOP 1
-SHIPPER/CONSIGNEE: Bekaert
-ADDRESS: 810 South 28th Street BLDG C, Van Buren, AR 72956
+SHIPPER/CONSIGNEE: Example Steel Co
+ADDRESS: 100 Example Way, Springfield, MO 65801
 APPT: 11/04/2026 00:00 CST
 TYPE: Pickup Stop
 STOP 2
-SHIPPER/CONSIGNEE: St. Lucie County Solid Waste
-ADDRESS: 6120 Glades Cut Off Road , Fort Pierce, FL 34981
+SHIPPER/CONSIGNEE: Sample County Recycling
+ADDRESS: 200 Sample Road , Tampa, FL 33601
 APPT: 11/05/2026 00:00 EST
 TYPE: Delivery Stop
 TRIP DETAILS
-BROKER: AmeriLux Logistics
-REF #: ACCENT12558481
+BROKER: Example Logistics
+REF #: REF123456
 DEADHEAD: 120.00 mi
-LOADED DISTANCE: 1,213.91 mi
-TOTAL DISTANCE: 1,333.91 mi
+LOADED DISTANCE: 900.50 mi
+TOTAL DISTANCE: 1,000.50 mi
 ❗️SEND SEAL PICTURE`;
     // The model proposed a broken create_load (no origin) - code replaces it.
-    const result = await stageRecordables(store, msg, [{ tool_name: "create_load", args: {}, source_quote: "NEW TRIP 1852", confidence: "low" }]);
+    const result = await stageRecordables(store, msg, [{ tool_name: "create_load", args: {}, source_quote: "NEW TRIP 1234", confidence: "low" }]);
     expect(result.rejected).toEqual([]);
     expect(result.proposals).toHaveLength(1);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.arguments).toMatchObject({
-      origin: "Van Buren, AR", destination: "Fort Pierce, FL", trip_number: "1852", broker_id: BROKER,
-      broker_reference: "ACCENT12558481", deadhead_miles: 120, loaded_miles: 1213.91,
+      origin: "Springfield, MO", destination: "Tampa, FL", trip_number: "1234", broker_id: BROKER,
+      broker_reference: "REF123456", deadhead_miles: 120, loaded_miles: 900.5,
     });
     expect((rows[0]!.arguments as { stops: unknown[] }).stops).toHaveLength(2);
-    expect(result.review).toContain("NEW TRIP 1852");
-    expect(result.review).toContain("Bekaert");
+    expect(result.review).toContain("NEW TRIP 1234");
+    expect(result.review).toContain("Example Steel Co");
     expect(result.review).toContain("11/04/2026 00:00 CST");
     expect(result.review).toContain("SEND SEAL PICTURE");
   });

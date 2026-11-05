@@ -334,12 +334,12 @@ describe("runAgentTurn - write approval flow (§8)", () => {
       { text: null, toolCalls: [{ id: "c1", name: "delete_record", arguments: JSON.stringify({ record_type: "load", record_id: "00000000-0000-4000-8000-000000000001", confirmation: "propose" }) }] },
       { text: "Okay, send me the trip details.", toolCalls: [] },
     ]);
-    const out = await runAgentTurn(provider, telegramStore(client), input("No. Remove that. Add this trip: Bekaert to Fort Pierce"));
+    const out = await runAgentTurn(provider, telegramStore(client), input("No. Remove that. Add this trip: Example Steel Co to Tampa"));
     expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
     expect(out.reply).not.toMatch(/delete/i);
   });
 
-  it("Trip 1852: one yes saves the load with trip number, reference, exact miles, zones - and its tasks", async () => {
+  it("Trip 1234: one yes saves the load with trip number, reference, exact miles, zones - and its tasks", async () => {
     const seed = baseSeed(true);
     seed.loads = [];
     seed.load_tasks = [];
@@ -348,17 +348,17 @@ describe("runAgentTurn - write approval flow (§8)", () => {
       {
         id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load",
         arguments: {
-          origin: "Van Buren, AR", destination: "Fort Pierce, FL",
-          trip_number: "1852", broker_reference: "ACCENT12558481",
-          deadhead_miles: 120, loaded_miles: 1213.91, miles: 1334,
+          origin: "Springfield, MO", destination: "Tampa, FL",
+          trip_number: "1234", broker_reference: "REF123456",
+          deadhead_miles: 120, loaded_miles: 900.5, miles: 1001,
           pickup_tz: "America/Chicago", delivery_tz: "America/New_York",
           tasks: ["Send trailer and seal photos at each stop", "Send signed BOL to the dispatch group"],
           stops: [
-            { seq: 1, kind: "pickup", name: "Bekaert", appointment_at: "2026-11-04T06:00:00.000Z", appointment_tz: "America/Chicago" },
-            { seq: 2, kind: "delivery", name: "St. Lucie County Solid Waste", appointment_at: "2026-11-05T05:00:00.000Z", appointment_tz: "America/New_York" },
+            { seq: 1, kind: "pickup", name: "Example Steel Co", appointment_at: "2026-11-04T06:00:00.000Z", appointment_tz: "America/Chicago" },
+            { seq: 2, kind: "delivery", name: "Sample County Recycling", appointment_at: "2026-11-05T05:00:00.000Z", appointment_tz: "America/New_York" },
           ],
         },
-        summary: "Load (trip 1852): Van Buren, AR → Fort Pierce, FL", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null,
+        summary: "Load (trip 1234): Springfield, MO → Tampa, FL", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null,
       },
     ];
     const { client, db } = fakeClient(seed);
@@ -367,7 +367,7 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(out.reply).toContain("Done");
     expect(out.reply).toContain("2 trip tasks");
     expect(db.loads).toHaveLength(1);
-    expect(db.loads![0]).toMatchObject({ trip_number: "1852", broker_reference: "ACCENT12558481", deadhead_miles: 120, loaded_miles: 1213.91, pickup_tz: "America/Chicago" });
+    expect(db.loads![0]).toMatchObject({ trip_number: "1234", broker_reference: "REF123456", deadhead_miles: 120, loaded_miles: 900.5, pickup_tz: "America/Chicago" });
     expect(db.load_tasks).toHaveLength(2);
     expect(db.load_stops).toHaveLength(2);
     expect(db.load_stops![0]).toMatchObject({ load_id: db.loads![0]!.id, seq: 1, kind: "pickup", appointment_tz: "America/Chicago" });
@@ -409,7 +409,7 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     const seed = baseSeed(true);
     seed.loads = [];
     seed.bot_pending_actions = [
-      { id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load", arguments: { origin: "Van Buren, AR", destination: "Fort Pierce, FL", trip_number: "1852", broker_reference: "ACCENT12558481" }, summary: "Load (trip 1852)", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
+      { id: "t", company_id: COMPANY, channel: "telegram", tool_name: "create_load", arguments: { origin: "Springfield, MO", destination: "Tampa, FL", trip_number: "1234", broker_reference: "REF123456" }, summary: "Load (trip 1234)", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
     ];
     const { client, db } = fakeClient(seed);
     const real = client.from.bind(client);
@@ -437,8 +437,8 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(out.reply).toContain("Done");
     expect(out.reply).toContain("saved in the notes");
     expect(db.loads).toHaveLength(1);
-    expect(String(db.loads![0]!.notes)).toContain("trip number: 1852");
-    expect(String(db.loads![0]!.notes)).toContain("broker reference: ACCENT12558481");
+    expect(String(db.loads![0]!.notes)).toContain("trip number: 1234");
+    expect(String(db.loads![0]!.notes)).toContain("broker reference: REF123456");
     expect(db.loads![0]).not.toHaveProperty("trip_number");
   });
 

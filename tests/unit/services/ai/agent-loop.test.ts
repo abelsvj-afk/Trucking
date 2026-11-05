@@ -191,7 +191,7 @@ describe("runAgentLoop", () => {
           : { ok: false, error: "broker_id: Invalid uuid" },
     };
     const { provider, calls } = scriptedProvider([
-      toolCall("c1", "create_load_like", { broker_id: "AmeriLux Logistics", category: "x", amount_dollars: 1 }),
+      toolCall("c1", "create_load_like", { broker_id: "Example Logistics", category: "x", amount_dollars: 1 }),
       textTurn("I need the broker's id first."),
     ]);
     const out = await runAgentLoop({ ...baseInput, provider, tools: [strictTool] });

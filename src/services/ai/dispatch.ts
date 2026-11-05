@@ -178,7 +178,7 @@ export function enforceLanguageGate(
   detected: MessageLanguage,
 ): DispatchSuggestion {
   let suggestedReply = parsed.suggested_reply ?? null;
-  // Trip 1852 audit: an English message got a Spanish reply draft. The
+  // Trip 1234 audit: an English message got a Spanish reply draft. The
   // reply must match what the sender wrote, decided here in code - a Spanish
   // draft to an English sender is dropped, not trusted and not translated.
   if (suggestedReply && detected === "en") {

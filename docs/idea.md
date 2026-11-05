@@ -43,3 +43,14 @@ A single company database that centralizes the data currently scattered across n
 ---
 
 *This document defines the problem only. It does not define the product, the architecture, or the AI capabilities that solve it — those belong in `docs/vision.md` and later phases.*
+
+---
+
+## Current baseline addendum — 2026-11-05 (RECONCILIATION DRAFT, pending owner review)
+
+The sections above are the original problem statement and are kept as written. What has changed:
+
+- **Who the user is now.** The primary persona today is **the owner as a working lease-on OTR driver** (phone-first, often in a truck, sometimes one hand free) who is building toward his own truck, authority and, later, a small fleet. The fleet-owner and customer personas above are **future** personas, not current ones.
+- **The driver/operator problem the product now also solves:** turning a dispatcher's assignment message into a load without retyping it; keeping track of the dispatcher's per-trip requirements and per-stop approvals; keeping paper logs honest and recreating a day from a photographed sheet; knowing the hours clocks at a glance; driving safely with the app (nothing to type while moving); knowing what a deal actually pays; and having an assistant (Abel) that proposes and never books on its own.
+- **The employer is not part of the product.** Pay terms and the people he works with are his data. The product serves any employer arrangement (lease-on, W2, 1099, owner-operator).
+- **Not an ELD.** It helps keep paper logs; it is not the legal record. He carries or will carry a certified ELD.

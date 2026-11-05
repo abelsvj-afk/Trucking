@@ -70,3 +70,37 @@ This project has previously been built with a workflow that produced backend onl
 ---
 
 *Budget, hosting, third-party services (Phase 5), platform, and accessibility (Phase 7) were resolved as later phases produced real decisions — see the cross-references above. Still open: a formal availability/uptime target and licensing, which stay unresolved by design until a real decision, not an assumption, is made.*
+
+---
+
+## Current capability catalogue — 2026-11-05 (RECONCILIATION DRAFT, pending owner review)
+
+The sections above remain the original requirements. This catalogue lists what is **built** so every capability has an ID, a safety class and a link to its owning design. "Moving" classes follow the driving-safety rule: unknown or stale speed counts as possibly moving.
+
+Safety class: **M** = usable while moving (glance/voice only) · **P** = parked only · **V** = voice/Telegram acceptable · **S** = server/unattended (no screen).
+
+| ID | Capability | Owning design / doc | Safety | Status |
+|---|---|---|---|---|
+| REQ-01 | Loads, trips, stops (any number), trip tasks, per-stop arrival/approval taps | `docs/design/trip-intake.md` | P | built |
+| REQ-02 | Dispatch message → load: code-read structured trips, model path for other formats, one review + one yes | trip-intake | V | built (Relay parser pending real messages) |
+| REQ-03 | Confirmation lifecycle: last-shown targeting, retained failures, silent expiry, cancel ≠ delete | trip-intake, `docs/ai-authority-matrix.md` §5 | V | built |
+| REQ-04 | Hours: carrier-anchored cycle, live clocks, paper-log helper; **not an ELD** | `docs/time-and-hos.md`, `driver-hud.md` | M (read), P (edit) | built |
+| REQ-05 | Paper-log photo → review → atomic save; day graph; Telegram approval rule | `driver-hud.md` §6 | P/V | built (owner acceptance pending) |
+| REQ-06 | Home HUD with live clocks and act-in-place popups | `driver-hud.md`, `driver-usability.md` | M | built |
+| REQ-07 | Live layer: screens current without refresh | `driver-hud.md` §4 | S | built |
+| REQ-08 | Driving safety lock: app-wide form lock when moving/unknown; Drive glance only | `driver-usability.md` §4 | M | built |
+| REQ-09 | Smart Path route check + Drive Mode (spoken turns, rerouting only to truck-checked routes) | `docs/design/driver-mvp.md` §8 | M | built |
+| REQ-10 | Screen-off position via Telegram Live Location; duty-status proposals only | `driver-usability.md` §4 | S/V | built (no switch — G1) |
+| REQ-11 | Money truth: integer cents, revenue on delivery, month bounds in viewer zone | `docs/money-and-revenue.md` | P | built |
+| REQ-12 | Pay terms per employer as data; pay advisor; settlements; weekly pay report | `docs/design/employer-pay-profile.md` | P/V | built (migration 00063 unapplied) |
+| REQ-13 | Assistant (Abel): tools, memory, summaries, kill switches | `docs/ai-authority-matrix.md`, `ai-architecture.md` | V | built |
+| REQ-14 | Photo / voice / document intelligence | `driver-mvp.md` §10, image-intelligence docs | V | built |
+| REQ-15 | Research engine: watchers, signals, briefings, news banner (images server-fetched) | `research-engine.md`, `news-banner-images.md` | S/M | built (FMCSA feed unresolved) |
+| REQ-16 | Game Plan | `gaming-system.md` | P | built |
+| REQ-17 | Maintenance schedules, defects, watcher | maintenance docs | P/S | built |
+| REQ-18 | Records lifecycle (soft delete, restore, retention) | `docs/record-lifecycle.md` | P | built |
+| REQ-19 | Tenant isolation (RLS) and service-role exceptions | `docs/design/security.md` | S | built; **proof pending** (Wave 4) |
+
+**Testable system-wide safety requirements** (to be turned into acceptance tests in Wave 4): SAF-1 no editable form is reachable while speed is unknown/stale/moving and permission is granted; SAF-2 Drive's moving surface exposes only Skip stop, I'm parked, Talk to Abel, Voice toggle, Re-plan; SAF-3 a car-profile route can never replace a truck route; SAF-4 no proposal executes unless the owner just saw it.
+
+**Open items carried from the original:** license choice; availability target; performance budgets for a phone with maps/live location/image proxying (propose: first meaningful paint < 3 s on 4G; Drive map update < 1 s per fix) — all **owner decisions**.

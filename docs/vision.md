@@ -61,3 +61,23 @@ Beyond the v0.1 MVP, the roadmap sketched in `My idea` (section 16) — to be fo
 ---
 
 *This document defines what the system is and is not. It does not define requirements, architecture, or implementation — those belong to later phases (`docs/requirements.md`, `docs/architecture.md`, etc.) per the workflow doc.*
+
+---
+
+## Current baseline addendum — 2026-11-05 (RECONCILIATION DRAFT, pending owner review)
+
+**Versioning rule:** the MVP definition and non-goals above are the **original v0 scope** and stay as history. The product is no longer a "no AI, no automation" database. This addendum states the current scope without rewriting that history.
+
+**Scope v1 (as built):** system of record for loads, trips, stops, trucks, trailers, drivers, brokers, customers, expenses, fuel, maintenance, documents, hours logs and paper logs; money truth (operational revenue on delivery, integer cents); a conversational assistant (Telegram + web) that **proposes** and records only with the owner's word; dispatch-message intake into loads with stop-by-stop tasks; photo, voice and document intelligence; research/briefings and a Game Plan planner; Smart Path (truck-aware route checks) and Drive Mode (rolling companion, rerouting only to truck-checked routes, screen-off position via Telegram Live Location); a live layer that keeps screens current.
+
+**Still out of scope (explicit):** being an ELD; autonomous booking, sending to third parties, or moving money; multi-user access; any provider that is not free-first without the owner's decision; background GPS from a web tab (impossible — Telegram Live Location is the supported path).
+
+**Future (unchanged intent):** own truck and authority, small fleet, multi-customer product. These remain distinct from the current single-owner internal tool.
+
+**Success metrics — proposals for the owner to accept, change or reject** (the original says "not yet defined"; none of these is adopted until he says so):
+1. A forwarded dispatch assignment becomes a correct saved load with one confirmation (target: ≥ 95% of structured trip messages with no field correction after the first week of use).
+2. No stale or wrong-target confirmation: zero executions of a proposal the owner did not just see (measured from the pending-action log).
+3. Paper-log day recreated to matching times from his own photographed sheet (his acceptance test, pass/fail).
+4. Zero form interactions possible while moving (safety acceptance test, pass/fail).
+5. Every number on Home traceable to a stored record or labeled unavailable (no stale figure; audited quarterly).
+6. Monthly review of what Abel proposed vs. what the owner accepted (acceptance rate) as the trust signal that governs any autonomy increase.

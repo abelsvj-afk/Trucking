@@ -1,7 +1,7 @@
 // Deterministic reader for structured dispatch trip assignments
-// ("NEW TRIP 1852 HAS BEEN ASSIGNED", STOP blocks, TRIP DETAILS). Pure.
+// ("NEW TRIP 1234 HAS BEEN ASSIGNED", STOP blocks, TRIP DETAILS). Pure.
 // The Telegram model extraction missed origin/destination on exactly this
-// message (Trip 1852); a structured message should not depend on a model.
+// message (Trip 1234); a structured message should not depend on a model.
 // Everything returned is copied from the message text - nothing is guessed:
 // a field the message does not carry is simply absent. Messages in other
 // shapes (Amazon Relay, free text) return null here and fall through to the

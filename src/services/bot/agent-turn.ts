@@ -364,7 +364,7 @@ export async function runAgentTurn(
     }
   }
   const pending = await store.loadPendingAction();
-  // Trip 1852 audit (P1): a bare yes/no targets what was most recently
+  // Trip 1234 audit (P1): a bare yes/no targets what was most recently
   // shown. If several proposals are open and the newest was NOT shown
   // just now, a bare answer could mean any of them - list them, ask.
   if (pending && pending.tool_name !== PHOTO_PURPOSE_TOOL) {

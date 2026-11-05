@@ -86,3 +86,20 @@ During the MVP, the administrator is the same person as the owner-operator. This
 ---
 
 *This document defines interaction and workflow only. Governance and authority boundaries (who/what may read, write, recommend, approve, execute) belong to `docs/governance.md`, the next phase.*
+
+---
+
+## Current journeys — 2026-11-05 (RECONCILIATION DRAFT, pending owner review)
+
+The stories above are the original owner-operator workflows. These are the **current journey families**; each needs normal, alternative, failure, approval, cancellation, escalation and recovery flows written in Wave 3 (`docs/reconciliation/2026-11-05-waves.md`).
+
+1. **Dispatch → load → trip.** Forward a message → Abel recognizes a trip assignment → review (stops with appointments in their own zone, broker resolved or flagged, reference, deadhead/loaded/total miles, requirements) → one yes → saved with the real record id → tasks and per-stop taps on the load page. Failure: the exact failing field is named and the same trip stays in context; a failed save keeps the proposal. Cancellation never deletes a saved load.
+2. **Stale/multiple proposals.** A bare yes means what was just shown; if unclear Abel lists the open ones and asks; expired ones disappear silently.
+3. **Channel handoff.** Telegram and the web assistant share one brain and one history; a proposal made in one can be answered in the other, subject to journey 2.
+4. **Hours and paper logs.** Read clocks at a glance; photograph a paper sheet → review beside the recreated graph → atomic save with explicit replacement acknowledgement; unreadable stretches are dropped and named.
+5. **Driving.** Check a route → GO → Drive Mode (glance only while moving) → off-route detection → truck-checked reroute or a plain "use the truck's own navigation"; GPS loss and stale position are shown, never hidden; with the screen off, Telegram Live Location keeps the position and Abel may *propose* a status change.
+6. **Pay.** Enter pay terms (rate, which miles, tax status, fuel) — unset fields stay unset and nothing is calculated from them; evaluate an offer with code-computed math.
+7. **Photos, voice, documents.** Send a photo → Abel infers the purpose or asks with one tap; voice notes become text then follow the same yes/no; paperwork is read into fields and filed.
+8. **Memory and research.** Abel proposes memories (never silent); the owner corrects or deletes; research requests (e.g. pre-trip photos) are asked once with the reason.
+
+**Concrete acceptance scenario (retain as a regression fixture, sanitized):** a "NEW TRIP n HAS BEEN ASSIGNED" message with two stops (pickup and delivery in different time zones), broker and reference, three mileage figures, and five dispatcher requirement lines must produce one review and one saved load with two stops, five tasks, exact miles, and appointments displayed in each facility's own zone. The repository's fixture uses made-up names and addresses; the real message is private and is not to be committed.

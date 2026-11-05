@@ -1,6 +1,6 @@
 # Trip Intake and confirmation lifecycle — design (Phases A–C built; D partly)
 
-Status: 2026-11-05. Source: King's audit of the Trip 1852 transcript, with the
+Status: 2026-11-05. Source: King's audit of the reported trip-assignment transcript, with the
 claims below re-verified against `main` before acting.
 
 ## 1. Verified defects
@@ -80,7 +80,7 @@ suite: multiple pending, stale, failed write + retry, cancel-vs-delete, language
 ## 7. Built 2026-11-05, round 2 (owner: "do all the still open things")
 
 - **Structured trip messages are read by code** (`lib/dispatch-trip.ts`): the
-  Trip 1852 format ("NEW TRIP n HAS BEEN ASSIGNED", any number of STOP blocks,
+  structured-trip format ("NEW TRIP n HAS BEEN ASSIGNED", any number of STOP blocks,
   TRIP DETAILS, the dispatcher's ❗ lines). The model path had failed on this
   exact message ("origin: expected string"). The parser's `create_load` replaces
   any the model proposed; the broker NAME is resolved to an id in code (exact,
