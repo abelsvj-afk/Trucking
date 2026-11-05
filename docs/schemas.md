@@ -1123,3 +1123,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 
 ### Function changed by 00069 (Unit D)
 - 00069 `public.financial_summary_snapshot(...)` gains keys `assigned_fuel` and `unassigned_fuel_in_period_cents` (existing keys unchanged).
+
+### Constraints added by 00070 / 00071 (Unit E - see `docs/tenant-integrity.md`)
+- 00070 `UNIQUE (company_id, id)` on every tenant parent table; every tenant->tenant single-column FK replaced by `<child>_<col>_tenant_fkey` composite `(company_id, <col>) → <parent> (company_id, id)` (63).
+- 00071 trigger `documents_validate_reference` on `documents` (allowlist truck/trailer/driver/load/company).

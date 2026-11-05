@@ -82,7 +82,11 @@ begin
         and coalesce(c.is_identity, 'NO') = 'NO'
     loop
       cols := cols || ', ' || quote_ident(col.column_name);
-      if col.data_type = 'uuid' then vals_tpl := vals_tpl || ', gen_random_uuid()';
+      -- documents (migration 00071): the reference trigger fires BEFORE RLS, so a complete row must
+      -- carry a VALID reference - the company itself - or the probe would be stopped by the trigger.
+      if t = 'documents' and col.column_name = 'related_entity_id' then vals_tpl := vals_tpl || ', {C}::uuid';
+      elsif t = 'documents' and col.column_name = 'related_entity_type' then vals_tpl := vals_tpl || ', ''company''';
+      elsif col.data_type = 'uuid' then vals_tpl := vals_tpl || ', gen_random_uuid()';
       elsif col.data_type in ('integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real') then vals_tpl := vals_tpl || ', 1';
       elsif col.data_type = 'boolean' then vals_tpl := vals_tpl || ', false';
       elsif col.data_type = 'date' then vals_tpl := vals_tpl || ', current_date';

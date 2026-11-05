@@ -70,3 +70,26 @@ describe("createApiHandler", () => {
     });
   });
 });
+
+describe("tenantIntegrityError (Unit E backstop)", () => {
+  it("maps a foreign-key refusal to one uniform 422 with no database detail", async () => {
+    const { tenantIntegrityError } = await import("@/services/api/handler");
+    const e = tenantIntegrityError({ code: "23503", message: 'insert or update on table "expenses" violates foreign key constraint "expenses_truck_id_tenant_fkey"' });
+    expect(e?.status).toBe(422);
+    expect(e?.message).toBe("One of the records this refers to wasn't found in your account.");
+    expect(e?.message).not.toMatch(/expenses|constraint|truck/i);
+  });
+  it("gives the documents trigger's refusal the SAME message (no oracle)", async () => {
+    const { tenantIntegrityError } = await import("@/services/api/handler");
+    const fk = tenantIntegrityError({ code: "23503", message: "insert or update ... is not present in table" });
+    const doc = tenantIntegrityError({ code: "23514", message: "invalid document reference" });
+    expect(doc?.message).toBe(fk?.message);
+  });
+  it("says a parent still in use is in use, and ignores unrelated errors", async () => {
+    const { tenantIntegrityError } = await import("@/services/api/handler");
+    expect(tenantIntegrityError({ code: "23503", message: 'update or delete on table "trucks" violates foreign key constraint ... is still referenced from table "loads"' })?.message).toContain("still in use");
+    expect(tenantIntegrityError({ code: "23505", message: "duplicate" })).toBeNull();
+    expect(tenantIntegrityError(new Error("boom"))).toBeNull();
+    expect(tenantIntegrityError(null)).toBeNull();
+  });
+});
