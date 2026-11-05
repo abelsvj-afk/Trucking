@@ -23,6 +23,12 @@ Legend: ✅ done (docs/code evidence in repo) · 🟡 partly · ⬜ not started 
 | 13 | Reviewer independently accepted the documentation and evidence | 🔑 | King's review of Waves 1–3 outstanding. |
 | 14 | Owner approved the next implementation scope | 👤 | Waves 4–6 scope below awaits approval per work unit. |
 
+## Evidence levels (never conflate)
+Every item is one of: **documented** · **code gate passed** (tsc, eslint, vitest, build on a named tree) · **applied** (migration on the live project, King) · **deployed** (a named release) · **verified live / on a real phone**. Current tree with a passing code gate: `181b16e` (docs-only commits since). Applied through 00064; 00065/00066 pending. Deployed: v48 (source SHA unprovable; does not contain everything on `main`). Real-phone verification: none yet.
+
+## Done in Wave 4 so far
+- Drift tests (`tests/unit/docs-drift.test.ts`): routes ↔ api-contracts inventory, migration tables ↔ schemas.md, tools ↔ authority matrix, capabilities ↔ matrix. First run caught a real drift (`list_memories` missing from the registry), fixed.
+
 ## Remaining waves
 
 **Wave 4 — test and review gates** (docs: `wave-4-test-matrix.md`; code needs owner OK per unit): drift tests (tools↔matrix, routes↔api-contracts, tables↔schemas, LIVE_TABLES↔publication) · RLS tests for the 32 untested tables + `reminder_sends` · service-role company-scope tests (webhook store, schedulers, internal invokers) · E2E journeys · AI evals incl. forwarded-text injection (G3) · SAF-1..4 tests · accessibility + performance runs · update `docs/design/testing.md` · reviewer sign-off on the exact tree.

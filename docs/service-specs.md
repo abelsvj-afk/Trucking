@@ -107,7 +107,7 @@ No further detail is specified here — the real spec for whatever gets built fi
 | `services/db` | server/browser Supabase clients; narrow pg pools | `design/security.md` |
 | `services/auth` | session → company | — |
 | `services/ai` | provider abstraction + agent loop (tools, proposals, grounding guard, validate-before-propose), dispatch helper + language gate, extraction (documents, photos, paper logs, settlements, threads), schedulers (industry briefing) | `ai-authority-matrix.md`, `design/ai-architecture.md` |
-| `services/bot` | Abel: context assembly, store (memory, pending actions, threads, pay pin, settlements), 109 tools, stage-recordables (code-read trips), consolidation + pay-report schedulers | `design/driver-mvp.md` §8–12, `design/trip-intake.md` |
+| `services/bot` | Abel: context assembly, store (memory, pending actions, threads, pay pin, settlements), 110 tools, stage-recordables (code-read trips), consolidation + pay-report schedulers | `design/driver-mvp.md` §8–12, `design/trip-intake.md` |
 | `services/telegram` | webhook dispatch (`dispatch-bot`), photo/voice intake, purpose asks, Live Location, notifier, brain store | `design/driver-mvp.md` §4 |
 | `services/research` | watchers (EIA, NWS, GDELT, OpenStates, Federal Register, RSS…), scoring, triggers, delivery with quiet hours, news-image fetch/re-encode, scheduler | `design/research-engine.md`, `news-banner-images.md` |
 | `services/game` | Game Plan evaluation, checkpoints, scheduler | `design/gaming-system.md` |
