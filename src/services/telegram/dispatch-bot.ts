@@ -49,6 +49,9 @@ import type { TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
 import type { TelegramVoice, VoiceIntakeResult } from "./voice-intake";
 import { formatExemplarsBlock } from "@/services/bot/voice-corpus";
 
+import { forwardSourceLabel, formatForwardBundle } from "./forward-format";
+export { forwardSourceLabel, formatForwardBundle };
+
 export interface TelegramConfig {
   botToken: string | null;
   webhookSecret: string | null;
@@ -375,62 +378,6 @@ export const CONTEXT_DEGRADED_NOTE =
 // own words (ONE conversation turn) - and the caller sends
 // exactly ONE consolidated reply.
 // ---------------------------------------------------------------------------
-
-/**
- * Who a forward came from, from Telegram's structured metadata
- * (forward_origin variants + the legacy forward_from). Display
- * and context labeling only - never an identity assertion.
- */
-export function forwardSourceLabel(
-  message: TelegramUpdate["message"] | undefined,
-): string | null {
-  if (!message) return null;
-  const origin = message.forward_origin as Record<string, unknown> | null | undefined;
-  if (origin && typeof origin === "object") {
-    const userName = (user: unknown): string | null => {
-      if (!user || typeof user !== "object") return null;
-      const u = user as Record<string, unknown>;
-      const parts = [u.first_name, u.last_name].filter(
-        (p): p is string => typeof p === "string" && p.length > 0,
-      );
-      if (parts.length > 0) return parts.join(" ");
-      return typeof u.username === "string" ? `@${u.username}` : null;
-    };
-    const chatTitle = (chat: unknown): string | null => {
-      if (!chat || typeof chat !== "object") return null;
-      const c = chat as Record<string, unknown>;
-      return typeof c.title === "string" ? c.title : null;
-    };
-    const signature =
-      typeof origin.author_signature === "string" ? origin.author_signature : null;
-    const label =
-      userName(origin.sender_user) ??
-      (typeof origin.sender_user_name === "string" ? origin.sender_user_name : null) ??
-      chatTitle(origin.sender_chat) ??
-      chatTitle(origin.chat);
-    if (label) return signature && signature !== label ? `${label} (${signature})` : label;
-    if (signature) return signature;
-  }
-  const from = message.forward_from as Record<string, unknown> | null | undefined;
-  if (from && typeof from === "object") {
-    const parts = [from.first_name, from.last_name].filter(
-      (p): p is string => typeof p === "string" && p.length > 0,
-    );
-    if (parts.length > 0) return parts.join(" ");
-    if (typeof from.username === "string") return `@${from.username}`;
-  }
-  return null;
-}
-
-/** The bundle as one dispatch input: every forwarded message, numbered, source-labeled where Telegram names one. */
-export function formatForwardBundle(items: TelegramBurstItem[]): string {
-  return items
-    .map(
-      (item, i) =>
-        `[Forwarded message ${i + 1} of ${items.length}${item.sourceLabel ? ` — from ${item.sourceLabel}` : ""}]\n${item.text}`,
-    )
-    .join("\n\n");
-}
 
 interface ProcessedTextTurn {
   result: TelegramHandleResult;
