@@ -20,7 +20,8 @@ export async function captureForwardThread(
   provider: AiProvider,
   rawText: string,
 ): Promise<void> {
-  const extraction = await extractThreadStructure(provider, rawText);
+  const ownerName = store.loadOwnerName ? await store.loadOwnerName().catch(() => null) : null;
+  const extraction = await extractThreadStructure(provider, rawText, ownerName);
   const exchangeId = await store.findExchangeIdByIncoming(rawText).catch(() => null);
   await store.recordForwardThread({
     title: extraction.title ?? null,
