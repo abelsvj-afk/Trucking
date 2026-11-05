@@ -986,3 +986,13 @@ should read **00045–00063**: 00061 is trip intake, 00062 is load stops,
   baseline, the employer-agnostic code pass (`03db21f6`, `d59a0048`) and
   the Wave 1–3 documentation reconciliation (`36ee0cbd`, `3fbd5b3f`,
   `fcc7573d`) have also landed.
+
+### 11.9 Deployed state (King, 2026-11-05)
+
+Closing the §11.6 open item as far as the available evidence allows:
+Fly release **v48** was deployed 2026-11-05 17:35 UTC (rolling,
+Complete, both machines started) and the app answered live requests at
+check time. Fly does not label releases with a source commit, so the
+exact source SHA is not provable from the dashboard; every commit after
+the last code commit (`209b5511`) is documentation-only, so production
+is running current code, including the employer-agnostic pass.
