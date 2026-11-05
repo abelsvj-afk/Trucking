@@ -47,7 +47,8 @@ import {
   serializeActivePlan,
 } from "@/lib/drive";
 import { browserSpeaker, type Speaker } from "@/lib/drive-speech";
-import { classifyMotion, isRestricted, settleMotion } from "@/lib/vehicle-motion";
+import { isRestricted } from "@/lib/vehicle-motion";
+import { NO_ESTIMATE, motionState, stepMotion, type MotionEstimate } from "@/lib/motion-estimator";
 import { maneuverAnnouncement } from "@/lib/drive-maneuver-speech";
 import {
   INITIAL_OFF_ROUTE,
@@ -145,6 +146,7 @@ export default function DrivePage() {
   // syncSession is the one door that changes both.
   const [session, setSession] = useState<DriveSession | null>(null);
 
+  const [motionEst, setMotionEst] = useState<MotionEstimate>(NO_ESTIMATE);
   const sessionRef = useRef<DriveSession | null>(null);
   const lastOwnFixMsRef = useRef(0);
   const fallbackIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -263,6 +265,19 @@ export default function DrivePage() {
 
   // ---- the watch --------------------------------------------------------------
   const handleFix = (fix: DriveFix | null, nowMsValue: number) => {
+    // The bubble estimator decides moving vs. parked (wander while parked is
+    // not movement); it sees every fix, even before a session exists.
+    if (fix) {
+      setMotionEst((prev) =>
+        stepMotion(prev, {
+          lat: fix.point.lat,
+          lng: fix.point.lng,
+          accuracyM: fix.accuracyM,
+          atMs: fix.atMs,
+          speedMph: fix.speedMph,
+        }),
+      );
+    }
     const session = sessionRef.current;
     const currentPlan = planRef.current;
     if (!session || !currentPlan) return;
@@ -520,17 +535,16 @@ export default function DrivePage() {
 
   // ---- derived render state (state only - refs are off-limits in render) --------
   const lastFix = session?.lastFix ?? null;
-  const speedMph = lastFix?.speedMph ?? null;
-  // Fail closed (lib/vehicle-motion.ts): the fuller screen needs a
-  // POSITIVE "stopped" from a fresh fix. Moving, no speed, a stale fix -
-  // all stay on the moving surface.
-  // A stop must also have HELD for a few seconds (settleMotion) before the
-  // fuller screen is allowed - a lull in traffic is not "parked".
+  // Fail closed (lib/vehicle-motion.ts): the fuller screen needs POSITIVE
+  // evidence of a stop. The estimator (lib/motion-estimator.ts) draws a bubble
+  // around where he stopped: wander inside it is not movement, and a phone
+  // that reports no speed while parked is stopped from steady fixes. A stale
+  // or poor fix is unknown; a stop must hold 10 s before the fuller screen.
   const nowForMotion = nowMs || lastFix?.atMs || 0;
-  const motion = settleMotion(
-    classifyMotion(speedMph, lastFix ? nowForMotion - lastFix.atMs : null),
-    session?.stoppedSinceMs != null ? nowForMotion - session.stoppedSinceMs : null,
-  );
+  const motion = motionState(motionEst, nowForMotion);
+  // While parked the drawn icon is pinned to the anchor so it doesn't jitter.
+  const shownFix =
+    lastFix && motionEst.displayPoint && !motionEst.moving ? { ...lastFix, point: motionEst.displayPoint } : lastFix;
   const rolling = mode === "rolling" && isRestricted(motion) && DRIVE_SETTINGS.rollingSurface === "glance";
   const nextStop =
     plan && session && session.nextStopIndex < plan.stops.length
@@ -634,7 +648,7 @@ export default function DrivePage() {
             <DriveRolling
               plan={plan}
               session={session}
-              lastFix={lastFix}
+              lastFix={shownFix}
               mapGeometry={mapGeometry}
               mapDeadhead={mapDeadhead}
               positionQuality={positionQuality}
@@ -667,7 +681,7 @@ export default function DrivePage() {
                   deadheadGeometry={mapDeadhead}
                   stops={plan.stops}
                   stopStatus={session.stopStatus}
-                  position={lastFix?.point ?? null}
+                  position={shownFix?.point ?? null}
                   headingDeg={lastFix?.headingDeg ?? null}
                   positionQuality={positionQuality}
                   follow

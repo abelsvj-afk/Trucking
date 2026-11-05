@@ -40,6 +40,9 @@ beforeEach(() => {
 });
 
 const mph = (m: number) => m / 2.23694;
+// Fixes default to a good-accuracy reading at one spot (the estimator needs a position).
+const send = (c: { speed: number | null; latitude?: number; longitude?: number; accuracy?: number }) =>
+  onFix!({ coords: { latitude: 28, longitude: -81.7, accuracy: 10, ...c } });
 
 describe("useVehicleMotion", () => {
   it("is 'unknown' until the first reading - never assumed stopped", async () => {
@@ -49,9 +52,9 @@ describe("useVehicleMotion", () => {
 
   it("reads moving, then stopped, from GPS speed", async () => {
     await act(async () => void render(<Probe />));
-    act(() => onFix!({ coords: { speed: mph(40) } }));
+    act(() => send({ speed: mph(40) }));
     expect(screen.getByText("moving")).toBeTruthy();
-    act(() => onFix!({ coords: { speed: 0 } }));
+    act(() => send({ speed: 0 }));
     // a stop must HOLD before anything unlocks: not "stopped" yet
     expect(screen.getByText("moving")).toBeTruthy();
     await act(async () => {
@@ -62,13 +65,15 @@ describe("useVehicleMotion", () => {
 
   it("a lull in traffic doesn't unlock: speed back above the threshold restarts the stop clock", async () => {
     await act(async () => void render(<Probe />));
-    act(() => onFix!({ coords: { speed: 0 } }));
+    act(() => send({ speed: 0 }));
     await act(async () => {
       vi.advanceTimersByTime(8_000);
     });
     expect(screen.getByText("moving")).toBeTruthy();
-    act(() => onFix!({ coords: { speed: mph(12) } }));
-    act(() => onFix!({ coords: { speed: 0 } }));
+    // two consecutive clearly-moving readings (one alone could be a wobble)
+    act(() => send({ speed: mph(12) }));
+    act(() => send({ speed: mph(12) }));
+    act(() => send({ speed: 0 }));
     await act(async () => {
       vi.advanceTimersByTime(8_000);
     });
@@ -82,13 +87,35 @@ describe("useVehicleMotion", () => {
 
   it("a reading with no speed value is unknown, not stopped", async () => {
     await act(async () => void render(<Probe />));
-    act(() => onFix!({ coords: { speed: null } }));
+    act(() => send({ speed: null }));
     expect(screen.getByText("unknown")).toBeTruthy();
+  });
+
+  it("a phone that gives NO speed while parked reads stopped from steady fixes, not unknown forever", async () => {
+    await act(async () => void render(<Probe />));
+    for (let i = 0; i < 8; i++) {
+      act(() => send({ speed: null, latitude: 28 + (i % 2) * 0.00004, longitude: -81.7 }));
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+    }
+    expect(screen.getByText("stopped")).toBeTruthy();
+  });
+
+  it("parked fidget: wandering a few metres with small speeds never flips to moving", async () => {
+    await act(async () => void render(<Probe />));
+    for (let i = 0; i < 8; i++) {
+      act(() => send({ speed: mph(i % 3), latitude: 28 + (i % 2 ? 0.00008 : -0.00008), longitude: -81.7 + (i % 3) * 0.00005 }));
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+    }
+    expect(screen.getByText("stopped")).toBeTruthy();
   });
 
   it("'stopped' expires: with no fresh fix for 15 s it goes back to unknown", async () => {
     await act(async () => void render(<Probe />));
-    act(() => onFix!({ coords: { speed: 0 } }));
+    act(() => send({ speed: 0 }));
     await act(async () => {
       vi.advanceTimersByTime(10_000);
     });
@@ -101,7 +128,7 @@ describe("useVehicleMotion", () => {
 
   it("permission denied or GPS error is unknown", async () => {
     await act(async () => void render(<Probe />));
-    act(() => onFix!({ coords: { speed: 0 } }));
+    act(() => send({ speed: 0 }));
     act(() => onError!());
     expect(screen.getByText("unknown")).toBeTruthy();
   });
@@ -126,7 +153,7 @@ describe("useVehicleMotionDetail (position for the Home map and the GPS location
   it("exposes the latest fix, and drops it (not a stale guess) on a GPS error", async () => {
     await act(async () => void render(<DetailProbe />));
     expect(screen.getByText("unknown|none")).toBeTruthy();
-    act(() => onFix!({ coords: { speed: 0, latitude: 28.5, longitude: -81.4, accuracy: 9 } }));
+    act(() => send({ speed: 0, latitude: 28.5, longitude: -81.4, accuracy: 9 }));
     expect(screen.getByText("moving|28.5,-81.4,9")).toBeTruthy(); // position is immediate; the stop is not settled yet
     act(() => onError!());
     expect(screen.getByText("unknown|none")).toBeTruthy();

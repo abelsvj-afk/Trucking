@@ -87,6 +87,30 @@ source exists).
   under 45 s old (`GET /api/v1/position`). Honest limit: it only works while he
   is sharing; with no share there is no background tracking.
 
+### GPS "fidget" fix and the bubble (owner report 2026-11-05)
+
+Parked, the phone's position wanders and its speed flickers (and some phones
+report no speed at all while standing still), so the app treated a parked truck
+as moving and locked forms. Rule now (`lib/motion-estimator.ts`, used by the
+app-wide lock, Home and Drive): once a stop is seen, remember where (the
+**anchor**) and ignore wander inside a bubble around it (radius = max(30 m,
+1.5 x the fix's accuracy)). **Moving** needs evidence that survives the bubble:
+two consecutive fixes outside it, two consecutive clearly-moving speeds
+(> 8 mph), or one good fix above 15 mph. Slow drift with a reported low speed is
+followed, not counted. A phone that reports no speed is **stopped** from steady
+fixes inside the bubble (it used to be "unknown", which locked the app while
+parked). Unchanged and still fail-closed: a poor (> 100 m) or stale (> 15 s) fix
+is unknown; nothing unlocks until a stop has held 10 s. While parked the drawn
+icon is pinned to the anchor so it does not jitter; location is requested at
+high accuracy (the low-accuracy network fix can wander hundreds of metres).
+Like Google Maps, the icon and lock react a few seconds after real movement
+starts - the price of not reacting to noise.
+
+Not yet built from his description: the route-following *camera* behavior
+(zoom-in on the icon, heading-up, prediction of the next turn along the planned
+line) is Drive's map `follow` mode today; whether it feels like a truck GPS is
+his test on a real drive. Turn "prediction" is the spoken half-mile/close tiers.
+
 ## 5. Animation, where it earns its place
 
 Parked screens only: rolling money figures, headline word-reveal, ring arcs
