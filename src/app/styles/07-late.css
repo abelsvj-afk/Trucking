@@ -1,0 +1,239 @@
+/* The Deleted toggle (RecordLifecycle) is a quiet utility on every list
+   screen: the page's real action must be the obvious button (visual
+   audit F3, 2026-11-04). It stays a full-size tap target. */
+.deleted-toggle button {
+  min-height: 44px;
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted-strong);
+  background: transparent;
+  border: 1.5px solid var(--color-border-strong);
+  box-shadow: none;
+}
+
+.deleted-toggle button:hover {
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+}
+
+.deleted-toggle button[aria-pressed="true"] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* --- Bottom sheet (components/Sheet.tsx): in-place actions on Home --- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.sheet-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 40rem;
+  max-height: 92vh;
+  background: var(--color-surface);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: var(--shadow-lg, 0 -8px 32px rgba(0, 0, 0, 0.25));
+  animation: sheetUp 0.22s ease-out;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.sheet-head .sheet-close {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  font-size: 1.25rem;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.sheet-body {
+  padding: 0.75rem 1rem 1.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    animation: none;
+  }
+}
+
+.hud-status-timer {
+  margin-left: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.hud-links button,
+.hud-links a.hud-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+  background: transparent;
+  border: 2px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+  box-shadow: none;
+  text-decoration: none;
+}
+
+.hud-links .hud-link-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud-gate {
+  padding: 0.75rem;
+  border: 2px solid var(--color-warning);
+  border-radius: 0.75rem;
+  background: var(--color-warning-light);
+}
+
+.hud-gate button {
+  width: 100%;
+  min-height: 56px;
+  font-weight: 700;
+}
+
+/* --- Home owner-operator cards (docs/design/driver-usability.md §2) --- */
+.active-load-route {
+  margin: 0.25rem 0;
+  font-size: 1.15rem;
+  line-height: 1.35;
+}
+
+.active-load .page-action {
+  margin-top: 0.5rem;
+}
+
+.home-position {
+  margin: 0.75rem 0;
+}
+
+.home-position .row-sub {
+  margin-top: 0.35rem;
+}
+
+.drive-status-prompt {
+  margin: 0.75rem 0;
+}
+
+.drive-status-prompt button {
+  min-height: 56px;
+}
+
+/* App-wide driving lock (components/MotionLock.tsx): the banner stays in
+   view while forms are inert. */
+.motion-lock-banner {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-warning-light);
+  border-bottom: 3px solid var(--color-warning);
+}
+
+form[data-motion-locked="true"] {
+  opacity: 0.55;
+}
+
+/* News banner topic tile (phase (a) of docs/design/news-banner-images.md):
+   a visual anchor per story with no image fetched from anywhere. */
+.news-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.news-banner-tile {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  font-size: 1.75rem;
+  border-radius: 0.75rem;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-border);
+}
+
+.news-tile-fuel {
+  background: var(--color-warning-light);
+}
+
+.news-tile-weather {
+  background: var(--color-primary-light);
+}
+
+.news-tile-regulation {
+  background: var(--color-danger-light);
+}
+
+.news-tile-rates,
+.news-tile-market {
+  background: var(--color-success-light);
+}
+
+/* News banner image (served by /api/v1/news-image, re-encoded server-side). */
+.news-banner-tile {
+  overflow: hidden;
+}
+
+.news-banner-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

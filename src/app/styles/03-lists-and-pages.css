@@ -1,0 +1,466 @@
+/* Page header: title, the one-line purpose statement under it, and the
+   screen's primary action as a real button (PageHeader.tsx). */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+/* Visual audit: beside a button the title used to be squeezed into a
+   narrow column. The text block keeps a readable minimum width and the
+   action wraps below it on a phone. */
+.page-header-text {
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+
+.page-header h1 {
+  margin-bottom: 0.375rem;
+}
+
+.page-purpose {
+  /* Sits on the primary-light page gradient at the top of every
+     screen: muted was 4.37:1 there; muted-strong is 6.96:1 on
+     #eff6ff and 9.90:1 on the dark tint (audit Section D). */
+  color: var(--color-text-muted-strong);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  margin: 0 0 0.5rem;
+  max-width: 32rem;
+}
+
+/* Button treatment for the primary action link (Add truck, Add load,
+   ...) wherever it appears: page headers and teaching empty states.
+   Same surface as a real <button> so the main action on a screen
+   never reads as a stray text link. */
+a.page-action,
+.empty-state a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border-radius: 0.625rem;
+  background-color: var(--color-primary-button);
+  color: white;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+
+a.page-action:hover,
+.empty-state a:hover {
+  background-color: var(--color-primary-button-hover);
+  color: white;
+  text-decoration: none;
+}
+
+/* Teaching empty state (TeachingEmpty in ListStates.tsx): a dashed
+   "nothing here yet" card that explains what belongs on the screen
+   and offers the one button that starts it. */
+.empty-state {
+  border: 1.5px dashed var(--color-border);
+  border-radius: 1rem;
+  padding: 1.5rem 1.25rem;
+  margin-top: 1.25rem;
+  text-align: center;
+  background-color: var(--color-surface);
+}
+
+.empty-state-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.empty-state p {
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0 auto 1rem;
+  max-width: 26rem;
+}
+
+.empty-state .empty-state-title {
+  color: var(--color-text);
+}
+
+.empty-state a {
+  margin-top: 0.25rem;
+}
+
+/* List rows with a real hierarchy (UI/UX upgrade): a bold title line
+   and a muted summary line, instead of one run-on string. Used inside
+   the existing main li card. */
+.row-title {
+  display: block;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.row-sub {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.row-with-photo {
+  display: flex;
+  gap: 0.875rem;
+  align-items: center;
+}
+
+.row-with-photo .row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Entity photos (EntityPhoto.tsx). Thumb sits in list rows; hero tops
+   a detail screen. The empty variant is a quiet placeholder silhouette
+   so a missing photo never looks like a broken image. */
+.entity-photo {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.entity-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entity-photo-thumb {
+  width: 64px;
+  height: 64px;
+}
+
+.entity-photo-hero {
+  width: 100%;
+  height: 220px;
+  margin-top: 1rem;
+}
+
+.entity-photo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.photo-upload {
+  margin-top: 1rem;
+}
+
+.photo-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+}
+
+.photo-upload-input {
+  display: none;
+}
+
+/* Quick actions (Home dashboard): a 2-column grid of big, thumb-sized
+   shortcuts to the four things a driver does most. */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.quick-actions a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0.5rem;
+  border-radius: 0.875rem;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 700;
+  text-align: center;
+  margin-top: 0;
+}
+
+.quick-actions a:hover {
+  text-decoration: none;
+  color: var(--color-primary-hover);
+}
+
+/* The single next step on Home: the one card that answers "what do I
+   do now?" before anything else on the screen. */
+.next-step {
+  border: 1.5px solid var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.next-step p {
+  line-height: 1.5;
+  margin: 0 0 0.5rem;
+}
+
+/* Assistant discoverability (AskAssistant.tsx + the Assistant page):
+   tappable example questions instead of a blank box. */
+.prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.375rem 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-top: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.prompt-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.ask-assistant-open {
+  font-weight: 600;
+}
+
+/* What-the-assistant-can-do list (Assistant page): one capability per
+   line, each mapped to tools that actually exist in the agent. */
+.capability-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.capability-list li {
+  padding: 0.25rem 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  animation: none;
+  line-height: 1.5;
+}
+
+/* Chat turns as bubbles instead of "You: / King:" paragraphs, so the
+   conversation reads like the messaging apps the owner lives in. */
+.chat-turn {
+  max-width: 85%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  margin: 0 0 0.625rem;
+}
+
+.chat-turn-user {
+  background-color: var(--color-primary-button);
+  color: white;
+  margin-left: auto;
+  border-bottom-right-radius: 0.25rem;
+}
+
+.chat-turn-assistant {
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  margin-right: auto;
+  border-bottom-left-radius: 0.25rem;
+}
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1rem;
+}
+
+/* Index hubs (Fleet / Money / More): each entry gets its one-line
+   "what is this for" under the link, so the hub teaches too. */
+.hub-desc {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.hub-link {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+/* Hub rows: the whole row is the link (audit A-2) - the Link wraps
+   label + description and is a full-row, 56px-minimum tap target
+   instead of only the label word being tappable. */
+.hub-row-link {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 56px;
+}
+
+.hub-row-link:hover {
+  text-decoration: none;
+}
+
+.hub-row-link:hover .hub-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+/* --- Home news banner (src/components/NewsBanner.tsx; 2026-11-02
+   design): a slim strip under the Home header rotating the research
+   engine's briefings and Watching signals. The strip is a FIXED
+   height in every state (loading, item, quiet, stale, setup) so
+   Home never layout-shifts under his hours. Rotation itself is a JS
+   timer - the component checks prefers-reduced-motion itself and
+   never starts the timer; bannerFade below is the crossfade each
+   item enters with, neutralized by the reduced-motion block like
+   every other animation here. */
+@keyframes bannerFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.news-banner {
+  height: 13.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  overflow: hidden;
+}
+
+.news-banner-item-zone {
+  height: 5.5rem;
+  overflow: hidden;
+}
+
+.news-banner-item {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+  color: inherit;
+  animation: bannerFade 0.45s ease both;
+}
+
+.news-banner-item:hover {
+  text-decoration: none;
+}
+
+.news-banner-tagrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.news-banner-watching {
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  border-radius: 999px;
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.news-banner-new {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.news-banner-headline {
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-banner-sub {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.news-banner-line {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.news-banner-warning {
+  margin: 0;
+  color: var(--color-warning);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.news-banner-dots {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.news-banner-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  background-color: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.news-banner-dot.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.news-banner-actions {
+  margin: auto 0 0;
+}
+
+.news-banner-result {
+  margin-top: 0.75rem;
+  line-height: 1.5;
+}

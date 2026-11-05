@@ -8,7 +8,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(path.resolve(process.cwd(), "src/app/globals.css"), "utf8");
+// globals.css is an ordered list of @imports of ./styles/*.css (file
+// decomposition); the guard reads the parts in that same cascade order.
+const appDir = path.resolve(process.cwd(), "src/app");
+const css = [...readFileSync(path.join(appDir, "globals.css"), "utf8").matchAll(/@import "\.\/(styles\/[^"]+)";/g)]
+  .map((m) => readFileSync(path.join(appDir, m[1]!), "utf8"))
+  .join("\n");
 const driveMap = readFileSync(
   path.resolve(process.cwd(), "src/components/DriveMap.tsx"),
   "utf8",
