@@ -17,6 +17,7 @@ import { hosCalculationWindowStartMs, isProvisionalCarrierConfig, type HosCarrie
 import { loadHosConfig } from "@/services/api/hos-config";
 import { ApiError } from "@/services/api/errors";
 import type { DutyLog } from "@/types/entities";
+import type { DutyLogWindowSummary } from "@/types/hos-settings";
 
 export const HOS_WINDOW_ROW_LIMIT = 5000;
 
@@ -91,4 +92,23 @@ export function cycleLine(snapshot: HosWindowSnapshot): string {
 /** All warnings for the surface: short-term clocks plus the cycle's own. */
 export function hosWarnings(snapshot: HosWindowSnapshot): string[] {
   return [...snapshot.short.warnings, ...snapshot.cycle.warnings];
+}
+
+/** The cycle summary every surface shows, in the shape the HUD clocks consume. */
+export function toWindowSummary(snapshot: HosWindowSnapshot): DutyLogWindowSummary {
+  const { cycle, config } = snapshot;
+  return {
+    cycle: cycle.cycle,
+    cycleLimitMinutes: cycle.cycleLimitMinutes,
+    periodAnchor: cycle.periodAnchor,
+    restartEnabled: config.restartEnabled,
+    carrierTimeZone: cycle.carrierTimeZone,
+    windowStart: cycle.windowStart,
+    windowEnd: cycle.windowEnd,
+    currentPeriodStart: cycle.currentPeriodStart,
+    onDutyMinutesInCycle: cycle.onDutyMinutesInCycle,
+    restartApplied: cycle.restartApplied,
+    restartUnverified: cycle.restartUnverified,
+    warnings: cycle.warnings,
+  };
 }

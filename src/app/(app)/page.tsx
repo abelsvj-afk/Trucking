@@ -20,6 +20,7 @@ import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
 import ActiveLoadCard from "@/components/ActiveLoadCard";
 import PayPreviewCard from "@/components/PayPreviewCard";
+import PaycheckHomeCard from "@/components/PaycheckHomeCard";
 import DayWrapCard from "@/components/DayWrapCard";
 import Reveal from "@/components/Reveal";
 import NumberTicker from "@/components/NumberTicker";
@@ -170,6 +171,7 @@ export default function HomePage() {
       <ActiveLoadCard />
 
       <PayPreviewCard />
+      <PaycheckHomeCard />
 
       <ActivePlanCard />
 

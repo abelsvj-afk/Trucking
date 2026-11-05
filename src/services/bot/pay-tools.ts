@@ -18,6 +18,9 @@ import {
 } from "@/services/ai/settlement-extraction";
 import type { BotBrainStore } from "./store";
 import { validateWith } from "./tool-helpers";
+import { loadHosCost } from "@/lib/hos-cost";
+import { loadHosWindow } from "@/services/api/hos-window";
+import { glanceFromSnapshot } from "@/services/api/pay-summary";
 import {
   formatPayPin,
   isPinned,
@@ -411,7 +414,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
     {
       name: "explain_load_pay",
       description:
-        "Walk one completed load's money like a lesson (the lease-on economics explainer): what it grossed, what the carrier's cut was (actual from a settlement line when linked, else the TYPICAL lease-on band - always labeled as a general band, never as this carrier's number), the truck's share, his pay (actual, or under the pin), and the same load under his own authority. Get the load id from list_loads.",
+        "Walk one completed load's money like a lesson (the lease-on economics explainer): what it grossed, what the carrier's cut was (actual from a settlement line when linked, else the TYPICAL lease-on band - always labeled as a general band, never as this carrier's number), the truck's share, his pay (actual, or under the pin), and the same load under his own authority, plus the load's cost in hours against his current clocks. Get the load id from list_loads.",
       parameters: {
         type: "object",
         properties: { load_id: { type: "string" } },
@@ -454,7 +457,16 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           actualCarrierCutCents: actualCut,
           pin,
         });
-        return economics.lines.join("\n");
+        // The load's cost in hours beside its pay - from the ONE HOS read, never a second implementation.
+        let hoursLine: string;
+        try {
+          const now = new Date();
+          const snapshot = await loadHosWindow(client, companyId, now);
+          hoursLine = `Hours: ${loadHosCost(load.miles, glanceFromSnapshot(snapshot, now.getTime())).text}`;
+        } catch {
+          hoursLine = "Hours: your logged hours couldn't be read just now, so I can't say how this load fits them.";
+        }
+        return [...economics.lines, hoursLine].join("\n");
       },
     },
   ];

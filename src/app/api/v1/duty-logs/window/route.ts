@@ -17,28 +17,13 @@
 import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
 import { createClient } from "@/services/db/server";
-import { loadHosWindow } from "@/services/api/hos-window";
-import type { DutyLogWindowSummary } from "@/types/hos-settings";
+import { loadHosWindow, toWindowSummary } from "@/services/api/hos-window";
 
 export const GET = createApiHandler(async (_req, ctx) => {
   const supabase = await createClient();
   // The one server-side HOS read (services/api/hos-window.ts).
   const snapshot = await loadHosWindow(supabase, ctx.auth.companyId, new Date());
-  const { cycle, config, rows } = snapshot;
-  const hos: DutyLogWindowSummary = {
-    cycle: cycle.cycle,
-    cycleLimitMinutes: cycle.cycleLimitMinutes,
-    periodAnchor: cycle.periodAnchor,
-    restartEnabled: config.restartEnabled,
-    carrierTimeZone: cycle.carrierTimeZone,
-    windowStart: cycle.windowStart,
-    windowEnd: cycle.windowEnd,
-    currentPeriodStart: cycle.currentPeriodStart,
-    onDutyMinutesInCycle: cycle.onDutyMinutesInCycle,
-    restartApplied: cycle.restartApplied,
-    restartUnverified: cycle.restartUnverified,
-    warnings: cycle.warnings,
-  };
+  const hos = toWindowSummary(snapshot);
 
-  return NextResponse.json({ data: rows, hos });
+  return NextResponse.json({ data: snapshot.rows, hos });
 });

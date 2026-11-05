@@ -49,6 +49,10 @@ export default function NewLoadPage() {
   const [detentionFreeMinutes, setDetentionFreeMinutes] = useState("");
   const [detentionRateDollars, setDetentionRateDollars] = useState("");
   const [rateDollars, setRateDollars] = useState("");
+  // Mileage drives the pay projection and the paycheck check; a finished load
+  // can be entered after the fact (status Completed) with its real miles.
+  const [loadedMiles, setLoadedMiles] = useState("");
+  const [deadheadMiles, setDeadheadMiles] = useState("");
   const [status, setStatus] = useState<LoadStatus>("draft");
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
@@ -98,6 +102,11 @@ export default function NewLoadPage() {
           ? Math.round(parseFloat(detentionRateDollars) * 100)
           : undefined,
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : undefined,
+        ...(loadedMiles ? { loaded_miles: parseFloat(loadedMiles) } : {}),
+        ...(deadheadMiles ? { deadhead_miles: parseFloat(deadheadMiles) } : {}),
+        ...(loadedMiles || deadheadMiles
+          ? { miles: Math.round(parseFloat(loadedMiles || "0") + parseFloat(deadheadMiles || "0")) }
+          : {}),
         status,
         truck_id: truckId || null,
         ...(trailerId ? { trailer_id: trailerId } : {}),
@@ -208,7 +217,13 @@ export default function NewLoadPage() {
           onChange={(event) => setRateDollars(event.target.value)}
         />
 
-        <label htmlFor="status">Status</label>
+        <label htmlFor="loaded_miles">Loaded miles (optional)</label>
+        <input id="loaded_miles" type="number" step="0.1" min="0" value={loadedMiles} onChange={(event) => setLoadedMiles(event.target.value)} />
+
+        <label htmlFor="deadhead_miles">Deadhead miles (optional)</label>
+        <input id="deadhead_miles" type="number" step="0.1" min="0" value={deadheadMiles} onChange={(event) => setDeadheadMiles(event.target.value)} />
+
+        <label htmlFor="status">Status (choose Completed to enter a load you already finished)</label>
         <select
           id="status"
           value={status}

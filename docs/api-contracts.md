@@ -112,6 +112,10 @@ All three support filtering the list endpoint by `truck_id` and by `trailer_id` 
 
 Both are standard resources (the 5-endpoint table above) with the fields in `docs/schemas.md`, added per `docs/design/driver-mvp.md` §§3/5. `duty-logs` rows are duty-status starts. (Reliability Unit B update: the HOS *cycle* summary is now computed server-side and returned by the dedicated window endpoint below, from the carrier-anchored engine in `src/lib/hos-cycle.ts`; the short-term figures — 14-hour window, 11-hour driving, 30-minute break — are still computed client-side in `src/lib/hos.ts`, fed from the same window rows. The pre-Unit-B arrangement — summary computed from the capped, newest-first list response — is gone; see `docs/time-and-hos.md`.) `dispatch-exchanges` is written by the client only on the owner's explicit save, or by the owner's private Telegram bot (see the webhook contract below) — never automatically by `/api/v1/dispatch-suggest`.
 
+### Paycheck picture — `GET /api/v1/pay-summary`
+
+Read-only (owner order 2026-11-05, items 3–4). Returns `{ "data": PaySummary }`: `hasTerms`; `active` (the pick-active-load load with its expected pay line, `overdue`, and `hosCost` — the load's hours cost from the one HOS read); `completed` (completed loads, newest delivery first, each with a `line`: expected range priced by the pay-terms row in force on the delivery date, `receivedCents` from `load_pay` settlement lines, `status` paid / short / over / unpaid / unknown, `shortfallCents`); `totals` (unpaid count + expected low/high cents, short count + shortfall cents); `hos` (drive/window/break/cycle remaining, ms); `asOf`. Gross at his stated rate; his settlement is the final number. Planning only — not an ELD.
+
 ### HOS window + carrier settings — Reliability Unit B additions
 
 **`GET /api/v1/duty-logs/window`** — every non-deleted duty log in the HOS calculation window (from the carrier-anchored period `cycle periods + 2` before the current period through now), ordered by `started_at` ascending, plus the server-computed cycle summary and the window actually used:
@@ -533,6 +537,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/paper-logs` | GET,POST | custom (see section / design doc) |
 | `/api/v1/pay-profiles/[id]` | GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/pay-profiles` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/pay-summary` | GET | custom (see section / design doc) |
 | `/api/v1/position` | GET | custom (see section / design doc) |
 | `/api/v1/pretrip-inspections/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/pretrip-inspections/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |

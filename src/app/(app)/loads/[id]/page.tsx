@@ -611,6 +611,8 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
     load.rate_cents != null ? (load.rate_cents / 100).toString() : "",
   );
   const [miles, setMiles] = useState(load.miles != null ? load.miles.toString() : "");
+  const [loadedMiles, setLoadedMiles] = useState(load.loaded_miles != null ? load.loaded_miles.toString() : "");
+  const [deadheadMiles, setDeadheadMiles] = useState(load.deadhead_miles != null ? load.deadhead_miles.toString() : "");
   const [notes, setNotes] = useState(load.notes ?? "");
   const [truckId, setTruckId] = useState(load.truck_id ?? "");
   const [trailerId, setTrailerId] = useState(load.trailer_id ?? "");
@@ -642,6 +644,9 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
         delivery_date: deliveryDate || null,
         rate_cents: rateDollars ? Math.round(parseFloat(rateDollars) * 100) : null,
         miles: miles ? Math.round(parseFloat(miles)) : null,
+        // Only when filled in and changed (the columns are not clearable here).
+        ...(loadedMiles && loadedMiles !== (load.loaded_miles?.toString() ?? "") ? { loaded_miles: parseFloat(loadedMiles) } : {}),
+        ...(deadheadMiles && deadheadMiles !== (load.deadhead_miles?.toString() ?? "") ? { deadhead_miles: parseFloat(deadheadMiles) } : {}),
         notes: notes || null,
         truck_id: truckId || null,
         // Only when changed: an untouched trailer never writes the column.
@@ -714,6 +719,12 @@ function LoadEditForm({ load, onSaved }: { load: Load; onSaved: (load: Load) => 
           value={miles}
           onChange={(event) => setMiles(event.target.value)}
         />
+
+        <label htmlFor="edit-loaded-miles">Loaded miles</label>
+        <input id="edit-loaded-miles" type="number" step="0.1" min="0" value={loadedMiles} onChange={(event) => setLoadedMiles(event.target.value)} />
+
+        <label htmlFor="edit-deadhead-miles">Deadhead miles</label>
+        <input id="edit-deadhead-miles" type="number" step="0.1" min="0" value={deadheadMiles} onChange={(event) => setDeadheadMiles(event.target.value)} />
 
         <label htmlFor="edit-truck_id">Truck</label>
         <select id="edit-truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>

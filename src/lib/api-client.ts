@@ -21,6 +21,7 @@ import type { PaperworkState } from "@/lib/paperwork";
 import type { FundSettingsView, LadderStepView, TruckFundOverview } from "@/types/truck-fund";
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
+import type { PaySummary } from "@/services/api/pay-summary";
 
 /** One row of the "What Abel remembers" list (Lane 2, Phase B). */
 export interface BotMemoryListItem {
@@ -236,6 +237,7 @@ export const apiClient = {
     }),
   dutyLogWindow: () =>
     request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
+  paySummary: () => request<{ data: PaySummary }>("/api/v1/pay-summary"),
   // Truck Fund + money visibility (docs/design/driver-mvp.md §9).
   truckFund: () => request<TruckFundOverview>("/api/v1/truck-fund"),
   updateFundSettings: (body: Record<string, unknown>) =>
