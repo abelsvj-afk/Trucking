@@ -117,7 +117,7 @@ export default function HomePage() {
   return (
     <div>
       <PageHeader
-        title="Trucking OS"
+        title="Road to Legacy"
         purpose="Your whole business at a glance — hours, money, and the one thing to do next."
       />
 

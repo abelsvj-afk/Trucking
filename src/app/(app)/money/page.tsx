@@ -15,7 +15,7 @@ import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
 import Reveal from "@/components/Reveal";
 
-export const metadata: Metadata = { title: "Money — Trucking OS" };
+export const metadata: Metadata = { title: "Money — Road to Legacy" };
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/money/expenses", label: "Expenses", desc: "What the business spends — insurance, permits, repairs, the rest." },
