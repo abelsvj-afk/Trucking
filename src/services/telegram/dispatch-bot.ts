@@ -110,6 +110,8 @@ export interface TelegramUpdate {
     data?: string;
     message?: {
       message_id?: number;
+      /** Unix seconds the message the button sits on was sent. */
+      date?: number;
       chat?: { id?: number; type?: string };
     };
   };
@@ -550,6 +552,35 @@ export async function handleTelegramUpdate(
 }
 
 const CALLBACK_DATA_PATTERN = /^pp:([0-9a-fA-F-]{36}):([a-z_]+)$/;
+/** A proposal's tap-to-answer buttons: the tap is exactly the typed "yes" / "no" (same code path, same rules). */
+const YES_NO_DATA_PATTERN = /^yn:(yes|no)$/;
+/** A tap on an old message is refused - the same freshness window a casual "ok" gets. */
+const YES_NO_TAP_MAX_AGE_SECONDS = 10 * 60;
+/** True when a reply is asking for his yes/no on something staged ("Reply YES to ..."). */
+export function asksForYesNo(text: string): boolean {
+  return /\bReply YES\b/.test(text);
+}
+
+/**
+ * Sends a reply; when it asks for a yes/no, big Yes / No buttons ride along (gloves, a truck). Button
+ * delivery failing or unsupported degrades to the same text - he can always just type it.
+ */
+async function sendReply(deps: TelegramDeps, chatId: number, text: string): Promise<void> {
+  if (deps.sendAskMessage && asksForYesNo(text)) {
+    try {
+      await deps.sendAskMessage(chatId, text, [
+        [
+          { text: "✅ Yes", callback_data: "yn:yes" },
+          { text: "❌ No", callback_data: "yn:no" },
+        ],
+      ]);
+      return;
+    } catch (err) {
+      console.error("[telegram] yes/no button send failed; sending plain text", err);
+    }
+  }
+  await deps.sendMessage(chatId, text);
+}
 
 /**
  * §3.3: resolves one inline-keyboard tap. The tap settles a
@@ -573,6 +604,21 @@ async function handleCallbackQuery(
     }
   };
 
+  const yesNo = typeof query.data === "string" ? query.data.match(YES_NO_DATA_PATTERN) : null;
+  if (yesNo) {
+    const sentAt = query.message?.date;
+    if (typeof sentAt === "number" && Date.now() / 1000 - sentAt > YES_NO_TAP_MAX_AGE_SECONDS) {
+      await answer("That one's a while back - just tell me yes or no in words.");
+      return "callback_ignored";
+    }
+    await answer();
+    const item: TelegramBurstItem = { text: yesNo[1]!, isForwarded: false, voiceNote: false };
+    const outcome = await processTextItems([item], chatId, deps);
+    await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+    if (outcome.afterSend) await outcome.afterSend();
+    if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
+    return "callback_replied";
+  }
   const match = typeof query.data === "string" ? query.data.match(CALLBACK_DATA_PATTERN) : null;
   if (!match) {
     await answer("That button doesn't work anymore.");
@@ -891,10 +937,7 @@ async function processTelegramUpdate(
       item,
       async (bundleItems) => {
         const outcome = await processTextItems(bundleItems, chatId, deps);
-        await deps.sendMessage(
-          chatId,
-          outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply,
-        );
+        await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
         if (outcome.afterSend) await outcome.afterSend();
         if (outcome.persist) await persistTextTurn(store, chatId, bundleItems, outcome.reply);
       },
@@ -919,10 +962,7 @@ async function processTelegramUpdate(
   }
 
   const outcome = await processTextItems([item], chatId, deps);
-  await deps.sendMessage(
-    chatId,
-    outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply,
-  );
+  await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
   if (outcome.afterSend) await outcome.afterSend();
   if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
   return outcome.result;

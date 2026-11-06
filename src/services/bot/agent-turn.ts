@@ -387,10 +387,15 @@ async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string
  * P0-5: after a YES/NO resolves the newest proposal, anything else still open is named - so the next
  * bare YES is never a surprise, and nothing waiting is forgotten.
  */
-async function withStillWaiting(store: BotBrainStore, out: BotChatOutput): Promise<BotChatOutput> {
+async function withStillWaiting(store: BotBrainStore, out: BotChatOutput, excludeKey?: string | null): Promise<BotChatOutput> {
   try {
     const open = (await store.loadOpenPendingGroups()).filter(
-      (g) => g.toolName !== PHOTO_PURPOSE_TOOL && Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
+      (g) =>
+        g.toolName !== PHOTO_PURPOSE_TOOL &&
+        g.key !== excludeKey &&
+        // already named in this very reply (a kept-for-retry proposal) - never listed twice
+        !out.reply.includes(g.summary) &&
+        Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
     );
     if (open.length === 0) return out;
     const lines = open.map((g) => `- ${g.summary}`).join("\n");
@@ -523,7 +528,7 @@ export async function runAgentTurn(
       }
       const command = parseBatchCommand(input.userText);
       if (command.kind !== "other") {
-        return withStillWaiting(store, await resolveBatch(store, pendingBatch, command));
+        return withStillWaiting(store, await resolveBatch(store, pendingBatch, command), pendingBatch[0]?.batch_id);
       }
       // "other" (typically a correction) falls through to the model
       // with the batch in context - see the context block below.
@@ -671,10 +676,12 @@ export async function runAgentTurn(
     // P0-4 (telegram audit 2026-11-06): two separate proposals each said "reply YES", but one YES only ever
     // answers one of them. More than one single in a turn becomes ONE numbered list instead, answered with
     // the batch grammar (yes = all, "1 and 3", "drop the rest").
-    const looseSingles = proposals.filter((p) => !p.batchId);
+    // A delete stays its own proposal (saved first, so the list is what a YES answers and the delete is named
+    // as still waiting): one casual YES must never also delete something.
+    const looseSingles = proposals.filter((p) => !p.batchId && p.tool !== "delete_record");
     if (looseSingles.length > 1) {
       const batchId = randomUUID();
-      proposals = proposals.map((p) => (p.batchId ? p : { ...p, batchId }));
+      proposals = proposals.map((p) => (p.batchId || p.tool === "delete_record" ? p : { ...p, batchId }));
     }
     const singles = proposals.filter((p) => !p.batchId);
     const batches = new Map<string, typeof proposals>();
@@ -727,5 +734,13 @@ export async function runAgentTurn(
     }
   }
 
+  // A "reply YES" with nothing staged (the proposal was refused or never made) would answer nothing - or,
+  // worse, something older. It is dropped unless a proposal really is waiting.
+  if (proposals.length === 0 && /\breply\s+(?:with\s+)?["“']?yes\b/i.test(reply)) {
+    const waiting = await store.loadPendingAction().catch(() => null);
+    if (!waiting) {
+      reply = stripConfirmationProse(reply) || "I haven't recorded anything yet - tell me what you'd like and I'll set it up.";
+    }
+  }
   return { reply };
 }

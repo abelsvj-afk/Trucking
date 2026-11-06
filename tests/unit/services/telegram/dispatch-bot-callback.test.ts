@@ -188,3 +188,57 @@ describe("handleTelegramUpdate — photo ask delivery (§3.3)", () => {
     expect(sent).toContain("Reply with a number");
   });
 });
+
+describe("Yes / No buttons on proposals", () => {
+  function textUpdate(updateId: number, text: string) {
+    return { update_id: updateId, message: { message_id: 1, chat: { id: 4242, type: "private" }, text, date: 1 } };
+  }
+
+  it("a reply that asks for a yes/no goes out with Yes and No buttons", async () => {
+    const d = deps();
+    (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({
+      reply: "I have NOT recorded this yet. Reply YES to confirm, or NO to drop it:\n- Expense: $88.00",
+      memory: null,
+    });
+    await handleTelegramUpdate(textUpdate(60, "the tire was 88"), CONFIG, d);
+    expect(d.sendAskMessage).toHaveBeenCalledTimes(1);
+    const [, , buttons] = d.sendAskMessage.mock.calls[0]! as unknown as [number, string, { callback_data: string }[][]];
+    expect(buttons[0]!.map((b) => b.callback_data)).toEqual(["yn:yes", "yn:no"]);
+  });
+
+  it("an ordinary reply carries no buttons, and failed buttons degrade to plain text", async () => {
+    const plain = deps();
+    (plain as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply: "You have 3h left.", memory: null });
+    await handleTelegramUpdate(textUpdate(61, "how much time"), CONFIG, plain);
+    expect(plain.sendAskMessage).not.toHaveBeenCalled();
+    expect(plain.sendMessage).toHaveBeenCalledWith(4242, "You have 3h left.");
+
+    const broken = deps();
+    broken.sendAskMessage.mockRejectedValue(new Error("no buttons today"));
+    (broken as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply: "Reply YES to confirm", memory: null });
+    await handleTelegramUpdate(textUpdate(62, "x"), CONFIG, broken);
+    expect(broken.sendMessage).toHaveBeenCalledWith(4242, "Reply YES to confirm");
+  });
+
+  it("a fresh tap runs exactly the typed 'yes' through the bot", async () => {
+    const d = deps();
+    const runChat = (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat;
+    runChat.mockResolvedValue({ reply: "Done - recorded.", memory: null });
+    const now = Math.floor(Date.now() / 1000);
+    const update = tapUpdate(63, "yn:yes");
+    update.callback_query.message = { ...update.callback_query.message, date: now - 30 } as typeof update.callback_query.message;
+    expect(await handleTelegramUpdate(update, CONFIG, d)).toBe("callback_replied");
+    expect(runChat.mock.calls[0]![0].userText).toBe("yes");
+    expect(d.sendMessage).toHaveBeenCalledWith(4242, "Done - recorded.");
+  });
+
+  it("a tap on a message from long ago is refused, never answered as a yes", async () => {
+    const d = deps();
+    const runChat = (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat;
+    const update = tapUpdate(64, "yn:yes");
+    update.callback_query.message = { ...update.callback_query.message, date: Math.floor(Date.now() / 1000) - 3600 } as typeof update.callback_query.message;
+    expect(await handleTelegramUpdate(update, CONFIG, d)).toBe("callback_ignored");
+    expect(runChat).not.toHaveBeenCalled();
+    expect(d.answerCallbackQuery).toHaveBeenCalledWith("q-64", expect.stringContaining("a while back"));
+  });
+});

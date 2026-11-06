@@ -46,6 +46,8 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
     - the prompt names the bot Abel (it said King).
   - P2: the model's duplicate "reply YES" prose is stripped; a recognised trip forward skips the sender guess.
   - Tests: `tests/unit/services/bot/telegram-audit-helpers.test.ts` plus the transcript regression in `agent-turn.test.ts`.
+  - Follow-up self-review (same day): fixed "Still waiting" being listed twice (partial approvals, kept-for-retry), a delete being merged into a list one YES approves (it now stays its own proposal and is named as still waiting), and a stray "reply YES" when nothing was staged.
+  - New: proposals go out with tap-able Yes / No buttons (`yn:yes` / `yn:no`). A tap is exactly the typed word through the same code path. A tap on a message over 10 minutes old is refused. If buttons fail to send, plain text goes out. Needs the Telegram webhook to deliver callback_query updates, which the photo buttons already rely on.
   - To verify after deploy: replay the transcript's turns with Abel on Telegram.
 
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)

@@ -732,3 +732,58 @@ describe("transcript regression - telegram audit 2026-11-06", () => {
     expect(db.bot_memories![0]!.deleted_at).toBeNull();
   });
 });
+
+describe("audit follow-up bug fixes", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const live = (db: Record<string, Row[]>) => db.bot_pending_actions!.filter((r) => !r.deleted_at);
+
+  it("a delete is never merged into the list one YES approves", async () => {
+    const seed = baseSeed(true);
+    seed.bot_memories = [{ id: "5b1e4c7a-0000-4000-8000-000000000001", company_id: COMPANY, kind: "fact", content: "old", deleted_at: null }];
+    const { client, db } = fakeClient(seed);
+    const { provider } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          { id: "a", name: "create_expense", arguments: JSON.stringify({ category: "permits", amount_dollars: 11, confirmation: "propose" }) },
+          { id: "b", name: "create_expense", arguments: JSON.stringify({ category: "repairs", amount_dollars: 88, confirmation: "propose" }) },
+          { id: "c", name: "delete_record", arguments: JSON.stringify({ entity: "memory", record_id: "5b1e4c7a-0000-4000-8000-000000000001", confirmation: "propose" }) },
+        ],
+      },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    const store = telegramStore(client);
+    await runAgentTurn(provider, store, input("record the permit and the tire, and forget the old note"));
+    const rows = live(db);
+    const del = rows.find((r) => r.tool_name === "delete_record")!;
+    expect(del.batch_id ?? null).toBeNull();
+    expect(rows.filter((r) => r.batch_id)).toHaveLength(2);
+
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, store, input("yes"));
+    expect(db.expenses).toHaveLength(2);
+    expect(db.bot_memories![0]!.deleted_at).toBeNull();
+    expect(out.reply).toContain("Still waiting");
+  });
+
+  it("a partial approval does not list the remaining items twice", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "i1", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "permits", amount_dollars: 11 }, summary: "Expense: $11.00 (permits)", batch_id: "b1", item_number: 1, created_at: ago(1), deleted_at: null },
+      { id: "i2", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", batch_id: "b1", item_number: 2, created_at: ago(1), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("just 1"));
+    expect(db.expenses).toHaveLength(1);
+    expect(out.reply.match(/Still waiting/g) ?? []).toHaveLength(1);
+  });
+
+  it("'reply YES' with nothing staged is stripped - it would answer nothing", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider } = scriptedProvider([{ text: "I couldn't find that load. Reply YES if you want me to create it.", toolCalls: [] }]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("update the load"));
+    expect(out.reply).not.toMatch(/reply yes/i);
+    expect(out.reply).toContain("couldn't find that load");
+  });
+});
