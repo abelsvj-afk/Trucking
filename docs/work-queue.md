@@ -13,10 +13,10 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 4. **Standing work order after that:** step 6 / step 7 with the pay profile; paper log; Smart Path Phases 1–3 (corridor geometry, regional fuel, weather, state laws, construction; stale data always labeled); decomposition (remaining oversized files: `services/bot/store.ts` (pay-truth -> `store-pay.ts`, threads/people -> `store-threads.ts`, memory+capability flags -> `store-memory.ts`; 1664 -> 805 lines, pending-actions -> `store-pending.ts`; the store is now composed of five slice modules), `tools-write.ts` (1780 -> 684: helpers, maintenance, fleet, records slices in `tools-write-*.ts`), `telegram/dispatch-bot.ts` (1104 -> 923: `forward-format.ts`, `context-loader.ts`; text-turn processing is the remaining large block)); reliability Units D and E.
 
 ## B. Retrospective audit (worked alongside; checklist in `docs/reconciliation/audit-closure-checklist.md`)
-- Wave 4 remaining: service-role company-isolation tests (webhook store, schedulers, internal invokers); seeders for the 4 unseedable tables; real-browser E2E for the main journeys and the motion lock; AI evals (confirmation targeting, cancel-vs-delete, forwarded-text injection G3, memory supersession, same-name people); accessibility pass; phone-width performance run; update remaining stale canonical sections.
-- Wave 5: reconcile `TASKS.md` into small dependency-ordered tasks; `CHANGELOG.md` and agent files only if the owner names them; postmortem record.
+- Wave 4 remaining (needs a deployed app / live DB): real-browser E2E for the main journeys and the motion lock; real-browser accessibility + phone-width performance runs; model-behavior evals (language gate, same-name people, memory supersession); service-role item 3 jobs driven individually. DONE this session: brain-store + bot-tool + game company-scope tests, injection-authority, driver_positions, isolation seeders 60/60, pool-role grants, a11y static baseline.
+- Wave 5: `TASKS.md` indexed through 2026-11-06 (done); `CHANGELOG.md` and agent files only if the owner names them; postmortem record.
 - Wave 6: remediation only per owner-approved unit (G4 owner-visible activity log; retention beyond messages).
-- P3: README refresh, `.env.example` check.
+- P3: README refresh and `.env.example` check - DONE 2026-11-06.
 
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
