@@ -35,8 +35,13 @@ describe("PayTermsSettings", () => {
     const form = within(screen.getByRole("form", { name: "Pay terms for Acme Freight" }));
     expect((form.getByLabelText(/Pay per mile/) as HTMLInputElement).value).toBe("0.55");
     expect((form.getByLabelText("Which miles are paid") as HTMLSelectElement).value).toBe("");
-    expect(screen.getByRole("note").textContent).toMatch(/Miles basis is not set, tax status is not set/);
-    expect(screen.getByRole("note").textContent).toMatch(/Nothing is guessed/);
+    const notes = screen.getAllByRole("note").map((n) => n.textContent ?? "").join(" | ");
+    expect(notes).toMatch(/Miles basis is not set/);
+    expect(notes).toMatch(/Tax status is not set/);
+    expect(notes).toMatch(/Nothing is guessed/);
+    // pay week and payday are visibly UNSET too
+    expect(notes).toMatch(/Pay week not set/);
+    expect(notes).toMatch(/Payday not set/);
   });
 
   it("'Terms changed' closes the old terms first, then starts new ones in integer cents", async () => {
@@ -67,5 +72,50 @@ describe("PayTermsSettings", () => {
     expect(calls[0]).toContain('"employer_name":"Some Carrier"');
     expect(calls[0]).toContain('"rate_cents_per_mile":62');
     expect(calls[0]).toContain('"mile_basis":null');
+  });
+
+  it("adds percent-only terms with a pay week and payday (no per-mile rate needed)", async () => {
+    listMock.mockResolvedValue({ data: [] });
+    render(<PayTermsSettings />);
+    await screen.findByText(/No pay terms entered yet/);
+    const form = within(screen.getByRole("form", { name: "Add pay terms" }));
+    fireEvent.change(form.getByLabelText("Employer"), { target: { value: "Some Carrier" } });
+    fireEvent.change(form.getByLabelText(/Percent of the load/), { target: { value: "85" } });
+    fireEvent.change(form.getByLabelText("Your pay week ends on"), { target: { value: "0" } });
+    fireEvent.change(form.getByLabelText("You get paid on"), { target: { value: "5" } });
+    fireEvent.click(form.getByText("Save pay terms"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toContain('"rate_cents_per_mile":0');
+    expect(calls[0]).toContain('"percent_of_load_bps":8500');
+    expect(calls[0]).toContain('"pay_week_ends_on":0');
+    expect(calls[0]).toContain('"payday_weekday":5');
+  });
+
+  it("refuses a save with neither a per-mile rate nor a percent, and a percent over 100", async () => {
+    listMock.mockResolvedValue({ data: [] });
+    render(<PayTermsSettings />);
+    await screen.findByText(/No pay terms entered yet/);
+    const form = within(screen.getByRole("form", { name: "Add pay terms" }));
+    fireEvent.change(form.getByLabelText("Employer"), { target: { value: "Some Carrier" } });
+    fireEvent.click(form.getByText("Save pay terms"));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/per-mile rate, a percent of the load, or both/);
+    fireEvent.change(form.getByLabelText(/Percent of the load/), { target: { value: "150" } });
+    fireEvent.click(form.getByText("Save pay terms"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/0 to 100/));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("editing existing terms shows the percent and can be corrected in place", async () => {
+    listMock.mockResolvedValue({ data: [{ ...ONE.data[0], rate_cents_per_mile: 0, percent_of_load_bps: 8500, payday_weekday: 5 }] });
+    render(<PayTermsSettings />);
+    await screen.findByText("Acme Freight");
+    const form = within(screen.getByRole("form", { name: "Pay terms for Acme Freight" }));
+    expect((form.getByLabelText(/Percent of the load/) as HTMLInputElement).value).toBe("85");
+    expect((form.getByLabelText("You get paid on") as HTMLSelectElement).value).toBe("5");
+    fireEvent.change(form.getByLabelText(/Percent of the load/), { target: { value: "88" } });
+    fireEvent.click(form.getByText("Save correction"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatch(/^update:p1:/);
+    expect(calls[0]).toContain('"percent_of_load_bps":8800');
   });
 });

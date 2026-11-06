@@ -50,6 +50,11 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
   - New: proposals go out with tap-able Yes / No buttons (`yn:yes` / `yn:no`). A tap is exactly the typed word through the same code path. A tap on a message over 10 minutes old is refused. If buttons fail to send, plain text goes out. Needs the Telegram webhook to deliver callback_query updates, which the photo buttons already rely on.
   - To verify after deploy: replay the transcript's turns with Abel on Telegram.
 
+## B0c. Pay by percent and/or CPM, per-load pay edit, weekly payday total (owner 2026-11-06; design `docs/design/employer-pay-profile.md` §8)
+- CODE DONE + gated, NOT deployed, migration **00074 NOT applied** (King applies; additive, nullable, no seed). Until it is applied the new Settings fields and the load-pay edit will be refused by the database.
+- Pay terms take cents per mile and/or a percent of the load; a load's own figure (`loads.pay_override_cents`) wins and is labeled; pay week end + payday are settings (unset stays visibly unset). Money → Projected pay shows this pay week so far (running total) and last pay week with its payday; Home card shows the week + payday; load page has "What this load pays me" with set/clear. Abel: `projected_pay` (read), `set_pay_terms` (percent/week/payday), `update_load` `pay_dollars`; the pay pin recognises percent and mixed profiles.
+- Not built: tax/fuel/deduction math (still gross); advances; per-week settlement reconciliation by payday (Paychecks page unchanged).
+
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
 - Phase 3 road-work machinery BUILT (WZDx parser, corridor+ETA filter, section); feed registry EMPTY until a feed is verified from the deploy network (King: pick states, verify each feed once).

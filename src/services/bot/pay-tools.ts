@@ -86,12 +86,18 @@ const setPayPinArgs = z.object({
 
 import { addDays, mondayOf } from "./pay-report";
 
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+
 const setPayTermsArgs = z.object({
   employer_name: z.string().trim().min(1),
   rate_dollars_per_mile: z.number().nonnegative().optional(),
   mile_basis: z.enum(["loaded", "all", "practical"]).optional(),
   worker_type: z.enum(["w2", "1099"]).optional(),
   fuel_paid_by: z.enum(["employer", "driver"]).optional(),
+  /** Percent of the load's rate he is paid (85 = 85%). With or without a per-mile rate. */
+  percent_of_load: z.number().min(0).max(100).optional(),
+  pay_week_ends_on: z.enum(WEEKDAY_NAMES).optional(),
+  payday: z.enum(WEEKDAY_NAMES).optional(),
 });
 
 export function buildPayTools(store: BotBrainStore): AgentTool[] {
@@ -101,7 +107,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
     {
       name: "set_pay_terms",
       description:
-        "Change his stored pay TERMS for an employer (Settings > Pay terms): rate in dollars per mile, which miles are paid (loaded / all / practical), W2 vs 1099, who pays fuel. Only set what his words or a document establish - never infer a field he did not state; fields you omit keep their current value (unset stays unset). A change closes the current terms and starts new dated terms, so history is kept. Always a proposal for his yes.",
+        "Change his stored pay TERMS for an employer (Settings > Pay terms): rate in dollars per mile and/or a percent of the load (either or both), which miles are paid (loaded / all / practical), W2 vs 1099, who pays fuel, the day his pay week ends and his payday. Only set what his words or a document establish - never infer a field he did not state; fields you omit keep their current value (unset stays unset). A change closes the current terms and starts new dated terms, so history is kept. Always a proposal for his yes.",
       parameters: {
         type: "object",
         properties: {
@@ -110,6 +116,9 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           mile_basis: { type: "string", enum: ["loaded", "all", "practical"] },
           worker_type: { type: "string", enum: ["w2", "1099"] },
           fuel_paid_by: { type: "string", enum: ["employer", "driver"] },
+          percent_of_load: { type: "number", description: "Percent of the load's rate he is paid, e.g. 85 for 85%. Use with or without a per-mile rate." },
+          pay_week_ends_on: { type: "string", enum: [...WEEKDAY_NAMES], description: "The weekday his pay week ends." },
+          payday: { type: "string", enum: [...WEEKDAY_NAMES], description: "The weekday he gets paid." },
         },
         required: ["employer_name"],
       },
@@ -120,6 +129,9 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
         const a = setPayTermsArgs.parse(args);
         const bits = [
           a.rate_dollars_per_mile != null ? `$${a.rate_dollars_per_mile.toFixed(2)}/mile` : null,
+          a.percent_of_load != null ? `${a.percent_of_load}% of the load` : null,
+          a.pay_week_ends_on ? `pay week ends ${a.pay_week_ends_on}` : null,
+          a.payday ? `paid on ${a.payday}` : null,
           a.mile_basis ? `${a.mile_basis} miles` : null,
           a.worker_type ?? null,
           a.fuel_paid_by ? `fuel: ${a.fuel_paid_by}` : null,
@@ -144,7 +156,12 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           a.rate_dollars_per_mile != null
             ? Math.round(a.rate_dollars_per_mile * 100)
             : (cur?.rate_cents_per_mile as number | undefined);
-        if (rateCents === undefined) throw new Error("No rate on file for that employer - tell me the dollars per mile.");
+        const percentBps = a.percent_of_load != null ? Math.round(a.percent_of_load * 100) : ((cur?.percent_of_load_bps as number | null | undefined) ?? null);
+        if (rateCents === undefined && percentBps === null) {
+          throw new Error("No rate on file for that employer - tell me the dollars per mile, a percent of the load, or both.");
+        }
+        const dayNumber = (name: string | undefined, current: unknown) =>
+          name ? WEEKDAY_NAMES.indexOf(name as (typeof WEEKDAY_NAMES)[number]) : ((current as number | null | undefined) ?? null);
         if (cur) {
           const { error: closeError } = await client
             .from("employer_pay_profiles")
@@ -156,7 +173,10 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
         const { error: insertError } = await client.from("employer_pay_profiles").insert({
           company_id: companyId,
           employer_name: (cur?.employer_name as string | undefined) ?? a.employer_name,
-          rate_cents_per_mile: rateCents,
+          rate_cents_per_mile: rateCents ?? 0,
+          percent_of_load_bps: percentBps,
+          pay_week_ends_on: dayNumber(a.pay_week_ends_on, cur?.pay_week_ends_on),
+          payday_weekday: dayNumber(a.payday, cur?.payday_weekday),
           mile_basis: a.mile_basis ?? (cur?.mile_basis as string | null | undefined) ?? null,
           worker_type: a.worker_type ?? (cur?.worker_type as string | null | undefined) ?? null,
           fuel_paid_by: a.fuel_paid_by ?? (cur?.fuel_paid_by as string | null | undefined) ?? null,

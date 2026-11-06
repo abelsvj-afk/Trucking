@@ -23,6 +23,7 @@ import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import LoadEconomicsSection from "@/components/LoadEconomicsSection";
+import LoadPaySection from "@/components/LoadPaySection";
 import { ListLoading, ListError } from "@/components/ListStates";
 import LoadDocuments from "@/components/LoadDocuments";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
@@ -469,6 +470,7 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
         onCompleted={() => window.location.reload()}
       />
 
+      <LoadPaySection load={load} onSaved={setLoad} />
       <LoadEconomicsSection loadId={load.id} />
 
       <section aria-label="Expenses on this load">

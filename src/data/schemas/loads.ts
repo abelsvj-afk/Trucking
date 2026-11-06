@@ -39,6 +39,8 @@ const loadFieldsSchema = z.object({
   origin_state: z.string().length(2).optional(),
   destination_state: z.string().length(2).optional(),
   rate_cents: z.number().int().nonnegative("rate_cents must not be negative.").optional(),
+  // Migration 00074: his own figure for what this load pays him (null clears it back to the terms).
+  pay_override_cents: z.number().int().nonnegative("pay must not be negative.").nullable().optional(),
   miles: z.number().int().nonnegative("miles must not be negative.").optional(),
   status: loadStatusSchema.optional(),
   notes: z.string().optional(),

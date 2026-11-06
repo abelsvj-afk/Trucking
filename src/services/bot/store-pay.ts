@@ -109,7 +109,7 @@ async function dutyMinutesInRange(periodStart: string, periodEnd: string): Promi
       // A missing table or no usable profile is simply "still unknown".
       const profile = await supabase
         .from("employer_pay_profiles")
-        .select("employer_name, rate_cents_per_mile, mile_basis, worker_type, fuel_paid_by, effective_from")
+        .select("employer_name, rate_cents_per_mile, percent_of_load_bps, mile_basis, worker_type, fuel_paid_by, effective_from")
         .eq("company_id", company)
         .is("deleted_at", null)
         .is("effective_to", null)

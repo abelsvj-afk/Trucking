@@ -1,6 +1,7 @@
 "use client";
 
-// Money → Projected pay: the full per-load breakdown behind Home's preview.
+// Money → Projected pay: this pay week's running total, last week's (and its payday), and the
+// per-load breakdown behind Home's preview - mile part, percent part, or the figure he set on the load.
 // Every row says which miles it counted; while the miles basis is unset the
 // totals are a range, labeled. Gross at his stated rate - not net, not cash,
 // not a settlement.
@@ -10,7 +11,43 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePayProjection } from "@/lib/use-pay-projection";
-import { formatRange } from "@/lib/pay-projection";
+import { describeTerms, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
+
+function PeriodBlock({ title, period, empty }: { title: string; period: PeriodProjection; empty: string }) {
+  return (
+    <section aria-label={title}>
+      <h2>{title}</h2>
+      <p role="status">
+        <strong>{formatRange(period.lowCents, period.highCents)}</strong> · {formatDay(period.start)} to {formatDay(period.end)}
+        {period.payday ? ` · paid ${formatDay(period.payday)}` : ""}
+      </p>
+      {period.rows.length === 0 && <p>{empty}</p>}
+      {period.rows.length > 0 && (
+        <ul>
+          {period.rows.map(({ load, projection }) => (
+            <li key={load.id}>
+              <span className="row-title">
+                <Link href={`/loads/${load.id}`}>{load.origin} → {load.destination}</Link>
+              </span>
+              <span className="row-sub">
+                {load.delivery_date ?? load.pickup_date} ·{" "}
+                {projection.lowCents === null || projection.highCents === null
+                  ? "can't project yet"
+                  : formatRange(projection.lowCents, projection.highCents)}
+                {projection.overridden ? " · your figure" : ""}
+              </span>
+              <span className="row-sub">{projection.counted ? `Counted: ${projection.counted}. ` : ""}{projection.note}</span>
+              <span className="row-sub"><Link href={`/loads/${load.id}`}>Edit this load&apos;s pay</Link></span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {period.excludedCount > 0 && (
+        <p className="row-sub">{period.excludedCount} draft or cancelled load{period.excludedCount === 1 ? "" : "s"} left out.</p>
+      )}
+    </section>
+  );
+}
 
 export default function ProjectedPayPage() {
   usePageTitle("Projected pay");
@@ -20,49 +57,39 @@ export default function ProjectedPayPage() {
     <div>
       <PageHeader
         title="Projected pay"
-        purpose="What this week's loads are worth at your pay terms — updating as loads and details come in."
+        purpose="What your loads are worth at your pay terms, week by week toward payday - updating as loads and details come in."
       />
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message="Couldn't load your loads or pay terms." onRetry={() => window.location.reload()} />}
       {state.status === "no-terms" && (
         <p>
-          You haven&apos;t entered pay terms yet. <Link href="/more/settings">Add them in Settings → Pay terms</Link> and this fills in.
+          You haven&apos;t entered pay terms yet. <Link href="/more/settings">Add them in Settings → Pay terms</Link> (per mile, a percent of the
+          load, or both) and this fills in.
         </p>
       )}
       {state.status === "ready" && (
         <>
-          <p role="status">
-            <strong>{formatRange(state.period.lowCents, state.period.highCents)}</strong> projected for {state.period.start} to{" "}
-            {state.period.end} · {state.terms.employer_name} at ${(state.terms.rate_cents_per_mile / 100).toFixed(2)}/mile
+          <p className="row-sub">
+            {state.terms.employer_name} · {describeTerms(state.terms)} · <Link href="/more/settings">edit terms</Link>
           </p>
           {state.period.basisAssumed && (
             <p role="note">
-              Your miles basis isn&apos;t set, so loads show a range — loaded miles only at the low end, all miles (with deadhead)
-              at the high end. <Link href="/more/settings">Set which miles are paid</Link> to get one number.
+              Your miles basis isn&apos;t set, so loads paid by the mile show a range — loaded miles only at the low end, all miles (with
+              deadhead) at the high end. <Link href="/more/settings">Set which miles are paid</Link> to get one number.
             </p>
           )}
-          {state.period.rows.length === 0 && <p>No booked loads this week yet.</p>}
-          {state.period.rows.length > 0 && (
-            <ul>
-              {state.period.rows.map(({ load, projection }) => (
-                <li key={load.id}>
-                  <span className="row-title">
-                    <Link href={`/loads/${load.id}`}>{load.origin} → {load.destination}</Link>
-                  </span>
-                  <span className="row-sub">
-                    {load.delivery_date ?? load.pickup_date} ·{" "}
-                    {projection.lowCents === null || projection.highCents === null
-                      ? "can't project yet"
-                      : formatRange(projection.lowCents, projection.highCents)}
-                  </span>
-                  <span className="row-sub">{projection.counted ? `Counted: ${projection.counted}. ` : ""}{projection.note}</span>
-                </li>
-              ))}
-            </ul>
+          {state.period.unavailableCount > 0 && (
+            <p role="note">{state.period.unavailableCount} load{state.period.unavailableCount === 1 ? "" : "s"} this week can&apos;t be projected yet — each row says what is missing.</p>
           )}
+          {!state.period.weekEndSet && (
+            <p className="row-sub" role="note">
+              Your pay week isn&apos;t set, so weeks run Monday to Sunday. <Link href="/more/settings">Set the day it ends and your payday</Link>.
+            </p>
+          )}
+          <PeriodBlock title="This pay week so far" period={state.period} empty="No booked loads this pay week yet." />
+          <PeriodBlock title="Last pay week" period={state.previous} empty="No booked loads last pay week." />
           <p className="row-sub">
-            {state.period.excludedCount > 0 ? `${state.period.excludedCount} draft or cancelled load${state.period.excludedCount === 1 ? "" : "s"} left out. ` : ""}
-            Gross pay at your stated rate, before fuel, taxes and any deductions. It is a projection — your settlement is the final number.
+            Gross pay at your stated terms, before fuel, taxes and any deductions. It is a projection — your settlement is the final number.
           </p>
         </>
       )}

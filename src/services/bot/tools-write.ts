@@ -46,6 +46,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     pickup_date: dateString.optional(),
     delivery_date: dateString.optional(),
     rate_dollars: z.number().nonnegative().optional(),
+    // Migration 00074: what THIS load pays him (his own figure); null returns to his pay terms.
+    pay_dollars: z.number().nonnegative().nullable().optional(),
     miles: z.number().int().nonnegative().optional(),
     status: loadStatusSchema.optional(),
     notes: z.string().optional(),
@@ -104,11 +106,12 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       { message: "delivery_date must not be before pickup_date.", path: ["delivery_date"] },
     );
   const loadToRow = (args: Row): Row => {
-    const { rate_dollars, detention_rate_dollars, tasks: _tasks, stops: _stops, ...rest } = definedOnly(args);
+    const { rate_dollars, pay_dollars, detention_rate_dollars, tasks: _tasks, stops: _stops, ...rest } = definedOnly(args);
     void _tasks;
     void _stops;
     const row: Row = { ...rest };
     if (rate_dollars !== undefined) row.rate_cents = Math.round(Number(rate_dollars) * 100);
+    if (pay_dollars !== undefined) row.pay_override_cents = pay_dollars === null ? null : Math.round(Number(pay_dollars) * 100);
     if (detention_rate_dollars !== undefined) {
       row.detention_rate_cents_per_hour = Math.round(Number(detention_rate_dollars) * 100);
     }
@@ -120,6 +123,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     pickup_date: { type: "string", description: "YYYY-MM-DD" },
     delivery_date: { type: "string", description: "YYYY-MM-DD" },
     rate_dollars: { type: "number", description: "The load's rate in dollars." },
+    pay_dollars: { type: ["number", "null"], description: "What THIS load pays HIM, in dollars, when he states it (overrides his pay terms for this load); null clears it back to his terms." },
     miles: { type: "number" },
     pickup_window_start: { type: "string", description: "Appointment window start (ISO timestamp) from the rate con." },
     pickup_window_end: { type: "string", description: "Appointment window end (ISO timestamp)." },

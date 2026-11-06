@@ -190,6 +190,8 @@ export function formatPayPinLine(pin: PayPin): string {
 export interface PayProfileRow {
   employer_name: string;
   rate_cents_per_mile: number;
+  /** Migration 00074: basis points of the load's rate; null = none. */
+  percent_of_load_bps?: number | null;
   mile_basis: "loaded" | "all" | "practical" | null;
   worker_type: "w2" | "1099" | null;
   fuel_paid_by: "employer" | "driver" | null;
@@ -205,6 +207,19 @@ export interface PayProfileRow {
  * fuel stay UNKNOWN too - nothing is inferred.
  */
 export function payPinFromProfile(row: PayProfileRow | null | undefined): PayPin {
+  const percent = row?.percent_of_load_bps ?? 0;
+  if (row && percent > 0) {
+    // Paid a percent of the load (alone, or on top of a per-mile rate = a mixed structure).
+    return {
+      ...UNKNOWN_PIN,
+      model: row.rate_cents_per_mile > 0 ? "mixed" : "percentage_gross",
+      rate: row.rate_cents_per_mile > 0 ? null : percent / 100,
+      employment: row.worker_type ?? "UNKNOWN",
+      fuelPaidBy: row.fuel_paid_by === "employer" ? "owner" : row.fuel_paid_by === "driver" ? "driver" : "unknown",
+      source: `pay terms: ${row.employer_name}, since ${row.effective_from}`,
+      pinnedAt: row.effective_from,
+    };
+  }
   if (!row || (row.mile_basis !== "loaded" && row.mile_basis !== "all")) return UNKNOWN_PIN;
   return {
     ...UNKNOWN_PIN,

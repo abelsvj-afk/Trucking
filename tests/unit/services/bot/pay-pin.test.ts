@@ -94,4 +94,8 @@ describe("payPinFromProfile (owner pay terms, migration 00063)", () => {
       model: "cpm_all_miles", employment: "1099", fuelPaidBy: "owner",
     });
   });
+  it("a percent of the load is a percentage pin (alone) or a mixed structure (with a per-mile rate)", () => {
+    expect(payPinFromProfile({ ...row, rate_cents_per_mile: 0, percent_of_load_bps: 8500 })).toMatchObject({ model: "percentage_gross", rate: 85 });
+    expect(payPinFromProfile({ ...row, percent_of_load_bps: 1000 })).toMatchObject({ model: "mixed", rate: null });
+  });
 });

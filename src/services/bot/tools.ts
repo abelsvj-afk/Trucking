@@ -32,6 +32,7 @@ import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
 import { buildRouteCheckTool } from "./route-check-tool";
 import { buildPayTools } from "./pay-tools";
+import { buildPayProjectionTools } from "./pay-projection-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
 import { propagateMileage } from "@/services/fleet/mileage";
@@ -1002,6 +1003,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   // Phase D (pay truth): the pin, settlements, and the weekly
   // report - own module (pay-tools.ts), same registry.
   tools.push(...buildPayTools(store));
+  tools.push(...buildPayProjectionTools(store));
 
   // Phase C (threads + people): forward thread records, open
   // loops, and the evidence-based per-person model - own module

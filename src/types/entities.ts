@@ -173,6 +173,8 @@ export interface Load extends BaseRow {
   pickup_date: string | null;
   delivery_date: string | null;
   rate_cents: number | null;
+  /** Migration 00074: what THIS load pays him, in his own words; null = use the pay terms. */
+  pay_override_cents?: number | null;
   miles: number | null;
   status: LoadStatus;
   notes: string | null;
@@ -816,6 +818,11 @@ export interface EmployerPayProfile extends BaseRow {
   mile_basis: "loaded" | "all" | "practical" | null;
   worker_type: "w2" | "1099" | null;
   fuel_paid_by: "employer" | "driver" | null;
+  /** Migration 00074: basis points of the load's rate (8500 = 85%); null = no percent part. */
+  percent_of_load_bps?: number | null;
+  /** Migration 00074: 0 = Sunday .. 6 = Saturday; null = UNSET. */
+  pay_week_ends_on?: number | null;
+  payday_weekday?: number | null;
   effective_from: string;
   effective_to: string | null;
   notes: string | null;

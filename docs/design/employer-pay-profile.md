@@ -82,3 +82,43 @@ falls back to the profile ONLY when no remembered pin exists and only once
 `mile_basis` is loaded or all. Abel's pay prompts no longer name any employer
 (they say "his carrier"). Not built: payroll-tax math selecting by worker type
 beyond what the pin already carries.
+
+## 8. Percent-of-load pay, per-load pay edit, weekly payday total (owner 2026-11-06)
+
+Owner: "if I put my CPM and/or load percentage, it should tell me what I'm going to get
+paid for the load and the cumulative weekly payday total - and I can edit all of it."
+
+**Pay formula (still gross, still a projection).** Pay for a load = the MILE part +
+the PERCENT part, each present only when its term is set:
+- mile part = `rate_cents_per_mile` x the miles the basis counts (all the existing
+  basis rules apply: loaded / all / practical / UNSET -> range, never a guess). A rate of 0
+  means "no mile part" and then the miles basis is NOT needed.
+- percent part = `percent_of_load_bps` (basis points, 8500 = 85.00%) x the load's `rate_cents`
+  (the load's gross rate). A load without a rate cannot get a percent part: "can't project
+  yet - this load has no rate", never a substituted number.
+- Both set = both added ("and/or"). Neither set = nothing to project, said plainly.
+
+**Edit everything.**
+- Terms (CPM, percent, basis, pay week, payday): Settings -> Pay terms; "Save correction"
+  edits in place, "Terms changed" starts dated new terms (unchanged from section 7).
+- One load's pay: `loads.pay_override_cents` (integer cents, null = use the terms). When set it
+  IS that load's expected pay ("set by you" - he may know the real rate-con split); it is shown
+  as such, counts in the weekly total, and clearing it returns to the terms. Edited on the load page.
+- Abel: `set_pay_terms` gains the percent, pay-week and payday fields; `update_load` gains
+  the pay override. Both stay proposals for his yes.
+
+**Pay week and payday (UNSET stays visible).** Two profile fields:
+`pay_week_ends_on` (0 = Sunday .. 6 = Saturday) and `payday_weekday` (same numbering).
+- A pay week is the 7 days ending on `pay_week_ends_on`; a load belongs to the week holding its
+  delivery date (pickup date when none). Unset week end = Monday-Sunday (the existing behaviour),
+  labeled as the default.
+- Payday = the first `payday_weekday` after the week's last day. Unset payday = no payday date is
+  shown (the totals still are).
+- Surfaces: Money -> Projected pay shows THIS pay week so far (the running, cumulative total that
+  grows as loads are added/delivered), LAST pay week and its payday when it has not passed, and
+  every row says which part (miles / percent / his override) made the number. Booked and completed
+  loads count; drafts and cancelled ones do not (unchanged).
+- Not computed: tax, fuel, deductions, advances. The settlement is the final number.
+
+**Migration 00074** (additive, nullable, no seed): `employer_pay_profiles.percent_of_load_bps`
+(0..10000), `.pay_week_ends_on` (0..6), `.payday_weekday` (0..6); `loads.pay_override_cents` (>= 0).

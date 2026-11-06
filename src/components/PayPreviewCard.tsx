@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { usePayProjection } from "@/lib/use-pay-projection";
-import { formatRange } from "@/lib/pay-projection";
+import { describeTerms, formatDay, formatRange } from "@/lib/pay-projection";
 
 export default function PayPreviewCard() {
   const state = usePayProjection();
@@ -28,18 +28,18 @@ export default function PayPreviewCard() {
   const { period, terms } = state;
   return (
     <section aria-label="Projected pay" className="active-load">
-      <h2>Projected pay this week</h2>
+      <h2>Projected pay this pay week</h2>
       {period.rows.length === 0 ? (
-        <p className="row-sub">No booked loads this week yet.</p>
+        <p className="row-sub">No booked loads this pay week yet.</p>
       ) : (
         <>
           <p className="active-load-route">
             <strong>{formatRange(period.lowCents, period.highCents)}</strong>
           </p>
           <p className="row-sub">
-            {period.rows.length} load{period.rows.length === 1 ? "" : "s"} at {terms.employer_name}&apos;s{" "}
-            ${(terms.rate_cents_per_mile / 100).toFixed(2)}/mile
-            {period.unavailableCount > 0 ? ` · ${period.unavailableCount} can't be projected yet (no mileage)` : ""}
+            {period.rows.length} load{period.rows.length === 1 ? "" : "s"} · {describeTerms(terms)}
+            {period.payday ? ` · payday ${formatDay(period.payday)}` : ""}
+            {period.unavailableCount > 0 ? ` · ${period.unavailableCount} can't be projected yet` : ""}
           </p>
           {period.basisAssumed && (
             <p className="row-sub" role="note">

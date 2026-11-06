@@ -53,7 +53,7 @@ describe("Home pay preview", () => {
     data.profiles = [profile("all")];
     data.loads = [L({ delivery_date: "2026-10-01" })];
     render(<PayPreviewCard />);
-    expect(await screen.findByText("No booked loads this week yet.")).toBeTruthy();
+    expect(await screen.findByText("No booked loads this pay week yet.")).toBeTruthy();
   });
 });
 
@@ -63,8 +63,8 @@ describe("Money → Projected pay", () => {
     data.loads = [L({ delivery_date: "2026-11-06" }), L({ id: "L2", origin: "C, TX", destination: "D, GA", miles: null, loaded_miles: null, deadhead_miles: null, delivery_date: "2026-11-07" })];
     render(<ProjectedPayPage />);
     await screen.findByText(/Counted: 900 loaded to 1,000 total miles/);
-    const status = screen.getAllByRole("status").find((n) => /projected for/.test(n.textContent ?? ""))!;
-    expect(status.textContent).toMatch(/\$495.00 – \$550.00 projected for 2026-11-02 to 2026-11-08/);
+    const status = screen.getAllByRole("status").find((n) => /Nov 2 to/.test(n.textContent ?? ""))!;
+    expect(status.textContent).toMatch(/\$495.00 – \$550.00 · Mon, Nov 2 to Sun, Nov 8/);
     expect(screen.getByText(/Counted: 900 loaded to 1,000 total miles/)).toBeTruthy();
     expect(screen.getByText(/can.t project yet/)).toBeTruthy();
     expect(screen.getByText(/your settlement is the final number/)).toBeTruthy();

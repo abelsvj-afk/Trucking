@@ -787,3 +787,60 @@ describe("audit follow-up bug fixes", () => {
     expect(out.reply).toContain("couldn't find that load");
   });
 });
+
+describe("pay terms by percent, and what he will be paid (owner 2026-11-06)", () => {
+  const profile = {
+    id: "p0", company_id: COMPANY, employer_name: "Acme Freight", rate_cents_per_mile: 0, percent_of_load_bps: 8500,
+    mile_basis: null, worker_type: null, fuel_paid_by: null, pay_week_ends_on: 0, payday_weekday: 5,
+    effective_from: "2026-01-01", effective_to: null, deleted_at: null,
+  };
+
+  it("set_pay_terms with a percent, a pay week end and a payday starts new dated terms that keep everything else", async () => {
+    const seed = baseSeed(true);
+    seed.employer_pay_profiles = [{ ...profile, percent_of_load_bps: null, rate_cents_per_mile: 55 }];
+    seed.bot_pending_actions = [
+      { id: "t", company_id: COMPANY, channel: "telegram", tool_name: "set_pay_terms", arguments: { employer_name: "Acme Freight", percent_of_load: 88, pay_week_ends_on: "saturday", payday: "thursday" }, summary: "Pay terms", created_at: new Date(Date.now() - 60_000).toISOString(), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("Done");
+    expect(db.employer_pay_profiles![1]).toMatchObject({ rate_cents_per_mile: 55, percent_of_load_bps: 8800, pay_week_ends_on: 6, payday_weekday: 4 });
+  });
+
+  it("projected_pay answers from code: this pay week's running total, last week's, and the payday", async () => {
+    const seed = baseSeed(true);
+    seed.employer_pay_profiles = [profile];
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    seed.loads = [
+      { id: "L1", company_id: COMPANY, origin: "Macon, GA", destination: "Tampa, FL", status: "confirmed", rate_cents: 200000, miles: 500, delivery_date: today, pickup_date: today, deleted_at: null },
+      { id: "L2", company_id: COMPANY, origin: "Tampa, FL", destination: "Miami, FL", status: "confirmed", rate_cents: 100000, pay_override_cents: 70000, miles: 300, delivery_date: today, pickup_date: today, deleted_at: null },
+    ];
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "p", name: "projected_pay", arguments: "{}" }] },
+      { text: "That comes to $2,400.00 so far.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("how much will I get paid this week?"));
+    const toolResult = JSON.stringify(runToolTurn.mock.calls[1] ?? []);
+    expect(toolResult).toContain("$2,400.00"); // 85% of $2,000 + his own $700 figure
+    expect(toolResult).toContain("[his own figure]");
+    expect(toolResult).toContain("paid ");
+  });
+
+  it("update_load can carry his own figure for what a load pays him", async () => {
+    const LOAD = "9c1e4c7a-0000-4000-8000-0000000000aa";
+    const seed = baseSeed(true);
+    seed.loads = [{ id: LOAD, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "u", name: "update_load", arguments: JSON.stringify({ load_id: LOAD, pay_dollars: 1250, confirmation: "propose" }) }] },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, store, input("this one pays me 1,250 flat"));
+    const { provider: noModel } = neverCalledProvider();
+    await runAgentTurn(noModel, store, input("yes"));
+    expect(db.loads![0]).toMatchObject({ pay_override_cents: 125000 });
+  });
+});
