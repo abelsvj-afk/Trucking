@@ -238,6 +238,11 @@ export const apiClient = {
     }),
   dutyLogWindow: () =>
     request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
+  /** Background tracking: the native shell's device tokens. The secret comes back ONCE, from create. */
+  deviceTokens: () => request<{ data: { id: string; label: string; created_at: string; last_used_at: string | null }[] }>("/api/v1/device-tokens"),
+  createDeviceToken: (label: string) =>
+    request<{ data: { id: string; label: string; created_at: string; token: string } }>("/api/v1/device-tokens", { method: "POST", body: JSON.stringify({ label }) }),
+  revokeDeviceToken: (id: string) => request<{ data: { revoked: boolean } }>(`/api/v1/device-tokens/${id}`, { method: "DELETE" }),
   /** The latest position Telegram Live Location sent (it keeps reporting with the app closed), or null. */
   telegramPosition: () =>
     request<{ position: { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; recordedAt: string; ageSeconds: number } | null }>(

@@ -5,7 +5,7 @@
 2. an own-company INSERT is allowed where the table is tenant-writable and refused where it is read-only for tenants (research family, `user_profiles`; `research_runs` / `research_requests` also fence the row's shape);
 3. **anon** cannot write — same complete row, login claim **cleared**, and anon's INSERT privilege granted *inside the transaction* when migration 00067 has revoked it, so the refusal that is counted is the RLS one;
 4. where a company-B row could be seeded, A reads 0 / updates 0 / deletes 0 of them and anon reads 0.
-Probes stopped by a constraint before RLS could decide are listed as **UNPROVEN** — not violations, and not counted as passes. The run prints the proven counts (scratch run: 60/60 cross-company refusals, 60/60 anon refusals, and a seeded company-B row for 60/60 tables - so read/update/delete isolation is proven on every table, including the four vehicle tables whose "exactly one of truck/trailer" CHECK used to block seeding - 0 unproven, 0 violations).
+Probes stopped by a constraint before RLS could decide are listed as **UNPROVEN** — not violations, and not counted as passes. The run prints the proven counts (scratch run: 61/61 cross-company refusals, 61/61 anon refusals, and a seeded company-B row for 61/61 tables - so read/update/delete isolation is proven on every table, including the four vehicle tables whose "exactly one of truck/trailer" CHECK used to block seeding - 0 unproven, 0 violations).
 
 `anon-privileges.sql` — check 5: `anon` holds no write privilege on any public table (migration 00067). Empty result = pass. (Before 00067 on scratch it listed 378 grants; after, 0; tables created later also get none.)
 

@@ -1,0 +1,6 @@
+{
+  "appId": "com.truckingos.tracker",
+  "appName": "Trucking OS Tracker",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}

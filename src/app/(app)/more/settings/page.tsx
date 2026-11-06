@@ -23,6 +23,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import HosCarrierSettings from "@/components/settings/HosCarrierSettings";
+import BackgroundTrackingSettings from "@/components/settings/BackgroundTrackingSettings";
 import PayTermsSettings from "@/components/settings/PayTermsSettings";
 import { useToast } from "@/components/Toast";
 import {
@@ -160,6 +161,8 @@ export default function AccountSettingsPage() {
       </section>
 
       <HosCarrierSettings />
+
+      <BackgroundTrackingSettings />
 
       <PayTermsSettings />
       <section aria-label="Appearance">

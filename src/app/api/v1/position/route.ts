@@ -1,4 +1,4 @@
-// GET /api/v1/position - the latest position Telegram Live Location sent
+// GET /api/v1/position - the latest position Telegram Live Location (or the native device feed) sent
 // (docs/design/driver-usability.md §4). Returns { position: null } when
 // nothing has been shared; otherwise the fix plus its AGE in seconds so the
 // caller can refuse to treat an old fix as "now". Company-scoped by RLS.
@@ -21,12 +21,14 @@ export const GET = createApiHandler(async (_req, ctx) => {
     (globalRow.data as { ai_globally_disabled: boolean } | null)?.ai_globally_disabled === true ||
     (switchRow.data as { enabled: boolean } | null)?.enabled === false;
   if (off) return NextResponse.json({ position: null }, { headers: { "Cache-Control": "no-store" } });
-  const { data, error } = await supabase
+  // The newest position from either feed (Telegram Live Location, or the native shell's device feed).
+  const { data: rows, error } = await supabase
     .from("driver_positions")
     .select("lat, lng, accuracy_m, heading_deg, speed_mph, recorded_at")
     .eq("company_id", ctx.auth.companyId)
-    .eq("source", "telegram")
-    .maybeSingle();
+    .order("recorded_at", { ascending: false })
+    .limit(1);
+  const data = (rows ?? [])[0];
   // Before migration 00060 the table is absent: say "no position", never fail the page.
   if (error || !data) return NextResponse.json({ position: null }, { headers: { "Cache-Control": "no-store" } });
   const r = data as { lat: number; lng: number; accuracy_m: number | null; heading_deg: number | null; speed_mph: number | null; recorded_at: string };

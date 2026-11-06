@@ -483,6 +483,9 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/drivers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/drivers` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/duty-logs/auto-motion` | POST | custom (see section / design doc) |
+| `/api/v1/device-tokens/[id]` | DELETE | custom (see section / design doc) |
+| `/api/v1/device-tokens` | GET,POST | custom (see section / design doc) |
+| `/api/v1/position/feed` | POST | custom (see section / design doc) |
 | `/api/v1/duty-logs/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/duty-logs/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/duty-logs` | GET,POST | generic CRUD (contract above) |
@@ -606,3 +609,8 @@ Body `{ detected_at: ISO, submission_id: uuid }`. The app calls it when the truc
 
 ### Block C — posted speed limit (`GET /api/v1/map/speed-limit?lat=&lng=&heading=`)
 Authenticated. Returns `{ data: { limitMph: number | null, roadName: string | null, unavailable: boolean, source: "OpenStreetMap" } }`. `limitMph` is set ONLY when a way within ~25 m of the point (and, when `heading` is given, running the same direction ±35°) carries a plain numeric OSM `maxspeed` ("55 mph", or a unitless km/h number converted). Any other tag value, no nearby way, or an Overpass failure (`unavailable: true`) returns `limitMph: null` — the app then shows no badge and never estimates one. Cached server-side 10 minutes per ~55 m cell and 45° heading bucket.
+
+### Background tracking — device tokens and the position feed (migration 00073; `docs/design/background-tracking.md`)
+- `POST /api/v1/device-tokens` `{ label }` (session) → `201 { data: { id, label, created_at, token } }`. **`token` is returned once and never again** (only its SHA-256 is stored). Max 10 active. `GET /api/v1/device-tokens` → `{ data: [{ id, label, created_at, last_used_at }] }` (never the secret). `DELETE /api/v1/device-tokens/[id]` revokes (a timestamp; the feed refuses it immediately).
+- `POST /api/v1/position/feed` — **not session-authenticated** (the native shell has no cookie; `proxy.ts` lists this one path as public): `Authorization: Bearer tdv_…`, body `{ fixes: [{ lat, lng, accuracy_m?, heading_deg?, at (epoch ms or ISO) }] }`, 1–60 fixes. Missing/malformed/unknown/revoked token → `401` (one generic body); more than 30 requests/min per token → `429`; bad body → `400`. Fixes older than 24 h or more than 60 s in the future are dropped (counted). Returns `{ data: { accepted, dropped } }` (or `reason: "switched_off"` when `live_location` is off). Each fix runs the same detection as Telegram Live Location (latest position in `driver_positions` with `source "device"`, movement episodes, the automatic switch to Driving, the stopped-5-minutes proposal), all scoped to the token's company in code.
+- `GET /api/v1/position` now returns the NEWEST of the Telegram and device positions.

@@ -183,16 +183,20 @@ interface PositionRow {
 const ms = (iso: string | null): number | null => (iso ? Date.parse(iso) : null);
 const iso = (n: number | null): string | null => (n === null ? null : new Date(n).toISOString());
 
+export type PositionSource = "telegram" | "device";
+
 export function createLiveLocationStore(
   client: SupabaseClient,
   companyId: string,
   stage: (args: Record<string, unknown>, summary: string) => Promise<void>,
+  /** Which feed this is: Telegram Live Location, or the native shell's device feed. Each keeps its own latest row. */
+  source: PositionSource = "telegram",
 ): LiveLocationStore {
   return {
     async loadPosition() {
       const { data, error } = await client
         .from("driver_positions").select("*")
-        .eq("company_id", companyId).eq("source", "telegram").maybeSingle();
+        .eq("company_id", companyId).eq("source", source).maybeSingle();
       if (error) throw new Error(error.message);
       const r = data as PositionRow | null;
       if (!r) return null;
@@ -208,7 +212,7 @@ export function createLiveLocationStore(
     async savePosition(p) {
       const { error } = await client.from("driver_positions").upsert(
         {
-          company_id: companyId, source: "telegram",
+          company_id: companyId, source,
           lat: p.fix.lat, lng: p.fix.lng, accuracy_m: p.fix.accuracyM,
           heading_deg: p.headingDeg, speed_mph: p.speedMph,
           recorded_at: new Date(p.fix.atMs).toISOString(),
@@ -242,12 +246,12 @@ export function createLiveLocationStore(
  * as `log_duty_status` pending actions after the tool's OWN argument check
  * (a proposal that would not validate is never stored).
  */
-export function createBrainLiveLocationStore(brain: BotBrainStore): LiveLocationStore {
+export function createBrainLiveLocationStore(brain: BotBrainStore, source: PositionSource = "telegram"): LiveLocationStore {
   const tool = buildBotTools(brain).find((t) => t.name === "log_duty_status");
   return createLiveLocationStore(brain.client, brain.companyId, async (args, summary) => {
     if (!tool) throw new Error("log_duty_status tool missing");
     const checked = tool.validateArgs ? tool.validateArgs(args) : { ok: true as const, args };
     if (!checked.ok) throw new Error("proposal did not validate");
     await brain.savePendingAction({ toolName: "log_duty_status", args: checked.args as Record<string, unknown>, summary });
-  });
+  }, source);
 }

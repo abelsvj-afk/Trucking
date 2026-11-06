@@ -16,7 +16,9 @@ function db(opts: { globallyDisabled?: boolean; capRow?: { enabled: boolean } | 
   return {
     from: (table: string) => {
       const q: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "is"]) q[m] = () => q;
+      for (const m of ["select", "eq", "is", "order"]) q[m] = () => q;
+      // The position route now takes the newest of both feeds: .order().limit(1) -> rows.
+      q.limit = async () => ({ data: opts.position ? [opts.position] : [], error: null });
       q.single = async () => ({ data: { ai_globally_disabled: opts.globallyDisabled ?? false }, error: null });
       q.maybeSingle = async () =>
         table === "ai_capability_settings"

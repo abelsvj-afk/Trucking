@@ -1,0 +1,20 @@
+{
+  "name": "trucking-os-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Thin Android shell that keeps reporting the truck's position with the app closed (docs/design/background-tracking.md, Path 2).",
+  "scripts": {
+    "sync": "cap sync android",
+    "open": "cap open android",
+    "build:apk": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "1.3.1",
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/preferences": "8.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

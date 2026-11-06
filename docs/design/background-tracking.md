@@ -20,6 +20,11 @@ A small native wrapper (Capacitor) that loads this same web app and adds one nat
 - *Cost/free-first:* the plugin and Capacitor are free. The only paid item is Apple's $99/yr, and only if he is on iPhone; there is no free route to a background-capable iPhone app.
 - *Honest limits:* battery use is real (a foreground service every few seconds); the shell must be rebuilt for OS updates; iOS review/signing is a recurring chore. This is paper-log-helper tracking, not a certified ELD.
 
+## As built (2026-11-06) - owner is on Android
+- Server: migration **00073** (`device_tokens`, `driver_positions.source 'device'`); `POST/GET /api/v1/device-tokens`, `DELETE .../[id]` (Settings -> Background tracking: make a key per phone, shown once, revoke); `POST /api/v1/position/feed` (Bearer `tdv_...`, the one public path in `proxy.ts`, per-token rate limit, validated, company-scoped in code) feeding the same `handleLiveLocation` detection and `applyAutoMotionSwitch` as Telegram. `GET /api/v1/position` returns the newest of the two feeds, so the Home map works from either.
+- Shell: `native/tracker` (Capacitor 8 + `@capacitor-community/background-geolocation` 1.3.1, all MIT, 0 audit findings, lockfile committed): a one-screen app (server address, key, Start/Stop), a foreground-service notification, a durable queue with backoff (`www/feed-queue.js`, unit-tested in the main suite). README there has the build + first-run steps.
+- NOT verified on a device: the build sandbox has no Android SDK, so the APK has not been built or run. First proof is on the phone (lock it, drive, watch Home's map and the Telegram "Switched to Driving" notice). King can build it on his VM with the Android command-line tools.
+
 ## Decision needed (owner)
 1. **Phone: iPhone or Android?** It decides the shell's cost and distribution.
 2. Go ahead with Path 2 after that (server feed first, then the shell project), keeping Path 1 as the no-install fallback.

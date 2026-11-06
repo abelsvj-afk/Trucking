@@ -1130,3 +1130,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 
 ### Constraint changed by 00072 (Block A: auto-switch)
 - 00072 `duty_logs.source` check now allows `auto_motion` (a Driving row the app wrote from sustained detected motion; `started_at` = detection time).
+
+### Table and constraint added by 00073 (background tracking)
+- `device_tokens` — `id`, `company_id`, `label`, `token_hash` (unique SHA-256; the secret is never stored), `created_at`, `last_used_at`, `revoked_at`; RLS tenant isolation.
+- 00073 `driver_positions.source` check now allows `device` (beside `telegram`).

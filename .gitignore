@@ -28,3 +28,6 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# native tracker shell (native/tracker): installed packages and local build output are not committed
+/native/tracker/node_modules
