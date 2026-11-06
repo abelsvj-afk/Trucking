@@ -14,7 +14,7 @@
 import { pushFleetTools } from "./tools-write-fleet";
 import { pushRecordTools } from "./tools-write-records";
 import { pushMaintenanceTools } from "./tools-write-maintenance";
-import { changedFields, dateString, idParam, makeCreateTool, makeUpdateTool, uuid, type Row } from "./tools-write-helpers";
+import { changedFields, changesInWords, dateString, describeRecord, idParam, makeCreateTool, makeUpdateTool, uuid, type Row } from "./tools-write-helpers";
 import { fuelFieldsFromReceipt } from "./fuel-receipt";
 import { z } from "zod";
 import type { AgentTool } from "@/services/ai/agent-loop";
@@ -237,6 +237,59 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       confirm: (args) => `Updated load ${args.load_id} (${changedFields(args, "load_id")}).`,
     }),
   );
+
+  // Telegram audit P1-1: "I just completed the load" is ONE action - the load is done and delivered on a
+  // date. It is never a "load decision". The proposal names the load in words and the date it records.
+  const completeLoadBot = z.object({
+    load_id: uuid,
+    delivery_date: dateString.optional(),
+  });
+  const easternToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  tools.push({
+    name: "complete_load",
+    description:
+      "Mark a load COMPLETED (delivered) - use this when he says he delivered / finished / completed a load. Get the load_id from list_loads (his one active load, or ask which). delivery_date is the day it delivered on his clock (YYYY-MM-DD, Eastern); leave it out for today. Never use record_load_decision for a delivery.",
+    parameters: {
+      type: "object",
+      properties: {
+        load_id: idParam("load_id", "load"),
+        delivery_date: { type: "string", description: "YYYY-MM-DD the load delivered (Eastern). Omit = today." },
+      },
+      required: ["load_id"],
+    },
+    access: "write",
+    validateArgs: validateWith(completeLoadBot),
+    summarize: (args) => `Mark load ${args.load_id} COMPLETED, delivered ${args.delivery_date ?? easternToday()}`,
+    async verifyProposal(args) {
+      const parsed = completeLoadBot.safeParse(args);
+      if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+      const { client, companyId } = store;
+      const { data, error } = await client
+        .from("loads")
+        .select("*")
+        .eq("id", parsed.data.load_id)
+        .eq("company_id", companyId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) return { ok: false, error: `couldn't check his loads (${error.message})` };
+      if (!data) return { ok: false, error: `there is no load with id ${parsed.data.load_id} in his records - use list_loads` };
+      const row = data as Row;
+      if (row.status === "cancelled") return { ok: false, error: "that load is cancelled - ask him which load he means" };
+      const day = parsed.data.delivery_date ?? easternToday();
+      if (typeof row.pickup_date === "string" && day < row.pickup_date.slice(0, 10)) {
+        return { ok: false, error: `a delivery on ${day} would be before its pickup (${row.pickup_date.slice(0, 10)}) - check the date with him` };
+      }
+      return { ok: true, summary: `Mark ${describeRecord("load", row)} COMPLETED, delivered ${day}` };
+    },
+    async run(args) {
+      const parsed = completeLoadBot.parse(args);
+      const { client, companyId } = store;
+      const existing = await fetchLiveRow(client, "loads", companyId, parsed.load_id, "load");
+      const patch = updateLoadSchema.parse({ status: "completed", delivery_date: parsed.delivery_date ?? easternToday() }) as Row;
+      await patchLiveRow(client, "loads", companyId, parsed.load_id, patch);
+      return `Marked ${describeRecord("load", existing)} completed. Now: ${changesInWords(patch, existing)}.`;
+    },
+  });
 
   // --- Money updates ----------------------------------------------
 
@@ -492,6 +545,36 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       }),
     ),
     summarize: (args) => `Attach document ${args.document_id} to ${args.related_entity_type} ${args.related_entity_id}`,
+    // P0-3: both the document and what it is attached to must exist; the proposal names them in words.
+    async verifyProposal(args) {
+      const parsed = z
+        .object({ document_id: uuid, related_entity_type: relatedEntityTypeSchema, related_entity_id: uuid })
+        .safeParse(args);
+      if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+      const { client, companyId } = store;
+      const { data: doc, error: docError } = await client
+        .from("documents")
+        .select("id, file_name")
+        .eq("id", parsed.data.document_id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (docError) return { ok: false, error: `couldn't check his documents (${docError.message})` };
+      if (!doc) return { ok: false, error: `there is no document with id ${parsed.data.document_id} - use list_documents (the RECENT PHOTOS block names the latest ones)` };
+      const table = { truck: "trucks", trailer: "trailers", driver: "drivers", load: "loads" }[parsed.data.related_entity_type];
+      const { data: target, error: targetError } = await client
+        .from(table)
+        .select("*")
+        .eq("id", parsed.data.related_entity_id)
+        .eq("company_id", companyId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (targetError) return { ok: false, error: `couldn't check his records (${targetError.message})` };
+      if (!target) return { ok: false, error: `there is no ${parsed.data.related_entity_type} with id ${parsed.data.related_entity_id} - use list_loads (or the matching list tool)` };
+      return {
+        ok: true,
+        summary: `Attach "${(doc as { file_name: string }).file_name}" to ${describeRecord(parsed.data.related_entity_type, target as Row)}`,
+      };
+    },
     async run(args) {
       const parsed = z
         .object({ document_id: uuid, related_entity_type: relatedEntityTypeSchema, related_entity_id: uuid })
@@ -534,6 +617,9 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     pretrip_inspection: { table: "pretrip_inspections", label: (r: Row) => `pre-trip inspection from ${String(r.inspected_at).slice(0, 10)}` },
     memory: { table: "bot_memories", label: (r: Row) => `memory "${String(r.content ?? "").slice(0, 120)}"` },
     duty_log: { table: "duty_logs", label: (r: Row) => `duty log entry (${r.duty_status} from ${r.started_at})` },
+    // Telegram audit 2026-11-06 (P1-4): "delete that" about a logged decision or a recorded thread had no target.
+    load_decision: { table: "load_decisions", label: (r: Row) => `logged load decision "${String(r.description ?? "").slice(0, 100)}" (${r.decision})` },
+    thread: { table: "forward_threads", label: (r: Row) => `recorded thread "${String(r.title ?? r.the_ask ?? "").slice(0, 100)}"` },
   } as const;
   type DeleteEntity = keyof typeof DELETE_TARGETS;
   const deleteBot = z.object({
@@ -668,6 +754,23 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     alwaysPropose: true,
     validateArgs: validateWith(deleteBot),
     summarize: (args) => `DELETE ${args.entity} record ${args.record_id}`,
+    // P0-3: the record must exist in his books before he is asked, and he sees WHAT would be deleted.
+    async verifyProposal(args) {
+      const parsed = deleteBot.safeParse(args);
+      if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+      const target = DELETE_TARGETS[parsed.data.entity];
+      const { client, companyId } = store;
+      const { data, error } = await client
+        .from(target.table)
+        .select("*")
+        .eq("id", parsed.data.record_id)
+        .eq("company_id", companyId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) return { ok: false, error: `couldn't check his records (${error.message})` };
+      if (!data) return { ok: false, error: `there is no ${parsed.data.entity.replace(/_/g, " ")} with id ${parsed.data.record_id} in his records` };
+      return { ok: true, summary: `DELETE ${target.label(data as Row)} (soft delete - it can be restored)` };
+    },
     async run(args) {
       const parsed = deleteBot.parse(args);
       const target = DELETE_TARGETS[parsed.entity];

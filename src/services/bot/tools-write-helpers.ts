@@ -51,6 +51,20 @@ export function makeCreateTool(
     access: "write",
     validateArgs: validateWith(spec.botSchema),
     summarize: (args) => spec.summarize(args as Row),
+    // P0-3: a new record that points at another record (a load, truck, driver...) is only proposed when
+    // that record really exists in his books - otherwise the model is told to look it up.
+    async verifyProposal(args) {
+      const parsed = spec.botSchema.safeParse(args);
+      if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+      let row: Row;
+      try {
+        row = spec.rowSchema.parse(spec.toRow(parsed.data as Row)) as Row;
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "invalid record" };
+      }
+      const missing = await missingReferences(client, companyId, row);
+      return missing ? { ok: false, error: missing } : { ok: true };
+    },
     async run(args) {
       const parsed = spec.botSchema.parse(args) as Row;
       let row = spec.rowSchema.parse(spec.toRow(parsed)) as Row;
@@ -108,6 +122,35 @@ export function makeUpdateTool(
     access: "write",
     validateArgs: validateWith(spec.botSchema),
     summarize: (args) => spec.summarize(args as Row),
+    async verifyProposal(args) {
+      const parsed = spec.botSchema.safeParse(args);
+      if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+      const row = parsed.data as Row;
+      const id = String(row[spec.idKey]);
+      const { data, error } = await client
+        .from(spec.table)
+        .select("*")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) return { ok: false, error: `couldn't check his records (${error.message})` };
+      if (!data) return { ok: false, error: `there is no ${spec.label} with id ${id} in his records` };
+      const before = data as Row;
+      let patch: Row;
+      try {
+        patch = spec.patchSchema.parse(spec.toPatch(row)) as Row;
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "invalid change" };
+      }
+      if (Object.keys(patch).length === 0) return { ok: false, error: "that change names no fields" };
+      // P1-5: a load moving BACKWARD (completed -> confirmed/draft) is called out in the words he approves.
+      const backward =
+        spec.table === "loads" && typeof patch.status === "string" && before.status === "completed" && patch.status !== "completed"
+          ? ` ⚠ this moves a COMPLETED load back to ${patch.status}`
+          : "";
+      return { ok: true, summary: `Update ${describeRecord(spec.label, before)}: ${changesInWords(patch, before)}${backward}` };
+    },
     async run(args) {
       const parsed = spec.botSchema.parse(args) as Row;
       const id = String(parsed[spec.idKey]);
@@ -128,7 +171,8 @@ export function makeUpdateTool(
         spec.mergedSchema.parse(merged);
       }
       await patchLiveRow(client, spec.table, companyId, id, patch);
-      return spec.confirm(args as Row);
+      // P1-8: say exactly which fields now hold which values, so the reply can only claim what changed.
+      return `${spec.confirm(args as Row)} Now: ${changesInWords(patch, existing)}.`;
     },
   };
 }
@@ -138,3 +182,82 @@ export const idParam = (key: string, entity: string) => ({
   description: `The ${entity}'s id (uuid) - get it from the matching list tool first.`,
 });
 
+/** A saved record in words, for proposals (P0-3 / P2-2): what he would recognise, never a uuid. */
+export function describeRecord(label: string, row: Row): string {
+  const money = (c: unknown) =>
+    typeof c === "number" ? `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null;
+  const day = (v: unknown) => (typeof v === "string" ? v.slice(0, 10) : null);
+  if (row.origin || row.destination) {
+    const bits = [
+      money(row.rate_cents),
+      row.status ? String(row.status) : null,
+      row.delivery_date ? `delivery ${day(row.delivery_date)}` : row.pickup_date ? `pickup ${day(row.pickup_date)}` : null,
+    ].filter(Boolean);
+    return `${label} ${row.origin ?? "?"} → ${row.destination ?? "?"}${bits.length ? ` (${bits.join(", ")})` : ""}`;
+  }
+  if (typeof row.content === "string") return `${label} "${row.content.slice(0, 120)}"`;
+  if (typeof row.file_name === "string") return `${label} "${row.file_name}"`;
+  if (typeof row.name === "string") return `${label} ${row.name}`;
+  if (typeof row.unit_number === "string") return `${label} ${row.unit_number}`;
+  if (typeof row.description === "string") {
+    return `${label} "${row.description.slice(0, 80)}"${money(row.amount_cents) ? ` ${money(row.amount_cents)}` : ""}`;
+  }
+  if (typeof row.amount_cents === "number") {
+    return `${label} ${money(row.amount_cents)}${row.category ? ` (${row.category})` : ""}${day(row.expense_date) ? ` on ${day(row.expense_date)}` : ""}`;
+  }
+  if (typeof row.total_cost_cents === "number") return `${label} ${money(row.total_cost_cents)} on ${day(row.purchased_at)}`;
+  if (typeof row.duty_status === "string") return `${label} ${row.duty_status} from ${row.started_at}`;
+  if (typeof row.title === "string") return `${label} "${row.title}"`;
+  return label;
+}
+
+function shownValue(key: string, v: unknown): string {
+  if (key.endsWith("_cents") && typeof v === "number") return `$${(v / 100).toFixed(2)}`;
+  if (v === null) return "(cleared)";
+  return String(v).slice(0, 80);
+}
+
+/** The changed fields WITH their new values ("delivery date → 2026-11-06 (was 2026-11-05)"), for proposals and confirmations (P1-8). */
+export function changesInWords(patch: Row, before: Row | null = null): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    const name = k.replace(/_cents$/, "").replace(/_/g, " ");
+    const prior = before ? before[k] : undefined;
+    const was = prior !== undefined && prior !== null && prior !== v ? ` (was ${shownValue(k, prior)})` : "";
+    parts.push(`${name} → ${shownValue(k, v)}${was}`);
+  }
+  return parts.length > 0 ? parts.join(", ") : "nothing";
+}
+
+const REFERENCE_TABLES: Record<string, { table: string; label: string }> = {
+  load_id: { table: "loads", label: "load" },
+  truck_id: { table: "trucks", label: "truck" },
+  trailer_id: { table: "trailers", label: "trailer" },
+  driver_id: { table: "drivers", label: "driver" },
+  broker_id: { table: "brokers", label: "broker" },
+  customer_id: { table: "customers", label: "customer" },
+};
+
+/** The first referenced id that is not a live record of his, in words - or null when every reference exists. */
+export async function missingReferences(
+  client: { from: (t: string) => unknown },
+  companyId: string,
+  row: Row,
+): Promise<string | null> {
+  for (const [field, ref] of Object.entries(REFERENCE_TABLES)) {
+    const id = row[field];
+    if (typeof id !== "string" || id.length === 0) continue;
+    const q = (client.from(ref.table) as {
+      select: (c: string) => { eq: (a: string, b: string) => { eq: (a: string, b: string) => { is: (a: string, b: null) => { maybeSingle: () => Promise<{ data: unknown; error: { message: string } | null }> } } } };
+    })
+      .select("id")
+      .eq("id", id)
+      .eq("company_id", companyId)
+      .is("deleted_at", null);
+    const { data, error } = await q.maybeSingle();
+    if (error) return `couldn't check his ${ref.label}s (${error.message})`;
+    if (!data) return `there is no ${ref.label} with id ${id} in his records (${field})`;
+  }
+  return null;
+}

@@ -370,9 +370,15 @@ async function processTextItems(
           combinedForward,
           contextParts.length > 0 ? contextParts.join("\n\n") : dispatchContext,
         );
-        let reply = formatDispatchSuggestion(suggestion);
+        // P2-3 (telegram audit 2026-11-06): a recognized trip assignment needs no "who is this /
+        // what are they asking" guess - it is dispatch assigning a trip, and the staged load says the rest.
+        const trip = parseDispatchTrip(combinedForward);
+        let reply = trip
+          ? `That's dispatch assigning Trip ${trip.tripNumber}.` +
+            (suggestion.suggested_reply ? `\n\nSuggested reply:\n${suggestion.suggested_reply}` : "")
+          : formatDispatchSuggestion(suggestion);
         // §11: recordables ride the same propose->yes discipline.
-        if (deps.stageRecordables && (suggestion.recordable_items.length > 0 || parseDispatchTrip(combinedForward))) {
+        if (deps.stageRecordables && (suggestion.recordable_items.length > 0 || trip)) {
           try {
             const outcome = await deps.stageRecordables(combinedForward, suggestion.recordable_items);
             reply += formatRecordableOutcome(outcome);

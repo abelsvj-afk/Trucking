@@ -935,7 +935,15 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         required: ["kind", "content"],
       },
       access: "write",
-      validateArgs: validateWith(saveMemoryArgs),
+      // P1-9: a load's state ("my active load is paying $2,500") goes stale in a day - it belongs on the
+      // load record, never in long-term memory.
+      validateArgs: (args) => {
+        const checked = validateWith(saveMemoryArgs)(args);
+        if (checked.ok && isTransientLoadState(String((checked.args as { content?: unknown }).content ?? ""))) {
+          return { ok: false, error: "that is the state of a load (active / paying / delivering), which changes - it belongs on the load record (create_load / update_load), not in memory" };
+        }
+        return checked;
+      },
       summarize(args) {
         const parsed = saveMemoryArgs.parse(args);
         return `Memory (${parsed.kind}): "${parsed.content}"`;
@@ -1054,30 +1062,37 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push({
     name: "revise_pending_item",
     description:
-      "Correct ONE item of a pending dump batch after the owner points out a wrong value (e.g. \"3 is wrong, it's 4417\"). patch holds ONLY the fields to change, in the item's own tool argument shape. This edits the stored proposal - nothing is recorded until he approves the batch. Use confirmation \"execute\": the correction is his direct order about the proposal itself.",
+      "Correct a WAITING proposal after the owner points out a wrong value (\"3 is wrong, it's 4417\", \"make the delivery the 6th\"). For a numbered batch pass item_number; for a single waiting proposal leave item_number out. patch holds ONLY the fields to change, in that proposal's own tool argument shape. This edits the stored proposal - nothing is recorded until he approves it. Use confirmation \"execute\": the correction is his direct order about the proposal itself.",
     parameters: {
       type: "object",
       properties: {
-        item_number: { type: "number", description: "The item's number in the pending batch." },
-        patch: { type: "object", description: "Only the fields to change, in the item tool's argument shape." },
+        item_number: { type: "number", description: "The item's number in a pending batch. Leave out for a single waiting proposal." },
+        patch: { type: "object", description: "Only the fields to change, in the proposal tool's argument shape." },
       },
-      required: ["item_number", "patch"],
+      required: ["patch"],
     },
     access: "write",
     summarize: (args) =>
-      `Correct proposal item ${args.item_number}: ${JSON.stringify(args.patch ?? {})}`,
+      `Correct the waiting proposal${typeof args.item_number === "number" ? ` item ${args.item_number}` : ""}: ${JSON.stringify(args.patch ?? {})}`,
     async run(args) {
-      const itemNumber = typeof args.item_number === "number" ? args.item_number : Number.NaN;
+      const itemNumber = typeof args.item_number === "number" ? args.item_number : null;
       const patch =
         args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
       const batch = await store.loadPendingBatch();
-      const item = batch.find((row) => row.item_number === itemNumber);
-      if (!item) {
-        throw new Error(`There is no pending proposal item numbered ${itemNumber} to correct.`);
+      // Telegram audit P1-7: a SINGLE waiting proposal can be corrected too (it used to fail "not found").
+      const single = batch.length === 0 ? await store.loadPendingAction() : null;
+      const item =
+        itemNumber !== null ? batch.find((row) => row.item_number === itemNumber) : batch.length === 1 ? batch[0] : single;
+      if (!item || item.tool_name === "photo_purpose") {
+        throw new Error(
+          itemNumber !== null
+            ? `There is no waiting proposal item numbered ${itemNumber} to correct.`
+            : "There is no single waiting proposal to correct (a numbered list needs the item number).",
+        );
       }
       const tool = writeRegistry.get(item.tool_name);
       if (!tool || !tool.validateArgs || !tool.summarize) {
-        throw new Error(`Proposal item ${itemNumber} (${item.tool_name}) can't be revised.`);
+        throw new Error(`That waiting proposal (${item.tool_name}) can't be revised - propose the corrected version instead.`);
       }
       const validation = tool.validateArgs({ ...item.arguments, ...patch });
       if (!validation.ok) {
@@ -1085,7 +1100,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       }
       const summary = tool.summarize(validation.args);
       await store.updatePendingAction(item.id, validation.args, summary);
-      return `Corrected proposal item ${itemNumber}: ${summary}. Still NOT recorded - it takes effect only when he approves it.`;
+      return `Corrected the waiting proposal${itemNumber !== null ? ` item ${itemNumber}` : ""}: ${summary}. Still NOT recorded - it takes effect only when he approves it.`;
     },
   });
 
@@ -1206,4 +1221,10 @@ export async function executeWriteTool(
     throw new Error(`Unknown write tool "${toolName}".`);
   }
   return tool.run(args);
+}
+
+/** P1-9: memory content that describes a CURRENT load's state (stale within days) rather than a durable fact. */
+export function isTransientLoadState(content: string): boolean {
+  return /\b(active|current) (load|trip|run)\b/i.test(content) ||
+    /\b(load|trip|run)\b[^.]{0,60}\b(is paying|paying \$|pays \$|is due on|delivers on|picks up on)/i.test(content);
 }

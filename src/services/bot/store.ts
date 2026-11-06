@@ -169,6 +169,8 @@ export interface BotBrainStore extends TelegramStore {
     itemNumber?: number;
     sourceQuote?: string;
     confidence?: string;
+    /** Keep the original time when a proposal is put back after a transient failure (it keeps its place and its expiry). */
+    createdAt?: string;
   }): Promise<void>;
   /** §9: rewrite a stored proposal's arguments + summary (the revise_pending_item path - a correction before approval). */
   updatePendingAction(id: string, args: Record<string, unknown>, summary: string): Promise<void>;

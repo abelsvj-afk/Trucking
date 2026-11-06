@@ -194,6 +194,14 @@ export function buildThreadTools(store: BotBrainStore): AgentTool[] {
       summarize(args) {
         return args.close === true ? "Close thread and its open loop" : "Mark thread's ask answered";
       },
+      // P0-3: the thread must exist; the proposal names it.
+      async verifyProposal(args) {
+        const threadId = String(args.thread_id ?? "");
+        const found = await store.getThread(threadId).catch(() => null);
+        if (!found) return { ok: false, error: `there is no recorded thread with id ${threadId} - use list_open_threads` };
+        const name = found.thread.title ?? found.thread.theAsk ?? "a recorded thread";
+        return { ok: true, summary: `${args.close === true ? "Close the thread" : "Mark answered"}: "${String(name).slice(0, 100)}"` };
+      },
       async run(args) {
         const threadId = String(args.thread_id ?? "");
         await store.markThreadAnswered(threadId);

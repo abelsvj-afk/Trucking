@@ -270,7 +270,7 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
   });
 
-  it("a failed write keeps the proposal so a retry or a correction still has it", async () => {
+  it("a write that can NEVER succeed (refused value / missing record) is dropped, not looped - telegram audit P0-2", async () => {
     const seed = baseSeed(true);
     seed.bot_pending_actions = [
       {
@@ -283,12 +283,10 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     const store = telegramStore(client);
     const { provider: noModel } = neverCalledProvider();
     const out = await runAgentTurn(noModel, store, input("yes"));
-    expect(out.reply).toContain("failed");
-    expect(out.reply).toContain("kept the proposal");
+    expect(out.reply).toContain("couldn't be recorded");
+    expect(out.reply).toContain("dropped it - nothing was saved");
     expect(db.expenses ?? []).toHaveLength(0);
-    const open = db.bot_pending_actions!.filter((r) => !r.deleted_at);
-    expect(open).toHaveLength(1);
-    expect(open[0]).toMatchObject({ tool_name: "create_expense", summary: "Expense: broken" });
+    expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
   });
 
   it("a bare yes targets the proposal just shown, not the oldest one waiting", async () => {
@@ -607,5 +605,130 @@ describe("live_location switch (authority-matrix G1)", () => {
     const globalSeed = baseSeed(true);
     globalSeed.companies = [{ id: COMPANY, ai_globally_disabled: true, deleted_at: null }];
     expect(await telegramStore(fakeClient(globalSeed).client).isLiveLocationEnabled()).toBe(false);
+  });
+});
+
+// Telegram audit 2026-11-06: the live conversation that went wrong, replayed against the real turn.
+describe("transcript regression - telegram audit 2026-11-06", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const live = (db: Record<string, Row[]>) => db.bot_pending_actions!.filter((r) => !r.deleted_at);
+
+  it("'No that's not it. Delete that' cancels the waiting suggestion AND still hands the rest to the model (P0-1)", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "m", company_id: COMPANY, channel: "telegram", tool_name: "save_memory", arguments: { kind: "fact", content: "that lane is fine" }, summary: "Remember: that lane is fine", created_at: ago(1), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Dropped it. Which saved note do you want gone?", toolCalls: [] }]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("No that's not it. Delete that"));
+    expect(runToolTurn).toHaveBeenCalled();
+    expect(live(db)).toHaveLength(0);
+    expect(db.bot_memories ?? []).toHaveLength(0);
+    expect(out.reply).not.toContain("Done");
+  });
+
+  it("an update to a load that does not exist is never proposed (P0-3) - so YES can't loop on it", async () => {
+    const { client, db } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          {
+            id: "u1",
+            name: "update_load",
+            arguments: JSON.stringify({ load_id: "deadbeef-0000-4000-8000-000000000000", patch: { delivery_date: "2026-11-06" }, confirmation: "propose" }),
+          },
+        ],
+      },
+      { text: "I couldn't find that load in your records.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("delivery should say the 6th"));
+    expect(live(db)).toHaveLength(0);
+    expect(out.reply).not.toContain("NOT recorded");
+    const secondCall = JSON.stringify(runToolTurn.mock.calls[1] ?? []);
+    expect(secondCall).toContain("NOT PROPOSED");
+  });
+
+  it("two proposals in one turn become ONE numbered list one YES answers (P0-4)", async () => {
+    const { client, db } = fakeClient(baseSeed(true));
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          { id: "a", name: "create_expense", arguments: JSON.stringify({ category: "permits", amount_dollars: 11, confirmation: "propose" }) },
+          { id: "b", name: "create_expense", arguments: JSON.stringify({ category: "repairs", amount_dollars: 88, confirmation: "propose" }) },
+        ],
+      },
+      { text: "Two things to record. Please reply YES to confirm.", toolCalls: [] },
+    ]);
+    const first = await runAgentTurn(provider, store, input("the permit was 11 and the tire was 88"));
+    const waiting = live(db);
+    expect(waiting).toHaveLength(2);
+    expect(new Set(waiting.map((r) => r.batch_id)).size).toBe(1);
+    expect(waiting[0]!.batch_id).toBeTruthy();
+    // P2-1: only the code's own block asks for the yes.
+    expect(first.reply.match(/reply YES/gi) ?? []).toHaveLength(1);
+
+    const { provider: noModel } = neverCalledProvider();
+    await runAgentTurn(noModel, store, input("yes"));
+    expect(db.expenses).toHaveLength(2);
+    expect(live(db)).toHaveLength(0);
+  });
+
+  it("after a YES resolves the newest proposal, anything else still waiting is named (P0-5)", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "old", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "tolls", amount_dollars: 11 }, summary: "Expense: $11.00 (tolls)", created_at: ago(40), deleted_at: null },
+      { id: "new", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: ago(1), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(db.expenses).toHaveLength(1);
+    expect(out.reply).toContain("Still waiting for your yes/no");
+    expect(out.reply).toContain("$11.00");
+  });
+
+  it("'Just completed the load' cannot execute a load decision he never stated (P0-6)", async () => {
+    const { client, db } = fakeClient(baseSeed(true));
+    const { provider } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          { id: "d", name: "record_load_decision", arguments: JSON.stringify({ description: "Load to Texas", decision: "taken", confirmation: "execute" }) },
+        ],
+      },
+      { text: "Nice work.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("Just completed the load"));
+    expect(db.load_decisions ?? []).toHaveLength(0);
+    expect(live(db).map((r) => r.tool_name)).toEqual(["record_load_decision"]);
+    expect(out.reply).toContain("NOT recorded");
+  });
+
+  it("'yes but make it $3,100' is never executed as-is (P1-10)", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "p", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: ago(1), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Want it at $3,100 instead?", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("yes but make it $3,100"));
+    expect(runToolTurn).toHaveBeenCalled();
+    expect(db.expenses ?? []).toHaveLength(0);
+  });
+
+  it("a soft 'ok' never approves a delete (P1-10)", async () => {
+    const seed = baseSeed(true);
+    seed.bot_memories = [{ id: "mem-1", company_id: COMPANY, kind: "fact", content: "x", deleted_at: null }];
+    seed.bot_pending_actions = [
+      { id: "p", company_id: COMPANY, channel: "telegram", tool_name: "delete_record", arguments: { entity: "memory", record_id: "mem-1" }, summary: "DELETE memory", created_at: ago(1), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("ok"));
+    expect(out.reply).toContain("Just to be sure");
+    expect(db.bot_memories![0]!.deleted_at).toBeNull();
   });
 });

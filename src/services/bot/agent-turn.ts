@@ -27,6 +27,7 @@ import {
   type BotChatInput,
   type BotChatOutput,
 } from "@/services/ai/bot-chat";
+import { randomUUID } from "node:crypto";
 import type { AiProvider } from "@/services/ai/provider";
 import { isAgentCapableProvider } from "@/services/ai/provider";
 import { JOB_KNOWLEDGE_BRIEF } from "@/services/ai/job-knowledge";
@@ -41,6 +42,8 @@ import { formatPayPinLine } from "./pay-pin";
 import { buildLifePhaseText } from "./life-phase";
 import { formatOpenLoopsBlock } from "./threads";
 import { buildBotTools, executeWriteTool } from "./tools";
+import { gateExecutes } from "./execute-gate";
+import { stripConfirmationProse } from "./reply-prose";
 import { expandMaintenancePairings } from "./maintenance-pairing";
 import { annotatePaperLogEdits } from "@/services/fleet/paper-logs";
 import {
@@ -62,7 +65,7 @@ export const PENDING_EXPIRY_MS = 2 * 60 * 60 * 1000;
 /** A proposal shown this recently is what a bare yes/no means. */
 export const SHOWN_RECENTLY_MS = 10 * 60 * 1000;
 
-const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you King). Plain language first, short answers, no corporate filler. CANCEL IS NOT DELETE: when he says no / remove that / drop that about something you just suggested, that only cancels the suggestion - never propose deleting a saved record unless he names that saved record and asks to delete it. FORGETTING: when he asks you to forget or remove something you remember, find it with list_memories and PROPOSE delete_record (entity memory) - never claim it is forgotten until he says yes. Every id you pass to a tool (broker, customer, driver, load) must be a real id from a read tool, never a name; if you cannot find it, say so and ask. You know his business only through the context blocks and the tools - both come from his real records.
+const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you Abel). Plain language first, short answers, no corporate filler. CANCEL IS NOT DELETE: when he says no / remove that / drop that about something you just suggested, that only cancels the suggestion - never propose deleting a saved record unless he names that saved record and asks to delete it. FORGETTING: when he asks you to forget or remove something you remember, find it with list_memories and PROPOSE delete_record (entity memory) - never claim it is forgotten until he says yes. Every id you pass to a tool (broker, customer, driver, load) must be a real id from a read tool, never a name; if you cannot find it, say so and ask. COMPLETED LOADS: when he says he delivered / finished / completed a load, find it with list_loads (his one active load, or ask which) and use complete_load with the delivery date - never record_load_decision for a delivery, and never invent a load. CHANGE FIELDS, NOT NOTES: when he corrects a value ("delivery should say the 6th"), change that field with the update tool; a note is not a correction. Never change a load's status unless he asks for that. REPORT ONLY WHAT HAPPENED: say only what the tool results show was changed (their "Now:" lines), and never narrate internal failures or tool names to him - say plainly what was and wasn't done. Don't close threads or log decisions he didn't mention. You know his business only through the context blocks and the tools - both come from his real records.
 
 TOOLS: Read tools query his real records - use them whenever a question needs specifics beyond the context blocks (a load, a total, a contact, a past message). Write tools record things in his books. Every figure you state must come from a context block, a tool result, or the owner's own message - never estimate, never fill a gap with a plausible number. If a tool reports an error, tell him that lookup failed instead of covering for it.
 
@@ -106,20 +109,57 @@ ${JOB_KNOWLEDGE_BRIEF}`;
 
 export type ConfirmationKind = "yes" | "no" | "other";
 
+// A BARE confirmation is one of these short phrases and NOTHING else (telegram audit 2026-11-06, P0-1):
+// "No that's not it. Delete that" or "Yes but make it $3,100" carry a new request or a correction, so
+// they are never resolved as a plain yes/no - the leading-"No" path cancels and hands the rest to the
+// model, and a "Yes, but..." goes to the model with the proposal in context (it is NOT executed as-is).
 const YES_WORDS = new Set([
-  "yes", "yeah", "yep", "yup", "ok", "okay", "sure", "do it", "go ahead",
-  "confirm", "sí", "si", "dale", "yes do it", "yes please",
+  "yes", "yeah", "yep", "yup", "do it", "go ahead", "confirm", "confirmed",
+  "sí", "si", "dale", "yes do it", "yes please", "yes sir", "yes go ahead", "yes confirm", "yeah do it", "yep do it",
 ]);
+/** Acknowledgements that are only a yes in a narrow case (fresh, non-destructive proposal) - P1-10. */
+const SOFT_YES_WORDS = new Set(["ok", "okay", "sure", "k", "kk", "alright", "all right"]);
 const NO_WORDS = new Set([
-  "no", "nope", "cancel", "drop it", "don't", "dont", "never mind",
-  "nevermind", "forget it", "no thanks",
+  "no", "nope", "nah", "cancel", "drop it", "don't", "dont", "never mind",
+  "nevermind", "forget it", "no thanks", "no thank you", "don't do it", "dont do it", "no don't", "no dont",
 ]);
 
+function normalizeConfirmation(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s.!,]+$/u, "")
+    .replace(/\s*[👍✅👌🙏]+$/u, "")
+    .replace(/\s+/g, " ");
+}
+
 export function classifyConfirmation(text: string): ConfirmationKind {
-  const normalized = text.trim().toLowerCase().replace(/[.!]+$/, "");
-  if (YES_WORDS.has(normalized) || normalized.startsWith("yes ")) return "yes";
-  if (NO_WORDS.has(normalized) || normalized.startsWith("no ")) return "no";
+  const normalized = normalizeConfirmation(text);
+  if (YES_WORDS.has(normalized)) return "yes";
+  if (NO_WORDS.has(normalized)) return "no";
   return "other";
+}
+
+/** "ok" / "sure" alone: a yes only for a proposal shown just now that is not a delete (P1-10). */
+export function isSoftYes(text: string): boolean {
+  return SOFT_YES_WORDS.has(normalizeConfirmation(text));
+}
+
+/** A message that STARTS with yes but carries more ("yes but make it 3100"): never an approval as-is. */
+export function isYesWithMore(text: string): boolean {
+  return classifyConfirmation(text) === "other" && /^(yes|yeah|yep|yup|sí|si)\b[\s,.!:-]+\S/i.test(text.trim());
+}
+
+/**
+ * Why a stored proposal failed, for P0-2: a PERMANENT failure (the record does not exist, the value is
+ * refused) can never succeed by retrying, so it is dropped and said plainly; only a TRANSIENT failure
+ * (the database or network hiccupped) keeps the proposal for a retry.
+ */
+export function isPermanentWriteFailure(err: unknown): boolean {
+  if (err && typeof err === "object" && (err as { name?: string }).name === "ZodError") return true;
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/fetch failed|network|timeout|timed out|ECONN|ETIMEDOUT|EAI_AGAIN|socket|503|502|504|temporarily|rate limit/i.test(msg)) return false;
+  return /\bno \w[\w ]* with id\b|not found|does not exist|doesn't exist|invalid|must be|required|violates|refused|not allowed|can't|cannot|already|uuid/i.test(msg);
 }
 
 /**
@@ -196,19 +236,28 @@ async function resolvePending(
     return { reply: `Done - ${result.charAt(0).toLowerCase()}${result.slice(1)}` };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown error";
-    // The write threw, so nothing was recorded: put the proposal back so a
-    // retry (or a corrected version) still has it - clearing it before the
-    // write only protects against double-recording, not against losing it.
+    // P0-2 (telegram audit 2026-11-06): a permanent failure ("No load with id ...") can never succeed on a
+    // retry. Keeping it made it the newest proposal again, so every later YES hit the same dead item and
+    // starved everything else. It is dropped, and he is told what to do instead.
+    if (isPermanentWriteFailure(err)) {
+      return {
+        reply:
+          `That couldn't be recorded (${detail}), so I dropped it - nothing was saved: ${pending.summary}. ` +
+          "Tell me again what you want and I'll look up the right record first.",
+      };
+    }
+    // Transient (database/network): put the proposal back WITH its original time, so it keeps its place
+    // in line and its 2-hour expiry, and doesn't jump ahead of what he saw last.
     let kept = false;
     try {
-      await store.savePendingAction({ toolName: pending.tool_name, args: pending.arguments, summary: pending.summary });
+      await store.savePendingAction({ toolName: pending.tool_name, args: pending.arguments, summary: pending.summary, createdAt: pending.created_at });
       kept = true;
     } catch (restageErr) {
       console.error("[bot] could not re-stage a failed proposal:", restageErr);
     }
     return {
       reply: kept
-        ? `I tried to record it and it failed (${detail}). Nothing was saved, and I've kept the proposal: ${pending.summary}. Tell me what to change, or reply YES to try again as-is, or NO to drop it.`
+        ? `I couldn't record it just now (${detail}) - that looks like a connection problem, not a problem with the entry. Nothing was saved and I've kept it: ${pending.summary}. Reply YES to try again, or NO to drop it.`
         : `I tried to record it and it failed (${detail}). Nothing was saved: ${pending.summary}. Tell me how you'd like to fix it and I'll try again.`,
     };
   }
@@ -334,6 +383,67 @@ async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string
   }
 }
 
+/**
+ * P0-5: after a YES/NO resolves the newest proposal, anything else still open is named - so the next
+ * bare YES is never a surprise, and nothing waiting is forgotten.
+ */
+async function withStillWaiting(store: BotBrainStore, out: BotChatOutput): Promise<BotChatOutput> {
+  try {
+    const open = (await store.loadOpenPendingGroups()).filter(
+      (g) => g.toolName !== PHOTO_PURPOSE_TOOL && Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
+    );
+    if (open.length === 0) return out;
+    const lines = open.map((g) => `- ${g.summary}`).join("\n");
+    const next = open.length === 1 ? "Reply YES to record it too, or NO to drop it." : "Tell me which one you mean, in your own words.";
+    return { ...out, reply: `${out.reply}\n\nStill waiting for your yes/no:\n${lines}\n${next}` };
+  } catch {
+    return out;
+  }
+}
+
+/** P1-2: the current moment on his clock, for every turn. */
+export function nowBlock(now: Date): string {
+  const text = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(now);
+  const isoDay = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return `NOW: ${text} Eastern (America/New_York) - today is ${isoDay}. Resolve "an hour ago", "today", "yesterday", "the 6th" from this; dates you record are on this clock.`;
+}
+
+/** P1-3: documents filed in the last few hours (newest first), so "that image / it's the BOL" has an id. */
+async function loadRecentDocumentsBlock(store: BotBrainStore): Promise<string | null> {
+  try {
+    const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
+    const { data, error } = await store.client
+      .from("documents")
+      .select("id, file_name, related_entity_type, related_entity_id, created_at")
+      .eq("company_id", store.companyId)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    if (error || !data || data.length === 0) return null;
+    const rows = data as { id: string; file_name: string; related_entity_type: string; related_entity_id: string; created_at: string }[];
+    const when = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    const lines = rows.map(
+      (d) =>
+        `- [${d.id}] "${d.file_name}" at ${when(d.created_at)} ET - ${d.related_entity_type === "company" ? "NOT attached to anything yet" : `attached to ${d.related_entity_type} ${d.related_entity_id}`}`,
+    );
+    return (
+      "RECENT PHOTOS / DOCUMENTS HE SENT (newest first; ids are real):\n" +
+      lines.join("\n") +
+      "\nWhen he says \"that's the BOL\", \"this goes with that\", \"that image\", he means the newest one unless he says otherwise: attach it with attach_document to the load he means (list_loads for its id). Never change a load's status to attach a photo."
+    );
+  } catch {
+    return null;
+  }
+}
+
 export interface AgentTurnHooks {
   onToolLog?: (entry: AgentToolLogEntry) => void;
 }
@@ -368,7 +478,8 @@ export async function runAgentTurn(
   // shown. If several proposals are open and the newest was NOT shown
   // just now, a bare answer could mean any of them - list them, ask.
   if (pending && pending.tool_name !== PHOTO_PURPOSE_TOOL) {
-    const bare = classifyConfirmation(input.userText) !== "other" || parseBatchCommand(input.userText).kind !== "other";
+    const bare =
+      classifyConfirmation(input.userText) !== "other" || isSoftYes(input.userText) || parseBatchCommand(input.userText).kind !== "other";
     if (bare && Date.now() - new Date(pending.created_at).getTime() > SHOWN_RECENTLY_MS) {
       const open = (await store.loadOpenPendingGroups()).filter(
         (g) => g.toolName !== PHOTO_PURPOSE_TOOL && Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
@@ -392,6 +503,8 @@ export async function runAgentTurn(
   // the context blocks below - and the turn proceeds normally.
   let pendingPhotoAsk: PendingAction | null = null;
   let cancelledSuggestion: string | null = null;
+  // P0-1: "yes but make it 3100" - the waiting proposal is NOT executed; a corrected proposal replaces it.
+  let correctingPending: PendingAction | null = null;
   if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
     const resolved = await tryResolvePhotoPurposeAsk(store, pending, input.userText);
     if (resolved) return resolved;
@@ -410,7 +523,7 @@ export async function runAgentTurn(
       }
       const command = parseBatchCommand(input.userText);
       if (command.kind !== "other") {
-        return resolveBatch(store, pendingBatch, command);
+        return withStillWaiting(store, await resolveBatch(store, pendingBatch, command));
       }
       // "other" (typically a correction) falls through to the model
       // with the batch in context - see the context block below.
@@ -418,8 +531,17 @@ export async function runAgentTurn(
   } else if (pending) {
     const kind = classifyConfirmation(input.userText);
     if (kind !== "other") {
-      return resolvePending(store, pending, kind);
+      return withStillWaiting(store, await resolvePending(store, pending, kind));
     }
+    // P1-10: "ok" / "sure" is a yes only for a proposal he saw just now that isn't a delete; otherwise ask.
+    if (isSoftYes(input.userText)) {
+      const fresh = Date.now() - new Date(pending.created_at).getTime() <= SHOWN_RECENTLY_MS;
+      if (fresh && pending.tool_name !== "delete_record") return withStillWaiting(store, await resolvePending(store, pending, "yes"));
+      return {
+        reply: `Just to be sure - do you want me to record this? ${pending.summary}\nReply YES to record it, or NO to drop it.`,
+      };
+    }
+    if (isYesWithMore(input.userText)) correctingPending = pending;
     // "No. Remove that. Add this..." - a leading no answers the waiting
     // proposal (it is cancelled, in code) and the rest of the message is a
     // NEW request. The cancel can never become a delete of a saved record.
@@ -441,6 +563,11 @@ export async function runAgentTurn(
   }
 
   const contextBlocks: string[] = [];
+  // P1-2: the agent had no clock - "an hour ago", "today", "the 6th" were guesses.
+  contextBlocks.push(nowBlock(new Date()));
+  // P1-3: "that's the BOL / that image" - the photos he just sent, by id, so they can be attached.
+  const photosBlock = await loadRecentDocumentsBlock(store);
+  if (photosBlock) contextBlocks.push(photosBlock);
   if (input.instructions.length > 0) {
     contextBlocks.push(`STANDING INSTRUCTIONS FROM THE OWNER:\n${input.instructions.map((i) => `- ${i}`).join("\n")}`);
   }
@@ -459,9 +586,14 @@ export async function runAgentTurn(
       `A PROPOSED ACTION IS WAITING FOR HIS YES/NO (over 2 hours old proposals expire): ${pending.summary}. If he says yes or no, it is handled - anything else, answer normally and it stays waiting.`,
     );
   }
+  if (correctingPending) {
+    contextBlocks.push(
+      `HE ANSWERED THE WAITING PROPOSAL WITH "YES" PLUS MORE: "${input.userText}". This is NOT an approval and nothing was recorded. If he is correcting it, propose the corrected version with the same tool (it replaces the waiting one). If he approves it as-is and also asks something else, answer the something else and tell him to reply a plain YES to record: ${correctingPending.summary}`,
+    );
+  }
   if (cancelledSuggestion) {
     contextBlocks.push(
-      `HE JUST SAID NO to your waiting suggestion, and it is cancelled (nothing was recorded): ${cancelledSuggestion}. The rest of his message is a NEW request - handle it fresh, do not carry the cancelled item into it, and do NOT propose deleting any saved record.`,
+      `HE JUST SAID NO to your waiting suggestion, and it is cancelled (nothing was recorded): ${cancelledSuggestion}. The rest of his message is a NEW request - handle it fresh and do not carry the cancelled item into it. The cancel itself is never a delete; only if he explicitly asks to delete a SAVED record, find it with a read tool and propose delete_record for that record.`,
     );
   }
   const researchAskBlock = await loadPendingResearchAskBlock(store);
@@ -495,7 +627,7 @@ export async function runAgentTurn(
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
-    tools: buildBotTools(store),
+    tools: gateExecutes(buildBotTools(store), input.userText),
     onToolLog: hooks.onToolLog,
   });
 
@@ -504,7 +636,10 @@ export async function runAgentTurn(
   // pulls its schedule completion into the same batch, in code -
   // recording the work and advancing the schedule take ONE yes.
   // Pairing failure never costs him the event proposal itself.
-  let proposals = cancelledSuggestion
+  // P1-6: after a cancel, a delete stands only when his own words ask for one ("No. Delete that log entry");
+  // it used to drop every delete silently, including the one he asked for.
+  const askedToDelete = /\b(delete|remove|erase|get rid of|take (it|that) off)\b/i.test(input.userText);
+  let proposals = cancelledSuggestion && !askedToDelete
     ? result.proposals.filter((p) => p.tool !== "delete_record")
     : result.proposals;
   if (proposals.some((p) => p.tool === "create_maintenance_event")) {
@@ -525,11 +660,22 @@ export async function runAgentTurn(
       console.error("[bot] paper-log edit annotation failed:", err);
     }
   }
+  if (correctingPending && proposals.some((p) => p.tool === correctingPending!.tool_name)) {
+    await store.clearPendingAction(correctingPending.id);
+  }
   if (proposals.length > 0) {
     // §9: dump items arrive as proposals sharing a batch id - they
     // are stored with stable item numbers and shown as ONE
     // consolidated numbered list; plain §8 proposals keep their
     // existing single-proposal path.
+    // P0-4 (telegram audit 2026-11-06): two separate proposals each said "reply YES", but one YES only ever
+    // answers one of them. More than one single in a turn becomes ONE numbered list instead, answered with
+    // the batch grammar (yes = all, "1 and 3", "drop the rest").
+    const looseSingles = proposals.filter((p) => !p.batchId);
+    if (looseSingles.length > 1) {
+      const batchId = randomUUID();
+      proposals = proposals.map((p) => (p.batchId ? p : { ...p, batchId }));
+    }
     const singles = proposals.filter((p) => !p.batchId);
     const batches = new Map<string, typeof proposals>();
     for (const proposal of proposals) {
@@ -574,7 +720,8 @@ export async function runAgentTurn(
     // the tool-produced summaries (they carry the figures he must
     // see to decide). The step-exhaustion line stands on its own.
     if (!result.ranOutOfSteps) {
-      reply += suffixes.join("");
+      // P2-1: the appended block is the only "reply YES" he sees - the model's own copy is dropped.
+      reply = stripConfirmationProse(reply) + suffixes.join("");
     } else {
       reply = `${RAN_OUT_OF_STEPS_REPLY}\n\nWhat I did line up before running out:${suffixes.join("")}`;
     }

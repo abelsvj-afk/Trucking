@@ -149,7 +149,7 @@ describe("stageRecordables", () => {
     expect(rows[1]?.item_number).toBe(1);
   });
 
-  it("says the batch is queued (not yet awaiting his yes) in the outcome text", async () => {
+  it("one rule (telegram audit P0-5): the new batch is the one a YES answers; the earlier proposal is named, not hidden", async () => {
     const waiting: Row = {
       id: "pending-0",
       company_id: COMPANY,
@@ -167,8 +167,10 @@ describe("stageRecordables", () => {
     const { store } = makeStore([waiting]);
     const result = await stageRecordables(store, MESSAGE, [LOAD_ITEM]);
     const text = formatRecordableOutcome(result);
-    expect(text).toContain("queued");
-    expect(text).not.toContain("Reply YES");
+    expect(text).not.toContain("settle that one first");
+    expect(text).toContain("A YES now answers the list above");
+    expect(text).toContain("Expense $40");
+    expect(result.earlierPending).toBe("Expense $40");
   });
 
   it("is a no-op for an empty extraction", async () => {

@@ -104,6 +104,7 @@ async function loadPendingRows(): Promise<PendingAction[]> {
         tool_name: action.toolName,
         arguments: action.args,
         summary: action.summary,
+        ...(action.createdAt ? { created_at: action.createdAt } : {}),
       };
       if (action.batchId === undefined) {
         const { error } = await supabase.from("bot_pending_actions").insert(base);

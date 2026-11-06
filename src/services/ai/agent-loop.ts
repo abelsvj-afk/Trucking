@@ -67,6 +67,15 @@ export interface AgentTool {
     args: Record<string, unknown>,
   ) => { ok: true; args: Record<string, unknown> } | { ok: false; error: string };
   /**
+   * Telegram audit 2026-11-06 (P0-3): checks a proposal against his REAL records before it is shown
+   * (the record it targets exists, in his company) and returns the summary in words - "DELETE load
+   * Jacksonville -> Melbourne", not a uuid. A failure goes back to the model (so it looks the id up) and
+   * nothing is staged: he is never asked to approve something that cannot happen.
+   */
+  verifyProposal?: (
+    args: Record<string, unknown>,
+  ) => Promise<{ ok: true; summary?: string } | { ok: false; error: string }>;
+  /**
    * Turns one proposed call into several proposals (§9 dump
    * staging: one call carries every extracted item). Called only
    * on the proposal path. Rejected items come back with reasons
@@ -294,7 +303,28 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
           }
           proposedArgs = checked.args;
         }
-        const summary = tool.summarize ? tool.summarize(proposedArgs) : `${tool.name} (proposed)`;
+        let verifiedSummary: string | undefined;
+        if (tool.verifyProposal) {
+          let verdict: { ok: true; summary?: string } | { ok: false; error: string };
+          try {
+            verdict = await tool.verifyProposal(proposedArgs);
+          } catch (err) {
+            verdict = { ok: false, error: err instanceof Error ? err.message : "could not check his records" };
+          }
+          if (!verdict.ok) {
+            log({ tool: tool.name, access: "write", outcome: "error", detail: `unverified proposal: ${verdict.error}` });
+            messages.push({
+              role: "tool",
+              toolCallId: call.id,
+              content:
+                `NOT PROPOSED - ${verdict.error}. Nothing was staged and nothing was shown to him. ` +
+                "Find the real record with a read tool (list_loads, list_memories, list_documents, list_open_threads ...) and propose again with its id - or tell him you couldn't find it.",
+            });
+            continue;
+          }
+          verifiedSummary = verdict.summary;
+        }
+        const summary = verifiedSummary ?? (tool.summarize ? tool.summarize(proposedArgs) : `${tool.name} (proposed)`);
         proposals.push({ tool: tool.name, args: proposedArgs, summary });
         log({ tool: tool.name, access: "write", outcome: "proposed", detail: summary });
         const content =

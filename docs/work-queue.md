@@ -25,6 +25,29 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 - Expired-clock reset + locks (owner 2026-11-06): an expired clock shows its RESET (10 h off / 30 min not driving / 34 h restart) filling in red until green, and a red "Locked right now" panel says what is locked, why, and what is still allowed (information only - never blocks logging); Driving button tagged "not legal now". `lib/clock-locks.ts`, `ClockReset` in `lib/hud-clocks.ts`. Day log entries now have Fix/Delete buttons.
 - Final step: two self-audits (mistakes/edge cases; professional/working-driver review) folded in before the final report.
 
+## B0b. Telegram bot audit fixes (owner 2026-11-06: "fix all of them in that order")
+- From the owner's live Abel transcript. CODE DONE + gated, NOT deployed, NOT verified live:
+  - P0-1: yes/no is matched as an exact phrase, so compound messages ("No that's not it. Delete that", "yes but...") always reach the model.
+  - P0-2: a permanent write failure is dropped and said plainly. Only a network hiccup keeps it, and it keeps its original time, so it can't become the eternal YES target.
+  - P0-3: `verifyProposal`. A proposal pointing at a record that doesn't exist is never shown. Proposals name records in words.
+  - P0-4: several proposals in one turn become ONE numbered list.
+  - P0-5: one rule. YES answers the newest proposal, and anything else still waiting is named.
+  - P0-6: `execute-gate.ts`. Decisions, thread closing, attach and load edits execute only when his message names them; otherwise they are proposed.
+  - P1:
+    - NOW (Eastern) and recent-photo context blocks.
+    - `complete_load` tool.
+    - delete targets for decisions and threads.
+    - backward-status warning.
+    - "Now:" read-back of the changes.
+    - no transient load state in memory.
+    - "ok" is never a yes for deletes.
+    - revise a single proposal.
+    - an explicit delete survives the cancel path.
+    - the prompt names the bot Abel (it said King).
+  - P2: the model's duplicate "reply YES" prose is stripped; a recognised trip forward skips the sender guess.
+  - Tests: `tests/unit/services/bot/telegram-audit-helpers.test.ts` plus the transcript regression in `agent-turn.test.ts`.
+  - To verify after deploy: replay the transcript's turns with Abel on Telegram.
+
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
 - Phase 3 road-work machinery BUILT (WZDx parser, corridor+ETA filter, section); feed registry EMPTY until a feed is verified from the deploy network (King: pick states, verify each feed once).

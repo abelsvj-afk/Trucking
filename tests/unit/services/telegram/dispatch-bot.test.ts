@@ -220,7 +220,7 @@ describe("handleTelegramUpdate", () => {
   // BLOCKED by a waiting proposal and the items were dropped. Now
   // the batch queues behind it and the reply says so (no YES
   // grammar for a batch that isn't at the front of the queue).
-  it("says the new batch is queued when a proposal is already waiting", async () => {
+  it("one rule (telegram audit P0-5): the new batch is what a YES answers, and the earlier waiting proposal is named", async () => {
     const withItems: DispatchSuggestion = {
       ...SUGGESTION,
       recordable_items: [
@@ -247,6 +247,7 @@ describe("handleTelegramUpdate", () => {
       rejected: [],
       blockedByPending: false,
       queuedBehindPending: true,
+      earlierPending: "Expense $40",
     });
     await handleTelegramUpdate(
       { message: { chat: { id: 4242, type: "private" }, text: "Tengo una carga para Atlanta", forward_date: 123 } },
@@ -254,8 +255,9 @@ describe("handleTelegramUpdate", () => {
       { ...d, stageRecordables },
     );
     const sent = d.sendMessage.mock.calls[0]?.[1] as string;
-    expect(sent).toContain("queued");
-    expect(sent).not.toContain("Reply YES to record all");
+    expect(sent).not.toContain("queued");
+    expect(sent).toContain("A YES now answers the list above");
+    expect(sent).toContain("still waiting: Expense $40");
   });
 
   it("captures a 'remember:' dictation without calling any AI", async () => {
