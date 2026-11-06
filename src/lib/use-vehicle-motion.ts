@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MotionState } from "./vehicle-motion";
 import { NO_ESTIMATE, motionState, stepMotion, type MotionEstimate } from "./motion-estimator";
 import { NO_SUSTAINED, stepSustained, type SustainedState } from "./sustained-motion";
+import { distanceM, MIN_BEARING_MOVE_M, nextHeading } from "./heading";
 
 const MPS_TO_MPH = 2.23694;
 const RECHECK_MS = 5_000;
@@ -28,6 +29,8 @@ export interface VehicleMotionDetail {
   speedMph: number | null;
   /** Sustained-motion / standstill tracking (Block A auto-switch); durations are read with movingForMs / stoppedForMs. */
   sustained: SustainedState;
+  /** Travel direction in degrees (0 = north): the phone's heading while moving, else derived from where the truck went, else held; null before any is known. */
+  headingDeg: number | null;
 }
 
 /** Motion state only (the safety decision). */
@@ -41,6 +44,8 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
   const [speedMph, setSpeedMph] = useState<number | null>(null);
   const [sustained, setSustained] = useState<SustainedState>(NO_SUSTAINED);
   const sustainedRef = useRef<SustainedState>(NO_SUSTAINED);
+  const [headingDeg, setHeadingDeg] = useState<number | null>(null);
+  const headingRef = useRef<{ heading: number | null; last: { lat: number; lng: number } | null }>({ heading: null, last: null });
   // The bubble estimator (lib/motion-estimator): wander inside the bubble
   // around where he stopped is not movement; see that file for the rules.
   const estimateRef = useRef<MotionEstimate>(NO_ESTIMATE);
@@ -72,6 +77,19 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
             estimator: motionState(next, now),
           });
           setSustained(sustainedRef.current);
+          const here = { lat: fix.coords.latitude, lng: fix.coords.longitude };
+          const h = nextHeading({
+            previous: headingRef.current.last,
+            current: here,
+            reportedDeg: fix.coords.heading,
+            speedMph: next.lastSpeedMph,
+            held: headingRef.current.heading,
+          });
+          // The 'previous' point only advances once the truck has really moved, so a standstill's wobble never builds a bearing.
+          const last = headingRef.current.last;
+          const moved = last === null || distanceM(last, here) >= MIN_BEARING_MOVE_M;
+          headingRef.current = { heading: h, last: moved ? here : headingRef.current.last };
+          setHeadingDeg(h);
           // A poor fix leaves the estimate untouched; the position shown is the
           // estimate's (pinned while parked), not the raw wobbling reading.
           const shown = next.displayPoint ?? { lat: fix.coords.latitude, lng: fix.coords.longitude };
@@ -82,6 +100,8 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
           estimateRef.current = NO_ESTIMATE;
           sustainedRef.current = NO_SUSTAINED;
           setSustained(NO_SUSTAINED);
+          headingRef.current = { heading: null, last: null };
+          setHeadingDeg(null);
           setPosition(null);
           setSpeedMph(null);
           evaluate();
@@ -106,6 +126,8 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
         estimateRef.current = NO_ESTIMATE;
         sustainedRef.current = NO_SUSTAINED;
         setSustained(NO_SUSTAINED);
+        headingRef.current = { heading: null, last: null };
+        setHeadingDeg(null);
         setPosition(null);
         setSpeedMph(null);
         setState("unknown");
@@ -121,5 +143,5 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
     };
   }, []);
 
-  return { state, position, speedMph, sustained };
+  return { state, position, speedMph, sustained, headingDeg };
 }

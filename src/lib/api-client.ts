@@ -238,6 +238,11 @@ export const apiClient = {
     }),
   dutyLogWindow: () =>
     request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
+  /** Block C: the posted limit (OSM maxspeed) for the road under the truck, or null - never an estimate. */
+  speedLimit: (lat: number, lng: number, headingDeg: number | null) =>
+    request<{ data: { limitMph: number | null; roadName: string | null; unavailable: boolean } }>(
+      `/api/v1/map/speed-limit?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}${headingDeg !== null ? `&heading=${Math.round(headingDeg)}` : ""}`,
+    ),
   /** Block A: ask the server to switch to Driving from detected sustained motion (stamped at the detection time). */
   autoMotionSwitch: (detectedAtIso: string, submissionId: string) =>
     request<{ data: { switched: boolean; reason?: string; startedAt?: string; deduplicated?: boolean } }>(

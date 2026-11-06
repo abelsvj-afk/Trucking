@@ -533,6 +533,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/maintenance-schedules/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/maintenance-schedules` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/memories` | DELETE,GET,PATCH | custom (see section / design doc) |
+| `/api/v1/map/speed-limit` | GET | custom (see section / design doc) |
 | `/api/v1/news-image` | GET | custom (see section / design doc) |
 | `/api/v1/paper-logs/[id]` | GET | custom (see section / design doc) |
 | `/api/v1/paper-logs/[id]/save` | POST | custom (see section / design doc) |
@@ -602,3 +603,6 @@ All below: auth = session; company scope by RLS; errors use the standard envelop
 
 ### Block A — automatic switch to Driving (`POST /api/v1/duty-logs/auto-motion`, migration 00072)
 Body `{ detected_at: ISO, submission_id: uuid }`. The app calls it when the truck has been detected moving (≥ 5 mph for 60 s, then a 30 s grace) while the log's latest status is not Driving. Returns `{ data: { switched: true, startedAt } }` after adding ONE Driving row (`started_at` = `detected_at`, `source: "auto_motion"`, a note stating it was automatic) and sending the owner a Telegram notice; or `{ data: { switched: false, reason } }` with `reason` ∈ `no_status | already_driving | manual_change_won | detection_in_future | detection_too_old | bad_time` — it never edits or deletes an existing row, so earlier segments cannot be rewritten. Replays of the same `submission_id` return `switched: true, deduplicated: true`. Against a database without 00072 the row is saved with `source: "app"` and the note carries the provenance.
+
+### Block C — posted speed limit (`GET /api/v1/map/speed-limit?lat=&lng=&heading=`)
+Authenticated. Returns `{ data: { limitMph: number | null, roadName: string | null, unavailable: boolean, source: "OpenStreetMap" } }`. `limitMph` is set ONLY when a way within ~25 m of the point (and, when `heading` is given, running the same direction ±35°) carries a plain numeric OSM `maxspeed` ("55 mph", or a unitless km/h number converted). Any other tag value, no nearby way, or an Overpass failure (`unavailable: true`) returns `limitMph: null` — the app then shows no badge and never estimates one. Cached server-side 10 minutes per ~55 m cell and 45° heading bucket.

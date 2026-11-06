@@ -2,16 +2,21 @@
 
 // Drive Mode map (D1): the same keyless MapLibre/OSM stack as the
 // Plan map, pointed the other way - instead of framing the whole
-// route, it follows the truck. The position marker is honest about
-// fix quality (G-1): solid with a heading arrow on a usable fix,
-// hollow gray on a poor one, and it HOLDS the last real fix when
-// signal is lost - no dead reckoning, ever.
+// route, it follows the truck. The position marker is a top-down
+// semi-truck icon (Block C) that rotates with the heading, and it is
+// honest about fix quality (G-1): solid blue on a usable fix, gray on
+// a poor one, faded when the signal is lost - and it HOLDS the last
+// real fix when signal is lost - no dead reckoning, ever.
+// Home's mini map (Block C) runs it heading-up: zoomed in, the
+// camera rotates so the truck always points up and stays centred,
+// and the part of the route already driven is drawn dimmed.
 
 import { useCallback, useEffect, useRef } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
+import { truckIconSvg } from "@/lib/truck-icon";
 
 export type DrivePositionQuality = "good" | "poor" | "lost";
 
@@ -27,6 +32,18 @@ interface DriveMapProps {
   onUserPan: () => void;
   night: boolean;
   height?: string;
+  /** Block C: rotate the map so the heading points up (the truck icon then points up). */
+  headingUp?: boolean;
+  /** Block C: zoom used while following (omit to keep the current zoom). */
+  followZoom?: number;
+  /** Block C: false = no touch pan/zoom (a glance map that must not trap page scroll). Default true. */
+  interactive?: boolean;
+  /** Block C: false = do not fit the map to the route (follow mode owns the camera). Default true. */
+  frameRoute?: boolean;
+  /** Block C: the part of the route already driven, drawn dimmed over the route. */
+  traveledGeometry?: LatLng[];
+  /** Accessible label override. */
+  label?: string;
 }
 
 const OSM_STYLE = {
@@ -89,6 +106,12 @@ export default function DriveMap({
   onUserPan,
   night,
   height = "46vh",
+  headingUp = false,
+  followZoom,
+  interactive = true,
+  frameRoute = true,
+  traveledGeometry = [],
+  label,
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -97,14 +120,16 @@ export default function DriveMap({
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
   const framedRef = useRef(false);
-  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus });
+  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, traveledGeometry });
+  const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
   // Ref syncs live in effects, never in render (react-hooks/refs,
   // same discipline as SmartPathMap).
   useEffect(() => {
     followRef.current = follow;
-  }, [follow]);
+    frameRouteRef.current = frameRoute;
+  }, [follow, frameRoute]);
   useEffect(() => {
     panRef.current = onUserPan;
   }, [onUserPan]);
@@ -112,12 +137,13 @@ export default function DriveMap({
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("drive-route")) return;
-    const { geometry: geo, deadheadGeometry: deadhead, stops: currentStops, stopStatus: statuses } =
+    const { geometry: geo, deadheadGeometry: deadhead, stops: currentStops, stopStatus: statuses, traveledGeometry: traveled } =
       dataRef.current;
     const routeSource = map.getSource("drive-route") as
       | { setData: (data: unknown) => void }
       | undefined;
     routeSource?.setData(lineFeature(geo));
+    (map.getSource("drive-traveled") as { setData: (data: unknown) => void } | undefined)?.setData(lineFeature(traveled));
     const deadheadSource = map.getSource("drive-deadhead") as
       | { setData: (data: unknown) => void }
       | undefined;
@@ -141,7 +167,7 @@ export default function DriveMap({
           .addTo(map);
       });
 
-      if (!framedRef.current && geo.length > 0) {
+      if (frameRouteRef.current && !framedRef.current && geo.length > 0) {
         framedRef.current = true;
         const all = [...geo, ...deadhead];
         const bounds = new maplibregl.LngLatBounds(
@@ -165,6 +191,7 @@ export default function DriveMap({
         center: FLORIDA_CENTER,
         zoom: 6,
         attributionControl: { compact: true },
+        interactive,
       });
       mapRef.current = map;
       // A user drag is the signal to stop following (G-5's one-tap
@@ -203,18 +230,30 @@ export default function DriveMap({
           source: "drive-route",
           paint: { "line-color": "#2563eb", "line-width": 5, "line-opacity": 0.85 },
         });
+        // The part already driven: dimmed over the route so progress reads at a glance.
+        map.addSource("drive-traveled", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        map.addLayer({
+          id: "drive-traveled-line",
+          type: "line",
+          source: "drive-traveled",
+          paint: { "line-color": "#64748b", "line-width": 5, "line-opacity": 0.9 },
+        });
         drawRoute();
       });
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the map is created once; `interactive` is a mount-time choice
   }, [drawRoute]);
 
   useEffect(() => {
-    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus };
+    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, traveledGeometry };
     drawRoute();
-  }, [geometry, deadheadGeometry, stops, stopStatus, drawRoute]);
+  }, [geometry, deadheadGeometry, stops, stopStatus, traveledGeometry, drawRoute]);
 
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).
@@ -226,13 +265,10 @@ export default function DriveMap({
       if (!positionMarkerRef.current) {
         const el = document.createElement("div");
         el.setAttribute("aria-hidden", "true");
-        el.style.cssText =
-          "width:26px;height:26px;display:flex;align-items:center;justify-content:center;pointer-events:none";
-        const arrow = document.createElement("div");
-        arrow.style.cssText =
-          "width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;" +
-          "border-bottom:16px solid #2563eb;filter:drop-shadow(0 0 2px #fff)";
-        el.appendChild(arrow);
+        el.style.cssText = "display:flex;align-items:center;justify-content:center;pointer-events:none";
+        const icon = document.createElement("div");
+        icon.style.cssText = "transform-origin:50% 50%;transition:transform .5s linear";
+        el.appendChild(icon);
         positionElRef.current = el;
         positionMarkerRef.current = new maplibregl.Marker({ element: el })
           .setLngLat([position.lng, position.lat])
@@ -242,30 +278,40 @@ export default function DriveMap({
       marker.setLngLat([position.lng, position.lat]);
       const el = positionElRef.current;
       if (el) {
-        const arrow = el.firstElementChild as HTMLElement | null;
-        if (arrow) {
+        const icon = el.firstElementChild as HTMLElement | null;
+        if (icon) {
           const poor = positionQuality === "poor" || positionQuality === "lost";
-          arrow.style.borderBottomColor = poor ? "#9ca3af" : "#2563eb";
-          arrow.style.opacity = positionQuality === "lost" ? "0.55" : "1";
-          arrow.style.transform =
-            headingDeg !== null ? `rotate(${headingDeg}deg)` : "rotate(0deg)";
+          const sig = `${poor}:${positionQuality === "lost"}`;
+          if (icon.dataset.sig !== sig) {
+            icon.dataset.sig = sig;
+            icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#2563eb", opacity: positionQuality === "lost" ? 0.55 : 1, widthPx: 26 });
+          }
+          // Heading-up: the map is rotated to the heading, so the truck points up on screen.
+          // North-up: the icon itself rotates. No heading yet: it points up and nothing more is claimed.
+          const rotation = headingUp ? 0 : headingDeg ?? 0;
+          icon.style.transform = `rotate(${rotation}deg)`;
         }
       }
       if (followRef.current) {
         const now = Date.now();
         if (now - lastCameraMoveRef.current >= 1000) {
           lastCameraMoveRef.current = now;
-          map.easeTo({ center: [position.lng, position.lat], duration: 700 });
+          map.easeTo({
+            center: [position.lng, position.lat],
+            duration: 700,
+            ...(headingUp && headingDeg !== null ? { bearing: headingDeg } : {}),
+            ...(followZoom !== undefined ? { zoom: followZoom } : {}),
+          });
         }
       }
     })();
-  }, [position, headingDeg, positionQuality]);
+  }, [position, headingDeg, positionQuality, headingUp, followZoom]);
 
   return (
     <div
       ref={containerRef}
       role="img"
-      aria-label="Drive map following your position along the planned route"
+      aria-label={label ?? "Drive map following your position along the planned route"}
       style={{
         width: "100%",
         height,

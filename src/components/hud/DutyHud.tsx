@@ -34,7 +34,7 @@ export default function DutyHud() {
   const nowMs = useNowTick();
   // Driving safety (docs/design/driver-hud.md §5): changing or editing
   // needs a positive "stopped"; unknown speed asks first, never assumes.
-  const { state: motion, position } = useVehicleMotionDetail();
+  const { state: motion, position, headingDeg, speedMph } = useVehicleMotionDetail();
   const [picked, setPicked] = useState<DutyStatus | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState(false);
@@ -157,7 +157,7 @@ export default function DutyHud() {
 
       {explain && <ClockExplainerSheet clockKey={explain} cycleLabel={hos?.cycle ?? null} onClose={() => setExplain(null)} />}
 
-      <HomePositionCard position={position} />
+      <HomePositionCard position={position} headingDeg={headingDeg ?? null} speedMph={speedMph ?? null} motion={motion} />
 
       <p className="hud-links">
         <button
