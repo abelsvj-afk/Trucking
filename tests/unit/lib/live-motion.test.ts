@@ -71,8 +71,8 @@ describe("stepEpisode", () => {
 
   it("creeping between the thresholds changes nothing: a slow stretch neither ends a drive nor starts one", () => {
     const driving: MotionEpisode = { movingSinceMs: 100, stoppedSinceMs: null };
-    expect(stepEpisode(driving, 6, 500)).toEqual(driving);
-    expect(stepEpisode(NO_EPISODE, 6, 500)).toEqual(NO_EPISODE);
+    expect(stepEpisode(driving, 4, 500)).toEqual(driving); // between 3 and 5 mph
+    expect(stepEpisode(NO_EPISODE, 4, 500)).toEqual(NO_EPISODE);
   });
 
   it("an unknown speed changes nothing", () => {
@@ -111,7 +111,7 @@ describe("decideStatusProposal - proposes, with the time the movement really beg
   });
 
   it("a short stop (fuel, a light) is not a change of status; and a stop while NOT logged driving is not proposed", () => {
-    expect(decideStatusProposal({ ...base, episode: { movingSinceMs: null, stoppedSinceMs: NOW - 5 * 60_000 }, nowMs: NOW, currentStatus: "driving" })).toBeNull();
+    expect(decideStatusProposal({ ...base, episode: { movingSinceMs: null, stoppedSinceMs: NOW - 4 * 60_000 }, nowMs: NOW, currentStatus: "driving" })).toBeNull(); // 5 min is the line now
     expect(decideStatusProposal({ ...base, episode: { movingSinceMs: null, stoppedSinceMs: NOW - 2 * 3_600_000 }, nowMs: NOW, currentStatus: "off_duty" })).toBeNull();
   });
 

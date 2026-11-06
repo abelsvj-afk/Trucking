@@ -362,3 +362,56 @@ describe("Block A - duty status can never trap the driver", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
+
+describe("D-12 - the 'can't tell if you're moving' banner (location unknown/off is visible, never silent)", () => {
+  it("permission denied: a visible banner says the lock and auto-switch can't work, with the settings hint", async () => {
+    setPermission("denied");
+    await mount(<Page />);
+    const banner = screen.getByTestId("location-off-banner");
+    expect(banner.textContent).toContain("Location is off");
+    expect(banner.textContent).toContain("Allow location for this site in your browser settings");
+    // and it never locks anything on its own (D-12: banner, not lock)
+    expect(screen.getByRole("form", { name: "Expense" }).hasAttribute("inert")).toBe(false);
+  });
+
+  it("permission not yet asked: offers 'Turn on location' (a tap the browser accepts as a request)", async () => {
+    setPermission("prompt");
+    await mount(<Page />);
+    expect(screen.getByRole("button", { name: "Turn on location" })).toBeTruthy();
+  });
+
+  it("OK dismisses it for the session", async () => {
+    setPermission("denied");
+    await mount(<Page />);
+    await act(async () => {
+      screen.getByRole("button", { name: "OK" }).click();
+    });
+    expect(screen.queryByTestId("location-off-banner")).toBeNull();
+    window.sessionStorage.removeItem("trucking.location-off-banner.dismissed.v1");
+  });
+
+  it("granted but no GPS fix for a while: the 'can't tell' banner appears (after the cold-start grace), forms stay open", async () => {
+    vi.useFakeTimers();
+    try {
+      setPermission("granted");
+      motionHolder.state = "unknown";
+      motionHolder.duty = "off_duty";
+      await mount(<Page />);
+      expect(screen.queryByTestId("cant-tell-banner")).toBeNull(); // cold start is not a fault
+      await act(async () => {
+        vi.advanceTimersByTime(25_000);
+      });
+      expect(screen.getByTestId("cant-tell-banner").textContent).toContain("Can't tell if you're moving");
+      expect(screen.getByRole("form", { name: "Expense" }).hasAttribute("inert")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("no banner when the location is known (stopped)", async () => {
+    setPermission("granted");
+    motionHolder.state = "stopped";
+    await mount(<Page />);
+    expect(screen.queryByTestId("cant-tell-banner")).toBeNull();
+  });
+});

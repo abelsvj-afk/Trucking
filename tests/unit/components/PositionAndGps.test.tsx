@@ -22,8 +22,9 @@ vi.mock("next/dynamic", () => ({
   ),
 }));
 const speedLimit = vi.fn(async (): Promise<{ data: { limitMph: number | null; roadName: string | null; unavailable: boolean } }> => ({ data: { limitMph: null, roadName: null, unavailable: false } }));
+const telegramPosition = vi.fn(async (): Promise<{ position: null | { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; recordedAt: string; ageSeconds: number } }> => ({ position: null }));
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { create: vi.fn(), speedLimit: (...a: unknown[]) => (speedLimit as (...x: unknown[]) => unknown)(...a), list: vi.fn(async () => ({ data: [] })) },
+  apiClient: { create: vi.fn(), telegramPosition: () => telegramPosition(), speedLimit: (...a: unknown[]) => (speedLimit as (...x: unknown[]) => unknown)(...a), list: vi.fn(async () => ({ data: [] })) },
   ApiClientError: class extends Error {},
 }));
 vi.mock("@/lib/offline-outbox", () => ({ offlineOutbox: { enqueue: vi.fn() } }));
@@ -100,6 +101,33 @@ describe("HomePositionCard (live GPS position on Home)", () => {
     render(<HomePositionCard position={fix(3_000)} motion="moving" />);
     await act(async () => {});
     expect(screen.getByRole("img", { name: "Posted speed limit 55 miles per hour" })).toBeTruthy();
+  });
+
+  it("the app just reopened with no GPS fix of its own: falls back to Telegram's last position, labelled as such, with its age", async () => {
+    telegramPosition.mockResolvedValueOnce({ position: { lat: 30.1, lng: -81.2, accuracyM: 20, headingDeg: 180, speedMph: 48, recordedAt: "x", ageSeconds: 40 } });
+    render(<HomePositionCard position={null} />);
+    await act(async () => {});
+    const map = screen.getByTestId("map");
+    expect(map.getAttribute("data-lat")).toBe("30.1");
+    expect(map.getAttribute("data-heading")).toBe("180");
+    expect(document.body.textContent).toContain("Last position from Telegram live location");
+    expect(document.body.textContent).not.toContain("Phone GPS");
+  });
+
+  it("a stale Telegram position (older than 3 min) is not shown", async () => {
+    telegramPosition.mockResolvedValueOnce({ position: { lat: 30.1, lng: -81.2, accuracyM: 20, headingDeg: null, speedMph: null, recordedAt: "x", ageSeconds: 600 } });
+    const { container } = render(<HomePositionCard position={null} />);
+    await act(async () => {});
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("the device's own fresh fix wins over Telegram's", async () => {
+    telegramPosition.mockResolvedValue({ position: { lat: 1, lng: 1, accuracyM: 20, headingDeg: null, speedMph: null, recordedAt: "x", ageSeconds: 5 } });
+    render(<HomePositionCard position={fix(3_000)} />);
+    await act(async () => {});
+    expect(screen.getByTestId("map").getAttribute("data-lat")).toBe("28.5383");
+    expect(document.body.textContent).toContain("Phone GPS");
+    telegramPosition.mockResolvedValue({ position: null });
   });
 
   it("ages read in plain words", () => {

@@ -13,7 +13,7 @@ vi.mock("@/lib/offline-outbox", () => ({ offlineOutbox: { enqueue: (...a: unknow
 
 class MockApiClientError extends Error {}
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { dutyLogWindow: vi.fn(), create: vi.fn() },
+  apiClient: { dutyLogWindow: vi.fn(), create: vi.fn(), telegramPosition: vi.fn(async () => ({ position: null })), speedLimit: vi.fn(async () => ({ data: { limitMph: null, roadName: null, unavailable: false } })), list: vi.fn(async () => ({ data: [] })) },
   ApiClientError: class extends Error {},
 }));
 

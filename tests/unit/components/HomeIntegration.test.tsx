@@ -24,6 +24,7 @@ vi.mock("@/lib/api-client", async () => {
   return {
     ...actual,
     apiClient: {
+      telegramPosition: vi.fn(async () => ({ position: null })),
       paySummary: vi.fn(async () => ({
         data: { hasTerms: false, active: null, completed: [], totals: { unpaidCount: 0, unpaidLowCents: 0, unpaidHighCents: 0, shortCount: 0, shortfallCents: 0 }, hos: null, asOf: new Date(NOW).toISOString() },
       })),

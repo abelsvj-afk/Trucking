@@ -83,3 +83,58 @@ describe("proposalText", () => {
     expect(t).toContain("Want me to log Driving from 9:14 AM");
   });
 });
+
+describe("handleLiveLocation - automatic switch to Driving (works with the app closed)", () => {
+  const ok = (startedAt: string) => async () => ({ switched: true, startedAt });
+  it("after the sustained-motion + grace time it switches, stamped at the DETECTION time, tells him, and stages no proposal", async () => {
+    const m = memStore("off_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async (detectedAtIso: string, _id: string) => ({ switched: true, startedAt: detectedAtIso })) };
+    for (let i = 0; i <= 6; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    // (the stub never flips the log to Driving, so later fixes repeat the SAME idempotent request)
+    expect(d.autoSwitch).toHaveBeenCalled();
+    expect(new Set(d.autoSwitch.mock.calls.map((c) => `${c[0]}|${c[1]}`)).size).toBe(1);
+    // movement began at the second fix (T0+30 s); detection = movement start + 60 s
+    expect(d.autoSwitch.mock.calls[0]![0]).toBe(new Date(T0 + 30_000 + 60_000).toISOString());
+    expect(d.autoSwitch.mock.calls[0]![1]).toMatch(/^00000000-0000-4000-8000-[0-9a-f]{12}$/);
+    expect(d.sendMessage.mock.calls[0]![0]).toContain("Switched to Driving at");
+    expect(m.staged).toHaveLength(0);
+  });
+
+  it("not before the grace has passed (60 s sustained + 30 s grace)", async () => {
+    const m = memStore("off_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(ok("x")) };
+    for (let i = 0; i <= 3; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d); // 60 s of movement
+    expect(d.autoSwitch).not.toHaveBeenCalled();
+  });
+
+  it("never when the log already says Driving", async () => {
+    const m = memStore("driving");
+    const d = { ...deps(), autoSwitch: vi.fn(ok("x")) };
+    for (let i = 0; i <= 10; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(d.autoSwitch).not.toHaveBeenCalled();
+  });
+
+  it("the kill switch off (auto_duty_switch): falls back to the old propose-and-wait behaviour", async () => {
+    const m = memStore("off_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async () => ({ switched: false, reason: "switched_off" })) };
+    for (let i = 0; i <= 8; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(m.staged).toHaveLength(1);
+    expect(d.sendMessage.mock.calls.some((c) => String(c[0]).includes("Want me to log"))).toBe(true);
+  });
+
+  it("a manual choice wins: the shared rules stand down and he is NOT nagged with a proposal on top", async () => {
+    const m = memStore("on_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async () => ({ switched: false, reason: "manual_change_won" })) };
+    for (let i = 0; i <= 8; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(m.staged).toHaveLength(0);
+    expect(d.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("a replay (second source already switched) says nothing more", async () => {
+    const m = memStore("off_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async () => ({ switched: true, deduplicated: true, startedAt: "x" })) };
+    for (let i = 0; i <= 8; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(d.sendMessage).not.toHaveBeenCalled();
+    expect(m.staged).toHaveLength(0);
+  });
+});

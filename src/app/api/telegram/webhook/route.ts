@@ -34,6 +34,7 @@ import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
 import { createRateLimiter } from "@/services/telegram/rate-limit";
 import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
+import { applyAutoMotionSwitch } from "@/services/fleet/auto-motion";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
 export const runtime = "nodejs";
@@ -184,6 +185,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           if (!(await brainStore.isLiveLocationEnabled())) return;
           await handleLiveLocation(createBrainLiveLocationStore(brainStore), loc, atMs, {
             sendMessage: (text) => sendTelegramMessage(botToken, chatId, text),
+            autoSwitch: (detectedAtIso, submissionId) =>
+              applyAutoMotionSwitch({
+                client: brainStore.client,
+                companyId: brainStore.companyId,
+                detectedAtIso,
+                submissionId,
+                nowMs: Date.now(),
+                origin: "position feed",
+              }),
             formatTime: (t) =>
               new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(t)),
           });

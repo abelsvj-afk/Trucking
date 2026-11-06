@@ -238,6 +238,11 @@ export const apiClient = {
     }),
   dutyLogWindow: () =>
     request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
+  /** The latest position Telegram Live Location sent (it keeps reporting with the app closed), or null. */
+  telegramPosition: () =>
+    request<{ position: { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; recordedAt: string; ageSeconds: number } | null }>(
+      "/api/v1/position",
+    ),
   /** Block C: the posted limit (OSM maxspeed) for the road under the truck, or null - never an estimate. */
   speedLimit: (lat: number, lng: number, headingDeg: number | null) =>
     request<{ data: { limitMph: number | null; roadName: string | null; unavailable: boolean } }>(

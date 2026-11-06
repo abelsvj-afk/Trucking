@@ -16,6 +16,7 @@ import { useMemo } from "react";
 import { useNowTick } from "@/lib/use-now-tick";
 import { useActiveRoute } from "@/lib/use-active-route";
 import { useSpeedLimit } from "@/lib/use-speed-limit";
+import { useServerPosition } from "@/lib/use-server-position";
 import { routeProgress } from "@/lib/route-progress";
 import type { MotionState } from "@/lib/vehicle-motion";
 import type { VehiclePosition } from "@/lib/use-vehicle-motion";
@@ -35,10 +36,10 @@ export function positionAgeText(ageMs: number): string {
 }
 
 export default function HomePositionCard({
-  position,
-  headingDeg = null,
-  speedMph = null,
-  motion = "unknown",
+  position: devicePosition,
+  headingDeg: deviceHeading = null,
+  speedMph: deviceSpeed = null,
+  motion: deviceMotion = "unknown",
 }: {
   position: VehiclePosition | null;
   headingDeg?: number | null;
@@ -46,6 +47,16 @@ export default function HomePositionCard({
   motion?: MotionState;
 }) {
   const nowMs = useNowTick(5_000);
+  // This device's own fix wins. Without one (just reopened, GPS warming up, permission off) fall back to
+  // the position Telegram Live Location last reported - labelled as Telegram's, with its age.
+  const deviceFresh = devicePosition !== null && nowMs - devicePosition.atMs <= POSITION_FRESH_MS;
+  const server = useServerPosition(!deviceFresh);
+  const fromServer = !deviceFresh && server !== null;
+  const position: VehiclePosition | null = deviceFresh ? devicePosition : server;
+  const headingDeg = fromServer ? server.headingDeg : deviceHeading;
+  const speedMph = fromServer ? server.speedMph : deviceSpeed;
+  // Motion from a server fix is judged from its own speed, never assumed: unknown speed = unknown.
+  const motion: MotionState = fromServer ? (server.speedMph === null ? "unknown" : server.speedMph >= 5 ? "moving" : "stopped") : deviceMotion;
   const route = useActiveRoute();
   const limit = useSpeedLimit(position, headingDeg, motion === "moving");
   const progress = useMemo(
@@ -54,7 +65,7 @@ export default function HomePositionCard({
   );
   if (!position) return null;
   const age = nowMs - position.atMs;
-  if (age > POSITION_FRESH_MS) return null;
+  if (!fromServer && age > POSITION_FRESH_MS) return null;
 
   const speedText = speedMph !== null && motion !== "stopped" ? String(Math.round(speedMph)) : motion === "stopped" ? "0" : "—";
   return (
@@ -99,7 +110,7 @@ export default function HomePositionCard({
         ) : (
           <>No route set — showing your position only · </>
         )}
-        Phone GPS · ±{Math.round(position.accuracyM)} m · {positionAgeText(age)} ·{" "}
+        {fromServer ? "Last position from Telegram live location" : "Phone GPS"} · ±{Math.round(position.accuracyM)} m · {positionAgeText(age)} ·{" "}
         <Link href="/smart-path">{route ? "Route details" : "Plan a route"}</Link>
       </p>
     </section>

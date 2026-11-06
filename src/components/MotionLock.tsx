@@ -77,6 +77,8 @@ interface AutoAttempt {
   done: boolean;
 }
 const MAX_AUTO_TRIES = 4;
+/** After mount, how long with no GPS fix before the 'can't tell' banner appears (a cold start is not a fault). */
+export const UNKNOWN_GRACE_MS = 20_000;
 
 function Watcher() {
   const { state: motion, speedMph, sustained } = useVehicleMotionDetail();
@@ -158,6 +160,23 @@ function Watcher() {
   }
   const switchToDriving = () => logStatus("driving");
 
+  // D-12 (owner: build the banner): unknown/stale location does not lock forms, but it must be VISIBLE -
+  // the lock, the automatic switch and the stationary prompt all depend on knowing whether the truck moves.
+  const [mountedAtMs] = useState(() => Date.now());
+  const [unknownDismissed, setUnknownDismissed] = useState(false);
+  const cantTell = motion === "unknown" && nowMs - mountedAtMs >= UNKNOWN_GRACE_MS;
+  if (!cantTell && unknownDismissed) setUnknownDismissed(false); // forgotten once the location is back
+  const cantTellBanner =
+    cantTell && !unknownDismissed ? (
+      <div role="status" className="motion-lock-banner motion-lock-slim" data-motion-exempt data-testid="cant-tell-banner">
+        <p>
+          Can&apos;t tell if you&apos;re moving — no recent GPS fix. Forms stay open; if you&apos;re driving, pull over before
+          using them.
+        </p>
+        <button type="button" onClick={() => setUnknownDismissed(true)}>OK</button>
+      </div>
+    ) : null;
+
   const notice = autoNotice ? (
     <div role="status" className="motion-lock-banner" data-motion-exempt>
       <p>{autoNotice} Wrong? Change your status on Home.</p>
@@ -188,6 +207,7 @@ function Watcher() {
     return (
       <>
         {notice}
+        {cantTellBanner}
         <div role="alert" className="motion-lock-banner" data-motion-exempt>
           <p>You&apos;ve been stopped for 5 minutes but your log says <strong>Driving</strong>. Still driving?</p>
           <button type="button" onClick={() => void logStatus("on_duty")} disabled={switching}>On duty (not driving)</button>{" "}
@@ -204,6 +224,7 @@ function Watcher() {
       return (
         <>
           {notice}
+          {cantTellBanner}
           <p role="status" className="motion-lock-banner motion-lock-slim" data-motion-exempt>
             Truck is moving; your log says {label}.{" "}
             <button type="button" onClick={() => setDismissedFor(null)}>Review</button>
@@ -214,6 +235,7 @@ function Watcher() {
     return (
       <>
         {notice}
+        {cantTellBanner}
         <div role="alert" className="motion-lock-banner" data-motion-exempt>
           <p>The truck is moving, but your status says <strong>{label}</strong>. Switch to Driving?</p>
           {auto.kind === "detected" && (
@@ -228,7 +250,12 @@ function Watcher() {
       </>
     );
   }
-  return notice;
+  return (
+    <>
+      {notice}
+      {cantTellBanner}
+    </>
+  );
 }
 
 /** One stable id per detection, so a retry or a second tab replays the same switch instead of adding another. */
@@ -237,8 +264,67 @@ function autoSubmissionId(detectedAtMs: number): string {
   return `00000000-0000-4000-8000-${hex}`;
 }
 
+type Permission = "granted" | "denied" | "prompt" | "unknown";
+const DISMISS_KEY = "trucking.location-off-banner.dismissed.v1";
+
+function readDismissed(): boolean {
+  try {
+    return window.sessionStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * D-12: with location off (denied, or never granted) the app cannot tell whether the truck moves,
+ * so the driving lock and the automatic switch to Driving cannot work. Say so, visibly, once per
+ * session - with the one tap that fixes it when the browser still allows asking.
+ */
+function LocationOffBanner({ permission }: { permission: "denied" | "prompt" }) {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  if (dismissed) return null;
+  return (
+    <div role="status" className="motion-lock-banner motion-lock-slim" data-motion-exempt data-testid="location-off-banner">
+      <p>
+        Location is off, so I can&apos;t tell if you&apos;re moving — the driving lock and the automatic switch to Driving
+        can&apos;t work.{" "}
+        {permission === "denied"
+          ? "Allow location for this site in your browser settings."
+          : "Turn it on so your log can keep up with the truck."}
+      </p>
+      {permission === "prompt" && (
+        <button
+          type="button"
+          onClick={() => {
+            // A user tap is what lets the browser ask; the permission listener picks up the answer.
+            navigator.geolocation?.getCurrentPosition(
+              () => {},
+              () => {},
+            );
+          }}
+        >
+          Turn on location
+        </button>
+      )}{" "}
+      <button
+        type="button"
+        onClick={() => {
+          try {
+            window.sessionStorage.setItem(DISMISS_KEY, "1");
+          } catch {
+            // storage blocked: it just comes back next page load
+          }
+          setDismissed(true);
+        }}
+      >
+        OK
+      </button>
+    </div>
+  );
+}
+
 export default function MotionLock() {
-  const [granted, setGranted] = useState(false);
+  const [permission, setPermission] = useState<Permission>("unknown");
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.permissions?.query) return;
@@ -249,8 +335,8 @@ export default function MotionLock() {
       .then((result) => {
         if (cancelled) return;
         status = result;
-        setGranted(result.state === "granted");
-        result.onchange = () => setGranted(result.state === "granted");
+        setPermission(result.state as Permission);
+        result.onchange = () => setPermission(result.state as Permission);
       })
       .catch(() => {});
     return () => {
@@ -259,5 +345,7 @@ export default function MotionLock() {
     };
   }, []);
 
-  return granted ? <Watcher /> : null;
+  if (permission === "granted") return <Watcher />;
+  if (permission === "denied" || permission === "prompt") return <LocationOffBanner permission={permission} />;
+  return null;
 }

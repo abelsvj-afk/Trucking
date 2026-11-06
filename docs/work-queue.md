@@ -21,6 +21,7 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 ## B0. Owner requirements round 2 (2026-11-05 night; design `docs/design/driver-hud-round2.md`)
 - Block A (duty status can never trap the driver): BUILT + gated, NOT deployed - status switcher exempt from MotionLock/parked gates (quick no-typing sheet while moving), lock banner escape hatch, sustained-motion auto-switch (60 s @ 5 mph + 30 s grace, stamped at detection, `source auto_motion`, migration **00072**, Telegram notice), Driving + stopped 5 min prompt (never auto). King verifies after landing.
 - Block B (HOS clock escalation + notifications + explainers): BUILT + gated, NOT deployed - amber <=2 h / red <=30 min / EXPIRED (words too) on all four rings from the one HOS read; Telegram at 2 h/1 h/30 m/expiry once per threshold per clock per shift with consequence + action text, quiet hours do not hold them; tap-a-clock plain-language explainers. Block C (Home mini map): BUILT + gated, NOT deployed - semi-truck vector icon rotating with heading, heading-up follow mode (no touch pan), planned route line + dimmed driven part for a confirmed load's checked run (none -> position only), OSM maxspeed badge only when data exists (`GET /api/v1/map/speed-limit`), current speed always shown. Both self-audits done and folded in (record in `docs/design/driver-hud-round2.md`). Awaiting King's verification; migration 00072 to apply; not deployed.
+- Round 2 follow-up (owner 2026-11-06): D-12 BUILT (visible "can't tell if you're moving" / "location is off" banner; banner, not lock). Automatic switch now ALSO runs server-side on the Telegram Live Location stream (works with the app closed), shared rules in `services/fleet/auto-motion.ts`, kill switch `auto_duty_switch` (default on), live-location thresholds aligned (5 mph; stopped-5-min proposal). Home map falls back to Telegram's last position when the device has no fix. Fully native background tracking designed in `docs/design/background-tracking.md` - NEEDS the owner's phone type (iPhone/Android).
 - Final step: two self-audits (mistakes/edge cases; professional/working-driver review) folded in before the final report.
 
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
@@ -39,7 +40,7 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 - Owner acceptance: his own photographed sheet vs his reading - outstanding (needs the deploy).
 
 ## C. Built but incomplete / parked ideas the owner raised
-- D-12 banner: a visible "can't tell if you're moving" banner for unknown/stale location (recommended, not built; awaiting the owner's D-12 answer).
+- D-12 banner: BUILT 2026-11-06 on the owner's yes.
 - Drive camera: the owner's description of truck-GPS behavior (zoomed on the icon, following the line, predicting turns). Motion logic is fixed; the camera/prediction feel is unverified until a real drive. Revisit with his feedback.
 - Logging reminders: optional "no log by 10:00 ET" nudge once he defines a normal day; reminders stay off until he switches them on.
 - Home map card (HUD §8) — parked.

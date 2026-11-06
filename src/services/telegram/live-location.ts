@@ -10,6 +10,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DutyStatus } from "@/types/entities";
 import { buildBotTools } from "@/services/bot/tools";
 import type { BotBrainStore } from "@/services/bot/store";
+import { AUTO_SWITCH_GRACE_MS } from "@/lib/auto-switch";
+import { SUSTAIN_MS } from "@/lib/sustained-motion";
+import { autoSubmissionId, autoSwitchNotice, type AutoMotionResult } from "@/services/fleet/auto-motion";
 import {
   decideStatusProposal,
   deriveSpeedMph,
@@ -79,7 +82,16 @@ export async function handleLiveLocation(
   store: LiveLocationStore,
   loc: TelegramLocation,
   atMs: number,
-  deps: { sendMessage: (text: string) => Promise<void>; formatTime: (ms: number) => string },
+  deps: {
+    sendMessage: (text: string) => Promise<void>;
+    formatTime: (ms: number) => string;
+    /**
+     * The automatic switch to Driving (works with the app closed: Telegram keeps streaming the
+     * position). Given the DETECTION time; returns what the shared rules decided. Absent = the
+     * old behavior (a proposal he approves).
+     */
+    autoSwitch?: (detectedAtIso: string, submissionId: string) => Promise<AutoMotionResult>;
+  },
 ): Promise<LiveLocationResult> {
   if (!validLocation(loc) || !Number.isFinite(atMs)) return { kind: "ignored" };
   const prev = await store.loadPosition();
@@ -95,7 +107,37 @@ export async function handleLiveLocation(
   const episode = stepEpisode(prev?.episode ?? { movingSinceMs: null, stoppedSinceMs: null }, speedMph, atMs);
 
   const currentStatus = await store.loadCurrentStatus();
-  const proposal = decideStatusProposal({
+
+  // Automatic switch (owner order 2026-11-06): moving for SUSTAIN_MS + the grace while the log says
+  // otherwise -> switch to Driving, stamped at the DETECTION time (movement start + SUSTAIN_MS),
+  // and tell him. The shared rules stand down for a manual choice. When the switch is off (kill
+  // switch) or unavailable, the old proposal below still applies.
+  let autoHandled = false;
+  if (
+    deps.autoSwitch &&
+    currentStatus !== null &&
+    currentStatus !== "driving" &&
+    episode.movingSinceMs !== null &&
+    atMs - episode.movingSinceMs >= SUSTAIN_MS + AUTO_SWITCH_GRACE_MS
+  ) {
+    const detectedAtMs = episode.movingSinceMs + SUSTAIN_MS;
+    try {
+      const res = await deps.autoSwitch(new Date(detectedAtMs).toISOString(), autoSubmissionId(detectedAtMs));
+      if (res.switched || res.reason !== "switched_off") autoHandled = true; // a manual choice is also "handled": no nagging proposal on top
+      if (res.switched && !res.deduplicated && res.startedAt) {
+        await store.savePosition({
+          fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+          speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: "start_driving",
+        });
+        await deps.sendMessage(autoSwitchNotice(res.startedAt));
+        return { kind: "recorded", proposed: null };
+      }
+    } catch (err) {
+      console.error("[live-location] auto switch failed", err);
+    }
+  }
+
+  const proposal = autoHandled && episode.movingSinceMs !== null ? null : decideStatusProposal({
     episode,
     nowMs: atMs,
     currentStatus,

@@ -47,7 +47,8 @@ export function deriveSpeedMph(prev: PositionFix | null, cur: PositionFix): numb
 
 // ---- movement episodes -------------------------------------------------------
 
-export const MOVING_MPH = 10;
+/** Same speed as the open-app detector (lib/sustained-motion.ts SUSTAIN_MIN_MPH): the owner's ~5 mph. Derived speed ignores jitter below JITTER_FLOOR_MILES. */
+export const MOVING_MPH = 5;
 export const STOPPED_MPH = 3;
 
 export interface MotionEpisode {
@@ -81,12 +82,18 @@ export function stepEpisode(state: MotionEpisode, speedMph: number | null, atMs:
  */
 export const LIVE_LOCATION_CAPABILITY = "live_location";
 /** Capabilities that are on unless a row says off (every other capability: no row = off). */
-export const DEFAULT_ON_CAPABILITIES: ReadonlySet<string> = new Set([LIVE_LOCATION_CAPABILITY]);
+/**
+ * The automatic switch to Driving (owner order 2026-11-06, "that's how they actually work in real
+ * life"): a deterministic rule, not AI, but it changes his log on its own - so it has a kill switch.
+ * Default ON (he ordered it); an explicit off row stops both the open-app and the position-feed paths.
+ */
+export const AUTO_DUTY_SWITCH_CAPABILITY = "auto_duty_switch";
+export const DEFAULT_ON_CAPABILITIES: ReadonlySet<string> = new Set([LIVE_LOCATION_CAPABILITY, AUTO_DUTY_SWITCH_CAPABILITY]);
 
 /** Moving this long while not logged driving earns a proposal. */
 export const MOVING_PROPOSAL_AFTER_MS = 2 * 60_000;
 /** Stopped this long while logged driving earns a proposal to go on/off duty. */
-export const STOPPED_PROPOSAL_AFTER_MS = 20 * 60_000;
+export const STOPPED_PROPOSAL_AFTER_MS = 5 * 60_000;
 /** Never prompt more often than this, whatever the traffic does. */
 export const PROPOSAL_COOLDOWN_MS = 30 * 60_000;
 

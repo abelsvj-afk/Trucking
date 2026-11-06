@@ -10,7 +10,7 @@ import { VOICE_TRANSCRIPTION_CAPABILITY } from "@/services/ai/transcription";
 import { DRIVER_TWIN_CAPABILITY } from "@/services/bot/voice-corpus";
 import { PHOTO_INTELLIGENCE_CAPABILITY } from "@/services/ai/photo-classification";
 import { MAINTENANCE_WATCH_CAPABILITY } from "@/services/fleet/maintenance-watch";
-import { LIVE_LOCATION_CAPABILITY } from "@/lib/live-motion";
+import { AUTO_DUTY_SWITCH_CAPABILITY, LIVE_LOCATION_CAPABILITY } from "@/lib/live-motion";
 import { LOGGING_REMINDERS_CAPABILITY } from "@/lib/reminders";
 
 // Every capability that has a kill switch (docs/governance.md). Extend
@@ -30,6 +30,7 @@ export const KNOWN_CAPABILITIES = [
   PHOTO_INTELLIGENCE_CAPABILITY,
   MAINTENANCE_WATCH_CAPABILITY,
   LIVE_LOCATION_CAPABILITY,
+  AUTO_DUTY_SWITCH_CAPABILITY,
   LOGGING_REMINDERS_CAPABILITY,
 ] as const;
 
