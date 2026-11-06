@@ -122,6 +122,32 @@ describe("pay week and payday", () => {
   });
 });
 
+describe("Sunday-Saturday pay week, Thursday statement, Friday payment", () => {
+  const t = terms({ percent_of_load_bps: 8500, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 });
+  it("loads from Sunday through Saturday are in the week; the statement is the next Thursday, the money the Friday after the week", () => {
+    const loads = [
+      load({ id: "sun", delivery_date: "2026-11-08", pickup_date: "2026-11-07" }),
+      load({ id: "sat", delivery_date: "2026-11-14", pickup_date: "2026-11-13" }),
+      load({ id: "nextsun", delivery_date: "2026-11-15", pickup_date: "2026-11-14" }),
+      load({ id: "prevsat", delivery_date: "2026-11-07", pickup_date: "2026-11-06" }),
+    ];
+    const week = projectPeriod(t, loads, "2026-11-11"); // a Wednesday
+    expect(week.start).toBe("2026-11-08"); // Sunday
+    expect(week.end).toBe("2026-11-14"); // Saturday
+    expect(week.rows.map((r) => r.load.id)).toEqual(["sun", "sat"]);
+    expect(week.lowCents).toBe(2 * 170000);
+    expect(week.statement).toBe("2026-11-19"); // Thursday
+    expect(week.payday).toBe("2026-11-20"); // Friday
+    const last = projectPreviousPeriod(t, loads, "2026-11-11");
+    expect([last.start, last.end, last.statement, last.payday]).toEqual(["2026-11-01", "2026-11-07", "2026-11-12", "2026-11-13"]);
+    expect(last.rows.map((r) => r.load.id)).toEqual(["prevsat"]);
+  });
+  it("a load delivered on the Saturday that ends the week counts in that week, on the Saturday itself", () => {
+    expect(projectPeriod(t, [load({ delivery_date: "2026-11-14" })], "2026-11-14").rows).toHaveLength(1);
+    expect(projectPeriod(t, [load({ delivery_date: "2026-11-14" })], "2026-11-15").rows).toHaveLength(0);
+  });
+});
+
 describe("words", () => {
   it("describes the terms the way he said them", () => {
     expect(describeTerms(terms({ rate_cents_per_mile: 55 }))).toBe("$0.55/mile");

@@ -40,6 +40,7 @@ export function usePayProjection(): PayProjectionState {
             mile_basis: p.mile_basis,
             percent_of_load_bps: p.percent_of_load_bps ?? null,
             pay_week_ends_on: p.pay_week_ends_on ?? null,
+            statement_weekday: p.statement_weekday ?? null,
             payday_weekday: p.payday_weekday ?? null,
             effective_from: p.effective_from,
             effective_to: p.effective_to,

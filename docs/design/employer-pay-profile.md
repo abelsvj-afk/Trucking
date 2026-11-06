@@ -108,7 +108,7 @@ the PERCENT part, each present only when its term is set:
   the pay override. Both stay proposals for his yes.
 
 **Pay week and payday (UNSET stays visible).** Two profile fields:
-`pay_week_ends_on` (0 = Sunday .. 6 = Saturday) and `payday_weekday` (same numbering).
+`pay_week_ends_on` (0 = Sunday .. 6 = Saturday), `statement_weekday` (the day the pay statement comes out) and `payday_weekday` (the day the money reaches his bank), same numbering. Owner's deal, 2026-11-06 (entered as data, never a default): week Sunday-Saturday, statement Thursday, paid Friday.
 - A pay week is the 7 days ending on `pay_week_ends_on`; a load belongs to the week holding its
   delivery date (pickup date when none). Unset week end = Monday-Sunday (the existing behaviour),
   labeled as the default.
@@ -121,4 +121,4 @@ the PERCENT part, each present only when its term is set:
 - Not computed: tax, fuel, deductions, advances. The settlement is the final number.
 
 **Migration 00074** (additive, nullable, no seed): `employer_pay_profiles.percent_of_load_bps`
-(0..10000), `.pay_week_ends_on` (0..6), `.payday_weekday` (0..6); `loads.pay_override_cents` (>= 0).
+(0..10000), `.pay_week_ends_on` (0..6), `.statement_weekday` (0..6), `.payday_weekday` (0..6); `loads.pay_override_cents` (>= 0).

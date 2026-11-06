@@ -38,6 +38,7 @@ export default function PayPreviewCard() {
           </p>
           <p className="row-sub">
             {period.rows.length} load{period.rows.length === 1 ? "" : "s"} · {describeTerms(terms)}
+            {period.statement ? ` · statement ${formatDay(period.statement)}` : ""}
             {period.payday ? ` · payday ${formatDay(period.payday)}` : ""}
             {period.unavailableCount > 0 ? ` · ${period.unavailableCount} can't be projected yet` : ""}
           </p>

@@ -822,6 +822,8 @@ export interface EmployerPayProfile extends BaseRow {
   percent_of_load_bps?: number | null;
   /** Migration 00074: 0 = Sunday .. 6 = Saturday; null = UNSET. */
   pay_week_ends_on?: number | null;
+  /** Migration 00074: the weekday the pay statement comes out; null = UNSET. */
+  statement_weekday?: number | null;
   payday_weekday?: number | null;
   effective_from: string;
   effective_to: string | null;

@@ -19,7 +19,7 @@ import { termsForDate, type PayTermsRow } from "@/lib/paycheck";
 import type { Load } from "@/types/entities";
 
 const PROFILE_COLUMNS =
-  "employer_name, rate_cents_per_mile, mile_basis, percent_of_load_bps, pay_week_ends_on, payday_weekday, effective_from, effective_to";
+  "employer_name, rate_cents_per_mile, mile_basis, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to";
 
 function projectionLine(load: Load, p: LoadProjection): string {
   const money = p.lowCents === null || p.highCents === null ? "can't be worked out yet" : formatRange(p.lowCents, p.highCents);
@@ -28,7 +28,7 @@ function projectionLine(load: Load, p: LoadProjection): string {
 
 function periodLines(title: string, period: PeriodProjection): string[] {
   const lines = [
-    `${title}: ${formatRange(period.lowCents, period.highCents)} (${formatDay(period.start)} to ${formatDay(period.end)}${period.payday ? `, paid ${formatDay(period.payday)}` : ", payday not set"})`,
+    `${title}: ${formatRange(period.lowCents, period.highCents)} (${formatDay(period.start)} to ${formatDay(period.end)}${period.statement ? `, statement ${formatDay(period.statement)}` : ""}${period.payday ? `, paid ${formatDay(period.payday)}` : ", payday not set"})`,
     ...period.rows.map(({ load, projection }) => projectionLine(load as Load, projection)),
   ];
   if (period.rows.length === 0) lines.push("- no booked loads in this period");

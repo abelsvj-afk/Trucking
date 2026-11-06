@@ -60,9 +60,10 @@ interface PayFieldValues {
   worker: string;
   fuel: string;
   weekEnd: string;
+  statement: string;
   payday: string;
 }
-const EMPTY_FIELDS: PayFieldValues = { rate: "", percent: "", basis: "", worker: "", fuel: "", weekEnd: "", payday: "" };
+const EMPTY_FIELDS: PayFieldValues = { rate: "", percent: "", basis: "", worker: "", fuel: "", weekEnd: "", statement: "", payday: "" };
 const fieldsOf = (p: EmployerPayProfile): PayFieldValues => ({
   rate: p.rate_cents_per_mile > 0 ? dollarsFromCents(p.rate_cents_per_mile) : "",
   percent: percentFromBps(p.percent_of_load_bps),
@@ -70,6 +71,7 @@ const fieldsOf = (p: EmployerPayProfile): PayFieldValues => ({
   worker: p.worker_type ?? "",
   fuel: p.fuel_paid_by ?? "",
   weekEnd: p.pay_week_ends_on == null ? "" : String(p.pay_week_ends_on),
+  statement: p.statement_weekday == null ? "" : String(p.statement_weekday),
   payday: p.payday_weekday == null ? "" : String(p.payday_weekday),
 });
 
@@ -88,6 +90,7 @@ function bodyOf(f: PayFieldValues): { ok: true; body: Record<string, unknown> } 
       worker_type: f.worker || null,
       fuel_paid_by: f.fuel || null,
       pay_week_ends_on: f.weekEnd === "" ? null : Number(f.weekEnd),
+      statement_weekday: f.statement === "" ? null : Number(f.statement),
       payday_weekday: f.payday === "" ? null : Number(f.payday),
     },
   };
@@ -120,6 +123,7 @@ function PayFields({ idp, value, onChange }: { idp: string; value: PayFieldValue
       <Select id={`${idp}-worker`} label="Tax status" value={value.worker} onChange={(v) => set({ worker: v })} options={WORKER} />
       <Select id={`${idp}-fuel`} label="Fuel" value={value.fuel} onChange={(v) => set({ fuel: v })} options={FUEL} />
       <Select id={`${idp}-weekend`} label="Your pay week ends on" value={value.weekEnd} onChange={(v) => set({ weekEnd: v })} options={DAY_OPTIONS} />
+      <Select id={`${idp}-statement`} label="Your statement comes out on" value={value.statement} onChange={(v) => set({ statement: v })} options={DAY_OPTIONS} />
       <Select id={`${idp}-payday`} label="You get paid on" value={value.payday} onChange={(v) => set({ payday: v })} options={DAY_OPTIONS} />
       {(value.weekEnd === "" || value.payday === "") && (
         <p className="row-sub" role="note">

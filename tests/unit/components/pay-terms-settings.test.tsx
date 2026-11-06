@@ -82,12 +82,14 @@ describe("PayTermsSettings", () => {
     fireEvent.change(form.getByLabelText("Employer"), { target: { value: "Some Carrier" } });
     fireEvent.change(form.getByLabelText(/Percent of the load/), { target: { value: "85" } });
     fireEvent.change(form.getByLabelText("Your pay week ends on"), { target: { value: "0" } });
+    fireEvent.change(form.getByLabelText("Your statement comes out on"), { target: { value: "4" } });
     fireEvent.change(form.getByLabelText("You get paid on"), { target: { value: "5" } });
     fireEvent.click(form.getByText("Save pay terms"));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toContain('"rate_cents_per_mile":0');
     expect(calls[0]).toContain('"percent_of_load_bps":8500');
     expect(calls[0]).toContain('"pay_week_ends_on":0');
+    expect(calls[0]).toContain('"statement_weekday":4');
     expect(calls[0]).toContain('"payday_weekday":5');
   });
 

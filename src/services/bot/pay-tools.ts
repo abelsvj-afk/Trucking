@@ -97,6 +97,7 @@ const setPayTermsArgs = z.object({
   /** Percent of the load's rate he is paid (85 = 85%). With or without a per-mile rate. */
   percent_of_load: z.number().min(0).max(100).optional(),
   pay_week_ends_on: z.enum(WEEKDAY_NAMES).optional(),
+  statement_day: z.enum(WEEKDAY_NAMES).optional(),
   payday: z.enum(WEEKDAY_NAMES).optional(),
 });
 
@@ -107,7 +108,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
     {
       name: "set_pay_terms",
       description:
-        "Change his stored pay TERMS for an employer (Settings > Pay terms): rate in dollars per mile and/or a percent of the load (either or both), which miles are paid (loaded / all / practical), W2 vs 1099, who pays fuel, the day his pay week ends and his payday. Only set what his words or a document establish - never infer a field he did not state; fields you omit keep their current value (unset stays unset). A change closes the current terms and starts new dated terms, so history is kept. Always a proposal for his yes.",
+        "Change his stored pay TERMS for an employer (Settings > Pay terms): rate in dollars per mile and/or a percent of the load (either or both), which miles are paid (loaded / all / practical), W2 vs 1099, who pays fuel, the day his pay week ends, the day his statement comes out and his payday. Only set what his words or a document establish - never infer a field he did not state; fields you omit keep their current value (unset stays unset). A change closes the current terms and starts new dated terms, so history is kept. Always a proposal for his yes.",
       parameters: {
         type: "object",
         properties: {
@@ -118,7 +119,8 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           fuel_paid_by: { type: "string", enum: ["employer", "driver"] },
           percent_of_load: { type: "number", description: "Percent of the load's rate he is paid, e.g. 85 for 85%. Use with or without a per-mile rate." },
           pay_week_ends_on: { type: "string", enum: [...WEEKDAY_NAMES], description: "The weekday his pay week ends." },
-          payday: { type: "string", enum: [...WEEKDAY_NAMES], description: "The weekday he gets paid." },
+          statement_day: { type: "string", enum: [...WEEKDAY_NAMES], description: "The weekday his pay statement comes out." },
+          payday: { type: "string", enum: [...WEEKDAY_NAMES], description: "The weekday the money reaches his bank." },
         },
         required: ["employer_name"],
       },
@@ -131,6 +133,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           a.rate_dollars_per_mile != null ? `$${a.rate_dollars_per_mile.toFixed(2)}/mile` : null,
           a.percent_of_load != null ? `${a.percent_of_load}% of the load` : null,
           a.pay_week_ends_on ? `pay week ends ${a.pay_week_ends_on}` : null,
+          a.statement_day ? `statement on ${a.statement_day}` : null,
           a.payday ? `paid on ${a.payday}` : null,
           a.mile_basis ? `${a.mile_basis} miles` : null,
           a.worker_type ?? null,
@@ -176,6 +179,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           rate_cents_per_mile: rateCents ?? 0,
           percent_of_load_bps: percentBps,
           pay_week_ends_on: dayNumber(a.pay_week_ends_on, cur?.pay_week_ends_on),
+          statement_weekday: dayNumber(a.statement_day, cur?.statement_weekday),
           payday_weekday: dayNumber(a.payday, cur?.payday_weekday),
           mile_basis: a.mile_basis ?? (cur?.mile_basis as string | null | undefined) ?? null,
           worker_type: a.worker_type ?? (cur?.worker_type as string | null | undefined) ?? null,

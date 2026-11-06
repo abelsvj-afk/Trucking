@@ -19,6 +19,7 @@ function PeriodBlock({ title, period, empty }: { title: string; period: PeriodPr
       <h2>{title}</h2>
       <p role="status">
         <strong>{formatRange(period.lowCents, period.highCents)}</strong> · {formatDay(period.start)} to {formatDay(period.end)}
+        {period.statement ? ` · statement ${formatDay(period.statement)}` : ""}
         {period.payday ? ` · paid ${formatDay(period.payday)}` : ""}
       </p>
       {period.rows.length === 0 && <p>{empty}</p>}

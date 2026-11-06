@@ -1026,6 +1026,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - 00033 `documents.caption` text
 - 00074 `employer_pay_profiles.percent_of_load_bps` integer check (percent_of_load_bps is null or (percent_of_load_bps between 0 and 10000))
 - 00074 `employer_pay_profiles.pay_week_ends_on` smallint check (0..6; null = unset)
+- 00074 `employer_pay_profiles.statement_weekday` smallint check (0..6; null = unset)
 - 00074 `employer_pay_profiles.payday_weekday` smallint check (0..6; null = unset)
 - 00074 `loads.pay_override_cents` integer check (pay_override_cents is null or pay_override_cents >= 0)
 - 00033 `documents.extracted_tsv` tsvector generated always as ( to_tsvector('english'

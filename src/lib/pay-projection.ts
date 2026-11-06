@@ -25,6 +25,8 @@ export interface PayTerms {
   percent_of_load_bps?: number | null;
   /** 0 = Sunday .. 6 = Saturday; null/undefined = UNSET (Monday-Sunday shown). */
   pay_week_ends_on?: number | null;
+  /** The weekday the pay statement comes out; null/undefined = UNSET. */
+  statement_weekday?: number | null;
   payday_weekday?: number | null;
 }
 
@@ -166,7 +168,7 @@ export function weekBounds(today: string, endsOn: number | null | undefined = 0)
   return { start: addDays(end, -6), end };
 }
 
-/** The first `paydayWeekday` strictly after the pay week's last day; null while payday is UNSET. */
+/** The first `paydayWeekday` strictly after the pay week's last day; null while it is UNSET. Used for the statement day and for payday. */
 export function paydayAfter(weekEnd: string, paydayWeekday: number | null | undefined): string | null {
   if (paydayWeekday == null) return null;
   return addDays(weekEnd, ((paydayWeekday - dayOfWeek(weekEnd) + 6) % 7) + 1);
@@ -175,6 +177,8 @@ export function paydayAfter(weekEnd: string, paydayWeekday: number | null | unde
 export interface PeriodProjection {
   start: string;
   end: string;
+  /** The day this pay week's statement comes out; null while not set. */
+  statement: string | null;
   /** The day this pay week's money lands; null while payday is not set. */
   payday: string | null;
   /** False = the week end is UNSET and Monday-Sunday is the labeled default. */
@@ -223,6 +227,7 @@ function projectRange(
   }
   return {
     start, end,
+    statement: paydayAfter(end, terms.statement_weekday),
     payday: paydayAfter(end, terms.payday_weekday),
     weekEndSet: terms.pay_week_ends_on != null,
     rows, lowCents: low, highCents: high,
