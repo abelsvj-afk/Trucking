@@ -70,6 +70,12 @@ describe("decideAuto", () => {
     const s = run([...every5(0, 70_000, (t) => moving(t)), stopped(75_000)]);
     expect(decideAuto("on_duty", s, 95_000).kind).toBe("none");
   });
+  it("a status the driver logged AFTER the motion began is deliberate: no automatic override (manual wins)", () => {
+    const s = sustained(100_000);
+    expect(decideAuto("on_duty", s, 100_000, 20_000).kind).toBe("none"); // logged 20 s into the move
+    expect(decideAuto("on_duty", s, 100_000, -5_000).kind).toBe("auto_switch"); // logged before it began
+    expect(decideAuto("on_duty", s, 100_000, null).kind).toBe("auto_switch");
+  });
   it("never acts on an unknown status, and never auto-switches out of Driving", () => {
     expect(decideAuto("unknown", sustained(120_000), 120_000).kind).toBe("none");
     expect(decideAuto("driving", sustained(120_000), 120_000).kind).toBe("none");

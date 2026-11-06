@@ -284,7 +284,7 @@ export default function DriveMap({
           const sig = `${poor}:${positionQuality === "lost"}`;
           if (icon.dataset.sig !== sig) {
             icon.dataset.sig = sig;
-            icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#2563eb", opacity: positionQuality === "lost" ? 0.55 : 1, widthPx: 26 });
+            icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#2563eb", opacity: positionQuality === "lost" ? 0.55 : 1, widthPx: 32 });
           }
           // Heading-up: the map is rotated to the heading, so the truck points up on screen.
           // North-up: the icon itself rotates. No heading yet: it points up and nothing more is claimed.

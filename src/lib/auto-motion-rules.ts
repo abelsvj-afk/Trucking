@@ -4,12 +4,14 @@
 // The app may only ever ADD a Driving row from the detection time forward:
 //  - empty log          -> refuse (an unknown status is not assumed);
 //  - already Driving    -> nothing to do;
-//  - the newest row started at/after the detection time -> a manual change won the
-//    race (or already covers it); the automatic one stands down;
+//  - the newest row started at/after the START of the motion run (detection time minus
+//    the sustain window) -> a manual change won the race (or the driver deliberately chose
+//    a non-driving status while moving); the automatic one stands down;
 //  - detected_at in the future, or older than MAX_AGE_MS (a stale retry) -> refuse.
 // It never edits or deletes an existing row, so earlier segments cannot be rewritten.
 
 import type { DutyStatus } from "@/types/entities";
+import { SUSTAIN_MS } from "./sustained-motion";
 
 export const MAX_DETECTION_AGE_MS = 10 * 60_000;
 export const MAX_CLOCK_SKEW_MS = 60_000;
@@ -29,7 +31,7 @@ export function judgeAutoMotion(
   if (nowMs - detected > MAX_DETECTION_AGE_MS) return { ok: false, reason: "detection_too_old" };
   if (!latest) return { ok: false, reason: "no_status" };
   if (latest.duty_status === "driving") return { ok: false, reason: "already_driving" };
-  if (Date.parse(latest.started_at) >= detected) return { ok: false, reason: "manual_change_won" };
+  if (Date.parse(latest.started_at) >= detected - SUSTAIN_MS) return { ok: false, reason: "manual_change_won" };
   return { ok: true };
 }
 

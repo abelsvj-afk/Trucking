@@ -13,7 +13,7 @@ describe("truck icon", () => {
     const svg = truckIconSvg({ color: "#2563eb", widthPx: 26 });
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg).toContain('viewBox="0 0 32 88"');
-    expect(svg).toContain('height="72"'); // 26 * 2.75
+    expect(svg).toContain(`height="${Math.round(26 * 2.75)}"`);
     expect(svg).toContain("#2563eb");
     expect(svg).toContain('fill="#fff"'); // outline
     expect((svg.match(/<rect/g) ?? []).length).toBeGreaterThanOrEqual(10); // cab, windshield, mirrors, trailer, tires...
@@ -96,6 +96,22 @@ describe("posted speed limit (OSM maxspeed) - never estimated", () => {
     const r = pickSpeedLimit({ elements: [way(2, { highway: "residential", maxspeed: "25 mph" }, cross), way(1, { highway: "primary", maxspeed: "55 mph" }, north)] }, here, 0);
     expect(r?.mph).toBe(55);
     expect(pickSpeedLimit({ elements: [way(2, { highway: "residential", maxspeed: "25 mph" }, cross)] }, here, 0)).toBeNull();
+  });
+  it("an untagged main road is NEVER given the limit of a tagged frontage road beside it", () => {
+    const frontage = [{ lat: 28.0, lon: -80.99985 }, { lat: 28.002, lon: -80.99985 }]; // ~13 m east, tagged 35
+    const main = [{ lat: 28.0, lon: -81.0 }, { lat: 28.002, lon: -81.0 }]; // under the truck, untagged
+    const r = pickSpeedLimit({ elements: [way(2, { highway: "service", maxspeed: "35 mph" }, frontage), way(1, { highway: "primary" }, main)] }, here, 0);
+    expect(r).toBeNull();
+  });
+  it("two equally-near roads with different limits are ambiguous -> no badge", () => {
+    const a = [{ lat: 28.0, lon: -81.0 }, { lat: 28.002, lon: -81.0 }];
+    const b = [{ lat: 28.0, lon: -81.00003 }, { lat: 28.002, lon: -81.00003 }];
+    expect(pickSpeedLimit({ elements: [way(1, { highway: "primary", maxspeed: "55 mph" }, a), way(2, { highway: "primary", maxspeed: "45 mph" }, b)] }, here, 0)).toBeNull();
+    expect(pickSpeedLimit({ elements: [way(1, { highway: "primary", maxspeed: "55 mph" }, a), way(2, { highway: "primary", maxspeed: "55 mph" }, b)] }, here, 0)?.mph).toBe(55);
+  });
+  it("footpaths and cycleways are never the road under a truck", () => {
+    const path = [{ lat: 28.0, lon: -81.0 }, { lat: 28.002, lon: -81.0 }];
+    expect(pickSpeedLimit({ elements: [way(3, { highway: "footway", maxspeed: "5 mph" }, path)] }, here, 0)).toBeNull();
   });
   it("garbage from the service is no limit, not a crash", () => {
     expect(pickSpeedLimit({ nope: 1 }, here, 0)).toBeNull();

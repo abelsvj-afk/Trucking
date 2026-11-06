@@ -65,7 +65,13 @@ export const POST = createApiHandler(async (req: NextRequest, ctx) => {
     // Migration 00072 not applied yet: the row is still recorded, the note carries the provenance.
     insert = await supabase.from("duty_logs").insert({ ...base, source: "app" });
   }
-  if (insert.error) throw new Error(insert.error.message);
+  if (insert.error) {
+    // A second tab/device won the same detection: that is a replay, not a failure.
+    if ((insert.error as { code?: string }).code === "23505") {
+      return NextResponse.json({ data: { switched: true, deduplicated: true, startedAt } });
+    }
+    throw new Error(insert.error.message);
+  }
 
   // Best-effort: the in-app notice is shown by the caller either way.
   void createTelegramNotifier()

@@ -62,37 +62,54 @@ function distToSegmentM(p: LatLng, a: LatLng, b: LatLng): number {
   return Math.hypot(ax + t * dx, ay + t * dy);
 }
 
-/** Pure: pick the limit for the road the truck is on, or null. */
+/** Highway types a truck is not driving on - never the road under it. */
+const NON_MOTOR = new Set(["footway", "cycleway", "path", "steps", "pedestrian", "bridleway", "corridor", "elevator", "proposed", "construction", "track"]);
+/** A second, equally-near way within this many extra metres makes the answer ambiguous. */
+const AMBIGUITY_MARGIN_M = 8;
+
+/**
+ * Pure: pick the limit for the road the truck is on, or null.
+ * The road is chosen FIRST (nearest motor-road way, aligned with the heading when known) and only
+ * THEN is its maxspeed read - so an untagged main road is never given the limit of a tagged
+ * frontage road next to it. Two near-equal candidates with different limits (an overpass, a
+ * dual carriageway read ambiguously) give null rather than a coin flip.
+ */
 export function pickSpeedLimit(json: unknown, position: LatLng, headingDeg: number | null): SpeedLimit | null {
   const parsed = responseSchema.safeParse(json);
   if (!parsed.success) return null;
-  let best: { limit: SpeedLimit; distance: number } | null = null;
+  const candidates: { distance: number; mph: number | null; wayId: number; roadName: string | null }[] = [];
   for (const el of parsed.data.elements) {
-    if (el.type !== "way" || !el.geometry || el.geometry.length < 2) continue;
-    const mph = parseMaxspeed(el.tags?.maxspeed);
-    if (mph === null) continue;
+    const highway = el.tags?.highway;
+    if (el.type !== "way" || !highway || NON_MOTOR.has(highway) || !el.geometry || el.geometry.length < 2) continue;
+    let nearest = Number.POSITIVE_INFINITY;
     for (let i = 1; i < el.geometry.length; i++) {
       const a = { lat: el.geometry[i - 1]!.lat, lng: el.geometry[i - 1]!.lon };
       const b = { lat: el.geometry[i]!.lat, lng: el.geometry[i]!.lon };
       const d = distToSegmentM(position, a, b);
       if (d > MAX_ON_ROAD_M) continue;
       if (headingDeg !== null) {
-        const wayBearing = bearingDeg(a, b);
-        const diff = Math.abs(((headingDeg - wayBearing) % 180 + 180) % 180);
-        const folded = Math.min(diff, 180 - diff);
-        if (folded > MAX_HEADING_DIFF_DEG) continue; // a cross street, not our road
+        const diff = Math.abs(((headingDeg - bearingDeg(a, b)) % 180 + 180) % 180);
+        if (Math.min(diff, 180 - diff) > MAX_HEADING_DIFF_DEG) continue; // a cross street, not our road
       }
-      if (!best || d < best.distance) best = { limit: { mph, wayId: el.id, roadName: el.tags?.name ?? el.tags?.ref ?? null }, distance: d };
+      if (d < nearest) nearest = d;
     }
+    if (!Number.isFinite(nearest)) continue;
+    candidates.push({ distance: nearest, mph: parseMaxspeed(el.tags?.maxspeed), wayId: el.id, roadName: el.tags?.name ?? el.tags?.ref ?? null });
   }
-  return best ? best.limit : null;
+  if (candidates.length === 0) return null;
+  candidates.sort((x, y) => x.distance - y.distance);
+  const best = candidates[0]!;
+  if (best.mph === null) return null; // the road we are on has no usable posted limit
+  const rival = candidates.find((c, i) => i > 0 && c.distance - best.distance <= AMBIGUITY_MARGIN_M && c.mph !== best.mph);
+  if (rival) return null;
+  return { mph: best.mph, wayId: best.wayId, roadName: best.roadName };
 }
 
 export class SpeedLimitUnavailableError extends Error {}
 
 export async function fetchSpeedLimit(position: LatLng, headingDeg: number | null, fetchFn: typeof fetch = fetch): Promise<SpeedLimit | null> {
   const query =
-    `[out:json][timeout:8];way(around:${SEARCH_RADIUS_M},${position.lat},${position.lng})["highway"]["maxspeed"];out tags geom;`;
+    `[out:json][timeout:8];way(around:${SEARCH_RADIUS_M},${position.lat},${position.lng})["highway"];out tags geom;`;
   let res: Response;
   try {
     res = await fetchFn("https://overpass-api.de/api/interpreter", {

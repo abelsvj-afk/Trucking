@@ -29,7 +29,13 @@ export type AutoDecision =
   /** Driving but stationary long enough to ask. Prompt only. */
   | { kind: "still_driving_prompt"; stoppedForMs: number };
 
-export function decideAuto(duty: DutyStatus | "unknown", s: SustainedState, nowMs: number): AutoDecision {
+export function decideAuto(
+  duty: DutyStatus | "unknown",
+  s: SustainedState,
+  nowMs: number,
+  /** When the newest log row started. A row logged AFTER the motion began is the driver's own deliberate choice - the app does not overrule it. */
+  latestRowStartedMs: number | null = null,
+): AutoDecision {
   if (duty === "unknown") return { kind: "none" };
   if (duty === "driving") {
     const stopped = stoppedForMs(s, nowMs);
@@ -37,6 +43,7 @@ export function decideAuto(duty: DutyStatus | "unknown", s: SustainedState, nowM
   }
   const moving = movingForMs(s, nowMs);
   if (moving < SUSTAIN_MS || s.movingSinceMs === null) return { kind: "none" };
+  if (latestRowStartedMs !== null && latestRowStartedMs >= s.movingSinceMs) return { kind: "none" };
   const detectedAtMs = s.movingSinceMs + SUSTAIN_MS;
   const autoSwitchAtMs = detectedAtMs + AUTO_SWITCH_GRACE_MS;
   return nowMs >= autoSwitchAtMs ? { kind: "auto_switch", detectedAtMs } : { kind: "detected", detectedAtMs, autoSwitchAtMs };

@@ -16,6 +16,11 @@ describe("judgeAutoMotion - the app may only ADD a Driving row from detection ti
     expect(judgeAutoMotion({ duty_status: "on_duty", started_at: iso(NOW - 10_000) }, iso(NOW - 30_000), NOW)).toEqual({ ok: false, reason: "manual_change_won" });
     expect(judgeAutoMotion({ duty_status: "on_duty", started_at: iso(NOW - 30_000) }, iso(NOW - 30_000), NOW)).toEqual({ ok: false, reason: "manual_change_won" });
   });
+  it("stands down when the driver logged a non-driving status DURING the motion run (their deliberate choice)", () => {
+    // detection 30 s ago => the move began 90 s ago; a row 60 s ago is inside the run
+    expect(judgeAutoMotion({ duty_status: "on_duty", started_at: iso(NOW - 60_000) }, iso(NOW - 30_000), NOW)).toEqual({ ok: false, reason: "manual_change_won" });
+    expect(judgeAutoMotion({ duty_status: "on_duty", started_at: iso(NOW - 120_000) }, iso(NOW - 30_000), NOW)).toEqual({ ok: true });
+  });
   it("never assumes a status for an empty log", () => {
     expect(judgeAutoMotion(null, iso(NOW - 30_000), NOW)).toEqual({ ok: false, reason: "no_status" });
   });

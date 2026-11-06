@@ -88,7 +88,9 @@ function Watcher() {
   const decision = decideLock(motion, duty, speedMph);
   const locked = decision.kind === "lock";
   const mismatchStatus = decision.kind === "mismatch" ? decision.status : null;
-  const auto = decideAuto(duty, sustained, nowMs);
+  const latestRowStartedMs =
+    hos.status === "loaded" && hos.data.length > 0 ? Date.parse(hos.data[hos.data.length - 1]!.started_at) : null;
+  const auto = decideAuto(duty, sustained, nowMs, Number.isFinite(latestRowStartedMs) ? latestRowStartedMs : null);
   const pathname = usePathname();
   // Dismissed prompt -> slim persistent banner; forgotten once the mismatch ends.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
@@ -215,7 +217,7 @@ function Watcher() {
         <div role="alert" className="motion-lock-banner" data-motion-exempt>
           <p>The truck is moving, but your status says <strong>{label}</strong>. Switch to Driving?</p>
           {auto.kind === "detected" && (
-            <p>Still moving — I&apos;ll switch you to Driving automatically at {clockLabel(auto.autoSwitchAtMs)}.</p>
+            <p>Still moving — I&apos;ll switch you to Driving automatically in about {Math.max(1, Math.round((auto.autoSwitchAtMs - nowMs) / 1000))} seconds.</p>
           )}
           <button type="button" onClick={() => void switchToDriving()} disabled={switching}>
             {switching ? "Switching…" : "Switch to Driving"}

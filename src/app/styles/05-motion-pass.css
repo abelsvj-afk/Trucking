@@ -198,9 +198,6 @@ button.hud-ring {
   font-weight: 800;
   letter-spacing: 0.08em;
 }
-.hud-tone-expired .hud-ring-time {
-  text-decoration: line-through;
-}
 
 .hud-ring-svg {
   width: 7rem;
@@ -329,6 +326,13 @@ button.hud-ring {
   .hud-ring-arc {
     transition: none;
   }
+}
+
+/* One-handed, moving: the quick status button is the biggest thing on the sheet. */
+.hud-sheet .hud-sheet-actions .hud-quick-btn {
+  min-height: 76px;
+  font-size: 1.25rem;
+  font-weight: 800;
 }
 
 .hud-sheet .hud-sheet-actions button[type="button"] {
