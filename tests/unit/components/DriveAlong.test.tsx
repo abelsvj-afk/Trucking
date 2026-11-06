@@ -80,7 +80,7 @@ describe("DriveClocks (clocks riding with the route)", () => {
 
   it("flags a clock at its limit in words, not only colour", async () => {
     await mount(<DriveClocks />, windowOf([{ duty_status: "off_duty", at: NOW - 40 * H }, { duty_status: "driving", at: NOW - 15 * H }]));
-    expect(screen.getByLabelText(/^Drive: 0:00:00 remaining · EXPIRED/)).toBeTruthy();
+    expect(screen.getByLabelText(/^Drive: EXPIRED, driving locked. Reset in/)).toBeTruthy();
   });
 });
 

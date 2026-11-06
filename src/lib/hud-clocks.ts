@@ -27,6 +27,22 @@ const RESET_REST_MS = 10 * HOUR_MS;
 export type ClockTone = "ok" | "warn" | "critical" | "expired";
 export type ClockKey = "drive" | "window" | "break" | "cycle";
 
+/**
+ * What it takes for an EXPIRED clock to come back (owner 2026-11-06: "show the reset clock, red, until
+ * green again"). Counted from the same duty rows as the clock itself - no second HOS math.
+ */
+export interface ClockReset {
+  /** How much continuous time the reset needs (10 h off, 30 min not driving, 34 h off). */
+  requiredMs: number;
+  /** How much of it he has done so far (0 while he is still working). */
+  progressMs: number;
+  remainingMs: number;
+  /** True while the qualifying rest is actually under way right now. */
+  underway: boolean;
+  /** The condition in plain words. */
+  how: string;
+}
+
 export interface HudClock {
   key: ClockKey;
   label: string;
@@ -34,6 +50,8 @@ export interface HudClock {
   remainingMs: number;
   totalMs: number;
   tone: ClockTone;
+  /** Set only while the clock is expired AND has a time-based reset (the cycle without a restart rule has none). */
+  reset?: ClockReset | null;
 }
 
 export interface HudDutyRow {
@@ -112,10 +130,25 @@ export function computeHudClocks(
   }
   const rested = restStartMs !== null && nowMs - restStartMs >= RESET_REST_MS;
 
+  // Reset progress, from the same rows: continuous rest (off duty / sleeper) so far, and continuous
+  // time not driving so far (for the 30-minute break).
+  const restSoFarMs = restStartMs !== null ? Math.max(0, nowMs - restStartMs) : 0;
+  let notDrivingSinceMs: number | null = null;
+  if (last.status !== "driving") {
+    notDrivingSinceMs = last.startMs;
+    for (let i = segments.length - 2; i >= 0 && segments[i]!.status !== "driving"; i--) notDrivingSinceMs = segments[i]!.startMs;
+  }
+  const notDrivingSoFarMs = notDrivingSinceMs !== null ? Math.max(0, nowMs - notDrivingSinceMs) : 0;
+  const withReset = (c: HudClock, requiredMs: number | null, progressMs: number, how: string): HudClock => {
+    if (c.tone !== "expired" || requiredMs === null) return c;
+    const progress = Math.min(requiredMs, progressMs);
+    return { ...c, reset: { requiredMs, progressMs: progress, remainingMs: requiredMs - progress, underway: progressMs > 0, how } };
+  };
+
   const clocks: HudClock[] = [
-    clock("drive", "Drive", DRIVE_LIMIT_MS, drivingInWindow),
-    clock("window", "14-hour window", WINDOW_LIMIT_MS, windowElapsed),
-    clock("break", "Break due in", BREAK_AFTER_DRIVING_MS, drivingSinceBreak),
+    withReset(clock("drive", "Drive", DRIVE_LIMIT_MS, drivingInWindow), RESET_REST_MS, restSoFarMs, "10 straight hours off duty or in the sleeper berth"),
+    withReset(clock("window", "14-hour window", WINDOW_LIMIT_MS, windowElapsed), RESET_REST_MS, restSoFarMs, "10 straight hours off duty or in the sleeper berth"),
+    withReset(clock("break", "Break due in", BREAK_AFTER_DRIVING_MS, drivingSinceBreak), 30 * MINUTE_MS, notDrivingSoFarMs, "30 straight minutes not driving"),
   ];
 
   let cycleUnavailable = true;
@@ -127,7 +160,13 @@ export function computeHudClocks(
     const sinceFetch = onDuty && Number.isFinite(windowEndMs) ? Math.max(0, nowMs - windowEndMs) : 0;
     const limitMs = cycle.cycleLimitMinutes * MINUTE_MS;
     clocks.push(
-      clock("cycle", `${cycle.cycle} cycle`, limitMs, cycle.onDutyMinutesInCycle * MINUTE_MS + sinceFetch),
+      withReset(
+        clock("cycle", `${cycle.cycle} cycle`, limitMs, cycle.onDutyMinutesInCycle * MINUTE_MS + sinceFetch),
+        // Only a carrier that allows the 34-hour restart has a time-based reset; otherwise hours return as old days fall off.
+        cycle.restartEnabled ? 34 * HOUR_MS : null,
+        restSoFarMs,
+        "34 straight hours off duty (the restart)",
+      ),
     );
     cycleUnavailable = false;
   }

@@ -291,3 +291,45 @@ describe("DutyHud driving safety (audit 2026-11-04): unknown speed fails closed"
     expect(screen.getByRole("dialog", { name: "Your day" }).querySelector(".day-graph")).not.toBeNull();
   });
 });
+
+describe("DutyHud - an expired clock shows what is locked and the reset counting to green (owner 2026-11-06)", () => {
+  const expired = (restHours: number) => {
+    const now = Date.now();
+    return windowResult([
+      { duty_status: "off_duty", started_at: new Date(now - 30 * H).toISOString() },
+      { duty_status: "driving", started_at: new Date(now - restHours * H - 11 * H).toISOString() },
+      { duty_status: "off_duty", started_at: new Date(now - restHours * H).toISOString() },
+    ]);
+  };
+
+  it("names what is locked, why, what is still allowed, and the reset countdown - and says it never blocks logging", async () => {
+    await renderHud(expired(2));
+    const panel = screen.getByRole("alert", { name: "What is locked" });
+    expect(panel.textContent).toContain("Locked right now: Driving");
+    expect(panel.textContent).toContain("You've used all 11 hours of driving");
+    expect(panel.textContent).toContain("still allowed");
+    expect(panel.textContent).toContain("Resets in 8:00:00");
+    expect(panel.textContent).toContain("never stops you logging");
+  });
+
+  it("the ring shows the reset filling up in red with 'Resetting…', not 0:00:00", async () => {
+    await renderHud(expired(2));
+    const ring = screen.getByRole("button", { name: /^Drive: EXPIRED\. Reset in 8 hours 0 minutes/ });
+    expect(ring.textContent).toContain("8:00:00");
+    expect(ring.textContent).toContain("Resetting");
+    expect(ring.className).toContain("hud-tone-expired");
+  });
+
+  it("the Driving status button carries a lock tag but stays tappable (he must always be able to log the truth)", async () => {
+    await renderHud(expired(2));
+    const btn = screen.getByRole("button", { name: /^Driving/ }) as HTMLButtonElement;
+    expect(btn.textContent).toContain("not legal now");
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("green again: after 10 hours of rest there is no lock panel and no tag", async () => {
+    await renderHud(expired(10.5));
+    expect(screen.queryByRole("alert", { name: "What is locked" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Driving$/ }).textContent).not.toContain("not legal");
+  });
+});

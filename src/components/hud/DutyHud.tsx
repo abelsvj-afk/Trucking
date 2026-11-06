@@ -23,6 +23,8 @@ import { formatDateTime, formatSinceTime } from "@/lib/time";
 import type { DutyStatus } from "@/types/entities";
 import ClockRing from "./ClockRing";
 import ClockExplainerSheet from "./ClockExplainerSheet";
+import LockedNow from "./LockedNow";
+import { activeLocks } from "@/lib/clock-locks";
 import type { ClockKey } from "@/lib/hud-clocks";
 import StatusSheet, { HUD_STATUS_LABELS } from "./StatusSheet";
 
@@ -57,6 +59,7 @@ export default function DutyHud() {
   const clocks = loaded ? computeHudClocks(loaded.data, loaded.hos, nowMs) : null;
   const hos = loaded?.hos ?? null;
   const provisional = hos !== null && isProvisionalCarrierConfig(hos);
+  const drivingLocked = clocks?.state === "ready" && activeLocks(clocks.clocks).length > 0;
 
   return (
     <section aria-label="Duty status and clocks" className="hud">
@@ -98,6 +101,7 @@ export default function DutyHud() {
               <ClockRing key={clock.key} clock={clock} onExplain={setExplain} />
             ))}
           </div>
+          <LockedNow clocks={clocks.clocks} />
           {clocks.cycleUnavailable && (
             <p className="hud-note" role="status">
               The cycle clock isn&apos;t shown — it couldn&apos;t be computed.
@@ -129,6 +133,7 @@ export default function DutyHud() {
             }}
           >
             {HUD_STATUS_LABELS[status]}
+            {status === "driving" && drivingLocked && <span className="hud-btn-lock"> 🔒 not legal now</span>}
           </button>
         ))}
       </div>

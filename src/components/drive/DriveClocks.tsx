@@ -51,7 +51,11 @@ export default function DriveClocks({ dark = false }: { dark?: boolean }) {
       {clocks.clocks.map((clock) => (
         <p
           key={clock.key}
-          aria-label={`${clock.label}: ${formatClock(clock.remainingMs)} remaining${TONE_WORD[clock.tone]}`}
+          aria-label={
+            clock.tone === "expired" && clock.reset
+              ? `${clock.label}: EXPIRED, driving locked. Reset in ${formatClock(clock.reset.remainingMs)}`
+              : `${clock.label}: ${formatClock(clock.remainingMs)} remaining${TONE_WORD[clock.tone]}`
+          }
           style={{
             margin: 0,
             padding: "6px 8px",
@@ -64,10 +68,10 @@ export default function DriveClocks({ dark = false }: { dark?: boolean }) {
           }}
         >
           <span aria-hidden="true" style={{ fontSize: "0.85rem" }}>
-            {clock.label}
+            {clock.tone === "expired" && clock.reset ? `🔒 ${clock.label} — reset` : clock.label}
           </span>
           <strong aria-hidden="true" style={{ fontSize: "1.2rem", fontVariantNumeric: "tabular-nums" }}>
-            {formatClock(clock.remainingMs)}
+            {formatClock(clock.tone === "expired" && clock.reset ? clock.reset.remainingMs : clock.remainingMs)}
           </strong>
         </p>
       ))}

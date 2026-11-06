@@ -12,13 +12,21 @@ const RADIUS = 44;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 function spoken(clock: HudClock): string {
+  if (clock.tone === "expired" && clock.reset) {
+    const m = Math.floor(clock.reset.remainingMs / 60_000);
+    return `${clock.label}: EXPIRED. Reset in ${Math.floor(m / 60)} hours ${m % 60} minutes${clock.reset.underway ? "" : " once you stop"}. Driving is locked`;
+  }
   const minutes = Math.floor(clock.remainingMs / 60_000);
   const text = `${Math.floor(minutes / 60)} hours ${minutes % 60} minutes remaining`;
   return `${clock.label}: ${text}${TONE_WORDS[clock.tone] ? `. ${TONE_WORDS[clock.tone]}` : ""}`;
 }
 
 export default function ClockRing({ clock, onExplain }: { clock: HudClock; onExplain?: (key: HudClock["key"]) => void }) {
-  const fraction = clock.totalMs > 0 ? Math.min(1, clock.remainingMs / clock.totalMs) : 0;
+  // Expired with a timed reset: the ring shows the RESET filling up (red) until it completes and the clock is green again.
+  const reset = clock.tone === "expired" ? clock.reset ?? null : null;
+  const fraction = reset
+    ? reset.requiredMs > 0 ? Math.min(1, reset.progressMs / reset.requiredMs) : 0
+    : clock.totalMs > 0 ? Math.min(1, clock.remainingMs / clock.totalMs) : 0;
   const Tag = onExplain ? "button" : "div";
   return (
     <Tag
@@ -40,14 +48,19 @@ export default function ClockRing({ clock, onExplain }: { clock: HudClock; onExp
         />
       </svg>
       <span className="hud-ring-time" aria-hidden="true">
-        {formatClock(clock.remainingMs)}
+        {formatClock(reset ? reset.remainingMs : clock.remainingMs)}
       </span>
       <span className="hud-ring-label" aria-hidden="true">
-        {clock.label}
+        {reset ? `${clock.label} — reset` : clock.label}
       </span>
       {TONE_WORDS[clock.tone] && (
         <span className="hud-ring-tone" aria-hidden="true">
           {TONE_WORDS[clock.tone]}
+        </span>
+      )}
+      {reset && (
+        <span className="hud-ring-tone" aria-hidden="true">
+          {reset.underway ? "Resetting…" : "Starts when you stop"}
         </span>
       )}
       {onExplain && (

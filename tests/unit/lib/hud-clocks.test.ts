@@ -142,3 +142,57 @@ describe("toneFor / formatClock", () => {
     expect(formatClock(-5)).toBe("0:00:00");
   });
 });
+
+describe("expired clocks show their RESET until green again (owner 2026-11-06)", () => {
+  const NOW = T0 + 40 * H;
+  // 30 h ago off duty; drove 11 h straight; then off duty for `restHours` up to NOW.
+  const drove = (restHours: number): HudDutyRow[] => [
+    row("off_duty", NOW - 30 * H),
+    row("driving", NOW - restHours * H - 11 * H),
+    row("off_duty", NOW - restHours * H),
+  ];
+
+  it("an expired drive clock carries a 10-hour reset that fills as the rest goes on", () => {
+    const r = ready(computeHudClocks(drove(1), null, NOW));
+    const drive = by(r, "drive");
+    expect(drive.tone).toBe("expired");
+    expect(drive.reset).toMatchObject({ requiredMs: 10 * H, progressMs: 1 * H, remainingMs: 9 * H, underway: true });
+    expect(drive.reset!.how).toContain("10 straight hours off");
+    // the window is over too in this story (14 h since the day began) - its reset is the same rest
+    const later = by(ready(computeHudClocks(drove(4), null, NOW)), "drive");
+    expect(later.reset!.progressMs).toBe(4 * H);
+  });
+
+  it("while still working (not resting yet) the reset has not started", () => {
+    const rows = [row("off_duty", NOW - 30 * H), row("driving", NOW - 11 * H - 30 * M), row("on_duty", NOW - 30 * M)];
+    const drive = by(ready(computeHudClocks(rows, null, NOW)), "drive");
+    expect(drive.tone).toBe("expired");
+    expect(drive.reset).toMatchObject({ progressMs: 0, underway: false, remainingMs: 10 * H });
+  });
+
+  it("once 10 hours of rest are done the clock is NOT expired any more (green again) and carries no reset", () => {
+    const r = ready(computeHudClocks(drove(10.5), null, NOW));
+    const drive = by(r, "drive");
+    expect(drive.tone).toBe("ok");
+    expect(drive.reset).toBeUndefined();
+    expect(r.rested).toBe(true);
+  });
+
+  it("the 30-minute break resets after 30 straight minutes not driving (on duty counts)", () => {
+    const rows = [row("off_duty", NOW - 20 * H), row("driving", NOW - 9 * H), row("on_duty", NOW - 10 * M)];
+    const brk = by(ready(computeHudClocks(rows, null, NOW)), "break");
+    expect(brk.tone).toBe("expired");
+    expect(brk.reset).toMatchObject({ requiredMs: 30 * M, progressMs: 10 * M, remainingMs: 20 * M });
+    const done = by(ready(computeHudClocks([row("off_duty", NOW - 20 * H), row("driving", NOW - 9 * H), row("on_duty", NOW - 31 * M)], null, NOW)), "break");
+    expect(done.tone).not.toBe("expired");
+  });
+
+  it("an expired cycle gets the 34-hour restart reset only when the carrier allows it", () => {
+    const rows = [row("off_duty", NOW - 5 * H)];
+    const withRestart = by(ready(computeHudClocks(rows, cycleSummary(4200, NOW), NOW)), "cycle");
+    expect(withRestart.tone).toBe("expired");
+    expect(withRestart.reset).toMatchObject({ requiredMs: 34 * H, progressMs: 5 * H });
+    const noRestart = by(ready(computeHudClocks(rows, { ...cycleSummary(4200, NOW), restartEnabled: false }, NOW)), "cycle");
+    expect(noRestart.reset).toBeUndefined();
+  });
+});
