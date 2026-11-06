@@ -10,6 +10,7 @@ import DayGraph from "@/components/paper/DayGraph";
 import { buildDayView, sortRows, type DayRow } from "@/lib/day-view";
 import { addDays, zonedDate, zonedDayBounds } from "@/lib/zoned-day";
 import { useNowTick } from "@/lib/use-now-tick";
+import { formatMinutes } from "@/lib/paper-day";
 import type { DraftSegment } from "@/lib/paper-day";
 import type { DutyStatus } from "@/types/entities";
 import DayEditPanel from "./DayEditPanel";
@@ -28,6 +29,8 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
   // must only ever land on the entry the driver actually picked.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Which button opened the panel: Fix, or Delete (which goes straight to the confirmation).
+  const [intent, setIntent] = useState<"edit" | "delete">("edit");
   const day = picked ?? today;
 
   const sorted = useMemo(() => sortRows(rows), [rows]);
@@ -68,8 +71,51 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
         <DayGraph
           segments={segments}
           selected={selectedIndex >= 0 ? selectedIndex : null}
-          onSelect={(i) => setSelectedId(sorted[view.stretches[i]!.rowIndex]?.id ?? null)}
+          onSelect={(i) => {
+            setIntent("edit");
+            setSelectedId(sorted[view.stretches[i]!.rowIndex]?.id ?? null);
+          }}
         />
+      )}
+      {view.stretches.length > 0 && (
+        <ul className="day-entries" aria-label="Entries on this day">
+          {view.stretches.map((s, i) => {
+            const row = sorted[s.rowIndex];
+            if (!row) return null;
+            return (
+              <li key={`${row.id}-${i}`} className={row.id === selectedId ? "day-entry day-entry-selected" : "day-entry"}>
+                <span className="day-entry-text">
+                  <strong>{HUD_STATUS_LABELS[s.status]}</strong> {formatMinutes(s.startMin)}–{s.ongoing ? "now" : formatMinutes(s.endMin)}
+                  {s.carriedIn ? " (started the day before)" : ""}
+                </span>
+                <span className="day-entry-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIntent("edit");
+                      setSelectedId(row.id);
+                      setMessage(null);
+                    }}
+                    aria-label={`Fix ${HUD_STATUS_LABELS[s.status]} ${formatMinutes(s.startMin)}`}
+                  >
+                    Fix
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIntent("delete");
+                      setSelectedId(row.id);
+                      setMessage(null);
+                    }}
+                    aria-label={`Delete ${HUD_STATUS_LABELS[s.status]} ${formatMinutes(s.startMin)}`}
+                  >
+                    Delete
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       )}
       <ul className="day-totals">
         {ORDER.map((s) => (
@@ -79,7 +125,7 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
         ))}
       </ul>
       <p className="row-sub">
-        Times on your carrier&apos;s clock ({timeZone}). Tap a stretch to change it. Days before {oldest} are in the list
+        Times on your carrier&apos;s clock ({timeZone}). Tap a stretch on the graph, or use Fix / Delete on an entry below, to change it — a wrong time can always be moved or removed (deleted entries can be restored). Days before {oldest} are in the list
         below.
       </p>
       {vanished && (
@@ -94,7 +140,8 @@ export default function DayLog({ rows, timeZone, oldestIso }: { rows: DayRow[]; 
       )}
       {stretch && (
         <DayEditPanel
-          key={`${selectedId}-${sorted[stretch.rowIndex]!.started_at}-${sorted[stretch.rowIndex]!.duty_status}`}
+          key={`${selectedId}-${intent}-${sorted[stretch.rowIndex]!.started_at}-${sorted[stretch.rowIndex]!.duty_status}`}
+          startWithDelete={intent === "delete"}
           rows={sorted}
           stretch={stretch}
           dayDate={day}

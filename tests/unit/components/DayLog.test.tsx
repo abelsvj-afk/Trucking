@@ -164,3 +164,42 @@ describe("DayLog under live updates (pitfall hunt, 2026-11-04)", () => {
     expect((screen.getByLabelText(/Started at/) as HTMLInputElement).value).toBe("21:15");
   });
 });
+
+describe("DayLog - an entry list so a wrong time can be fixed or removed with a big tap", () => {
+  it("lists every entry of the day with Fix and Delete", () => {
+    mount();
+    const list = screen.getByRole("list", { name: "Entries on this day" });
+    expect(list.textContent).toContain("Driving 06:00");
+    expect(list.querySelectorAll("li")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Delete Driving 06:00" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fix Driving 06:00" })).toBeTruthy();
+  });
+
+  it("Delete goes straight to the confirmation, says what then runs on, and removes (soft) only on 'Yes'", async () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Driving 06:00" }));
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Deleting it makes");
+    expect(alert.textContent).toContain("restore it under Deleted");
+    expect(apiClient.remove).not.toHaveBeenCalled();
+    vi.mocked(apiClient.remove).mockResolvedValue({} as never);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Yes, delete it" }));
+    });
+    expect(apiClient.remove).toHaveBeenCalledWith("duty-logs", "b");
+  });
+
+  it("'Keep it' backs out and deletes nothing", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Delete On duty (not driving) 15:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    expect(apiClient.remove).not.toHaveBeenCalled();
+  });
+
+  it("Fix opens the normal editor (status, move start, add a change) without the delete confirmation open", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Fix Driving 06:00" }));
+    expect(screen.getByLabelText(/Started at/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Yes, delete it" })).toBeNull();
+  });
+});

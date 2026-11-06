@@ -31,9 +31,11 @@ interface Props {
   nowMs: number;
   onDone: (message: string) => void;
   onClose: () => void;
+  /** Opened from a list's Delete button: go straight to the "are you sure" step (still says what then runs on). */
+  startWithDelete?: boolean;
 }
 
-export default function DayEditPanel({ rows, stretch, dayDate, timeZone, nowMs, onDone, onClose }: Props) {
+export default function DayEditPanel({ rows, stretch, dayDate, timeZone, nowMs, onDone, onClose, startWithDelete = false }: Props) {
   const row = rows[stretch.rowIndex]!;
   const rowStartMs = Date.parse(row.started_at);
   const [status, setStatus] = useState<DutyStatus>(row.duty_status);
@@ -41,7 +43,7 @@ export default function DayEditPanel({ rows, stretch, dayDate, timeZone, nowMs, 
   const mid = stretch.startMin + Math.floor((stretch.endMin - stretch.startMin) / 2);
   const [insertClock, setInsertClock] = useState(formatMinutes(Math.min(mid, 1439)));
   const [insertStatus, setInsertStatus] = useState<DutyStatus>(row.duty_status === "driving" ? "on_duty" : "driving");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(startWithDelete);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submissionId] = useState(() => crypto.randomUUID());

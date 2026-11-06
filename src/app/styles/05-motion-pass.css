@@ -400,3 +400,30 @@ button.hud-ring {
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
+
+/* Day log: an entry list under the graph so a wrong time can be fixed or removed with a big tap, not a thin graph slice. */
+.day-entries {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+}
+.day-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.day-entry-selected {
+  background: var(--color-surface-alt);
+}
+.day-entry-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.day-entry-actions button {
+  min-height: 48px;
+  min-width: 64px;
+  font-weight: 700;
+}
