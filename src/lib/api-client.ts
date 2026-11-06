@@ -238,6 +238,12 @@ export const apiClient = {
     }),
   dutyLogWindow: () =>
     request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
+  /** Block A: ask the server to switch to Driving from detected sustained motion (stamped at the detection time). */
+  autoMotionSwitch: (detectedAtIso: string, submissionId: string) =>
+    request<{ data: { switched: boolean; reason?: string; startedAt?: string; deduplicated?: boolean } }>(
+      "/api/v1/duty-logs/auto-motion",
+      { method: "POST", body: JSON.stringify({ detected_at: detectedAtIso, submission_id: submissionId }) },
+    ),
   loadEconomics: (loadId: string) => request<{ data: LoadEconomics }>(`/api/v1/loads/${loadId}/economics`),
   paySummary: () => request<{ data: PaySummary }>("/api/v1/pay-summary"),
   // Truck Fund + money visibility (docs/design/driver-mvp.md §9).

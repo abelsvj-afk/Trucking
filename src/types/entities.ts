@@ -345,7 +345,7 @@ export interface DutyLog extends BaseRow {
    * rows read from a database where 00047 hasn't landed simply
    * don't carry it - 'app' is the honest default assumption.
    */
-  source?: "app" | "paper_photo" | "conversation";
+  source?: "app" | "paper_photo" | "conversation" | "auto_motion";
   /** For paper_photo rows: the documents row of the sheet photograph. */
   source_document_id?: string | null;
 }

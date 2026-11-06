@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MotionState } from "./vehicle-motion";
 import { NO_ESTIMATE, motionState, stepMotion, type MotionEstimate } from "./motion-estimator";
+import { NO_SUSTAINED, stepSustained, type SustainedState } from "./sustained-motion";
 
 const MPS_TO_MPH = 2.23694;
 const RECHECK_MS = 5_000;
@@ -25,6 +26,8 @@ export interface VehicleMotionDetail {
   position: VehiclePosition | null;
   /** The latest usable fix's reported speed, or null when none/none given. */
   speedMph: number | null;
+  /** Sustained-motion / standstill tracking (Block A auto-switch); durations are read with movingForMs / stoppedForMs. */
+  sustained: SustainedState;
 }
 
 /** Motion state only (the safety decision). */
@@ -36,6 +39,8 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
   const [state, setState] = useState<MotionState>("unknown");
   const [position, setPosition] = useState<VehiclePosition | null>(null);
   const [speedMph, setSpeedMph] = useState<number | null>(null);
+  const [sustained, setSustained] = useState<SustainedState>(NO_SUSTAINED);
+  const sustainedRef = useRef<SustainedState>(NO_SUSTAINED);
   // The bubble estimator (lib/motion-estimator): wander inside the bubble
   // around where he stopped is not movement; see that file for the rules.
   const estimateRef = useRef<MotionEstimate>(NO_ESTIMATE);
@@ -61,6 +66,12 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
           });
           estimateRef.current = next;
           setSpeedMph(next.lastSpeedMph);
+          sustainedRef.current = stepSustained(sustainedRef.current, {
+            atMs: now,
+            speedMph: next.lastSpeedMph,
+            estimator: motionState(next, now),
+          });
+          setSustained(sustainedRef.current);
           // A poor fix leaves the estimate untouched; the position shown is the
           // estimate's (pinned while parked), not the raw wobbling reading.
           const shown = next.displayPoint ?? { lat: fix.coords.latitude, lng: fix.coords.longitude };
@@ -69,6 +80,8 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
         },
         () => {
           estimateRef.current = NO_ESTIMATE;
+          sustainedRef.current = NO_SUSTAINED;
+          setSustained(NO_SUSTAINED);
           setPosition(null);
           setSpeedMph(null);
           evaluate();
@@ -91,6 +104,8 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
       if (document.hidden) {
         stop();
         estimateRef.current = NO_ESTIMATE;
+        sustainedRef.current = NO_SUSTAINED;
+        setSustained(NO_SUSTAINED);
         setPosition(null);
         setSpeedMph(null);
         setState("unknown");
@@ -106,5 +121,5 @@ export function useVehicleMotionDetail(): VehicleMotionDetail {
     };
   }, []);
 
-  return { state, position, speedMph };
+  return { state, position, speedMph, sustained };
 }

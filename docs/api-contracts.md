@@ -482,6 +482,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/drivers/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/drivers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/drivers` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/duty-logs/auto-motion` | POST | custom (see section / design doc) |
 | `/api/v1/duty-logs/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/duty-logs/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/duty-logs` | GET,POST | generic CRUD (contract above) |
@@ -598,3 +599,6 @@ All below: auth = session; company scope by RLS; errors use the standard envelop
 - `fuel-purchases` create/update accept optional `load_id` (uuid | null): the ONE load the fuel was for, set only by the owner (the forms offer a picker and a "same truck, same day — assign it?" suggestion that never assigns by itself). Null = not assigned.
 - `GET /api/v1/loads/[id]/economics` → `{ data: { revenueCents, directExpensesCents, directFuelCents, contributionMarginCents, provisional, excluded, caveat } }`. Margin = load rate − expenses carrying this load's id − fuel carrying this load's id; `provisional` until the load is completed with a delivery date; `excluded` always names what it leaves out (truck overhead, unassigned fuel); never called "profit". 404 for another company's load (RLS).
 - `GET /api/v1/financial-summary` `measures.fuelNotAssigned` (cents): the period's fuel assigned to no load. The aggregate contribution margin now includes load-assigned fuel; the C.3 bridge still holds exactly.
+
+### Block A — automatic switch to Driving (`POST /api/v1/duty-logs/auto-motion`, migration 00072)
+Body `{ detected_at: ISO, submission_id: uuid }`. The app calls it when the truck has been detected moving (≥ 5 mph for 60 s, then a 30 s grace) while the log's latest status is not Driving. Returns `{ data: { switched: true, startedAt } }` after adding ONE Driving row (`started_at` = `detected_at`, `source: "auto_motion"`, a note stating it was automatic) and sending the owner a Telegram notice; or `{ data: { switched: false, reason } }` with `reason` ∈ `no_status | already_driving | manual_change_won | detection_in_future | detection_too_old | bad_time` — it never edits or deletes an existing row, so earlier segments cannot be rewritten. Replays of the same `submission_id` return `switched: true, deduplicated: true`. Against a database without 00072 the row is saved with `source: "app"` and the note carries the provenance.

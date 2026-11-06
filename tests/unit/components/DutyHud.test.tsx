@@ -223,26 +223,54 @@ describe("DutyHud driving safety (audit 2026-11-04): unknown speed fails closed"
     ]);
   };
 
-  it("moving: status buttons and Day log are off, Paper log can't be opened, and it says why - the clocks keep running", async () => {
+  it("moving: EDITING is off (Day log, Paper log) but the status switcher is never gated - and the clocks keep running", async () => {
     motionHolder.state = "moving";
     await renderHud(rolling());
+    // Block A: changing duty status must always be reachable.
     for (const name of ["Driving", "On duty (not driving)", "Off duty", "Sleeper berth"]) {
-      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
     }
     expect((screen.getByRole("button", { name: "Day log" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("link", { name: "Paper log" })).toBeNull();
-    expect(screen.getByText(/Moving — status changes and editing are off/)).toBeTruthy();
+    expect(screen.getByText(/Changing your duty status is always available/)).toBeTruthy();
     expect(screen.getByLabelText("Time in this status")).toBeTruthy();
   });
 
-  it("unknown speed: the status sheet asks 'I'm parked' first and shows no form until he says so", async () => {
+  it("moving: the status sheet is the no-typing quick variant, exempt from the lock, and saves 'now'", async () => {
+    motionHolder.state = "moving";
+    vi.mocked(apiClient.create).mockResolvedValue({} as never);
+    await renderHud(rolling());
+    fireEvent.click(screen.getByRole("button", { name: "Driving" }));
+    const dialog = screen.getByRole("dialog", { name: "Change status" });
+    const form = dialog.querySelector("form")!;
+    expect(form.hasAttribute("data-motion-exempt")).toBe(true);
+    expect(form.querySelector("input")).toBeNull(); // nothing to type while rolling
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Switch to Driving now/ }));
+    });
+    const [resource, body] = vi.mocked(apiClient.create).mock.calls.at(-1)!;
+    expect(resource).toBe("duty-logs");
+    expect((body as { duty_status: string; location: unknown; notes: unknown }).duty_status).toBe("driving");
+    expect((body as { location: unknown }).location).toBeNull();
+    expect(Math.abs(Date.parse((body as { started_at: string }).started_at) - Date.now())).toBeLessThan(5_000);
+  });
+
+  it("unknown speed: the status sheet is the quick variant too (no 'I'm parked' wall, no typing)", async () => {
     motionHolder.state = "unknown";
     await renderHud(rolling());
     fireEvent.click(screen.getByRole("button", { name: "Driving" }));
-    expect(screen.getByRole("dialog", { name: "Change status" }).querySelector("form")).toBeNull();
-    expect(screen.getByText(/can't tell whether the truck is stopped/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "I'm parked" }));
-    expect(screen.getByRole("dialog", { name: "Change status" }).querySelector("form")).not.toBeNull();
+    const form = screen.getByRole("dialog", { name: "Change status" }).querySelector("form")!;
+    expect(form.querySelector("input")).toBeNull();
+    expect(screen.getByRole("button", { name: /Switch to Driving now/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "I'm parked" })).toBeNull();
+  });
+
+  it("stopped: the full form (time, where, note) is offered as before", async () => {
+    motionHolder.state = "stopped";
+    await renderHud(rolling());
+    fireEvent.click(screen.getByRole("button", { name: "Driving" }));
+    const form = screen.getByRole("dialog", { name: "Change status" }).querySelector("form")!;
+    expect(form.querySelector("input")).not.toBeNull();
   });
 
   it("unknown speed: the Day log popup is gated the same way", async () => {

@@ -33,11 +33,17 @@ interface Props {
   /** The phone's latest GPS fix, if any: offers "Use my GPS position" (typed location stays the fallback). */
   gps?: { lat: number; lng: number; accuracyM: number; atMs: number } | null;
   status: DutyStatus;
+  /**
+   * Quick variant (Block A): the truck is moving or its motion is unknown. No typing at all - one big
+   * button, time = now - because changing status must always be possible, and typing while rolling must
+   * never be. Follows live motion: it switches back to the full form when the truck stops.
+   */
+  quick?: boolean;
   onCancel: () => void;
   onSaved: (queuedOffline: boolean) => void;
 }
 
-export default function StatusSheet({ status, gps = null, onCancel, onSaved }: Props) {
+export default function StatusSheet({ status, gps = null, quick = false, onCancel, onSaved }: Props) {
   // Fresh id per opened sheet: one tap-and-save = one idempotent write.
   const [submissionId] = useState(() => crypto.randomUUID());
   const nowMs = useNowTick(1000);
@@ -54,7 +60,8 @@ export default function StatusSheet({ status, gps = null, onCancel, onSaved }: P
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (invalid || inFuture) return;
+    // Quick: always "now" (never a typed time) and no free text.
+    if (!quick && (invalid || inFuture)) return;
     setError(null);
     setSaving(true);
     const body = {
@@ -62,10 +69,10 @@ export default function StatusSheet({ status, gps = null, onCancel, onSaved }: P
       driver_id: null,
       load_id: null,
       duty_status: status,
-      started_at: new Date(startedMs).toISOString(),
-      location: location || null,
+      started_at: quick ? new Date().toISOString() : new Date(startedMs).toISOString(),
+      location: quick ? null : location || null,
       odometer: null,
-      notes: notes || null,
+      notes: quick ? null : notes || null,
     };
     try {
       await apiClient.create<DutyLog>("duty-logs", body);
@@ -83,8 +90,32 @@ export default function StatusSheet({ status, gps = null, onCancel, onSaved }: P
   }
 
   return (
-    <form className="hud-sheet" onSubmit={handleSubmit} aria-label={`Change status to ${HUD_STATUS_LABELS[status]}`}>
+    <form
+      className="hud-sheet"
+      data-motion-exempt
+      onSubmit={handleSubmit}
+      aria-label={`Change status to ${HUD_STATUS_LABELS[status]}`}
+    >
       <h3>Change to: {HUD_STATUS_LABELS[status]}</h3>
+      {quick && (
+        <>
+          <p className="hud-sheet-note">
+            You&apos;re moving (or your speed isn&apos;t known), so this saves your status as of <strong>right now</strong> —
+            no typing. You can add details later when you&apos;re parked.
+          </p>
+          {error && <p role="alert">{error}</p>}
+          <div className="hud-sheet-actions">
+            <button type="submit" className="hud-quick-btn" disabled={saving}>
+              {saving ? "Saving…" : `Switch to ${HUD_STATUS_LABELS[status]} now`}
+            </button>
+            <button type="button" onClick={onCancel} disabled={saving}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+      {!quick && (
+      <>
       <label htmlFor="hud-started-at">Starts at (your local time)</label>
       <input
         id="hud-started-at"
@@ -122,6 +153,8 @@ export default function StatusSheet({ status, gps = null, onCancel, onSaved }: P
           Cancel
         </button>
       </div>
+      </>
+      )}
     </form>
   );
 }

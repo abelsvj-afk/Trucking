@@ -115,11 +115,13 @@ describe("DriveStatusPrompt (offers, never books)", () => {
     expect(screen.getByRole("button", { name: "Log On duty (not driving)" })).toBeTruthy();
   });
 
-  it("the motion gate still applies: while moving the sheet refuses to open a form", async () => {
+  it("the status switch is never gated on motion: while moving the sheet opens in its no-typing quick form", async () => {
     motionHolder.state = "moving";
     await mount(<DriveStatusPrompt offer={["driving"]} />, parked());
     fireEvent.click(screen.getByRole("button", { name: "Log Driving" }));
-    expect(screen.getByRole("dialog").querySelector("form")).toBeNull();
-    expect(screen.getByRole("alert").textContent).toContain("You're moving");
+    const form = screen.getByRole("dialog").querySelector("form")!;
+    expect(form).not.toBeNull();
+    expect(form.querySelector("input")).toBeNull();
+    expect(screen.getByRole("button", { name: /Switch to Driving now/ })).toBeTruthy();
   });
 });

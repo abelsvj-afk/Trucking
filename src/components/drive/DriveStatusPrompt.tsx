@@ -5,13 +5,11 @@
 // driving. When parked / after the run: "Off duty" / "On duty" when that
 // isn't already his status. A tap opens the same confirm sheet as Home
 // (time defaults to now, never future, after-the-fact flagged), behind the
-// same motion gate: it only appears on the parked/preview screens, and the
-// gate still refuses while the phone reports the truck moving.
+// quick (no-typing) sheet while moving; the status switch is never gated on motion.
 
 import { useState } from "react";
 import Sheet from "@/components/Sheet";
 import StatusSheet, { HUD_STATUS_LABELS } from "@/components/hud/StatusSheet";
-import StoppedGate from "@/components/hud/StoppedGate";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useNowTick } from "@/lib/use-now-tick";
@@ -65,19 +63,18 @@ export default function DriveStatusPrompt({ offer }: { offer: DutyStatus[] }) {
       )}
       {picked && (
         <Sheet title="Change status" onClose={() => setPicked(null)}>
-          <StoppedGate motion={motion}>
-            <StatusSheet
-              key={picked}
-              status={picked}
-              gps={position}
-              onCancel={() => setPicked(null)}
-              onSaved={(queued) => {
-                setPicked(null);
-                setNote(queued ? "No signal — saved on this device; it will sync." : "Status saved.");
-                if (!queued) refresh();
-              }}
-            />
-          </StoppedGate>
+          <StatusSheet
+            key={picked}
+            status={picked}
+            gps={position}
+            quick={motion !== "stopped"}
+            onCancel={() => setPicked(null)}
+            onSaved={(queued) => {
+              setPicked(null);
+              setNote(queued ? "No signal — saved on this device; it will sync." : "Status saved.");
+              if (!queued) refresh();
+            }}
+          />
         </Sheet>
       )}
     </section>

@@ -104,14 +104,16 @@ describe("Home, whole page", () => {
     expect([...order]).toEqual([...order].sort((x, y) => x - y));
   });
 
-  it("with GPS unavailable (no geolocation in this environment) the HUD asks 'I'm parked' before editing - never assumes", async () => {
+  it("with GPS unavailable (no geolocation in this environment) the status switch still works, in its no-typing quick form", async () => {
     await act(async () => void render(<HomePage />));
     await act(async () => {});
     expect((screen.getByRole("button", { name: "Driving" }) as HTMLButtonElement).disabled).toBe(false);
     await act(async () => {
       screen.getByRole("button", { name: "Driving" }).click();
     });
-    expect(screen.getByRole("dialog", { name: "Change status" }).querySelector("form")).toBeNull();
-    expect(screen.getByRole("button", { name: "I'm parked" })).toBeTruthy();
+    const form = screen.getByRole("dialog", { name: "Change status" }).querySelector("form");
+    expect(form).not.toBeNull();
+    expect(form!.querySelector("input")).toBeNull();
+    expect(screen.getByRole("button", { name: /Switch to Driving now/ })).toBeTruthy();
   });
 });

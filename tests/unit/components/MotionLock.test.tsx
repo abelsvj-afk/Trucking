@@ -9,13 +9,14 @@ afterEach(() => {
   delete navigator.permissions;
 });
 
-const motionHolder: { state: "moving" | "stopped" | "unknown"; speed: number | null; duty: string | null } = { state: "stopped", speed: 40, duty: "driving" };
+const motionHolder: { state: "moving" | "stopped" | "unknown"; speed: number | null; duty: string | null; sustained?: { movingSinceMs: number | null; lastMovingFixAtMs: number | null; stoppedSinceMs: number | null; lastFixAtMs: number | null } } = { state: "stopped", speed: 40, duty: "driving" };
 const motionHookCalls = vi.fn();
 const createCalls: unknown[] = [];
+const autoCalls: { detectedAt: string; id: string }[] = [];
 vi.mock("@/lib/use-vehicle-motion", () => ({
   useVehicleMotionDetail: () => {
     motionHookCalls();
-    return { state: motionHolder.state, position: null, speedMph: motionHolder.speed };
+    return { state: motionHolder.state, position: null, speedMph: motionHolder.speed, sustained: motionHolder.sustained ?? { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: null, lastFixAtMs: null } };
   },
 }));
 vi.mock("@/lib/use-hos-window", () => ({
@@ -28,7 +29,10 @@ vi.mock("@/lib/use-hos-window", () => ({
   }),
 }));
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { create: vi.fn(async (r: string, b: unknown) => (createCalls.push({ r, b }), {})) },
+  apiClient: {
+    create: vi.fn(async (r: string, b: unknown) => (createCalls.push({ r, b }), {})),
+    autoMotionSwitch: vi.fn(async (detectedAt: string, id: string) => (autoCalls.push({ detectedAt, id }), { data: { switched: true, startedAt: detectedAt } })),
+  },
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/money/expenses/new" }));
 
@@ -73,6 +77,8 @@ beforeEach(() => {
   motionHolder.duty = "driving"; // existing tests assume a Driving log (today's lock)
   motionHookCalls.mockClear();
   createCalls.length = 0;
+  autoCalls.length = 0;
+  motionHolder.sustained = undefined;
 });
 
 describe("MotionLock (app-wide driving lock)", () => {
@@ -243,5 +249,116 @@ describe("MotionLock (app-wide driving lock)", () => {
       expect(screen.getByRole("status").textContent).toMatch(/Truck is moving; your log says Off duty/);
       expect(screen.queryByText("Switch to Driving")).toBeNull();
     });
+  });
+});
+
+describe("Block A - duty status can never trap the driver", () => {
+  it("a form marked data-motion-exempt (the status switcher) is never locked, even while moving", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    const Page2 = () => (
+      <div>
+        <MotionLock />
+        <main id="main-content">
+          <form aria-label="Expense"><input aria-label="Amount" /></form>
+          <form aria-label="Status switcher" data-motion-exempt><button type="submit">Switch</button></form>
+        </main>
+      </div>
+    );
+    await mount(<Page2 />);
+    expect(screen.getByRole("form", { name: "Expense" }).hasAttribute("inert")).toBe(true);
+    expect(screen.getByRole("form", { name: "Status switcher" }).hasAttribute("inert")).toBe(false);
+  });
+
+  it("locked at road speed with a non-driving log: the banner offers 'Switch to Driving' (the owner was trapped here)", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    motionHolder.speed = 45;
+    motionHolder.duty = "off_duty";
+    await mount(<Page />);
+    expect(screen.getByRole("form", { name: "Expense" }).hasAttribute("inert")).toBe(true);
+    await act(async () => {
+      screen.getByRole("button", { name: "Switch to Driving" }).click();
+    });
+    expect(createCalls[0]).toMatchObject({ r: "duty-logs", b: { duty_status: "driving" } });
+  });
+
+  it("locked while already Driving: no switch button needed", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    motionHolder.duty = "driving";
+    await mount(<Page />);
+    expect(screen.queryByRole("button", { name: "Switch to Driving" })).toBeNull();
+  });
+
+  const NOW = Date.now();
+  it("sustained motion (60 s) with a non-driving log shows the countdown to the automatic switch", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    motionHolder.speed = 10;
+    motionHolder.duty = "off_duty";
+    motionHolder.sustained = { movingSinceMs: NOW - 70_000, lastMovingFixAtMs: NOW - 2_000, stoppedSinceMs: null, lastFixAtMs: NOW - 2_000 };
+    await mount(<Page />);
+    expect(screen.getByRole("alert").textContent).toContain("switch you to Driving automatically");
+    expect(autoCalls).toHaveLength(0);
+  });
+
+  it("after the grace, asks the server to auto-switch, stamped at the DETECTION time (movingSince + 60 s), once", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    motionHolder.speed = 10;
+    motionHolder.duty = "sleeper";
+    const since = NOW - 100_000;
+    motionHolder.sustained = { movingSinceMs: since, lastMovingFixAtMs: NOW - 2_000, stoppedSinceMs: null, lastFixAtMs: NOW - 2_000 };
+    await mount(<Page />);
+    expect(autoCalls).toHaveLength(1);
+    expect(Date.parse(autoCalls[0]!.detectedAt)).toBe(since + 60_000);
+    expect(autoCalls[0]!.id).toMatch(/^00000000-0000-4000-8000-[0-9a-f]{12}$/);
+    expect(screen.getByText(/Switched to Driving at/)).toBeTruthy();
+  });
+
+  it("never auto-switches while already Driving", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    motionHolder.duty = "driving";
+    motionHolder.sustained = { movingSinceMs: NOW - 300_000, lastMovingFixAtMs: NOW - 1_000, stoppedSinceMs: null, lastFixAtMs: NOW - 1_000 };
+    await mount(<Page />);
+    expect(autoCalls).toHaveLength(0);
+  });
+
+  it("never auto-switches on an unknown log", async () => {
+    setPermission("granted");
+    motionHolder.state = "moving";
+    motionHolder.duty = null;
+    motionHolder.sustained = { movingSinceMs: NOW - 300_000, lastMovingFixAtMs: NOW - 1_000, stoppedSinceMs: null, lastFixAtMs: NOW - 1_000 };
+    await mount(<Page />);
+    expect(autoCalls).toHaveLength(0);
+  });
+
+  it("Driving + stopped 5 min: prompts (On duty / Off duty / still driving) and never switches by itself", async () => {
+    setPermission("granted");
+    motionHolder.state = "stopped";
+    motionHolder.duty = "driving";
+    motionHolder.sustained = { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: NOW - 6 * 60_000, lastFixAtMs: NOW - 1_000 };
+    await mount(<Page />);
+    expect(screen.getByRole("alert").textContent).toContain("stopped for 5 minutes");
+    expect(createCalls).toHaveLength(0);
+    expect(autoCalls).toHaveLength(0);
+    await act(async () => {
+      screen.getByRole("button", { name: "Off duty" }).click();
+    });
+    expect(createCalls[0]).toMatchObject({ r: "duty-logs", b: { duty_status: "off_duty" } });
+  });
+
+  it("'Still driving' dismisses the stationary prompt", async () => {
+    setPermission("granted");
+    motionHolder.state = "stopped";
+    motionHolder.duty = "driving";
+    motionHolder.sustained = { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: NOW - 6 * 60_000, lastFixAtMs: NOW - 1_000 };
+    await mount(<Page />);
+    await act(async () => {
+      screen.getByRole("button", { name: "Still driving" }).click();
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

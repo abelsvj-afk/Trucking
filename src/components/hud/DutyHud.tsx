@@ -59,7 +59,7 @@ export default function DutyHud() {
     <section aria-label="Duty status and clocks" className="hud">
       {motion === "moving" && (
         <p role="status" className="hud-note">
-          Moving — status changes and editing are off until you stop. Your clocks keep running.
+          Moving — editing is off until you stop. Changing your duty status is always available. Your clocks keep running.
         </p>
       )}
       {state.status === "loading" && <p>Loading your clocks…</p>}
@@ -119,7 +119,6 @@ export default function DutyHud() {
             key={status}
             type="button"
             aria-pressed={picked === status}
-            disabled={motion === "moving"}
             className={`hud-status-btn hud-btn-${status}`}
             onClick={() => {
               setSavedNote(null);
@@ -133,23 +132,23 @@ export default function DutyHud() {
 
       {picked && (
         <Sheet title="Change status" onClose={() => setPicked(null)}>
-          <StoppedGate motion={motion}>
-            <StatusSheet
-              key={picked}
-              status={picked}
-              gps={position}
-              onCancel={() => setPicked(null)}
-              onSaved={(queued) => {
-                setPicked(null);
-                setSavedNote(
-                  queued
-                    ? "No signal — saved on this device and will sync when you're back online."
-                    : "Status saved.",
-                );
-                if (!queued) refresh();
-              }}
-            />
-          </StoppedGate>
+          {/* Never gated on motion (Block A): changing status must always work. Quick (no typing) unless positively stopped. */}
+          <StatusSheet
+            key={picked}
+            status={picked}
+            gps={position}
+            quick={motion !== "stopped"}
+            onCancel={() => setPicked(null)}
+            onSaved={(queued) => {
+              setPicked(null);
+              setSavedNote(
+                queued
+                  ? "No signal — saved on this device and will sync when you're back online."
+                  : "Status saved.",
+              );
+              if (!queued) refresh();
+            }}
+          />
         </Sheet>
       )}
 

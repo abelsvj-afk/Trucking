@@ -12,12 +12,14 @@
 // lock here, because a page-wide lock can't ask "are you parked?" - that
 // question lives where an action is taken (HUD status change, Drive).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
 import { decideLock, type DutyKnowledge } from "@/lib/motion-lock-policy";
+import { decideAuto } from "@/lib/auto-switch";
+import { useNowTick } from "@/lib/use-now-tick";
 import type { DutyStatus } from "@/types/entities";
 
 const STATUS_WORDS: Record<Exclude<DutyStatus, "driving">, string> = {
@@ -36,7 +38,9 @@ const STATUS_WORDS: Record<Exclude<DutyStatus, "driving">, string> = {
  * revocation must always work). Returns how many forms it touched.
  */
 export function setFormsInert(root: ParentNode, inert: boolean): number {
-  const forms = Array.from(root.querySelectorAll("form"));
+  // The duty-status switcher (Block A) is exempt permanently: a form - not just a loose control -
+  // marked data-motion-exempt, or inside a region marked so, is never locked.
+  const forms = Array.from(root.querySelectorAll("form")).filter((f) => !f.closest("[data-motion-exempt]"));
   const loose = Array.from(root.querySelectorAll("input, select, textarea")).filter(
     (el) => !el.closest("form") && !el.closest("[data-motion-exempt]"),
   );
@@ -62,20 +66,37 @@ export function setFormsInert(root: ParentNode, inert: boolean): number {
   return forms.length;
 }
 
+function clockLabel(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+interface AutoAttempt {
+  key: number;
+  tries: number;
+  inFlight: boolean;
+  done: boolean;
+}
+const MAX_AUTO_TRIES = 4;
+
 function Watcher() {
-  const { state: motion, speedMph } = useVehicleMotionDetail();
+  const { state: motion, speedMph, sustained } = useVehicleMotionDetail();
   const { state: hos, refresh } = useHosWindow();
+  const nowMs = useNowTick(5_000);
   // The latest logged status (rows come ascending). No rows / not loaded / error: unknown -> the lock stays.
   const duty: DutyKnowledge =
     hos.status === "loaded" && hos.data.length > 0 ? hos.data[hos.data.length - 1]!.duty_status : "unknown";
   const decision = decideLock(motion, duty, speedMph);
   const locked = decision.kind === "lock";
   const mismatchStatus = decision.kind === "mismatch" ? decision.status : null;
+  const auto = decideAuto(duty, sustained, nowMs);
   const pathname = usePathname();
   // Dismissed prompt -> slim persistent banner; forgotten once the mismatch ends.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [autoNotice, setAutoNotice] = useState<string | null>(null);
+  const [stationaryDismissedFor, setStationaryDismissedFor] = useState<number | null>(null);
+  const attempt = useRef<AutoAttempt | null>(null);
 
   // Derived reset (React's "adjust state during render" pattern): once the mismatch ends, forget the dismissal.
   if (mismatchStatus === null && dismissedFor !== null) setDismissedFor(null);
@@ -94,48 +115,124 @@ function Watcher() {
     };
   }, [locked, pathname]);
 
-  async function switchToDriving() {
+  // Block A: the automatic switch to Driving. The server decides whether it may (a manual change that won
+  // the race, or an already-Driving log, makes it stand down); a failed call retries a few times, never loops.
+  const autoKey = auto.kind === "auto_switch" ? auto.detectedAtMs : null;
+  useEffect(() => {
+    if (autoKey === null) return;
+    const cur = attempt.current && attempt.current.key === autoKey ? attempt.current : { key: autoKey, tries: 0, inFlight: false, done: false };
+    attempt.current = cur;
+    if (cur.done || cur.inFlight || cur.tries >= MAX_AUTO_TRIES) return;
+    cur.inFlight = true;
+    cur.tries += 1;
+    apiClient
+      .autoMotionSwitch(new Date(autoKey).toISOString(), autoSubmissionId(autoKey))
+      .then((res) => {
+        cur.done = true;
+        if (res.data.switched && !res.data.deduplicated) {
+          setAutoNotice(`Switched to Driving at ${clockLabel(Date.parse(res.data.startedAt ?? new Date(autoKey).toISOString()))} — truck moving.`);
+        }
+        refresh();
+      })
+      .catch(() => {
+        // Retried on the next tick (up to MAX_AUTO_TRIES); the manual prompt stays on screen meanwhile.
+      })
+      .finally(() => {
+        cur.inFlight = false;
+      });
+  }, [autoKey, nowMs, refresh]);
+
+  async function logStatus(status: DutyStatus) {
     setSwitching(true);
     setSwitchError(null);
     try {
-      await apiClient.create("duty-logs", { duty_status: "driving", started_at: new Date().toISOString() });
-      refresh(); // the status becomes Driving -> the lock engages
+      await apiClient.create("duty-logs", { duty_status: status, started_at: new Date().toISOString(), submission_id: crypto.randomUUID() });
+      refresh();
     } catch {
       setSwitchError("Couldn't switch your status. Try again.");
     } finally {
       setSwitching(false);
     }
   }
+  const switchToDriving = () => logStatus("driving");
+
+  const notice = autoNotice ? (
+    <div role="status" className="motion-lock-banner" data-motion-exempt>
+      <p>{autoNotice} Wrong? Change your status on Home.</p>
+      <button type="button" onClick={() => setAutoNotice(null)}>OK</button>
+    </div>
+  ) : null;
 
   if (locked) {
     return (
-      <p role="status" className="motion-lock-banner">
-        You&apos;re moving — forms and editing are locked until you stop. Reading is still on.
-      </p>
+      <>
+        {notice}
+        <div role="status" className="motion-lock-banner" data-motion-exempt>
+          <p>You&apos;re moving — forms and editing are locked until you stop. Reading is still on.</p>
+          {duty !== "driving" && (
+            <>
+              <p>Your log doesn&apos;t say Driving.</p>
+              <button type="button" onClick={() => void switchToDriving()} disabled={switching}>
+                {switching ? "Switching…" : "Switch to Driving"}
+              </button>
+              {switchError && <p role="alert">{switchError}</p>}
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+  if (auto.kind === "still_driving_prompt" && stationaryDismissedFor !== sustained.stoppedSinceMs) {
+    return (
+      <>
+        {notice}
+        <div role="alert" className="motion-lock-banner" data-motion-exempt>
+          <p>You&apos;ve been stopped for 5 minutes but your log says <strong>Driving</strong>. Still driving?</p>
+          <button type="button" onClick={() => void logStatus("on_duty")} disabled={switching}>On duty (not driving)</button>{" "}
+          <button type="button" onClick={() => void logStatus("off_duty")} disabled={switching}>Off duty</button>{" "}
+          <button type="button" onClick={() => setStationaryDismissedFor(sustained.stoppedSinceMs)}>Still driving</button>
+          {switchError && <p role="alert">{switchError}</p>}
+        </div>
+      </>
     );
   }
   if (mismatchStatus) {
     const label = STATUS_WORDS[mismatchStatus];
-    if (dismissedFor === mismatchStatus) {
+    if (dismissedFor === mismatchStatus && auto.kind !== "detected") {
       return (
-        <p role="status" className="motion-lock-banner motion-lock-slim">
-          Truck is moving; your log says {label}.{" "}
-          <button type="button" onClick={() => setDismissedFor(null)}>Review</button>
-        </p>
+        <>
+          {notice}
+          <p role="status" className="motion-lock-banner motion-lock-slim" data-motion-exempt>
+            Truck is moving; your log says {label}.{" "}
+            <button type="button" onClick={() => setDismissedFor(null)}>Review</button>
+          </p>
+        </>
       );
     }
     return (
-      <div role="alert" className="motion-lock-banner">
-        <p>The truck is moving, but your status says <strong>{label}</strong>. Switch to Driving?</p>
-        <button type="button" onClick={() => void switchToDriving()} disabled={switching}>
-          {switching ? "Switching…" : "Switch to Driving"}
-        </button>{" "}
-        <button type="button" onClick={() => setDismissedFor(mismatchStatus)}>Not now</button>
-        {switchError && <p role="alert">{switchError}</p>}
-      </div>
+      <>
+        {notice}
+        <div role="alert" className="motion-lock-banner" data-motion-exempt>
+          <p>The truck is moving, but your status says <strong>{label}</strong>. Switch to Driving?</p>
+          {auto.kind === "detected" && (
+            <p>Still moving — I&apos;ll switch you to Driving automatically at {clockLabel(auto.autoSwitchAtMs)}.</p>
+          )}
+          <button type="button" onClick={() => void switchToDriving()} disabled={switching}>
+            {switching ? "Switching…" : "Switch to Driving"}
+          </button>{" "}
+          <button type="button" onClick={() => setDismissedFor(mismatchStatus)}>Not now</button>
+          {switchError && <p role="alert">{switchError}</p>}
+        </div>
+      </>
     );
   }
-  return null;
+  return notice;
+}
+
+/** One stable id per detection, so a retry or a second tab replays the same switch instead of adding another. */
+function autoSubmissionId(detectedAtMs: number): string {
+  const hex = detectedAtMs.toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4000-8000-${hex}`;
 }
 
 export default function MotionLock() {

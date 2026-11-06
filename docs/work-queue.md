@@ -18,6 +18,11 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
 - Wave 6: remediation only per owner-approved unit (G4 owner-visible activity log; retention beyond messages).
 - P3: README refresh and `.env.example` check - DONE 2026-11-06.
 
+## B0. Owner requirements round 2 (2026-11-05 night; design `docs/design/driver-hud-round2.md`)
+- Block A (duty status can never trap the driver): BUILT + gated, NOT deployed - status switcher exempt from MotionLock/parked gates (quick no-typing sheet while moving), lock banner escape hatch, sustained-motion auto-switch (60 s @ 5 mph + 30 s grace, stamped at detection, `source auto_motion`, migration **00072**, Telegram notice), Driving + stopped 5 min prompt (never auto). King verifies after landing.
+- Block B (HOS clock escalation + notifications + explainers): in progress. Block C (Home mini map): after B.
+- Final step: two self-audits (mistakes/edge cases; professional/working-driver review) folded in before the final report.
+
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
 - Phase 3 road-work machinery BUILT (WZDx parser, corridor+ETA filter, section); feed registry EMPTY until a feed is verified from the deploy network (King: pick states, verify each feed once).

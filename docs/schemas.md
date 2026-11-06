@@ -1127,3 +1127,6 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 ### Constraints added by 00070 / 00071 (Unit E - see `docs/tenant-integrity.md`)
 - 00070 `UNIQUE (company_id, id)` on every tenant parent table; every tenant->tenant single-column FK replaced by `<child>_<col>_tenant_fkey` composite `(company_id, <col>) → <parent> (company_id, id)` (63).
 - 00071 trigger `documents_validate_reference` on `documents` (allowlist truck/trailer/driver/load/company).
+
+### Constraint changed by 00072 (Block A: auto-switch)
+- 00072 `duty_logs.source` check now allows `auto_motion` (a Driving row the app wrote from sustained detected motion; `started_at` = detection time).
