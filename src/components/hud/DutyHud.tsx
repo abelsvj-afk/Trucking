@@ -22,6 +22,8 @@ import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
 import { formatDateTime, formatSinceTime } from "@/lib/time";
 import type { DutyStatus } from "@/types/entities";
 import ClockRing from "./ClockRing";
+import ClockExplainerSheet from "./ClockExplainerSheet";
+import type { ClockKey } from "@/lib/hud-clocks";
 import StatusSheet, { HUD_STATUS_LABELS } from "./StatusSheet";
 
 const REFRESH_MS = 5 * 60_000;
@@ -36,6 +38,7 @@ export default function DutyHud() {
   const [picked, setPicked] = useState<DutyStatus | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState(false);
+  const [explain, setExplain] = useState<ClockKey | null>(null);
 
   // Focus and data-change refreshes come from the live layer
   // (LiveDataProvider). This interval is only the safety net that
@@ -92,7 +95,7 @@ export default function DutyHud() {
           )}
           <div className="hud-rings">
             {clocks.clocks.map((clock) => (
-              <ClockRing key={clock.key} clock={clock} />
+              <ClockRing key={clock.key} clock={clock} onExplain={setExplain} />
             ))}
           </div>
           {clocks.cycleUnavailable && (
@@ -151,6 +154,8 @@ export default function DutyHud() {
           />
         </Sheet>
       )}
+
+      {explain && <ClockExplainerSheet clockKey={explain} cycleLabel={hos?.cycle ?? null} onClose={() => setExplain(null)} />}
 
       <HomePositionCard position={position} />
 

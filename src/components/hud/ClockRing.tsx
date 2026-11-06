@@ -2,20 +2,14 @@
 
 // One HUD ring (docs/design/driver-hud.md §2). The arc is the share of
 // the limit still available; the centre is the exact time left,
-// ticking each second. Colour shifts amber then red as the limit
-// nears - and the tone is also written in words, never colour alone.
+// ticking each second. Colour shifts amber (<= 2 h) then red (<= 30 min)
+// and EXPIRED at zero - all written in words too, never colour alone. Tapping a
+// ring opens its plain-language explainer.
 
-import { formatClock, type ClockTone, type HudClock } from "@/lib/hud-clocks";
+import { formatClock, TONE_WORDS, type HudClock } from "@/lib/hud-clocks";
 
 const RADIUS = 44;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-
-const TONE_WORDS: Record<ClockTone, string> = {
-  ok: "",
-  warn: "Under 1 hour",
-  critical: "Under 15 minutes",
-  expired: "Limit reached",
-};
 
 function spoken(clock: HudClock): string {
   const minutes = Math.floor(clock.remainingMs / 60_000);
@@ -23,10 +17,16 @@ function spoken(clock: HudClock): string {
   return `${clock.label}: ${text}${TONE_WORDS[clock.tone] ? `. ${TONE_WORDS[clock.tone]}` : ""}`;
 }
 
-export default function ClockRing({ clock }: { clock: HudClock }) {
+export default function ClockRing({ clock, onExplain }: { clock: HudClock; onExplain?: (key: HudClock["key"]) => void }) {
   const fraction = clock.totalMs > 0 ? Math.min(1, clock.remainingMs / clock.totalMs) : 0;
+  const Tag = onExplain ? "button" : "div";
   return (
-    <div className={`hud-ring hud-tone-${clock.tone}`} role="group" aria-label={spoken(clock)}>
+    <Tag
+      className={`hud-ring hud-tone-${clock.tone}`}
+      {...(onExplain
+        ? { type: "button" as const, onClick: () => onExplain(clock.key), "aria-label": `${spoken(clock)}. Tap to learn what this clock means.` }
+        : { role: "group", "aria-label": spoken(clock) })}
+    >
       <svg viewBox="0 0 100 100" aria-hidden="true" className="hud-ring-svg">
         <circle cx="50" cy="50" r={RADIUS} className="hud-ring-track" />
         <circle
@@ -50,6 +50,11 @@ export default function ClockRing({ clock }: { clock: HudClock }) {
           {TONE_WORDS[clock.tone]}
         </span>
       )}
-    </div>
+      {onExplain && (
+        <span className="hud-ring-info" aria-hidden="true">
+          ⓘ
+        </span>
+      )}
+    </Tag>
   );
 }

@@ -8,15 +8,15 @@
 // computed it says so; it never shows a made-up number. Paper-log helper,
 // not an ELD - said on the strip.
 
-import { computeHudClocks, formatClock, type ClockTone } from "@/lib/hud-clocks";
+import { computeHudClocks, formatClock, TONE_WORDS, type ClockTone } from "@/lib/hud-clocks";
 import { useHosWindow } from "@/lib/use-hos-window";
 import { useNowTick } from "@/lib/use-now-tick";
 
 const TONE_WORD: Record<ClockTone, string> = {
   ok: "",
-  warn: " · under 1 h",
-  critical: " · under 15 min",
-  expired: " · limit reached",
+  warn: ` · ${TONE_WORDS.warn.toLowerCase()}`,
+  critical: ` · ${TONE_WORDS.critical.toLowerCase()}`,
+  expired: ` · ${TONE_WORDS.expired}`,
 };
 
 const TONE_COLOR_DARK: Record<ClockTone, string> = {

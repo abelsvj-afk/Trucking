@@ -12,7 +12,7 @@
 // into a message every five minutes.
 
 import { composeReminderMessage, evaluateReminders, type Reminder } from "@/lib/reminders";
-import { loadHosWindow } from "@/services/api/hos-window";
+import { loadHosWindow, toWindowSummary } from "@/services/api/hos-window";
 import { getResearchConfig } from "@/services/research/config";
 import { isQuietHours } from "@/services/research/delivery";
 import { createTelegramBrainStore } from "@/services/telegram/store";
@@ -63,7 +63,7 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
     const now = (overrides.now ?? (() => new Date()))();
     const quiet = (overrides.quietHours ?? ((n: Date) => isQuietHours(n, getResearchConfig())))(now);
     const snapshot = await loadHosWindow(store.client, store.companyId, now, "duty_status, started_at");
-    const due = evaluateReminders(snapshot.rows, now.getTime());
+    const due = evaluateReminders(snapshot.rows, now.getTime(), toWindowSummary(snapshot));
     const sendable = due.filter((r) => r.critical || !quiet);
     const held = due.length - sendable.length;
     if (sendable.length === 0) return { sent: 0, held };

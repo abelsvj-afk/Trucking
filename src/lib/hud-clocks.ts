@@ -55,12 +55,24 @@ export type HudClocks =
       cycleUnavailable: boolean;
     };
 
+/** Ring escalation (Block B, owner 2026-11-05): green normally, amber at <= 2 h, red at <= 30 min, expired unmistakable. */
+export const WARN_AT_MS = 2 * 60 * MINUTE_MS;
+export const CRITICAL_AT_MS = 30 * MINUTE_MS;
+
 export function toneFor(remainingMs: number): ClockTone {
   if (remainingMs <= 0) return "expired";
-  if (remainingMs <= 15 * MINUTE_MS) return "critical";
-  if (remainingMs <= 60 * MINUTE_MS) return "warn";
+  if (remainingMs <= CRITICAL_AT_MS) return "critical";
+  if (remainingMs <= WARN_AT_MS) return "warn";
   return "ok";
 }
+
+/** The tone in words - colour is never the only signal. One source for every surface that shows a clock. */
+export const TONE_WORDS: Record<ClockTone, string> = {
+  ok: "",
+  warn: "Under 2 hours",
+  critical: "Under 30 minutes",
+  expired: "EXPIRED",
+};
 
 function clock(key: ClockKey, label: string, totalMs: number, usedMs: number): HudClock {
   const remainingMs = Math.max(0, totalMs - usedMs);

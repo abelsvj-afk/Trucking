@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeHudClocks, formatClock, toneFor, type HudDutyRow } from "@/lib/hud-clocks";
+import { computeHudClocks, formatClock, toneFor, TONE_WORDS, type HudDutyRow } from "@/lib/hud-clocks";
 import type { DutyLogWindowSummary } from "@/types/hos-settings";
 
 const T0 = Date.parse("2026-11-04T06:00:00Z");
@@ -123,10 +123,19 @@ describe("computeHudClocks", () => {
 
 describe("toneFor / formatClock", () => {
   it("shifts colour as limits approach", () => {
-    expect(toneFor(2 * H)).toBe("ok");
-    expect(toneFor(60 * M)).toBe("warn");
-    expect(toneFor(15 * M)).toBe("critical");
+    expect(toneFor(5 * H)).toBe("ok");
+    expect(toneFor(121 * M)).toBe("ok");
+    expect(toneFor(2 * H)).toBe("warn"); // amber at <= 2 h
+    expect(toneFor(61 * M)).toBe("warn");
+    expect(toneFor(30 * M)).toBe("critical");
+    expect(toneFor(31 * M)).toBe("warn");
     expect(toneFor(0)).toBe("expired");
+  });
+  it("tones are also words (never colour alone), and the expired word is unmistakable", () => {
+    expect(TONE_WORDS.warn).toBe("Under 2 hours");
+    expect(TONE_WORDS.critical).toBe("Under 30 minutes");
+    expect(TONE_WORDS.expired).toBe("EXPIRED");
+    expect(TONE_WORDS.ok).toBe("");
   });
   it("formats H:MM:SS and never negative", () => {
     expect(formatClock(3 * H + 5 * M + 9000)).toBe("3:05:09");

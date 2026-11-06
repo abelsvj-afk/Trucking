@@ -68,7 +68,7 @@ describe("DutyHud", () => {
   it("with no logs says clocks start when he goes on duty - no running clock", async () => {
     await renderHud(windowResult([]));
     expect(screen.getByText(/Clocks start when you go on duty/)).toBeTruthy();
-    expect(screen.queryByRole("group", { name: /Drive:/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Drive:/ })).toBeNull();
   });
 
   it("shows the four rings and the not-an-ELD disclaimer verbatim", async () => {
@@ -79,10 +79,10 @@ describe("DutyHud", () => {
         { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
       ]),
     );
-    expect(screen.getByRole("group", { name: /^Drive:/ })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /^14-hour window:/ })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /^Break due in:/ })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /^70\/8 cycle:/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Drive:/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^14-hour window:/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Break due in:/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^70\/8 cycle:/ })).toBeTruthy();
     expect(screen.getByText(/Paper-log helper, not an ELD\./)).toBeTruthy();
   });
 
@@ -127,7 +127,7 @@ describe("DutyHud", () => {
     await act(async () => {});
     expect(screen.getByRole("alert").textContent).toContain("none are shown");
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-    expect(screen.queryByRole("group", { name: /Drive:/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Drive:/ })).toBeNull();
   });
 
   it("opens the status sheet on a tap, saves with a submission id, and refreshes", async () => {
@@ -222,6 +222,15 @@ describe("DutyHud driving safety (audit 2026-11-04): unknown speed fails closed"
       { duty_status: "driving", started_at: new Date(now - 2 * H).toISOString() },
     ]);
   };
+
+  it("tapping a clock opens its plain-language explainer (what it is, at zero, what resets it) - also while moving", async () => {
+    motionHolder.state = "moving";
+    await renderHud(rolling());
+    fireEvent.click(screen.getByRole("button", { name: /^14-hour window:/ }));
+    const dialog = screen.getByRole("dialog", { name: "14-hour window" });
+    expect(dialog.textContent).toContain("runs on ANY duty time");
+    expect(dialog.textContent).toContain("10 straight hours off");
+  });
 
   it("moving: EDITING is off (Day log, Paper log) but the status switcher is never gated - and the clocks keep running", async () => {
     motionHolder.state = "moving";

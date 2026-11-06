@@ -8,6 +8,7 @@ const rows = (list: Array<[string, number]>) => list.map(([duty_status, ago]) =>
 let DUTY: ReturnType<typeof rows> = [];
 vi.mock("@/services/api/hos-window", () => ({
   loadHosWindow: async () => ({ rows: DUTY }),
+  toWindowSummary: () => null,
 }));
 vi.mock("@/services/telegram/store", () => ({ createTelegramBrainStore: () => null }));
 vi.mock("@/services/telegram/notify", () => ({ createTelegramNotifier: () => ({ notifyOwner: async () => true }) }));

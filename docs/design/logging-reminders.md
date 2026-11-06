@@ -29,3 +29,6 @@ Clocks are computed by the same engine as Home (`lib/hud-clocks`) from the rows 
 
 ## 6. Open (owner)
 Thresholds (30/10/0) and the 14-hour stale rule are proposals he can change; whether to add a "no log by 10:00 ET" morning nudge once he defines what a normal day's log looks like.
+
+## Update 2026-11-06 (Block B, `docs/design/driver-hud-round2.md`)
+HOS reminders now fire at **2 h, 1 h, 30 min and expiry** (was 30/10/0) for all four clocks - drive, 14-hour window, 30-minute break and the 70/8 (or 60/7) cycle (the scheduler passes the server's cycle summary from the one HOS read). One message per threshold per clock per shift: the key is `hos:<clock>:<threshold>:<shift>` where the shift is the window start (drive/window/break) or the carrier period start (cycle). Each message states the consequence and the action in plain words and is still labeled planning-only, not an ELD. They stay critical: sent immediately, even in quiet hours, at those thresholds only. The 14-hour window is announced on any non-rested status (it never pauses) until it ends; the other clocks only while he is working. Ring colours use the same thresholds (amber <= 2 h, red <= 30 min, EXPIRED at zero) from the same `computeHudClocks` read, and a test asserts the colour and the notification never disagree.
