@@ -15,7 +15,7 @@ import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
 
-export const metadata: Metadata = { title: "More — Trucking OS" };
+export const metadata: Metadata = { title: "More — Road to Legacy" };
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
   // Fleet reachability under the parked nav default (src/lib/nav-config.ts,

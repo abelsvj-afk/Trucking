@@ -6,10 +6,17 @@ import { THEME_STORAGE_KEY } from "@/lib/theme";
 import { readPublicConfigFromEnv, serializePublicConfig } from "@/services/config/public-config";
 
 export const metadata: Metadata = {
-  title: "Trucking OS",
+  title: "Road to Legacy",
   description: "AI-Powered Transportation Operating System",
   // GAP-07: installable shell + offline capture support.
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon-48.png", sizes: "48x48", type: "image/png" },
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

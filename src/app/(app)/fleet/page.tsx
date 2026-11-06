@@ -15,7 +15,7 @@ import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
 
-export const metadata: Metadata = { title: "Fleet — Trucking OS" };
+export const metadata: Metadata = { title: "Fleet — Road to Legacy" };
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/fleet/trucks", label: "Trucks", desc: "Your trucks — type, photo, size, and status." },

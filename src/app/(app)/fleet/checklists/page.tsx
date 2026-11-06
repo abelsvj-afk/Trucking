@@ -6,7 +6,7 @@
 import type { Metadata } from "next";
 import PageHeader from "@/components/PageHeader";
 
-export const metadata: Metadata = { title: "Checklists — Trucking OS" };
+export const metadata: Metadata = { title: "Checklists — Road to Legacy" };
 
 function Steps({ items }: { items: string[] }) {
   return (
