@@ -547,6 +547,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/maintenance-schedules` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/memories` | DELETE,GET,PATCH | custom (see section / design doc) |
 | `/api/v1/map/speed-limit` | GET | custom (see section / design doc) |
+| `/api/v1/briefing-image` | GET | custom (see section / design doc) |
 | `/api/v1/news-image` | GET | custom (see section / design doc) |
 | `/api/v1/paper-logs/[id]` | GET | custom (see section / design doc) |
 | `/api/v1/paper-logs/[id]/save` | POST | custom (see section / design doc) |
@@ -595,6 +596,9 @@ All below: auth = session; company scope by RLS; errors use the standard envelop
 
 ### `news-image`
 `GET /api/v1/news-image?signal=<uuid>&i=<0-9>` → `image/jpeg` (re-encoded, ≤ 640 px edge, metadata stripped; `Cache-Control: private, max-age=86400`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`). The caller names a stored signal and an index, never a URL. Failures are a **bare status** with no body: 404 (no such signal/image), 502 (lookup/fetch/decode failed), 503 (too many concurrent fetches). The server fetches through an SSRF-guarded fetcher (public IPs only, re-checked at connection time, ≤ 2 redirects, size/time caps, magic-bytes must match jpeg/png/webp).
+
+### `briefing-image` (2026-11-07)
+`GET /api/v1/briefing-image?briefing=<uuid>&i=<0-19>` → the same re-encoded `image/jpeg` contract as `news-image`. The caller names a stored research briefing and a finding index, never a URL. The server reads that finding's cited article URL (RLS-scoped), fetches the article page through the same SSRF-guarded fetcher (HTML capped at 512 KB, only mined for its `og:image`/`twitter:image` meta URL - never rendered), re-validates that image URL, and serves the publisher's own preview image for that exact article through the news-image pipeline. Any step that cannot produce the article's own image is a **bare 404** (no image, lookup miss, page/image unfetchable): the Research page renders that finding imageless - never a substitute or stock image. 502/503 as `news-image`. Both image routes are gated on the `deep_research` capability: off means no outbound fetch at all.
 
 ### `position` (migration 00060)
 `GET /api/v1/position` → `{ position: null }` or `{ position: { lat, lng, accuracyM, headingDeg, speedMph, recordedAt, ageSeconds } }`, `Cache-Control: no-store`. The caller must treat a fix older than its own freshness bound as absent (Drive uses 45 s). Table absent (pre-00060) → `{ position: null }`.
