@@ -1,6 +1,6 @@
 // Deep Research Engine watcher: industry news bursts
 // (docs/design/research-engine.md §2). Reuses Stage 4's RSS layer
-// (FMCSA Newsroom, FreightWaves, Overdrive - free, no key) and turns
+// (Google News, FreightWaves, Overdrive - free, no key) and turns
 // raw items into pressure only when a tracked topic CLUSTER heats up:
 // >= config.newsBurstMinItems items inside the window matching the
 // same topic. One loud headline is noise; a cluster is pressure.
@@ -100,7 +100,7 @@ export const industryNewsWatcher: Watcher = {
       message:
         failed.length > 0
           ? // Name each failed source WITH its cause (the HTTP status the feed fetch captured,
-            // e.g. "FMCSA Newsroom (FMCSA Newsroom answered HTTP 403 Forbidden)") so one production
+            // e.g. "FreightWaves (FreightWaves answered HTTP 403 Forbidden)") so one production
             // poll shows the real reason - the owner's drop decision rests on that evidence.
             `Partial coverage: ${failed.map((f) => `${f.source} (${f.error})`).join("; ")} failed this poll.`
           : null,

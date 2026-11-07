@@ -77,12 +77,16 @@ describe("fetchIndustryNews", () => {
     expect(results[0]!.error).toContain(results[0]!.source);
   });
 
-  it("fetches the FMCSA newsroom from its taxonomy feed URL", async () => {
+  it("fetches Google News for FMCSA regulation headlines - the Newsroom feed is gone (owner ruling 2026-11-06)", async () => {
     parseStringMock.mockResolvedValue({ items: [] });
     const fetchFn = okFetch();
     await fetchIndustryNews(fetchFn as never);
     const urls = fetchFn.mock.calls.map((c) => String(c[0]));
-    expect(urls).toContain("https://www.fmcsa.dot.gov/taxonomy/term/191/feed");
-    expect(urls).not.toContain("https://www.fmcsa.dot.gov/rss.xml");
+    expect(urls).toContain(
+      "https://news.google.com/rss/search?q=FMCSA%20trucking%20regulation&hl=en-US&gl=US&ceid=US:en",
+    );
+    // No FMCSA Newsroom URL in any form - neither the taxonomy feed nor the old /rss.xml.
+    expect(urls.some((u) => u.includes("fmcsa.dot.gov"))).toBe(false);
+    expect(urls.some((u) => u.includes("taxonomy/term/191"))).toBe(false);
   });
 });

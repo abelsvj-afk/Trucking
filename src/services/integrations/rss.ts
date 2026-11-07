@@ -15,8 +15,11 @@
 import Parser from "rss-parser";
 
 const FEEDS = [
-  // The FMCSA newsroom's taxonomy feed (King's fix, 2026-11-05; the old /rss.xml did not answer from production).
-  { source: "FMCSA Newsroom", url: "https://www.fmcsa.dot.gov/taxonomy/term/191/feed" },
+  // Google News headlines for FMCSA / trucking regulation (owner ruling 2026-11-06: the FMCSA
+  // Newsroom feed - which answered HTTP 403 from production - is dropped ONLY because it is
+  // replaced, no coverage gap: official rules come from the Federal Register watcher
+  // (services/research/watchers/federal-register.ts, proven live), headlines come from here).
+  { source: "Google News", url: "https://news.google.com/rss/search?q=FMCSA%20trucking%20regulation&hl=en-US&gl=US&ceid=US:en" },
   { source: "FreightWaves", url: "https://www.freightwaves.com/news/feed" },
   { source: "Overdrive", url: "https://www.overdriveonline.com/feed" },
 ];
@@ -44,7 +47,7 @@ export interface FeedFetchResult {
 
 /**
  * Honest, identifying request headers. rss-parser's own parseURL sent a bare
- * default client; several publisher sites (the FMCSA newsroom among them)
+ * default client; several publisher sites (Google News among them)
  * refuse or drop requests with no meaningful User-Agent / Accept, and the
  * failure came back as an opaque error. This names the app, asks for feed
  * content types, and - crucially - reports the HTTP status when refused so one

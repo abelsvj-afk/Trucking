@@ -18,7 +18,10 @@ export const NEWS_FEEDS: Record<NewsTopic, { source: string; url: string }[]> = 
     { source: "Land Line", url: "https://landline.media/feed/" },
   ],
   regulation: [
-    { source: "FMCSA Newsroom", url: "https://www.fmcsa.dot.gov/taxonomy/term/191/feed" },
+    // Google News headlines replace the FMCSA Newsroom feed (owner ruling 2026-11-06, no
+    // coverage gap: the Federal Register watcher carries the official rules, proven live;
+    // the Newsroom feed answered HTTP 403 from production). Same swap as rss.ts.
+    { source: "Google News", url: "https://news.google.com/rss/search?q=FMCSA%20trucking%20regulation&hl=en-US&gl=US&ceid=US:en" },
   ],
   tech: [
     { source: "Ars Technica", url: "https://feeds.arstechnica.com/arstechnica/index" },
