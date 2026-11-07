@@ -47,6 +47,8 @@ export interface BotChatInput {
   openLoopsText?: string | null;
 }
 
+import { STYLE_RULES } from "@/services/telegram/format-reply";
+
 const SYSTEM_PROMPT = `You are the owner's personal trucking assistant, talking with him in a private Telegram chat. He is a driver building his own trucking company, often working with Spanish-speaking contacts.
 
 How you answer:
@@ -112,7 +114,7 @@ function buildUserPrompt(input: BotChatInput): string {
 
 export async function runBotChat(provider: AiProvider, input: BotChatInput): Promise<BotChatOutput> {
   const raw = await provider.complete({
-    system: SYSTEM_PROMPT,
+    system: `${SYSTEM_PROMPT}\n\n${STYLE_RULES}`,
     user: buildUserPrompt(input),
   });
   return parseBotChatOutput(raw);

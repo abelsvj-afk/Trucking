@@ -44,6 +44,9 @@ import { formatOpenLoopsBlock } from "./threads";
 import { buildBotTools, executeWriteTool } from "./tools";
 import { gateExecutes } from "./execute-gate";
 import { stripConfirmationProse } from "./reply-prose";
+import { STYLE_RULES } from "@/services/telegram/format-reply";
+import { savedWhere } from "./saved-where";
+import { reconcileProposals } from "./reconcile-proposals";
 import { expandMaintenancePairings } from "./maintenance-pairing";
 import { annotatePaperLogEdits } from "@/services/fleet/paper-logs";
 import {
@@ -106,6 +109,12 @@ VOICE & THE TWIN: Voice notes arrive already transcribed into text (marked [voic
 PEOPLE & BUSINESS LEARNING: You are learning his business and the people in it. When a conversation or a forwarded thread shows something durable about a person he works with (the owner, a dispatcher, a broker, a shipper) or about how his operation runs (how this carrier pays, a facility's rules), propose it with save_memory - kind "person_profile" in the tool's PERSON format, or "business_fact" in its BUSINESS format - with confirmation "propose", so he approves what you learned before it sticks. One current profile per person: when you learn more, propose the whole updated line. Profiles and business facts come back to you in the REMEMBERED FACTS block - use them ("the carrier usually settles Fridays") instead of treating every message like it's from a stranger. Never invent a profile detail to fill a gap.
 
 ${JOB_KNOWLEDGE_BRIEF}`;
+
+/** Pay safety (owner 2026-11-07: telling Abel he doesn't pay for fuel zeroed his pay). */
+const PAY_SAFETY_RULES =
+  "PAY SAFETY: telling you WHO PAYS for fuel or tolls changes ONLY that one field (fuel_paid_by / tolls_paid_by) - never send a rate, a percent, miles or any money value with it, and never set a rate, miles or pay to 0 unless he says that number in so many words. " +
+  "set_pay_pin and set_pay_terms keep every field you do not name. Before proposing a pay change, read his current terms (get_pay_status / projected_pay) and say what CHANGES, before and after. " +
+  "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again.";
 
 export type ConfirmationKind = "yes" | "no" | "other";
 
@@ -210,7 +219,7 @@ export async function loadBotContext(
 
 function proposalSuffix(summaries: string[]): string {
   const lines = summaries.map((s) => `- ${s}`).join("\n");
-  return `\n\nI have NOT recorded this yet. Reply YES to confirm, or NO to drop it:\n${lines}`;
+  return `\n\n⏳ I have NOT recorded this yet:\n${lines}\n\n👉 Reply YES to confirm, or NO to drop it.`;
 }
 
 async function resolvePending(
@@ -233,7 +242,7 @@ async function resolvePending(
   await store.clearPendingAction(pending.id);
   try {
     const result = await executeWriteTool(store, pending.tool_name, pending.arguments);
-    return { reply: `Done - ${result.charAt(0).toLowerCase()}${result.slice(1)}` };
+    return { reply: `✅ Done - ${result.charAt(0).toLowerCase()}${result.slice(1)}\n${savedWhere(pending.tool_name)}` };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown error";
     // P0-2 (telegram audit 2026-11-06): a permanent failure ("No load with id ...") can never succeed on a
@@ -280,15 +289,16 @@ async function executeBatchItems(store: BotBrainStore, items: PendingAction[]): 
     await store.clearPendingAction(item.id);
     try {
       const result = await executeWriteTool(store, item.tool_name, item.arguments);
-      lines.push(`✓ ${item.item_number ?? ""}. ${result}`);
+      lines.push(`✅ ${item.item_number ?? ""}. ${result}`);
     } catch (err) {
       const detail = err instanceof Error ? err.message : "unknown error";
       lines.push(
-        `✗ ${item.item_number ?? ""}. ${item.summary} — FAILED (${detail}). Nothing was saved for this one.`,
+        `❌ ${item.item_number ?? ""}. ${item.summary} — FAILED (${detail}). Nothing was saved for this one.`,
       );
     }
   }
-  return lines.join("\n");
+  const wheres = [...new Set(items.map((i) => savedWhere(i.tool_name)))];
+  return `${lines.join("\n")}\n\n${wheres.join("\n")}`;
 }
 
 /**
@@ -399,8 +409,8 @@ async function withStillWaiting(store: BotBrainStore, out: BotChatOutput, exclud
     );
     if (open.length === 0) return out;
     const lines = open.map((g) => `- ${g.summary}`).join("\n");
-    const next = open.length === 1 ? "Reply YES to record it too, or NO to drop it." : "Tell me which one you mean, in your own words.";
-    return { ...out, reply: `${out.reply}\n\nStill waiting for your yes/no:\n${lines}\n${next}` };
+    const next = open.length === 1 ? "👉 Reply YES to record it too, or NO to drop it." : "👉 Tell me which one you mean, in your own words.";
+    return { ...out, reply: `${out.reply}\n\n⏳ Still waiting for your yes/no:\n${lines}\n${next}` };
   } catch {
     return out;
   }
@@ -626,13 +636,14 @@ export async function runAgentTurn(
     contextBlocks.push(`CONTEXT REPORT: ${input.memoryReport}`);
   }
 
+  const botTools = gateExecutes(buildBotTools(store), input.userText);
   const result = await runAgentLoop({
     provider,
-    system: AGENT_SYSTEM_PROMPT,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${STYLE_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
-    tools: gateExecutes(buildBotTools(store), input.userText),
+    tools: botTools,
     onToolLog: hooks.onToolLog,
   });
 
@@ -667,6 +678,32 @@ export async function runAgentTurn(
   }
   if (correctingPending && proposals.some((p) => p.tool === correctingPending!.tool_name)) {
     await store.clearPendingAction(correctingPending.id);
+  }
+  // No redundant approvals (owner 2026-11-07): reconcile with what is already waiting and within this turn.
+  let reconcileNotes: string[] = [];
+  let alreadyWaiting: string[] = [];
+  if (proposals.length > 0) {
+    try {
+      const waiting = (await store.loadOpenPendingRows()).filter((w) => w.tool_name !== PHOTO_PURPOSE_TOOL);
+      const rec = reconcileProposals(proposals, waiting);
+      for (const p of rec.stage) {
+        if (!rec.mergedTools.includes(p.tool)) continue;
+        // two changes to one thing were merged: the summary must describe the MERGED change
+        const tool = botTools.find((t) => t.name === p.tool);
+        try {
+          const verdict = await tool?.verifyProposal?.(p.args);
+          p.summary = verdict && verdict.ok && verdict.summary ? verdict.summary : tool?.summarize ? tool.summarize(p.args) : p.summary;
+        } catch {
+          /* keep the later summary */
+        }
+      }
+      if (rec.clearIds.length > 0) await store.clearPendingActions(rec.clearIds);
+      proposals = rec.stage;
+      reconcileNotes = rec.notes;
+      alreadyWaiting = rec.alreadyWaiting;
+    } catch (err) {
+      console.error("[bot] proposal reconcile failed (staging as proposed):", err);
+    }
   }
   if (proposals.length > 0) {
     // §9: dump items arrive as proposals sharing a batch id - they
@@ -734,6 +771,12 @@ export async function runAgentTurn(
     }
   }
 
+  if (reconcileNotes.length > 0) {
+    reply += `\n\n🔁 ${reconcileNotes.join("\n🔁 ")}`;
+    if (proposals.length === 0 && alreadyWaiting.length > 0) {
+      reply = `${stripConfirmationProse(reply)}\n\n⏳ Waiting for your yes:\n${alreadyWaiting.map((s) => `- ${s}`).join("\n")}\n\n👉 Reply YES to confirm, or NO to drop it.`;
+    }
+  }
   // A "reply YES" with nothing staged (the proposal was refused or never made) would answer nothing - or,
   // worse, something older. It is dropped unless a proposal really is waiting.
   if (proposals.length === 0 && /\breply\s+(?:with\s+)?["“']?yes\b/i.test(reply)) {

@@ -271,21 +271,21 @@ export async function suggestDispatchReply(
  */
 export function formatDispatchSuggestion(suggestion: DispatchSuggestion): string {
   const lines: string[] = [
-    `Likely who this is: ${suggestion.likely_sender_role} - ${suggestion.sender_reasoning}`,
+    `👤 Likely who this is: ${suggestion.likely_sender_role} - ${suggestion.sender_reasoning}`,
     "",
-    "What they're asking:",
+    "❓ What they're asking:",
     suggestion.whats_being_asked,
   ];
   if (suggestion.meaning_notes) {
-    lines.push("", "What they mean:", suggestion.meaning_notes);
+    lines.push("", "💬 What they mean:", suggestion.meaning_notes);
   }
   if (suggestion.translation_en) {
-    lines.push("", "Translation:", suggestion.translation_en);
+    lines.push("", "🌐 Translation:", suggestion.translation_en);
   }
   if (suggestion.suggested_reply) {
     lines.push(
       "",
-      `Suggested reply (${suggestion.suggested_reply_language === "es" ? "Spanish" : "English"}):`,
+      `✍️ Suggested reply (${suggestion.suggested_reply_language === "es" ? "Spanish" : "English"}):`,
       suggestion.suggested_reply,
     );
   }

@@ -69,10 +69,11 @@ const recordSettlementArgs = z.object({
 });
 
 const setPayPinArgs = z.object({
+  /** Optional: when omitted, the CURRENT model is kept (changing who pays fuel must never reset the structure). */
   model: z.enum([
     "percentage_gross", "percentage_net", "cpm_loaded", "cpm_all_miles",
     "flat_per_load", "flat_per_day", "mixed",
-  ]),
+  ]).optional(),
   rate: z.number().positive().optional(),
   employment: z.enum(["w2", "1099"]).optional(),
   fuel_paid_by: z.enum(["owner", "driver"]).optional(),
@@ -85,6 +86,55 @@ const setPayPinArgs = z.object({
 });
 
 import { addDays, mondayOf } from "./pay-report";
+
+/** Models that are meaningless without a rate. */
+const PIN_NEEDS_RATE = new Set(["percentage_gross", "percentage_net", "cpm_loaded", "cpm_all_miles", "flat_per_load", "flat_per_day"]);
+
+/**
+ * The pin that would result from `parsed` on top of `current` - the model and the rate are CARRIED OVER when not
+ * given, exactly like every other field. (Root cause 2026-11-07: the rate was `parsed.rate ?? null`, so "I don't
+ * pay for fuel" wiped the rate and his pay computed to zero.) A change that would leave a rate-based model with no
+ * rate is refused, never silently stored.
+ */
+export function nextPin(parsed: z.infer<typeof setPayPinArgs>, current: PayPin): { pin: PayPin } | { error: string } {
+  const model = parsed.model ?? (current.model !== "UNKNOWN" ? current.model : null);
+  if (!model) return { error: "his pay structure isn't pinned yet - ask him which model it is (and its rate) first" };
+  const sameModel = model === current.model;
+  const rate = parsed.rate ?? (sameModel ? current.rate : null);
+  if (PIN_NEEDS_RATE.has(model) && rate == null) {
+    return { error: `${model} needs its rate - I won't pin it without one, and I won't clear the rate he has now. Ask him the rate, or change only the field he named` };
+  }
+  return {
+    pin: {
+      model,
+      rate,
+      employment: parsed.employment ?? current.employment,
+      fuelPaidBy: parsed.fuel_paid_by ?? current.fuelPaidBy,
+      tollsPaidBy: parsed.tolls_paid_by ?? current.tollsPaidBy,
+      settlementDay: parsed.settlement_day ?? current.settlementDay,
+      taxSetasidePercent: parsed.tax_setaside_percent ?? current.taxSetasidePercent,
+      source: parsed.source,
+      pinnedAt: new Date().toISOString().slice(0, 10),
+    },
+  };
+}
+
+/** "model cpm_all_miles (was cpm_loaded), fuel: driver → owner" - only what changes, before -> after. */
+export function describePinChange(before: PayPin, after: PayPin): string {
+  const shown = (v: unknown) => (v === null || v === undefined || v === "UNKNOWN" || v === "unknown" ? "not set" : String(v));
+  const parts: string[] = [];
+  const diff = (label: string, a: unknown, b: unknown) => {
+    if (a !== b) parts.push(`${label}: ${shown(a)} → ${shown(b)}`);
+  };
+  diff("model", before.model, after.model);
+  diff("rate", before.rate, after.rate);
+  diff("tax status", before.employment, after.employment);
+  diff("fuel paid by", before.fuelPaidBy, after.fuelPaidBy);
+  diff("tolls paid by", before.tollsPaidBy, after.tollsPaidBy);
+  diff("settlement day", before.settlementDay, after.settlementDay);
+  const lost = before.rate != null && after.rate == null ? " ⚠ this CLEARS his rate" : "";
+  return `${parts.join(", ") || "no change to the structure"}${lost}`;
+}
 
 const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
@@ -127,6 +177,50 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
       access: "write",
       alwaysPropose: true,
       validateArgs: validateWith(setPayTermsArgs),
+      // Before -> after, and a refusal when the change would leave him with no pay terms at all.
+      async verifyProposal(args) {
+        const a = setPayTermsArgs.safeParse(args);
+        if (!a.success) return { ok: false, error: a.error.issues[0]?.message ?? "invalid arguments" };
+        const { data, error } = await client
+          .from("employer_pay_profiles")
+          .select("*")
+          .eq("company_id", companyId)
+          .is("deleted_at", null)
+          .is("effective_to", null)
+          .ilike("employer_name", a.data.employer_name);
+        if (error) return { ok: false, error: `couldn't check his current terms (${error.message})` };
+        const cur = ((data ?? []) as Array<Record<string, unknown>>).find(
+          (r) => String(r.employer_name).trim().toLowerCase() === a.data.employer_name.trim().toLowerCase(),
+        );
+        const curRate = (cur?.rate_cents_per_mile as number | undefined) ?? 0;
+        const curPct = (cur?.percent_of_load_bps as number | null | undefined) ?? 0;
+        const newRate = a.data.rate_dollars_per_mile != null ? Math.round(a.data.rate_dollars_per_mile * 100) : curRate;
+        const newPct = a.data.percent_of_load != null ? Math.round(a.data.percent_of_load * 100) : curPct;
+        if (newRate === 0 && newPct === 0) {
+          return { ok: false, error: "that would leave him with no per-mile rate and no percent (pay $0). Who pays fuel or tolls is its own field - change only that and leave the rate alone" };
+        }
+        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const changes: string[] = [];
+        if (a.data.rate_dollars_per_mile != null && newRate !== curRate) {
+          changes.push(`per mile: ${cur ? dollars(curRate) : "not set"} → ${dollars(newRate)}${newRate < curRate ? " ⚠ lower pay" : ""}`);
+        }
+        if (a.data.percent_of_load != null && newPct !== curPct) {
+          changes.push(`percent of load: ${curPct ? `${curPct / 100}%` : "not set"} → ${newPct / 100}%${newPct < curPct ? " ⚠ lower pay" : ""}`);
+        }
+        const other = [
+          a.data.mile_basis ? `${a.data.mile_basis} miles` : null,
+          a.data.worker_type ?? null,
+          a.data.fuel_paid_by ? `fuel paid by ${a.data.fuel_paid_by}` : null,
+          a.data.pay_week_ends_on ? `pay week ends ${a.data.pay_week_ends_on}` : null,
+          a.data.statement_day ? `statement on ${a.data.statement_day}` : null,
+          a.data.payday ? `paid on ${a.data.payday}` : null,
+        ].filter(Boolean);
+        const kept = changes.length === 0 && other.length > 0 ? " (his rate stays as it is)" : "";
+        return {
+          ok: true,
+          summary: `Pay terms for ${a.data.employer_name}: ${[...changes, ...other].join(", ") || "no change"}${kept} (starts new dated terms)`,
+        };
+      },
       summarize(args) {
         const a = setPayTermsArgs.parse(args);
         const bits = [
@@ -162,6 +256,10 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
         const percentBps = a.percent_of_load != null ? Math.round(a.percent_of_load * 100) : ((cur?.percent_of_load_bps as number | null | undefined) ?? null);
         if (rateCents === undefined && percentBps === null) {
           throw new Error("No rate on file for that employer - tell me the dollars per mile, a percent of the load, or both.");
+        }
+        // A rate of 0 with no percent would erase his pay (2026-11-07). Who pays fuel/tolls never touches the rate.
+        if ((rateCents ?? 0) === 0 && !(percentBps && percentBps > 0)) {
+          throw new Error("That would set his pay to $0 (no per-mile rate and no percent). Who pays for fuel or tolls is its own field - change only that and leave the rate alone.");
         }
         const dayNumber = (name: string | undefined, current: unknown) =>
           name ? WEEKDAY_NAMES.indexOf(name as (typeof WEEKDAY_NAMES)[number]) : ((current as number | null | undefined) ?? null);
@@ -377,32 +475,33 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           source: { type: "string", description: "Where this pin comes from, in words." },
           source_kind: { type: "string", enum: ["owner_stated", "document"] },
         },
-        required: ["model", "source"],
+        required: ["source"],
       },
       access: "write",
       validateArgs: validateWith(setPayPinArgs),
       summarize(args) {
         const parsed = setPayPinArgs.parse(args);
-        return `Pay pin: ${parsed.model}${parsed.rate != null ? ` at ${parsed.rate}` : ""}${parsed.employment ? `, ${parsed.employment}` : ""} (source: ${parsed.source})`;
+        return `Pay pin: ${parsed.model ?? "(same model)"}${parsed.rate != null ? ` at ${parsed.rate}` : ""}${parsed.employment ? `, ${parsed.employment}` : ""} (source: ${parsed.source})`;
+      },
+      // What he sees is WHAT CHANGES, before -> after - and a change that would lose the rate is refused here.
+      async verifyProposal(args) {
+        const parsed = setPayPinArgs.safeParse(args);
+        if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+        const current = await store.loadPayPin();
+        const next = nextPin(parsed.data, current);
+        if ("error" in next) return { ok: false, error: next.error };
+        return { ok: true, summary: `Pay structure: ${describePinChange(current, next.pin)} (source: ${parsed.data.source})` };
       },
       async run(args) {
         const parsed = setPayPinArgs.parse(args);
         const current = await store.loadPayPin();
-        const pin: PayPin = {
-          model: parsed.model,
-          rate: parsed.rate ?? null,
-          employment: parsed.employment ?? current.employment,
-          fuelPaidBy: parsed.fuel_paid_by ?? current.fuelPaidBy,
-          tollsPaidBy: parsed.tolls_paid_by ?? current.tollsPaidBy,
-          settlementDay: parsed.settlement_day ?? current.settlementDay,
-          taxSetasidePercent: parsed.tax_setaside_percent ?? current.taxSetasidePercent,
-          source: parsed.source,
-          pinnedAt: new Date().toISOString().slice(0, 10),
-        };
+        const next = nextPin(parsed, current);
+        if ("error" in next) throw new Error(next.error);
+        const pin = next.pin;
         await store.saveMemory("business_fact", formatPayPin(pin), {
           provenance: parsed.source_kind === "document" ? "document" : "owner_stated",
         });
-        return `Pinned his pay structure: ${pin.model}${pin.rate != null ? ` at ${pin.rate}` : ""}, employment ${pin.employment}, fuel by ${pin.fuelPaidBy}, tolls by ${pin.tollsPaidBy}${pin.settlementDay ? `, settles ${pin.settlementDay}` : ""} (source: ${pin.source}). The previous pin, if any, is closed as history - this one is current.`;
+        return `Pinned his pay structure: ${pin.model}${pin.rate != null ? ` at ${pin.rate}` : ""}, employment ${pin.employment}, fuel by ${pin.fuelPaidBy}, tolls by ${pin.tollsPaidBy}${pin.settlementDay ? `, settles ${pin.settlementDay}` : ""} (source: ${pin.source}). Changed: ${describePinChange(current, pin)}. The previous pin, if any, is closed as history - this one is current.`;
       },
     },
     {

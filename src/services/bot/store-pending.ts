@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError } from "./tool-helpers";
 import type { BotBrainStore, BotChannel, PendingAction } from "./store";
 
-export type PendingStoreMethods = Pick<BotBrainStore, "loadPendingAction" | "loadPendingBatch" | "dropExpiredPending" | "loadOpenPendingGroups" | "savePendingAction" | "updatePendingAction" | "clearPendingAction" | "clearPendingActions">;
+export type PendingStoreMethods = Pick<BotBrainStore, "loadPendingAction" | "loadPendingBatch" | "dropExpiredPending" | "loadOpenPendingGroups" | "loadOpenPendingRows" | "savePendingAction" | "updatePendingAction" | "clearPendingAction" | "clearPendingActions">;
 
 export function createPendingStore(supabase: SupabaseClient, company: string, channel: BotChannel): PendingStoreMethods {
 const PENDING_BASE_COLUMNS = "id, tool_name, arguments, summary, channel, created_at";
@@ -86,6 +86,10 @@ async function loadPendingRows(): Promise<PendingAction[]> {
       if (rows.length === 0) return 0;
       await this.clearPendingActions(rows.map((r) => r.id));
       return rows.length;
+    },
+
+    async loadOpenPendingRows() {
+      return loadPendingRows();
     },
 
     async loadOpenPendingGroups() {

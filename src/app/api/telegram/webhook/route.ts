@@ -12,6 +12,7 @@
 // session-authenticated owner requests (docs/service-specs.md); this
 // caller is authenticated by the webhook secret + allowlist instead.
 
+import { formatReply } from "@/services/telegram/format-reply";
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { OpenAiProvider } from "@/services/ai/providers/openai";
@@ -54,7 +55,9 @@ function secretMatches(provided: string | null, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-async function sendTelegramMessage(botToken: string, chatId: number, text: string): Promise<void> {
+async function sendTelegramMessage(botToken: string, chatId: number, rawText: string): Promise<void> {
+  // Backstop: whatever reaches Telegram is clean plain text (idempotent - already-formatted text is unchanged).
+  const text = formatReply(rawText);
   // Telegram caps a message at 4096 characters - split on line breaks.
   const chunks: string[] = [];
   let current = "";

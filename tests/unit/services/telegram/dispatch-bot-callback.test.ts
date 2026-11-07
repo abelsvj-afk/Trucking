@@ -254,3 +254,20 @@ describe("Yes / No buttons on proposals", () => {
     expect(d.answerCallbackQuery).toHaveBeenCalledWith("q-64", expect.stringContaining("a while back"));
   });
 });
+
+describe("readable messages: no raw markdown reaches Telegram (owner 2026-11-07)", () => {
+  it("stars, headings and bullets from the model are cleaned and emoji-labelled before sending", async () => {
+    const d = deps();
+    (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({
+      reply: "## Pay this week\n**Load**: Macon → Tampa\n* Pay: **$1,700.00**\n- Fuel is on the company card",
+      memory: null,
+    });
+    await handleTelegramUpdate({ update_id: 90, message: { chat: { id: 4242, type: "private" }, text: "how am i doing", date: 1 } }, CONFIG, d);
+    const sent = String(d.sendMessage.mock.calls.at(-1)![1]);
+    expect(sent).not.toMatch(/[*#]/);
+    expect(sent).toContain("💵 Pay this week");
+    expect(sent).toContain("🚚 Load: Macon → Tampa");
+    expect(sent).toContain("💵 Pay: $1,700.00");
+    expect(sent).toContain("⛽ Fuel is on the company card");
+  });
+});
