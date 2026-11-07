@@ -78,18 +78,69 @@ function refresh() {
   show(failures > 0 ? "Tracking - can't reach the server (will keep trying)." : "Tracking - reporting your position.", sent + " " + queue.length + " waiting to send.");
 }
 
+/** What the user should read for an error from the native side - the real reason, never silence. */
+function describeStartError(err) {
+  const code = err && err.code ? String(err.code) : "";
+  const message = err && err.message ? String(err.message) : String(err || "unknown error");
+  if (code === "NOT_AUTHORIZED" || /permission/i.test(message)) {
+    return "Location permission is off. In phone Settings -> Apps -> Trucking OS Tracker -> Permissions, allow Location (and Notifications), then tap Start again.";
+  }
+  if (/disabled/i.test(message)) return "Your phone's location is switched off. Turn Location on in the phone's quick settings, then tap Start again.";
+  return "Couldn't start tracking: " + message + (code ? " (" + code + ")" : "");
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** addWatcher, retried while the plugin's native service is still binding ("Service not running."). */
+async function addWatcherWhenReady(options, callback) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      return await BG.addWatcher(options, callback);
+    } catch (err) {
+      lastErr = err;
+      if (!(err && /service not running/i.test(String(err.message || "")))) throw err;
+      await sleep(700);
+    }
+  }
+  throw lastErr;
+}
+
 async function start() {
   if (!BG || !Prefs) {
     show("This screen only works inside the Tracker app.");
     return;
   }
-  await save("server", $("server").value.trim());
-  await save("key", $("key").value.trim());
-  if (!$("server").value.trim().startsWith("https://") || !$("key").value.trim().startsWith("tdv_")) {
+  const server = $("server").value.trim();
+  const key = $("key").value.trim().replace(/^["']|["']$/g, "");
+  $("key").value = key;
+  await save("server", server);
+  await save("key", key);
+  if (!server.startsWith("https://") || !key.startsWith("tdv_")) {
     show("Enter the https:// server address and the key that starts with tdv_.");
     return;
   }
-  watcherId = await BG.addWatcher(
+  show("Starting...", "Android may ask for Location permission - choose Allow.");
+  toggleBtn.disabled = true;
+  try {
+    watcherId = await startWatcher();
+  } catch (err) {
+    watcherId = null;
+    toggleBtn.disabled = false;
+    toggleBtn.textContent = "Start tracking";
+    await save("tracking", "0");
+    show(describeStartError(err));
+    return;
+  }
+  toggleBtn.disabled = false;
+  await save("tracking", "1");
+  toggleBtn.textContent = "Stop tracking";
+  timer = setInterval(() => void doFlush(), FLUSH_EVERY_MS);
+  refresh();
+}
+
+function startWatcher() {
+  return addWatcherWhenReady(
     {
       backgroundTitle: "Trucking OS Tracker",
       backgroundMessage: "Reporting your position so your log can keep up with the truck.",
@@ -100,7 +151,7 @@ async function start() {
     async (location, error) => {
       if (error) {
         if (error.code === "NOT_AUTHORIZED") {
-          await stop("Location permission is off. Allow location 'all the time' for this app in your phone settings.");
+          await stop("Location permission is off. In phone Settings -> Apps -> Trucking OS Tracker -> Permissions, allow Location, then tap Start again.");
         }
         return;
       }
@@ -111,10 +162,6 @@ async function start() {
       if (queue.length >= 10) void doFlush();
     },
   );
-  await save("tracking", "1");
-  toggleBtn.textContent = "Stop tracking";
-  timer = setInterval(() => void doFlush(), FLUSH_EVERY_MS);
-  refresh();
 }
 
 async function stop(message = "Not tracking.") {
@@ -133,7 +180,13 @@ async function stop(message = "Not tracking.") {
   show(message);
 }
 
-toggleBtn.addEventListener("click", () => void (watcherId === null ? start() : stop()));
+toggleBtn.addEventListener("click", () => {
+  const run = watcherId === null ? start() : stop();
+  run.catch((err) => {
+    toggleBtn.disabled = false;
+    show(describeStartError(err));
+  });
+});
 
 (async () => {
   if (Prefs) {
