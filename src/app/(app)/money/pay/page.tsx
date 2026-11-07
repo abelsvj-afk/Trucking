@@ -11,9 +11,13 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePayProjection } from "@/lib/use-pay-projection";
-import { describeTerms, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
+import { describeTerms, formatCents, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
+import { advancesForPeriod, netRange, sumAdvances, type AdvanceLike } from "@/lib/cash-advances";
 
-function PeriodBlock({ title, period, empty }: { title: string; period: PeriodProjection; empty: string }) {
+function PeriodBlock({ title, period, empty, advances }: { title: string; period: PeriodProjection; empty: string; advances: AdvanceLike[] }) {
+  const periodAdvances = advancesForPeriod(advances, period.start, period.end);
+  const advancesCents = sumAdvances(periodAdvances);
+  const net = netRange(period.lowCents, period.highCents, advancesCents);
   return (
     <section aria-label={title}>
       <h2>{title}</h2>
@@ -22,6 +26,13 @@ function PeriodBlock({ title, period, empty }: { title: string; period: PeriodPr
         {period.statement ? ` · statement ${formatDay(period.statement)}` : ""}
         {period.payday ? ` · paid ${formatDay(period.payday)}` : ""}
       </p>
+      {advancesCents > 0 && (
+        <p role="status">
+          − {formatCents(advancesCents)} in <Link href="/money/advances">cash advances</Link> already taken out of this pay ·{" "}
+          <strong>net you should get: {formatRange(net.lowCents, net.highCents)}</strong>
+          {net.highCents < 0 ? " — more taken out than this period is expected to pay" : ""}
+        </p>
+      )}
       {period.rows.length === 0 && <p>{empty}</p>}
       {period.rows.length > 0 && (
         <ul>
@@ -87,10 +98,11 @@ export default function ProjectedPayPage() {
               Your pay week isn&apos;t set, so weeks run Monday to Sunday. <Link href="/more/settings">Set the day it ends and your payday</Link>.
             </p>
           )}
-          <PeriodBlock title="This pay week so far" period={state.period} empty="No booked loads this pay week yet." />
-          <PeriodBlock title="Last pay week" period={state.previous} empty="No booked loads last pay week." />
+          <PeriodBlock title="This pay week so far" period={state.period} empty="No booked loads this pay week yet." advances={state.advances} />
+          <PeriodBlock title="Last pay week" period={state.previous} empty="No booked loads last pay week." advances={state.advances} />
           <p className="row-sub">
-            Gross pay at your stated terms, before fuel, taxes and any deductions. It is a projection — your settlement is the final number.
+            Gross pay at your stated terms, before fuel, taxes and any other deductions; cash advances you recorded are taken out above so
+            the net is what should land. It is a projection — your settlement is the final number.
           </p>
         </>
       )}

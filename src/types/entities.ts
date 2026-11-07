@@ -829,3 +829,17 @@ export interface EmployerPayProfile extends BaseRow {
   effective_to: string | null;
   notes: string | null;
 }
+
+/**
+ * Migration 00076: a cash advance a worker took out of a pay period before
+ * payday. amount_cents is always positive (the deduction is what it is);
+ * the pay week / payday it deducts from is derived from advance_date and
+ * the pay terms in force then (lib/cash-advances.ts). driver_id is the
+ * worker who took it; null = not assigned to a driver row.
+ */
+export interface CashAdvance extends BaseRow {
+  driver_id: string | null;
+  amount_cents: number;
+  advance_date: string;
+  note: string | null;
+}

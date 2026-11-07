@@ -22,6 +22,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/money/fuel-purchases", label: "Fuel purchases", desc: "Every fuel stop: gallons, price, and where." },
   { href: "/money/pay", label: "Projected pay", desc: "What this week's loads are worth at your pay terms — updating as loads come in." },
   { href: "/money/paychecks", label: "Paychecks", desc: "Finished loads: what you should have been paid vs. what landed — shortfalls flagged." },
+  { href: "/money/advances", label: "Cash advances", desc: "Money taken out of a pay period before payday — record it here and every pay figure shows the net." },
   { href: "/money/invoices", label: "Invoices", desc: "What brokers owe you, and how late — aged against the due date." },
   { href: "/money/summary", label: "Summary", desc: "Revenue, costs, and what's actually left — by period." },
   { href: "/money/truck-fund", label: "Truck Fund", desc: "Saving toward your own truck — the fund log, target bands, and the business-credit ladder." },

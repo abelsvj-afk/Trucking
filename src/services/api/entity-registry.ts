@@ -48,6 +48,7 @@ export const RESTORE_PARENTS: Record<string, RestoreParent[]> = {
   pretrip_inspections: [TRUCK, TRAILER, DRIVER],
   duty_logs: [DRIVER, LOAD],
   fund_entries: [LOAD],
+  cash_advances: [DRIVER],
   // No FK parents: brokers, customers, account_snapshots,
   // dispatch_exchanges restore on schema validity alone.
 };

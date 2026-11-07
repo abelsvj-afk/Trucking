@@ -340,6 +340,21 @@ Added by the Truck Fund pass (`docs/design/driver-mvp.md` §9, migration `00023`
 | load_id | uuid | yes | references `loads.id` — optional link when an entry is tied to a specific load |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
+## cash_advances
+
+Added by the cash-advances pass (`docs/design/employer-pay-profile.md` §9, migration `00076`, owner order 2026-11-07). Money a worker took out of a pay period before payday, recorded when taken so pay figures can net against it. The pay week / payday an advance deducts from is derived on read from `advance_date` and the pay terms in force on that date (the same grouping rule as finished loads) — it is not stored, so it can never drift from the loads' grouping.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| driver_id | uuid | yes | references `drivers.id` — the worker who took the advance (per-worker data); null = not assigned to a driver row |
+| amount_cents | integer | no | > 0 (check constraint) — always positive; the deduction sign comes from what an advance is |
+| advance_date | date | no | the day the money was taken (owner-recorded) |
+| note | text | yes | |
+| submission_id / submission_payload_hash | uuid / text | yes | idempotent-create columns (00041 pattern) |
+| created_at / updated_at / deleted_at | timestamptz | see global conventions | |
+
 ## fund_settings
 
 The Truck Fund's per-company settings singleton (`docs/design/driver-mvp.md` §9.1). One live row per company (get-or-create in the API layer; no unique constraint, matching the singleton-by-convention approach — a second row would simply never be read).
