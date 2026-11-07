@@ -6,7 +6,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pickActiveLoad } from "@/lib/active-load";
-import { checkLoad, type PaycheckLine, type PayTermsRow } from "@/lib/paycheck";
+import { checkLoad, termsForDate, type PaycheckLine, type PayTermsRow } from "@/lib/paycheck";
+import { paydayAfter, weekBounds } from "@/lib/pay-projection";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { loadHosCost, type HosGlance, type LoadHosCost } from "@/lib/hos-cost";
 import { todayEastern } from "@/lib/eastern-date";
@@ -23,12 +24,34 @@ export interface PaySummaryLoad {
   line: PaycheckLine | null;
 }
 
+/** One pay week of FINISHED loads: what the statement should show and what actually landed. */
+export interface PayWeekGroup {
+  start: string;
+  end: string;
+  /** The day the statement comes out / the money lands; null while not set. */
+  statement: string | null;
+  payday: string | null;
+  loadCount: number;
+  /** Loads in the week that could not be priced (no mileage / no rate). */
+  unpricedCount: number;
+  expectedLowCents: number;
+  expectedHighCents: number;
+  /** Sum of the pay lines settlements name for these loads. */
+  receivedCents: number;
+  unpaidCount: number;
+  shortCount: number;
+  shortfallCents: number;
+  loadIds: string[];
+}
+
 export interface PaySummary {
   /** null when no pay terms exist yet - nothing can be priced. */
   hasTerms: boolean;
   active: (PaySummaryLoad & { overdue: boolean; hosCost: LoadHosCost | null }) | null;
   /** Completed loads, newest delivery first, each checked against what landed. */
   completed: PaySummaryLoad[];
+  /** The same finished loads grouped by his pay week (newest first). */
+  weeks: PayWeekGroup[];
   totals: {
     unpaidCount: number;
     unpaidLowCents: number;
@@ -59,6 +82,47 @@ export function glanceFromSnapshot(snapshot: HosWindowSnapshot, nowMs: number): 
 function driveMiles(l: Load): number | null {
   if (l.loaded_miles != null && l.deadhead_miles != null) return l.loaded_miles + l.deadhead_miles;
   return l.miles ?? l.loaded_miles ?? null;
+}
+
+/** Groups the finished loads' checks by pay week; the week boundary and the dates come from the terms in force on each load. */
+export function groupByPayWeek(completed: PaySummaryLoad[], terms: PayTermsRow[], loads: Load[]): PayWeekGroup[] {
+  const groups = new Map<string, PayWeekGroup>();
+  const byId = new Map(loads.map((l) => [l.id, l]));
+  for (const c of completed) {
+    const load = byId.get(c.loadId);
+    const day = c.deliveryDate ?? load?.pickup_date ?? null;
+    if (!day) continue;
+    const picked = termsForDate(terms, day)?.terms;
+    const bounds = weekBounds(day, picked?.pay_week_ends_on);
+    const key = `${bounds.start}`;
+    const g =
+      groups.get(key) ??
+      {
+        start: bounds.start,
+        end: bounds.end,
+        statement: paydayAfter(bounds.end, picked?.statement_weekday),
+        payday: paydayAfter(bounds.end, picked?.payday_weekday),
+        loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, receivedCents: 0,
+        unpaidCount: 0, shortCount: 0, shortfallCents: 0, loadIds: [],
+      };
+    g.loadCount += 1;
+    g.loadIds.push(c.loadId);
+    const line = c.line;
+    if (!line || line.expected.lowCents === null || line.expected.highCents === null) {
+      g.unpricedCount += 1;
+    } else {
+      g.expectedLowCents += line.expected.lowCents;
+      g.expectedHighCents += line.expected.highCents;
+    }
+    g.receivedCents += line?.receivedCents ?? 0;
+    if (line?.status === "unpaid") g.unpaidCount += 1;
+    if (line?.status === "short") {
+      g.shortCount += 1;
+      g.shortfallCents += line.shortfallCents;
+    }
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => b.start.localeCompare(a.start));
 }
 
 export function buildPaySummary(input: {
@@ -109,7 +173,7 @@ export function buildPaySummary(input: {
     }
   }
 
-  return { hasTerms: terms.length > 0, active, completed, totals, hos, asOf: now.toISOString() };
+  return { hasTerms: terms.length > 0, active, completed, weeks: groupByPayWeek(completed, terms, live), totals, hos, asOf: now.toISOString() };
 }
 
 export async function loadPaySummary(client: SupabaseClient, companyId: string, now: Date = new Date()): Promise<PaySummary> {

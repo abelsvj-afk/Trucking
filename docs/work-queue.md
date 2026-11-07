@@ -51,9 +51,9 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
   - To verify after deploy: replay the transcript's turns with Abel on Telegram.
 
 ## B0c. Pay by percent and/or CPM, per-load pay edit, weekly payday total (owner 2026-11-06; design `docs/design/employer-pay-profile.md` §8)
-- CODE DONE + gated, NOT deployed, migration **00074 NOT applied** (King applies; additive, nullable, no seed). Until it is applied the new Settings fields and the load-pay edit will be refused by the database.
+- CODE DONE + gated, NOT deployed. Migration **00074 is APPLIED** on the live project (verified read-only 2026-11-07: the four profile columns incl. `statement_weekday`, and `loads.pay_override_cents`). His deal (Sun-Sat week, Thursday statement, Friday pay) is entered as DATA by him in Settings or via Abel - not seeded.
 - Pay terms take cents per mile and/or a percent of the load; a load's own figure (`loads.pay_override_cents`) wins and is labeled; pay week end + payday are settings (unset stays visibly unset). Money → Projected pay shows this pay week so far (running total) and last pay week with its payday; Home card shows the week + payday; load page has "What this load pays me" with set/clear. Abel: `projected_pay` (read), `set_pay_terms` (percent/week/payday), `update_load` `pay_dollars`; the pay pin recognises percent and mixed profiles.
-- Not built: tax/fuel/deduction math (still gross); advances; per-week settlement reconciliation by payday (Paychecks page unchanged).
+- Money -> Paychecks now also groups finished loads BY PAY WEEK (statement + payday dates, should-be vs what statements name, short/unpaid counts). Not built: tax/fuel/deduction math (still gross); advances.
 
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).

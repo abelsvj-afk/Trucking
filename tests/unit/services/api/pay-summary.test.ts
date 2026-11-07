@@ -31,4 +31,39 @@ describe("buildPaySummary", () => {
     const s = buildPaySummary({ loads: [load({ status: "confirmed", delivery_date: "2026-11-08" })], terms, receivedByLoad: new Map(), hos: null, now });
     expect(s.active?.hosCost?.text).toContain("1,000 mi");
   });
+
+  it("groups finished loads by his Sunday-Saturday pay week with statement and payday, expected vs received", () => {
+    const deal = [{ ...terms[0]!, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
+    const s = buildPaySummary({
+      loads: [
+        load({ id: "a", delivery_date: "2026-10-31", pickup_date: "2026-10-30" }), // Saturday: week Oct 25-31
+        load({ id: "b", delivery_date: "2026-10-27", pickup_date: "2026-10-26" }), // same week
+        load({ id: "c", delivery_date: "2026-11-01", pickup_date: "2026-10-31" }), // Sunday: next week
+      ],
+      terms: deal,
+      receivedByLoad: new Map([["a", 60000]]),
+      hos: null,
+      now,
+    });
+    expect(s.weeks.map((w) => [w.start, w.end, w.statement, w.payday])).toEqual([
+      ["2026-11-01", "2026-11-07", "2026-11-12", "2026-11-13"],
+      ["2026-10-25", "2026-10-31", "2026-11-05", "2026-11-06"],
+    ]);
+    const first = s.weeks[1]!;
+    expect(first.loadCount).toBe(2);
+    expect(first.expectedLowCents).toBe(120000);
+    expect(first.receivedCents).toBe(60000);
+    expect(first.unpaidCount).toBe(1); // b is on no statement yet
+    expect(s.weeks[0]!.loadCount).toBe(1);
+  });
+  it("with the week unset it still groups (Monday-Sunday) and says the dates aren't set", () => {
+    const s = buildPaySummary({ loads: [load({})], terms, receivedByLoad: new Map(), hos: null, now });
+    expect(s.weeks).toHaveLength(1);
+    expect(s.weeks[0]!.statement).toBeNull();
+    expect(s.weeks[0]!.payday).toBeNull();
+  });
+  it("a load that can't be priced is counted as unpriced, not as $0", () => {
+    const s = buildPaySummary({ loads: [load({ miles: null })], terms, receivedByLoad: new Map(), hos: null, now });
+    expect(s.weeks[0]).toMatchObject({ unpricedCount: 1, expectedLowCents: 0 });
+  });
 });
