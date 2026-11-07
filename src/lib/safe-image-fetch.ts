@@ -173,14 +173,15 @@ export type FetchFailureReason = "bad-url" | "blocked" | "redirect" | "status" |
 export type Transport = (url: URL, limits: { timeoutMs: number; maxBytes: number }) => Promise<TransportResult>;
 
 /** The real transport: node:https with the guarded lookup, a streamed size cap and a wall-clock cap. */
-export const httpsTransport: Transport = (url, limits) =>
+function makeTransport(headers: Record<string, string>): Transport {
+  return (url, limits) =>
   new Promise((resolve, reject) => {
     const req = https.request(
       url,
       {
         method: "GET",
         lookup: guardedLookup() as never,
-        headers: { "User-Agent": "TruckingOS-NewsImage/1.0", Accept: "image/jpeg,image/png,image/webp" },
+        headers,
         timeout: limits.timeoutMs,
       },
       (res) => {
@@ -216,6 +217,18 @@ export const httpsTransport: Transport = (url, limits) =>
     req.on("close", () => clearTimeout(wall));
     req.end();
   });
+}
+
+export const httpsTransport: Transport = makeTransport({
+  "User-Agent": "TruckingOS-NewsImage/1.0",
+  Accept: "image/jpeg,image/png,image/webp",
+});
+
+/** Same guarded transport, asking for a web page instead of an image (briefing-image og:image lookup). */
+export const httpsPageTransport: Transport = makeTransport({
+  "User-Agent": "TruckingOS-BriefingImage/1.0",
+  Accept: "text/html,application/xhtml+xml",
+});
 
 // ---- content checks --------------------------------------------------------
 
@@ -274,6 +287,64 @@ export async function fetchPublicImage(
     // Both the header and the bytes must say jpeg/png/webp - and agree.
     if (!ALLOWED_TYPES.has(declared) || sniffed === null || sniffed !== declared) return { ok: false, reason: "type" };
     return { ok: true, bytes: result.body, contentType: sniffed };
+  }
+  return { ok: false, reason: "redirect" };
+}
+
+// ---- page fetch (for og:image lookup only) ----------------------------------
+
+export const MAX_PAGE_BYTES = 512_000;
+const PAGE_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+
+export type FetchPageResult =
+  | { ok: true; html: string; finalUrl: string }
+  | { ok: false; reason: FetchFailureReason };
+
+/**
+ * Fetch an article page's HTML under the same SSRF policy as images:
+ * the URL policy above judges the page URL and every redirect hop, the
+ * guarded lookup re-checks addresses at connection time, and the body
+ * is size/time capped. The HTML is untrusted data - callers may only
+ * extract a URL from it (og:image), never render or execute any of it.
+ */
+export async function fetchPublicPage(
+  rawUrl: string,
+  opts: { transport?: Transport; maxBytes?: number; timeoutMs?: number; maxRedirects?: number } = {},
+): Promise<FetchPageResult> {
+  const transport = opts.transport ?? httpsPageTransport;
+  const limits = { maxBytes: opts.maxBytes ?? MAX_PAGE_BYTES, timeoutMs: opts.timeoutMs ?? FETCH_TIMEOUT_MS };
+  const maxRedirects = opts.maxRedirects ?? MAX_REDIRECTS;
+
+  let url = validateImageUrl(rawUrl);
+  if (!url) return { ok: false, reason: "bad-url" };
+
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    let result: TransportResult;
+    try {
+      result = await transport(url, limits);
+    } catch (err) {
+      return { ok: false, reason: err instanceof FetchFailure ? err.reason : "network" };
+    }
+    if ([301, 302, 303, 307, 308].includes(result.status)) {
+      if (hop === maxRedirects) return { ok: false, reason: "redirect" };
+      const location = result.headers.location;
+      if (!location) return { ok: false, reason: "redirect" };
+      let next: URL;
+      try {
+        next = new URL(location, url);
+      } catch {
+        return { ok: false, reason: "redirect" };
+      }
+      const checked = validateImageUrl(next.toString());
+      if (!checked) return { ok: false, reason: "blocked" }; // every hop is judged like the first
+      url = checked;
+      continue;
+    }
+    if (result.status !== 200) return { ok: false, reason: "status" };
+    if (result.body.length > limits.maxBytes) return { ok: false, reason: "too-large" };
+    const declared = (result.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+    if (!PAGE_TYPES.has(declared)) return { ok: false, reason: "type" };
+    return { ok: true, html: result.body.toString("utf8"), finalUrl: url.toString() };
   }
   return { ok: false, reason: "redirect" };
 }
