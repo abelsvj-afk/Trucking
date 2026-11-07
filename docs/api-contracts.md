@@ -485,6 +485,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/duty-logs/auto-motion` | POST | custom (see section / design doc) |
 | `/api/v1/device-tokens/[id]` | DELETE | custom (see section / design doc) |
 | `/api/v1/device-tokens` | GET,POST | custom (see section / design doc) |
+| `/api/v1/telegram-webhook` | GET,POST | custom (see section / design doc) |
 | `/api/v1/position/feed` | POST | custom (see section / design doc) |
 | `/api/v1/duty-logs/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/duty-logs/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |

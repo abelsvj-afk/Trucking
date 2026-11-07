@@ -108,6 +108,17 @@ integration, in v1 or by extension:
   -d url=https://trucking.fly.dev/api/telegram/webhook
   -d secret_token=<the same TELEGRAM_WEBHOOK_SECRET>`.
   No real token is ever committed or handled in the repo.
+- **Webhook repair (King's root-cause relay, 2026-11-06).** The October 31 registration listed
+  `message` updates only, so `callback_query` (inline-button taps) and `edited_message` (Live
+  Location's follow-up fixes) were never delivered. Because the token and secret exist only in
+  Fly's environment, the cure runs inside the app: Settings -> "Telegram connection" (owner session)
+  shows a plain-words report from `getWebhookInfo` (delivered update types, pending count, last
+  error) and one repair - `setWebhook` for the EXISTING address (no caller-supplied URL) with
+  `allowed_updates` = [`message`, `edited_message`, `callback_query`], the server's own secret reused,
+  `drop_pending_updates` false, then a fresh `getWebhookInfo`. The token and secret are never returned,
+  logged or put in an error message; only the address's host is shown. Re-registering bare would
+  take Abel offline (the app rejects deliveries without the secret header), which is why it is not
+  a curl step. The Yes/No reply keyboard stays the resilient default.
 
 ## 5. Dispatch exchanges (`dispatch_exchanges`) — learning his voice
 

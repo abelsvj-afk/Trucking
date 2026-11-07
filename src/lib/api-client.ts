@@ -243,6 +243,11 @@ export const apiClient = {
   createDeviceToken: (label: string) =>
     request<{ data: { id: string; label: string; created_at: string; token: string } }>("/api/v1/device-tokens", { method: "POST", body: JSON.stringify({ label }) }),
   revokeDeviceToken: (id: string) => request<{ data: { revoked: boolean } }>(`/api/v1/device-tokens/${id}`, { method: "DELETE" }),
+  /** Owner-only: how Telegram delivers to Abel (which update types, pending, last error). Plain-language findings. */
+  telegramWebhook: () => request<{ data: import("@/services/telegram/webhook-admin").WebhookReport }>("/api/v1/telegram-webhook"),
+  /** Owner-only: re-register the EXISTING webhook with message + edited_message + callback_query, then re-check. */
+  repairTelegramWebhook: () =>
+    request<{ data: import("@/services/telegram/webhook-admin").RepairResult }>("/api/v1/telegram-webhook", { method: "POST" }),
   /** The latest position Telegram Live Location sent (it keeps reporting with the app closed), or null. */
   telegramPosition: () =>
     request<{ position: { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; recordedAt: string; ageSeconds: number } | null }>(
