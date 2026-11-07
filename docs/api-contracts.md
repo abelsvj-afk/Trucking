@@ -114,9 +114,9 @@ Both are standard resources (the 5-endpoint table above) with the fields in `doc
 
 ### Paycheck picture — `GET /api/v1/pay-summary`
 
-Read-only (owner order 2026-11-05, items 3–4). Returns `{ "data": PaySummary }`: `hasTerms`; `active` (the pick-active-load load with its expected pay line, `overdue`, and `hosCost` — the load's hours cost from the one HOS read); `completed` (completed loads, newest delivery first, each with a `line`: expected range priced by the pay-terms row in force on the delivery date, `receivedCents` from `load_pay` settlement lines, `status` paid / short / over / unpaid / unknown, `shortfallCents`); `weeks` (the same finished loads grouped by pay week with statement/payday dates, expected vs received — and, since migration 00078, each week's `advancesCents` and its net range `netLowCents`/`netHighCents` = expected − advances; a week with advances but no finished loads still appears); `totals` (unpaid count + expected low/high cents, short count + shortfall cents, `advancesCents`, and the unpaid net range `unpaidNetLowCents`/`unpaidNetHighCents`); `hos` (drive/window/break/cycle remaining, ms); `asOf`. Gross at his stated rate; his settlement is the final number. Planning only — not an ELD.
+Read-only (owner order 2026-11-05, items 3–4). Returns `{ "data": PaySummary }`: `hasTerms`; `active` (the pick-active-load load with its expected pay line, `overdue`, and `hosCost` — the load's hours cost from the one HOS read); `completed` (completed loads, newest delivery first, each with a `line`: expected range priced by the pay-terms row in force on the delivery date, `receivedCents` from `load_pay` settlement lines, `status` paid / short / over / unpaid / unknown, `shortfallCents`); `weeks` (the same finished loads grouped by pay week with statement/payday dates, expected vs received — and, since migration 00079, each week's `advancesCents` and its net range `netLowCents`/`netHighCents` = expected − advances; a week with advances but no finished loads still appears); `totals` (unpaid count + expected low/high cents, short count + shortfall cents, `advancesCents`, and the unpaid net range `unpaidNetLowCents`/`unpaidNetHighCents`); `hos` (drive/window/break/cycle remaining, ms); `asOf`. Gross at his stated rate; his settlement is the final number. Planning only — not an ELD.
 
-### `cash-advances` (migration 00078)
+### `cash-advances` (migration 00079)
 
 Standard resource (the 5-endpoint table above) with the fields in `docs/schemas.md`: money a worker took out of a pay period before payday, recorded when taken. `POST {amount_cents (int > 0), advance_date, driver_id?, note?}`. The netting math is in `src/lib/cash-advances.ts`; the design is `docs/design/employer-pay-profile.md` section 9.
 
@@ -413,6 +413,7 @@ All routes below require the standard authenticated owner session (see Auth abov
 | POST | `/api/v1/loads/{id}/detention-stamps` | Stamp the load's facility clock; body names the stamp type, `occurred_at` defaults to now |
 | GET | `/api/v1/loads/{id}/paperwork` | GAP-05: the load's paperwork state — required vs attached, computed by `src/lib/paperwork.ts`; `404` for a missing/other-tenant load |
 | GET | `/api/v1/day-wrap` | GAP-08: one reconciliation pass over a day's records. Query: `?date=YYYY-MM-DD` (America/New_York; defaults to today ET). Response: `{ data: { date, items: DayWrapItem[] } }` |
+| GET | `/api/v1/inbox` | Company inbox, rung 1 READ-ONLY (docs/design/company-inbox.md): the connection's honest status plus the messages Abel has read. Query: `?q=` (sender/subject/summary), `?classification=`, or `?id=<uuid>` for one message in full with its UNSENT drafts. Response: `{ data: { status, messages } }` or `{ data: { status, message, drafts } }`. Session auth; GET only - nothing sends or changes mail; bodies are untrusted outside content. |
 | GET | `/api/v1/ifta` | GAP-15: the IFTA worksheet for a quarter. Query: `?quarter=YYYYQn` (defaults to the current quarter, ET). Response: `{ data: IftaWorksheet }` — gallons by state exact; interstate miles reported unallocated; odometer miles pass the sanity gate (implausible readings excluded and flagged in `anomalies`, count in `excludedOdometerReadings`) |
 | GET | `/api/v1/tax-packet` | GAP-16: the year-end tax packet. Query: `?year=YYYY` (defaults to the current year, ET). Response: `{ data: TaxPacket }` — per-diem count at the labeled rate, fuel totals, expenses by category, load revenue, and settlement income (`settlementIncomeCents`, `settlementsCount`) joined from Abel Phase D's `settlements` table (driver pay, periods ending in the year; zero when the table is absent) |
 
@@ -475,6 +476,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/customers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/customers` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/day-wrap` | GET | custom (see section / design doc) |
+| `/api/v1/inbox` | GET | custom (see section / design doc) |
 | `/api/v1/detention-stamps/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/detention-stamps` | GET | generic CRUD (contract above) |
 | `/api/v1/dispatch-exchanges/[id]/restore` | POST | generic CRUD (contract above) |
