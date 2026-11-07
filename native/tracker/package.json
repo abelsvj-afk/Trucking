@@ -4,7 +4,7 @@
   "private": true,
   "description": "Thin Android shell that keeps reporting the truck's position with the app closed (docs/design/background-tracking.md, Path 2).",
   "scripts": {
-    "sync": "cap sync android",
+    "sync": "cp node_modules/@capacitor/core/dist/capacitor.js www/capacitor-core.js && cap sync android",
     "open": "cap open android",
     "build:apk": "cd android && ./gradlew assembleDebug"
   },

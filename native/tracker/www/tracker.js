@@ -5,9 +5,15 @@
 import { enqueue, flush, toFix, backoffMs, FLUSH_EVERY_MS } from "./feed-queue.js";
 
 const Cap = window.Capacitor;
-// registerPlugin resolves the native plugin by name; outside the Tracker app (a plain browser) there is no native side.
-const BG = Cap && Cap.isNativePlatform && Cap.isNativePlatform() ? Cap.registerPlugin("BackgroundGeolocation") : null;
-const Prefs = Cap && Cap.isNativePlatform && Cap.isNativePlatform() ? Cap.registerPlugin("Preferences") : null;
+// registerPlugin comes from Capacitor's JS core (capacitor-core.js, loaded first by index.html) - the native bridge
+// alone does not provide it. Outside the Tracker app (a plain browser) there is no native side.
+const registerPlugin =
+  (Cap && typeof Cap.registerPlugin === "function" && Cap.registerPlugin) ||
+  (window.capacitorExports && typeof window.capacitorExports.registerPlugin === "function" && window.capacitorExports.registerPlugin) ||
+  null;
+const native = Boolean(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
+const BG = native && registerPlugin ? registerPlugin("BackgroundGeolocation") : null;
+const Prefs = native && registerPlugin ? registerPlugin("Preferences") : null;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
@@ -108,7 +114,7 @@ async function addWatcherWhenReady(options, callback) {
 
 async function start() {
   if (!BG || !Prefs) {
-    show("This screen only works inside the Tracker app.");
+    show(native ? "The tracker's plugin loader is missing (capacitor-core.js) - this build is broken; ask for a new one." : "This screen only works inside the Tracker app.");
     return;
   }
   const server = $("server").value.trim();

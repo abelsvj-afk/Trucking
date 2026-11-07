@@ -18,7 +18,8 @@ Install the APK on the phone (USB `adb install -r app-debug.apk`, or send the fi
 4. Phone settings → Apps → Trucking OS Tracker → Battery → **Unrestricted** (some makers kill background apps otherwise).
 
 ## Honest limits
-- Built 2026-11-07 (debug APK, `assembleDebug` succeeded; manifest and bundled scripts inspected) but NOT run on a device by the builder. First real test: start tracking, lock the phone, drive; the Trucking OS Home map and the Telegram "Switched to Driving" notice are the proof.
+- Built 2026-11-07 (debug APK). v1.0.0 and v1.0.1 had a dead Start button: the page called `Capacitor.registerPlugin`, which only Capacitor's JS core provides, and never loaded the core. v1.0.2 loads `www/capacitor-core.js` (copied from `@capacitor/core` by `npm run sync`) and was checked in Chromium against a native-bridge stand-in: Start reaches the location plugin. Still NOT run on a real device by the builder.
+- Always build with `npm run sync` (not a bare `npx cap sync`), so the core file is refreshed. First real test: start tracking, lock the phone, drive; the Trucking OS Home map and the Telegram "Switched to Driving" notice are the proof.
 - Battery use is real (a foreground location service). Stop tracking when you are off shift.
 - If the server can't be reached, fixes wait in a queue (up to 500, 24 h) and are sent when signal returns.
 - A revoked or wrong key stops tracking and says so.

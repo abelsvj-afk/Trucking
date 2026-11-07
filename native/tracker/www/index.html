@@ -25,6 +25,21 @@
   <button id="toggle" type="button">Start tracking</button>
   <div id="status" role="status" aria-live="polite">Not tracking.</div>
   <p class="small" id="detail"></p>
+  <script>
+    // Any error while the page starts goes INTO the status box - a broken script must never look like a dead button.
+    window.addEventListener("error", function (e) {
+      var s = document.getElementById("status");
+      if (s) s.textContent = "The tracker hit an error: " + (e && e.message ? e.message : "unknown") + " - send this to support.";
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      var s = document.getElementById("status");
+      var r = e && e.reason;
+      if (s) s.textContent = "The tracker hit an error: " + (r && r.message ? r.message : String(r)) + " - send this to support.";
+    });
+  </script>
+  <!-- Capacitor's JS core (copied from @capacitor/core 8.6.0 dist/capacitor.js by `npm run sync`). The native bridge
+       alone has no registerPlugin; without this file the page script died on load and Start did nothing. -->
+  <script src="./capacitor-core.js"></script>
   <script type="module" src="./tracker.js"></script>
 </body>
 </html>

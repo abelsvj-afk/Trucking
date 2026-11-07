@@ -4,6 +4,11 @@
 // FlatCompat/legacy-extends shim needed for this Next.js version).
 import nextConfig from "eslint-config-next";
 
-const eslintConfig = [...nextConfig];
+const eslintConfig = [
+  ...nextConfig,
+  // Not our source: Android/Gradle build output from building the Tracker APK, and the Capacitor core copied
+  // verbatim from @capacitor/core into the Tracker page (native/tracker/README.md).
+  { ignores: ["native/tracker/android/**/build/**", "native/tracker/android/.gradle/**", "native/tracker/www/capacitor-core.js"] },
+];
 
 export default eslintConfig;
