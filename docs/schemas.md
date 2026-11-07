@@ -342,7 +342,7 @@ Added by the Truck Fund pass (`docs/design/driver-mvp.md` §9, migration `00023`
 
 ## cash_advances
 
-Added by the cash-advances pass (`docs/design/employer-pay-profile.md` §9, migration `00076`, owner order 2026-11-07). Money a worker took out of a pay period before payday, recorded when taken so pay figures can net against it. The pay week / payday an advance deducts from is derived on read from `advance_date` and the pay terms in force on that date (the same grouping rule as finished loads) — it is not stored, so it can never drift from the loads' grouping.
+Added by the cash-advances pass (`docs/design/employer-pay-profile.md` §9, migration `00078`, owner order 2026-11-07). Money a worker took out of a pay period before payday, recorded when taken so pay figures can net against it. The pay week / payday an advance deducts from is derived on read from `advance_date` and the pay terms in force on that date (the same grouping rule as finished loads) — it is not stored, so it can never drift from the loads' grouping.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
@@ -1036,9 +1036,46 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `deleted_at` timestamptz
 
 
+### `bot_proposal_outcomes` — created in 00076
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `tool_name` text not null check (length(btrim(tool_name)) > 0)
+- `signature` text not null check (length(btrim(signature)) > 0)
+- `outcome` text not null constraint bot_proposal_outcomes_outcome_valid check (outcome in ('approved', 'dropped', 'corrected', 'expired', 'failed', 'replaced'))
+- `summary` text not null
+- `arguments` jsonb
+- `channel` text
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+
+### `person_preferences` — created in 00077
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `subject_type` text not null constraint person_preferences_subject_valid check (subject_type in ('owner', 'driver'))
+- `driver_id` uuid
+- `key` text not null check (length(btrim(key)) > 0)
+- `value` jsonb not null
+- `source` text not null default 'stated' constraint person_preferences_source_valid check (source in ('stated', 'learned'))
+- `confidence` numeric not null default 1 constraint person_preferences_confidence_valid check (confidence >= 0 and confidence <= 1)
+- `evidence` text
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+
 ### Columns added to already-documented tables since 00032
 
 - 00033 `documents.caption` text
+- 00077 `load_decisions.driver_id` uuid (composite tenant FK to drivers)
+- 00077 `load_decisions.origin_state` text check (null or 2 letters)
+- 00077 `load_decisions.destination_state` text check (null or 2 letters)
+- 00077 `load_decisions.miles` integer check (null or >= 0)
+- 00077 `load_decisions.rate_cents` integer check (null or >= 0)
+- 00077 `load_decisions.deadhead_miles` integer check (null or >= 0)
+- 00077 `load_decisions.reason` text
 - 00074 `employer_pay_profiles.percent_of_load_bps` integer check (percent_of_load_bps is null or (percent_of_load_bps between 0 and 10000))
 - 00074 `employer_pay_profiles.pay_week_ends_on` smallint check (0..6; null = unset)
 - 00074 `employer_pay_profiles.statement_weekday` smallint check (0..6; null = unset)

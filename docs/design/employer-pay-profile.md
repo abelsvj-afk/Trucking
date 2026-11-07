@@ -130,7 +130,7 @@ netted against the real thing — expected pay for the pay period, minus the
 advances taken out of that pay, equals the exact net he should receive on
 payday. Section 8 said "advances: not built"; this section builds them.
 
-**Data — `cash_advances` (migration 00076, structure only, no seed):**
+**Data — `cash_advances` (migration 00078, structure only, no seed):**
 
 | column | type | notes |
 |---|---|---|

@@ -256,7 +256,7 @@ export async function loadPaySummary(client: SupabaseClient, companyId: string, 
     client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "completed"]).order("delivery_date", { ascending: false, nullsFirst: false }).limit(300),
     client.from("employer_pay_profiles").select("employer_name, rate_cents_per_mile, mile_basis, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to").eq("company_id", companyId).is("deleted_at", null),
     client.from("settlement_lines").select("load_id, amount_cents").eq("company_id", companyId).eq("kind", "load_pay").not("load_id", "is", null).is("deleted_at", null),
-    // Advances degrade to none until migration 00076 is applied - the rest of the paycheck picture must not break first.
+    // Advances degrade to none until migration 00078 is applied - the rest of the paycheck picture must not break first.
     client.from("cash_advances").select("amount_cents, advance_date, driver_id").eq("company_id", companyId).is("deleted_at", null).then((r) => (r.error ? { data: [] as AdvanceLike[] } : r)),
     loadHosWindow(client, companyId, now).catch(() => null),
   ]);

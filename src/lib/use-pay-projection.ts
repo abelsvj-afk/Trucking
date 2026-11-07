@@ -30,7 +30,7 @@ export function usePayProjection(): PayProjectionState {
     Promise.all([
       apiClient.list<EmployerPayProfile>("pay-profiles"),
       apiClient.list<Load>("loads", { limit: "200" }),
-      // Advances are an add-on to the projection: until migration 00076 is
+      // Advances are an add-on to the projection: until migration 00078 is
       // applied (or on any failure) the projection still shows, netting $0.
       apiClient.list<CashAdvance>("cash-advances", { limit: "200" }).catch(() => null),
     ])
