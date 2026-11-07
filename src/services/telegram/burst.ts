@@ -48,6 +48,8 @@ export interface TelegramBurstItem {
   sourceLabel?: string | null;
   /** True when the text arrived as a transcribed voice note. */
   voiceNote?: boolean;
+  /** Telegram's id of his message, so Abel can react to it. */
+  messageId?: number;
 }
 
 export type TelegramBurstFlush = (items: TelegramBurstItem[]) => Promise<void>;

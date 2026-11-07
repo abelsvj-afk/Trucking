@@ -48,6 +48,7 @@ export interface BotChatInput {
 }
 
 import { STYLE_RULES } from "@/services/telegram/format-reply";
+import { FLAIR_RULES } from "@/services/telegram/flair";
 
 const SYSTEM_PROMPT = `You are the owner's personal trucking assistant, talking with him in a private Telegram chat. He is a driver building his own trucking company, often working with Spanish-speaking contacts.
 
@@ -114,7 +115,7 @@ function buildUserPrompt(input: BotChatInput): string {
 
 export async function runBotChat(provider: AiProvider, input: BotChatInput): Promise<BotChatOutput> {
   const raw = await provider.complete({
-    system: `${SYSTEM_PROMPT}\n\n${STYLE_RULES}`,
+    system: `${SYSTEM_PROMPT}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
     user: buildUserPrompt(input),
   });
   return parseBotChatOutput(raw);

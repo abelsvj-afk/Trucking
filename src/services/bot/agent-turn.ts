@@ -45,6 +45,7 @@ import { buildBotTools, executeWriteTool } from "./tools";
 import { gateExecutes } from "./execute-gate";
 import { stripConfirmationProse } from "./reply-prose";
 import { STYLE_RULES } from "@/services/telegram/format-reply";
+import { FLAIR_RULES } from "@/services/telegram/flair";
 import { savedWhere } from "./saved-where";
 import { reconcileProposals } from "./reconcile-proposals";
 import { expandMaintenancePairings } from "./maintenance-pairing";
@@ -115,6 +116,11 @@ const PAY_SAFETY_RULES =
   "PAY SAFETY: telling you WHO PAYS for fuel or tolls changes ONLY that one field (fuel_paid_by / tolls_paid_by) - never send a rate, a percent, miles or any money value with it, and never set a rate, miles or pay to 0 unless he says that number in so many words. " +
   "set_pay_pin and set_pay_terms keep every field you do not name. Before proposing a pay change, read his current terms (get_pay_status / projected_pay) and say what CHANGES, before and after. " +
   "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again.";
+
+/** Temporal reasoning (owner 2026-11-07): dates and durations come from code, and old state is labelled as old. */
+const TEMPORAL_RULES =
+  "TIME: never work out a weekday, a relative date ('next Friday', 'in 3 weeks', 'the 6th') or a count of days in your head - call when_is / time_between, and say the resolved calendar date back to him when it matters, naming which reading you used if the tool flags one. " +
+  "The NOW line is the current moment on his clock. Things go stale: a load's 'active' state, an ETA, a memory about 'this week' are true AS OF when they were recorded - check their dates against NOW and say 'as of Tuesday' instead of asserting old state as current. Keep events in order and say what happened before or after what.";
 
 export type ConfirmationKind = "yes" | "no" | "other";
 
@@ -639,7 +645,7 @@ export async function runAgentTurn(
   const botTools = gateExecutes(buildBotTools(store), input.userText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${STYLE_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,

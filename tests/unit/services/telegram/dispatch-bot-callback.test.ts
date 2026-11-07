@@ -271,3 +271,72 @@ describe("readable messages: no raw markdown reaches Telegram (owner 2026-11-07)
     expect(sent).toContain("⛽ Fuel is on the company card");
   });
 });
+
+describe("personality: stickers and reactions (owner 2026-11-07)", () => {
+  const update = (id: number, extra: Record<string, unknown>) => ({ update_id: id, message: { chat: { id: 4242, type: "private" }, date: 1, ...extra } });
+
+  it("a sticker he sends reaches Abel as '[sticker 😂]' - not the 'I only work with text' reply", async () => {
+    const d = deps();
+    const runChat = (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat;
+    runChat.mockResolvedValue({ reply: "😂 Ha - good one.", memory: null });
+    await handleTelegramUpdate(update(100, { message_id: 7, sticker: { emoji: "😂" } }) as never, CONFIG, d);
+    expect(runChat.mock.calls[0]![0].userText).toBe("[sticker 😂]");
+    expect(d.sendMessage).toHaveBeenCalledWith(4242, "😂 Ha - good one.");
+    expect(String(d.sendMessage.mock.calls.at(-1)![1])).not.toMatch(/I work with text and photos/);
+  });
+
+  it("a GIF reaches Abel as '[GIF]'", async () => {
+    const d = deps();
+    const runChat = (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat;
+    runChat.mockResolvedValue({ reply: "Nice truck.", memory: null });
+    await handleTelegramUpdate(update(101, { animation: { file_id: "g" }, caption: "my rig" }) as never, CONFIG, d);
+    expect(runChat.mock.calls[0]![0].userText).toBe("[GIF] my rig");
+  });
+
+  it("a sticker can never approve a waiting proposal - it is just text", async () => {
+    const d = deps();
+    const runChat = (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat;
+    runChat.mockResolvedValue({ reply: "Still waiting on your yes.", memory: null });
+    await handleTelegramUpdate(update(102, { sticker: { emoji: "👍" } }) as never, CONFIG, d);
+    expect(runChat.mock.calls[0]![0].userText).toBe("[sticker 👍]");
+  });
+
+  it("the sticker and reaction Abel asked for go out AFTER the clean text; the markers are never shown or stored", async () => {
+    const d = deps();
+    const sendSticker = vi.fn().mockResolvedValue(undefined);
+    const setReaction = vi.fn().mockResolvedValue(undefined);
+    Object.assign(d, { sendSticker, setReaction });
+    (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({
+      reply: "🚚 Delivered - nice work!\n{{sticker:🎉}}\n{{react:🔥}}",
+      memory: null,
+    });
+    await handleTelegramUpdate(update(103, { message_id: 55, text: "delivered the load" }) as never, CONFIG, d);
+    expect(d.sendMessage).toHaveBeenCalledWith(4242, "🚚 Delivered - nice work!");
+    expect(sendSticker).toHaveBeenCalledWith(4242, "🎉");
+    expect(setReaction).toHaveBeenCalledWith(4242, 55, "🔥");
+    const store = (d as unknown as { store: { saveMessage: ReturnType<typeof vi.fn> } }).store;
+    const stored = store.saveMessage.mock.calls.map((c) => String(c[2])).join("\n");
+    expect(stored).not.toContain("{{");
+  });
+
+  it("no sticker or reaction on a warning or an approval request, even if Abel asked", async () => {
+    const d = deps();
+    const sendSticker = vi.fn();
+    const setReaction = vi.fn();
+    Object.assign(d, { sendSticker, setReaction });
+    (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply: "⚠️ You're close to your 14-hour limit {{sticker:😂}} {{react:👍}}", memory: null });
+    await handleTelegramUpdate(update(104, { message_id: 56, text: "how long do i have" }) as never, CONFIG, d);
+    expect(sendSticker).not.toHaveBeenCalled();
+    expect(setReaction).not.toHaveBeenCalled();
+    expect(String(d.sendMessage.mock.calls.at(-1)![1])).not.toContain("{{");
+  });
+
+  it("a failing sticker or reaction never breaks the turn - the text already went out", async () => {
+    const d = deps();
+    Object.assign(d, { sendSticker: vi.fn().mockRejectedValue(new Error("boom")), setReaction: vi.fn().mockRejectedValue(new Error("boom")) });
+    (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply: "Great news {{sticker:🎉}} {{react:🎉}}", memory: null });
+    const r = await handleTelegramUpdate(update(105, { message_id: 57, text: "paycheck came in" }) as never, CONFIG, d);
+    expect(r).not.toBe("error");
+    expect(d.sendMessage).toHaveBeenCalledWith(4242, "Great news");
+  });
+});

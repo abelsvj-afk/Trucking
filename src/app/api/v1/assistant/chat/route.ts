@@ -8,6 +8,7 @@
 // every query here, and the dispatch_helper kill switch can be
 // honored the same way /api/v1/dispatch-suggest honors it).
 
+import { extractFlair } from "@/services/telegram/flair";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -149,6 +150,9 @@ export const POST = createApiHandler(async (req, ctx) => {
       { onToolLog: (entry) => console.log("[assistant] bot tool", entry) },
     );
   }
+
+  // The in-app chat has no stickers or reactions: any personality marker Abel wrote is removed, never shown.
+  output = { ...output, reply: extractFlair(output.reply).text };
 
   await store.saveConversationMessage("user", text);
   await store.saveConversationMessage("assistant", output.reply);

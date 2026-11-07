@@ -33,6 +33,7 @@ import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advis
 import { buildRouteCheckTool } from "./route-check-tool";
 import { buildPayTools } from "./pay-tools";
 import { buildPayProjectionTools } from "./pay-projection-tools";
+import { buildTemporalTools } from "./temporal-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
 import { propagateMileage } from "@/services/fleet/mileage";
@@ -1004,6 +1005,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   // report - own module (pay-tools.ts), same registry.
   tools.push(...buildPayTools(store));
   tools.push(...buildPayProjectionTools(store));
+  tools.push(...buildTemporalTools());
 
   // Phase C (threads + people): forward thread records, open
   // loops, and the evidence-based per-person model - own module

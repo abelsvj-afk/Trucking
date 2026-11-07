@@ -1,7 +1,7 @@
 # Abel: readable messages, safe changes, no redundant approvals (design)
 
-Owner feedback 2026-11-07 (voice, from live use). Status: BUILT with this document except section 6, which is a
-proposal awaiting the owner's decision.
+Owner feedback 2026-11-07 (voice, from live use). Status: sections 1-5, 7 and 8 BUILT; section 6 is a proposal awaiting the owner's decision (machine learning),
+and the rest of section 8 is the temporal-reasoning roadmap.
 
 ## 1. Readable Telegram messages (no stars)
 Telegram shows plain text, so the model's markdown (`**bold**`, `* bullets`, `# headings`) appeared as literal
@@ -54,3 +54,33 @@ assistant that learns his preferences from his corrections. Feasible, in order:
    remembered fact ("Fuel is never on his card - never propose a fuel expense") he approves once.
 3. **Risk scoring**: proposals that resemble previously rejected ones get flagged before being shown.
 Nothing here changes authority: Abel still proposes, he approves. Not built until the owner chooses.
+
+## 6b. The owner's capability list (2026-11-07, in his order)
+1. Smarter - fewer redundant or wrong proposals, safer changes (sections 2-3, built).
+2. Machine learning - learns from his approvals and corrections (section 6, awaiting his go-ahead).
+3. **Temporal reasoning** - understands time: relative dates, ordering, durations, deadlines, staleness (section 8).
+
+## 7. Personality: emoji, stickers, reactions (owner 2026-11-07)
+"Use memes and emojis, whatever is accessible in the Telegram keyboard." What a bot CAN use, free and without keys:
+- **Emoji** in text - already the house style (section 1), used freely.
+- **Stickers** - Abel can send one by emoji (`{{sticker:🎉}}` in its reply; code strips the marker and sends it). The sticker
+  comes from a public sticker set looked up at run time with `getStickerSet` (`TELEGRAM_STICKER_SET`, default Telegram's own
+  `AnimatedEmojies`); no set / no match / any failure = nothing extra is sent, never an error.
+- **Reactions** on his message (`{{react:👍}}`) from Telegram's standard reaction list.
+- **Incoming** stickers, GIFs and bare emoji now reach Abel as `[sticker 😂]` / `[GIF]` instead of the "I only work with text"
+  reply; they are never commands (a sticker cannot approve a proposal).
+Taste is enforced in code, not just the prompt: at most one sticker and one reaction per reply; none on any message that
+carries a warning, an error, a failure or an approval request (⚠️ ❌ "NOT recorded" "Reply YES" ...). Wins, good news, friendly
+banter only.
+Not built: GIF/meme search (Tenor/Giphy) - needs an API key, content moderation and an owner choice of provider; proposed
+as optional later. Telegram's keyboard stickers/GIFs are the user's own to send - a bot can only send what it fetches.
+
+## 8. Temporal reasoning (owner 2026-11-07)
+First slice BUILT: Abel never does date math in its head. Two read tools compute it in code from "today" on the owner's
+clock (America/New_York): `when_is` (today / tomorrow / yesterday, "friday", "next friday", "last friday", "in 3 weeks",
+"10 days ago", "the 6th", "nov 6", "11/6", ISO dates, start/end of this/next/last week) and `time_between` (calendar days,
+weeks + days, weekdays between). Ambiguous phrases say which reading was used and give the other candidate.
+Roadmap (not built): event timelines ("what happened since Tuesday"), staleness - facts and statuses carry an age and Abel
+says "as of Tuesday" instead of asserting old state, deadline awareness (docs due, reminders), sequencing of loads on a calendar,
+and pay-period reasoning shared with the pay-week logic.
+

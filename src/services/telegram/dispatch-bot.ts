@@ -19,6 +19,7 @@
 
 import { parseDispatchTrip } from "@/lib/dispatch-trip";
 import { formatReply } from "@/services/telegram/format-reply";
+import { describeIncomingMedia, extractFlair, type Flair } from "@/services/telegram/flair";
 import { formatDispatchSuggestion, type DispatchSuggestion } from "@/services/ai/dispatch";
 import { formatRecordableOutcome, type StageRecordablesResult } from "@/services/bot/stage-recordables";
 import type { BotChatInput, BotChatOutput } from "@/services/ai/bot-chat";
@@ -61,8 +62,14 @@ export interface TelegramUpdate {
   /** Telegram's delivery id - the dedup key (Lane 1, audit B-2): a redelivered update carries the same id. */
   update_id?: number;
   message?: {
+    /** Telegram's id of the message (used to react to it). */
+    message_id?: number;
     chat?: { id?: number; type?: string };
     text?: string;
+    /** A sticker he sent: it reaches Abel as "[sticker 😂]", never as a command. */
+    sticker?: { emoji?: string; set_name?: string };
+    /** A GIF he sent: it reaches Abel as "[GIF]" plus any caption. */
+    animation?: { file_id?: string };
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
     photo?: TelegramPhotoSize[];
     /**
@@ -201,6 +208,10 @@ export interface TelegramDeps {
    * whose tap needs Telegram to deliver a separate callback_query update. Absent = plain text.
    */
   sendYesNoMessage?: (chatId: number, text: string) => Promise<void>;
+  /** Personality: sends a sticker for an emoji (looked up in the configured sticker set). Best-effort; absent = none. */
+  sendSticker?: (chatId: number, emoji: string) => Promise<void>;
+  /** Personality: reacts to his message with an emoji. Best-effort; absent = none. */
+  setReaction?: (chatId: number, messageId: number, emoji: string) => Promise<void>;
   /** §3.3: acknowledges a button tap (stops Telegram's spinner). Best-effort by contract. */
   answerCallbackQuery?: (queryId: string, text?: string) => Promise<void>;
   /**
@@ -268,6 +279,30 @@ interface ProcessedTextTurn {
   persist: boolean;
   /** Dispatch bookkeeping (exchange store + thread capture) that must run only AFTER the reply actually sent. */
   afterSend?: () => Promise<void>;
+  /** A sticker / reaction Abel asked for (already vetted: none on a serious message). */
+  flair?: Flair;
+}
+
+/** True only when Abel actually asked for a sticker or a reaction - the normal reply awaits nothing extra. */
+const wantsFlair = (flair: Flair | undefined): flair is Flair => Boolean(flair && (flair.sticker || flair.reaction));
+
+/** Sends the sticker and reaction Abel asked for, after the text. Never fails the turn. */
+async function sendFlair(deps: TelegramDeps, chatId: number, flair: Flair | undefined, messageId?: number): Promise<void> {
+  if (!flair) return;
+  if (flair.sticker && deps.sendSticker) {
+    try {
+      await deps.sendSticker(chatId, flair.sticker);
+    } catch (err) {
+      console.error("[telegram] sticker failed (the text already went out)", err instanceof Error ? err.message : "error");
+    }
+  }
+  if (flair.reaction && messageId !== undefined && deps.setReaction) {
+    try {
+      await deps.setReaction(chatId, messageId, flair.reaction);
+    } catch (err) {
+      console.error("[telegram] reaction failed (the text already went out)", err instanceof Error ? err.message : "error");
+    }
+  }
 }
 
 const BARE_CONFIRMATION = /^(yes|no|yeah|nope|ok|okay)[.!]?$/i;
@@ -489,7 +524,9 @@ async function processTextItems(
             ? "instruction_saved"
             : "remembered";
     // Owner 2026-11-07: no raw markdown stars - clean, emoji-labelled text, before it is sent AND before it is stored.
-    return { result, reply: formatReply(segments.join("\n\n")), degraded: ctx.degraded, persist: true, afterSend };
+    // Personality markers ({{sticker:..}} / {{react:..}}) are pulled out first and never stored or shown.
+    const flair = extractFlair(segments.join("\n\n"));
+    return { result, reply: formatReply(flair.text), degraded: ctx.degraded, persist: true, afterSend, flair };
   } catch (err) {
     console.error("[telegram] bot turn failed", err);
     return {
@@ -619,6 +656,7 @@ async function handleCallbackQuery(
     const item: TelegramBurstItem = { text: yesNo[1]!, isForwarded: false, voiceNote: false };
     const outcome = await processTextItems([item], chatId, deps);
     await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+    if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair);
     if (outcome.afterSend) await outcome.afterSend();
     if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
     return "callback_replied";
@@ -908,7 +946,8 @@ async function processTelegramUpdate(
     update = { ...update, message: { ...update.message, text: outcome.text } };
   }
 
-  const text = update.message?.text?.trim();
+  // A sticker or GIF is not a command and not "no text": it reaches Abel as "[sticker 😂]" / "[GIF]".
+  const text = update.message?.text?.trim() || describeIncomingMedia(update.message ?? {}) || undefined;
   if (!text) {
     await deps.sendMessage(
       chat.id,
@@ -926,6 +965,7 @@ async function processTelegramUpdate(
     isForwarded,
     sourceLabel: forwardSourceLabel(update.message),
     voiceNote,
+    messageId: update.message?.message_id,
   };
 
   // Telegram repairs (2026-11-03): with the burst collector wired,
@@ -942,6 +982,7 @@ async function processTelegramUpdate(
       async (bundleItems) => {
         const outcome = await processTextItems(bundleItems, chatId, deps);
         await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+        if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, bundleItems[bundleItems.length - 1]?.messageId);
         if (outcome.afterSend) await outcome.afterSend();
         if (outcome.persist) await persistTextTurn(store, chatId, bundleItems, outcome.reply);
       },
@@ -967,6 +1008,7 @@ async function processTelegramUpdate(
 
   const outcome = await processTextItems([item], chatId, deps);
   await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+  if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, item.messageId);
   if (outcome.afterSend) await outcome.afterSend();
   if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
   return outcome.result;

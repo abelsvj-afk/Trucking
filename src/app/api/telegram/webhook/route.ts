@@ -12,6 +12,7 @@
 // session-authenticated owner requests (docs/service-specs.md); this
 // caller is authenticated by the webhook secret + allowlist instead.
 
+import { createPersonalitySenders } from "@/services/telegram/personality-send";
 import { formatReply } from "@/services/telegram/format-reply";
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
@@ -197,6 +198,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const botToken = config.botToken;
+  // Personality: stickers come from a public sticker set (TELEGRAM_STICKER_SET; default Telegram's AnimatedEmojies).
+  const personality = createPersonalitySenders(botToken, { stickerSet: process.env.TELEGRAM_STICKER_SET });
   // v2 (§8): the brain store powers the agent loop (tools, proposals,
   // the bot_chat kill switch). It wraps the same service-role client
   // and company scope as the v1 store - both are null together.
@@ -287,6 +290,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : undefined,
     // §3.3: inline-keyboard asks + their tap resolution.
     sendYesNoMessage: (chatId, text) => sendTelegramYesNoMessage(botToken, chatId, text),
+    sendSticker: (chatId, emoji) => personality.sendSticker(chatId, emoji),
+    setReaction: (chatId, messageId, emoji) => personality.setReaction(chatId, messageId, emoji),
     sendAskMessage: (chatId, text, buttons) =>
       sendTelegramAskMessage(botToken, chatId, text, buttons),
     answerCallbackQuery: (queryId, text) =>

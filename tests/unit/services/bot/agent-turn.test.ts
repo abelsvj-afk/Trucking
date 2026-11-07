@@ -1013,3 +1013,36 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     expect(out.reply).toContain("👉 Reply YES to confirm, or NO to drop it.");
   });
 });
+
+describe("temporal reasoning: Abel's time tools and rules (owner 2026-11-07)", () => {
+  it("when_is and time_between are computed in code on his clock and handed back to the model", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          { id: "a", name: "when_is", arguments: JSON.stringify({ phrase: "next friday" }) },
+          { id: "b", name: "time_between", arguments: JSON.stringify({ from: "2026-11-06", to: "2026-11-23" }) },
+          { id: "c", name: "when_is", arguments: JSON.stringify({ phrase: "sometime soon" }) },
+        ],
+      },
+      { text: "Done.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("when is next friday and how long until the 23rd"));
+    const seen = JSON.stringify(runToolTurn.mock.calls[1] ?? []);
+    expect(seen).toMatch(/\\"next friday\\" = \w+, \w+ \d+, \d{4} \(\d{4}-\d{2}-\d{2}\)/);
+    expect(seen).toMatch(/17 days \(2 weeks 3 days\) later/);
+    expect(seen).toMatch(/Weekdays \(Mon-Fri\) in between: 11/);
+    expect(seen).toMatch(/can't read \\"sometime soon\\" as a date/);
+  });
+
+  it("the prompt carries the time rules and the personality rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/never work out a weekday/);
+    expect(sent).toMatch(/PERSONALITY/);
+    expect(sent).toMatch(/NEVER use asterisks/);
+  });
+});
