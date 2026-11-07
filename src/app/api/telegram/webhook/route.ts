@@ -109,6 +109,30 @@ async function sendTelegramAskMessage(
   }
 }
 
+/**
+ * A Yes / No reply keyboard under a proposal. Pressing a key sends the plain message "Yes" / "No" through the
+ * normal text path (no callback_query needed), and one_time_keyboard hides it again after use.
+ */
+async function sendTelegramYesNoMessage(botToken: string, chatId: number, text: string): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      reply_markup: {
+        keyboard: [[{ text: "Yes" }, { text: "No" }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    }),
+  });
+  if (!res.ok) {
+    console.error("[telegram] sendMessage (yes/no keyboard) failed", res.status);
+    throw new Error("Telegram sendMessage failed.");
+  }
+}
+
 /** §3.3: stops the button-tap spinner. Never throws - a failed ack must not fail the turn. */
 async function answerTelegramCallbackQuery(
   botToken: string,
@@ -259,6 +283,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             )
         : undefined,
     // §3.3: inline-keyboard asks + their tap resolution.
+    sendYesNoMessage: (chatId, text) => sendTelegramYesNoMessage(botToken, chatId, text),
     sendAskMessage: (chatId, text, buttons) =>
       sendTelegramAskMessage(botToken, chatId, text, buttons),
     answerCallbackQuery: (queryId, text) =>

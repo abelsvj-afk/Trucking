@@ -844,3 +844,18 @@ describe("pay terms by percent, and what he will be paid (owner 2026-11-06)", ()
     expect(db.loads![0]).toMatchObject({ pay_override_cents: 125000 });
   });
 });
+
+describe("the Yes key (a plain 'Yes' message) approves the waiting proposal", () => {
+  it("'Yes' with a capital letter, as the reply keyboard sends it, executes the proposal in code", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "p", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: new Date(Date.now() - 30_000).toISOString(), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel, runToolTurn } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("Yes"));
+    expect(runToolTurn).not.toHaveBeenCalled();
+    expect(out.reply).toContain("Done");
+    expect(db.expenses).toHaveLength(1);
+  });
+});

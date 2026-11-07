@@ -194,6 +194,12 @@ export interface TelegramDeps {
     text: string,
     buttons: { text: string; callback_data: string }[][],
   ) => Promise<void>;
+  /**
+   * Sends a reply with a Yes / No REPLY KEYBOARD. A reply-keyboard press arrives as an ordinary text message
+   * ("Yes" / "No"), so it works whatever update types the webhook is registered for - unlike an inline button,
+   * whose tap needs Telegram to deliver a separate callback_query update. Absent = plain text.
+   */
+  sendYesNoMessage?: (chatId: number, text: string) => Promise<void>;
   /** §3.3: acknowledges a button tap (stops Telegram's spinner). Best-effort by contract. */
   answerCallbackQuery?: (queryId: string, text?: string) => Promise<void>;
   /**
@@ -562,21 +568,17 @@ export function asksForYesNo(text: string): boolean {
 }
 
 /**
- * Sends a reply; when it asks for a yes/no, big Yes / No buttons ride along (gloves, a truck). Button
- * delivery failing or unsupported degrades to the same text - he can always just type it.
+ * Sends a reply; when it asks for a yes/no, big Yes / No keys ride along (gloves, a truck). A key press is an
+ * ordinary "Yes" / "No" message, so it needs no special webhook setting. Keys failing or unsupported degrade to
+ * the same text - he can always just type it. (Inline "yn:" taps from older messages are still handled below.)
  */
 async function sendReply(deps: TelegramDeps, chatId: number, text: string): Promise<void> {
-  if (deps.sendAskMessage && asksForYesNo(text)) {
+  if (deps.sendYesNoMessage && asksForYesNo(text)) {
     try {
-      await deps.sendAskMessage(chatId, text, [
-        [
-          { text: "✅ Yes", callback_data: "yn:yes" },
-          { text: "❌ No", callback_data: "yn:no" },
-        ],
-      ]);
+      await deps.sendYesNoMessage(chatId, text);
       return;
     } catch (err) {
-      console.error("[telegram] yes/no button send failed; sending plain text", err);
+      console.error("[telegram] yes/no keyboard send failed; sending plain text", err);
     }
   }
   await deps.sendMessage(chatId, text);

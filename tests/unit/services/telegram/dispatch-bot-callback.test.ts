@@ -194,30 +194,42 @@ describe("Yes / No buttons on proposals", () => {
     return { update_id: updateId, message: { message_id: 1, chat: { id: 4242, type: "private" }, text, date: 1 } };
   }
 
-  it("a reply that asks for a yes/no goes out with Yes and No buttons", async () => {
+  it("a reply that asks for a yes/no goes out with a Yes / No reply keyboard (works without callback_query delivery)", async () => {
     const d = deps();
-    (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({
+    const withKeys = d as unknown as { sendYesNoMessage: ReturnType<typeof vi.fn>; runChat: ReturnType<typeof vi.fn> };
+    withKeys.sendYesNoMessage = vi.fn().mockResolvedValue(undefined);
+    withKeys.runChat.mockResolvedValue({
       reply: "I have NOT recorded this yet. Reply YES to confirm, or NO to drop it:\n- Expense: $88.00",
       memory: null,
     });
     await handleTelegramUpdate(textUpdate(60, "the tire was 88"), CONFIG, d);
-    expect(d.sendAskMessage).toHaveBeenCalledTimes(1);
-    const [, , buttons] = d.sendAskMessage.mock.calls[0]! as unknown as [number, string, { callback_data: string }[][]];
-    expect(buttons[0]!.map((b) => b.callback_data)).toEqual(["yn:yes", "yn:no"]);
+    expect(withKeys.sendYesNoMessage).toHaveBeenCalledTimes(1);
+    expect(withKeys.sendYesNoMessage.mock.calls[0]![1]).toContain("Reply YES");
+    expect(d.sendAskMessage).not.toHaveBeenCalled();
   });
 
-  it("an ordinary reply carries no buttons, and failed buttons degrade to plain text", async () => {
+  it("an ordinary reply carries no keyboard, and a failed keyboard degrades to plain text", async () => {
     const plain = deps();
+    const keys = vi.fn().mockResolvedValue(undefined);
+    (plain as unknown as { sendYesNoMessage: unknown }).sendYesNoMessage = keys;
     (plain as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply: "You have 3h left.", memory: null });
     await handleTelegramUpdate(textUpdate(61, "how much time"), CONFIG, plain);
-    expect(plain.sendAskMessage).not.toHaveBeenCalled();
+    expect(keys).not.toHaveBeenCalled();
     expect(plain.sendMessage).toHaveBeenCalledWith(4242, "You have 3h left.");
 
     const broken = deps();
-    broken.sendAskMessage.mockRejectedValue(new Error("no buttons today"));
+    (broken as unknown as { sendYesNoMessage: unknown }).sendYesNoMessage = vi.fn().mockRejectedValue(new Error("no keyboard today"));
     (broken as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply: "Reply YES to confirm", memory: null });
     await handleTelegramUpdate(textUpdate(62, "x"), CONFIG, broken);
     expect(broken.sendMessage).toHaveBeenCalledWith(4242, "Reply YES to confirm");
+  });
+
+  it("pressing the Yes key is an ordinary message 'Yes' and runs the same path as typing it", async () => {
+    const d = deps();
+    const runChat = (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat;
+    runChat.mockResolvedValue({ reply: "Done - recorded.", memory: null });
+    expect(await handleTelegramUpdate(textUpdate(66, "Yes"), CONFIG, d)).not.toBe("ignored_no_chat");
+    expect(runChat.mock.calls[0]![0].userText).toBe("Yes");
   });
 
   it("a fresh tap runs exactly the typed 'yes' through the bot", async () => {
