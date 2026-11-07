@@ -74,6 +74,10 @@ function BriefingSnapshot({
   spotlight: boolean;
   registerRef: (id: string) => (el: HTMLElement | null) => void;
 }) {
+  // Findings whose cited article has no servable preview image: the
+  // <img> reports an error and the finding renders imageless, cleanly
+  // (owner 2026-11-07: imagery per section, never filler).
+  const [failedImages, setFailedImages] = useState<Set<number>>(() => new Set());
   return (
     <li ref={registerRef(briefing.id)} className={spotlight ? "spotlight" : undefined}>
       <p>
@@ -96,6 +100,26 @@ function BriefingSnapshot({
               {finding.source_title}
             </a>
             )
+            {!failedImages.has(index) && (
+              // The cited article's own preview image, fetched and
+              // re-encoded by OUR server (/api/v1/briefing-image) -
+              // never hot-linked from the publisher. Alt text is the
+              // cited article's title (that section's heading).
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className="briefing-finding-img"
+                src={`/api/v1/briefing-image?briefing=${encodeURIComponent(briefing.id)}&i=${index}`}
+                alt={finding.source_title}
+                loading="lazy"
+                onError={() =>
+                  setFailedImages((prev) => {
+                    const next = new Set(prev);
+                    next.add(index);
+                    return next;
+                  })
+                }
+              />
+            )}
           </li>
         ))}
       </ul>
