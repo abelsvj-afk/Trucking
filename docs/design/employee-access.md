@@ -56,3 +56,15 @@ owner in the app and in his Telegram, which he approves or declines; Abel tells 
 design review -> `driver_channels` + enrollment + role-aware tool list (read-only own-data tools first) -> own preferences -> `driver_requests`
 -> per-driver pay -> proactive nudges (only if decision 3 allows). Each step ships with tests that prove a driver turn CANNOT reach owner data
 (the same style as `tests/db/rls-isolation.sql`, but at the tool layer).
+
+## 7. Owner decisions (2026-11-07, made one by one with King)
+
+Section 5 is decided. Recorded by King at the owner's direction:
+
+1. **Pay terms per driver — YES.** Driver-scoped pay profiles, tax status attached (W2 / lease-on / owner-operator differ).
+2. **Driver visibility — FULL.** A driver sees everything stored about him, with its source (stated vs learned).
+3. **Proactive messages — ALLOWED** for the practical alert classes named in section 5 (home-time nudges, expiring credentials). No other third-party messaging; the never-auto-send classes (money, signatures/terms, HOS compliance) are untouched.
+4. **Retention + consent — ONE YEAR.** Driver conversations kept one year, stated plainly at enrollment; a driver may ask for earlier deletion. Enrollment wording must be accurate about Telegram (encrypted in transit/at rest, not end-to-end by default).
+5. **Channel — TELEGRAM FIRST.** In-app driver view may come later as a separate call.
+
+The build order in section 6 is unblocked. Merge/deploy remain the owner's taps.
