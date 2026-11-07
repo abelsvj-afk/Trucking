@@ -348,7 +348,7 @@ Added by the cash-advances pass (`docs/design/employer-pay-profile.md` §9, migr
 |---|---|---|---|
 | id | uuid | no | |
 | company_id | uuid | no | |
-| driver_id | uuid | yes | references `drivers.id` — the worker who took the advance (per-worker data); null = not assigned to a driver row |
+| driver_id | uuid | yes | composite tenant FK `(company_id, driver_id)` → `drivers (company_id, id)` (converted by migration `00080`; `00079` created it as a single-column reference) — the worker who took the advance (per-worker data); null = not assigned to a driver row |
 | amount_cents | integer | no | > 0 (check constraint) — always positive; the deduction sign comes from what an advance is |
 | advance_date | date | no | the day the money was taken (owner-recorded) |
 | note | text | yes | |
