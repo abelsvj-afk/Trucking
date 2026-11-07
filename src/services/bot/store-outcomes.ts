@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BotBrainStore, BotChannel } from "./store";
 import { signatureOf, WINDOW_DAYS, type Outcome, type OutcomeRow } from "./learning";
 
-export type OutcomesStoreMethods = Pick<BotBrainStore, "recordProposalOutcome" | "loadRecentOutcomes">;
+export type OutcomesStoreMethods = Pick<BotBrainStore, "recordProposalOutcome" | "loadRecentOutcomes" | "markCandidateOutcome">;
 
 export function createOutcomesStore(supabase: SupabaseClient, company: string, channel: BotChannel): OutcomesStoreMethods {
   return {
@@ -23,6 +23,22 @@ export function createOutcomesStore(supabase: SupabaseClient, company: string, c
         if (error) console.error("[bot] outcome not logged:", error.message);
       } catch (err) {
         console.error("[bot] outcome not logged:", err instanceof Error ? err.message : "error");
+      }
+    },
+
+    async markCandidateOutcome(candidateId, outcome) {
+      // approved = he saved it as a draft load ("taken"); dropped = "no" ("passed"); anything else that ends the offer = expired.
+      const status = outcome === "approved" ? "taken" : outcome === "dropped" ? "passed" : outcome === "expired" || outcome === "replaced" ? "expired" : null;
+      if (!status) return;
+      try {
+        await supabase
+          .from("load_candidates")
+          .update({ status, updated_at: new Date().toISOString() })
+          .eq("id", candidateId)
+          .eq("company_id", company)
+          .eq("status", "proposed");
+      } catch {
+        /* learning must never affect a conversation */
       }
     },
 

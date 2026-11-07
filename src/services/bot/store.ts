@@ -165,6 +165,8 @@ export interface BotBrainStore extends TelegramStore {
   recordProposalOutcome(entry: { tool: string; args: Record<string, unknown>; summary: string; outcome: Outcome }): Promise<void>;
   /** Learning: his recent answers (last 90 days, newest first). [] when the table is missing or unreadable. */
   loadRecentOutcomes(): Promise<OutcomeRow[]>;
+  /** Company inbox (migration 00078): his answer to a proposal staged from an email load offer, recorded on the load candidate. Best-effort. */
+  markCandidateOutcome?(candidateId: string, outcome: Outcome): Promise<void>;
   /** Every waiting pending row (singles and batch items), oldest first - for reconciling redundant proposals. */
   loadOpenPendingRows(): Promise<PendingAction[]>;
   /** §9: every pending item of the oldest pending dump batch (empty when the oldest pending proposal is a single, or none is pending). */

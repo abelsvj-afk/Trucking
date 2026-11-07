@@ -38,5 +38,9 @@ export async function register() {
     // 5 minutes, behind the logging_reminders switch (off by default).
     const { startReminderScheduler } = await import("@/services/bot/reminder-scheduler");
     startReminderScheduler();
+    // Company inbox, rung 1 READ-ONLY (docs/design/company-inbox.md) - polls dispatch@ over IMAP on its own
+    // interval; does nothing (and says so) unless the IONOS email secrets are set.
+    const { startEmailScheduler } = await import("@/services/email/scheduler");
+    startEmailScheduler();
   }
 }

@@ -25,6 +25,7 @@ import PageHeader from "@/components/PageHeader";
 import HosCarrierSettings from "@/components/settings/HosCarrierSettings";
 import BackgroundTrackingSettings from "@/components/settings/BackgroundTrackingSettings";
 import TelegramConnectionSettings from "@/components/settings/TelegramConnectionSettings";
+import EmailInboxSettings from "@/components/settings/EmailInboxSettings";
 import PayTermsSettings from "@/components/settings/PayTermsSettings";
 import { useToast } from "@/components/Toast";
 import {
@@ -164,6 +165,8 @@ export default function AccountSettingsPage() {
       <HosCarrierSettings />
 
       <TelegramConnectionSettings />
+
+      <EmailInboxSettings />
 
       <BackgroundTrackingSettings />
 

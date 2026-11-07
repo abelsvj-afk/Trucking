@@ -1051,6 +1051,73 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `deleted_at` timestamptz
 
 
+### `email_messages` — created in 00078
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `message_id` text not null check (length(btrim(message_id)) > 0)
+- `mailbox` text not null default 'dispatch'
+- `uid` bigint
+- `uidvalidity` bigint
+- `from_address` text
+- `from_name` text
+- `reply_to` text
+- `to_addresses` text
+- `subject` text
+- `received_at` timestamptz not null
+- `body_text` text
+- `attachments` jsonb not null default '[]'::jsonb
+- `classification` text not null default 'unclassified' constraint email_messages_classification_valid check (classification in ('load_offer', 'payment', 'facility', 'other', 'junk', 'unclassified'))
+- `summary` text
+- `surfaced_at` timestamptz
+- `digest_sent_at` timestamptz
+- `linked_proposal_id` uuid
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `load_candidates` — created in 00078
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `email_message_id` uuid
+- `source` text not null default 'email' constraint load_candidates_source_valid check (source in ('email', 'pasted', 'board'))
+- `data` jsonb not null
+- `dedupe_key` text not null check (length(btrim(dedupe_key)) > 0)
+- `status` text not null default 'new' constraint load_candidates_status_valid check (status in ('new', 'proposed', 'taken', 'passed', 'expired'))
+- `first_seen_at` timestamptz not null default now()
+- `expires_at` date
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `email_drafts` — created in 00078
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `email_message_id` uuid not null
+- `to_address` text not null check (length(btrim(to_address)) > 0)
+- `subject` text not null
+- `body` text not null check (length(btrim(body)) > 0)
+- `status` text not null default 'draft' constraint email_drafts_status_valid check (status in ('draft', 'discarded'))
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+### `email_poll_state` — created in 00078
+
+- `company_id` uuid primary key references companies (id)
+- `uidvalidity` bigint
+- `last_uid` bigint
+- `last_attempt_at` timestamptz
+- `last_ok_at` timestamptz
+- `last_error_kind` text constraint email_poll_state_error_kind_valid check (last_error_kind is null or last_error_kind in ('auth', 'network', 'tls', 'other'))
+- `last_error_at` timestamptz
+- `consecutive_failures` integer not null default 0 check (consecutive_failures >= 0)
+- `last_notified_state` text
+- `last_digest_date` date
+- `updated_at` timestamptz not null default now()
+
+
 ### Columns added to already-documented tables since 00032
 
 - 00033 `documents.caption` text

@@ -12,6 +12,7 @@ export const NAMED_ACTION_PATTERNS: Record<string, RegExp> = {
   attach_document: /\b(attach|goes with|go with|put (it|this|that) (on|with)|file (it|this|that) (under|with)|that'?s the (bol|receipt|rate ?con|paperwork|pod))\b/i,
   update_load: /\b(change|update|set|fix|correct|should (say|be|read)|make it|move|mark|complete[ds]?|delivered|cancel(led)?|confirm(ed)?|was late|rate is|miles)\b/i,
   complete_load: /\b(complete[ds]?|delivered|dropped (it|the load|the trailer) off|finished|done with (the|that|this) load|unloaded|empty now)\b/i,
+  draft_email_reply: /\b(draft|write|compose|prepare|put together|start)\b.{0,40}\b(repl(y|ies)|response|email|e-mail|message|back)\b|\b(repl(y|ies)|respond)\b.{0,30}\b(to|for)\b/i,
   record_forward_thread: /\b(record|save|log|keep) (this|that|the) (thread|conversation|chat)\b/i,
 };
 
