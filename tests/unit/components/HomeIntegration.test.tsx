@@ -63,6 +63,7 @@ vi.mock("@/lib/api-client", async () => {
 import HomePage from "@/app/(app)/page";
 
 beforeEach(() => {
+  window.localStorage.clear();
   // jsdom has no IntersectionObserver (every real phone does); Reveal uses it.
   globalThis.IntersectionObserver = class {
     observe() {}
@@ -90,10 +91,14 @@ describe("Home, whole page", () => {
     expect(screen.getByLabelText("Duty status and clocks")).toBeTruthy();
     expect(screen.getByLabelText("Time in this status")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Driving" })).toBeTruthy();
-    // Active load, next step, quick actions, month summary.
+    // Active load, next step, quick actions.
     expect(screen.getByLabelText("Active load")).toBeTruthy();
     expect(screen.getByLabelText("Your next step")).toBeTruthy();
-    expect(document.body.textContent).toContain("operational revenue");
+    // The "This month" business summary is hidden by default (owner
+    // order 2026-11-07 - it is the future company view, and only
+    // shows when switched on in Settings; see the toggle test below).
+    expect(screen.queryByLabelText("This month's financial summary")).toBeNull();
+    expect(document.body.textContent).not.toContain("Operating result");
     expect(document.body.textContent).not.toMatch(/profit/i);
 
     const order = ["Duty status and clocks", "News", "Your next step", "Active load"].map((label) => {
@@ -103,6 +108,19 @@ describe("Home, whole page", () => {
     expect(order.every((i) => i >= 0)).toBe(true);
     // HUD first, then banner, then next step, then active load.
     expect([...order]).toEqual([...order].sort((x, y) => x - y));
+  });
+
+  it("with the business summary switched on in Settings, This month renders as before", async () => {
+    window.localStorage.setItem("trucking-home-business-summary", "on");
+    await act(async () => void render(<HomePage />));
+    await act(async () => {});
+    await act(async () => {});
+
+    const monthBlock = screen.getByLabelText("This month's financial summary");
+    expect(monthBlock.textContent).toContain("This month");
+    expect(monthBlock.textContent).toContain("Expenses");
+    expect(monthBlock.textContent).toContain("Operating result");
+    expect(document.body.textContent).not.toMatch(/profit/i);
   });
 
   it("with GPS unavailable (no geolocation in this environment) the status switch still works, in its no-typing quick form", async () => {
