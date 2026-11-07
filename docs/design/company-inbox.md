@@ -4,6 +4,12 @@ Owner direction 2026-11-07: "The bot needs access to the email." The owner regis
 mailboxes exist: **dispatch@** (the company inbox brokers write to) and **owner@** (the owner's own). This gives Abel the company inbox
 (`docs/agent-dispatch-build-plan.md` section 4.2, pulled forward). Status: BUILT, gated, NOT deployed, migration 00078 NOT applied.
 
+> **Scope discrepancy to settle (flagged 2026-11-07):** this build follows the relay Claude was given, which scopes Abel to **dispatch@ only**
+> (owner@ out of scope, env names `IONOS_EMAIL_USER` / `IONOS_EMAIL_PASSWORD`). The brief committed on main, `docs/design/abel-email-access.md`,
+> instead says both mailboxes (`IONOS_EMAIL_DISPATCH_*` / `IONOS_EMAIL_OWNER_*`, a `mailbox` label on every message). Both cannot be current.
+> The owner (or King) should say which stands. If both: owner@ is a second config of this same reader (the `mailbox` column already exists,
+> default 'dispatch'), and it changes who can see owner@ mail - a separate, explicit decision. Nothing in this build reads owner@.
+
 ## 1. Scope - Observe and Draft only. Nothing in this build can send, delete, move or change mail.
 **In:** poll dispatch@'s INBOX over IMAP, read and store messages, classify them, surface what matters in Telegram, extract load offers
 into candidates that go through the normal proposal flow, store UNSENT reply drafts, show real health.
