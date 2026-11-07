@@ -12,28 +12,32 @@ import { viewerTimeZone } from "@/lib/time";
 import { zonedDate } from "@/lib/zoned-day";
 import { projectPeriod, projectPreviousPeriod, type PayTerms, type PeriodProjection } from "@/lib/pay-projection";
 import { termsForDate, type PayTermsRow } from "@/lib/paycheck";
-import type { EmployerPayProfile, Load } from "@/types/entities";
+import type { CashAdvance, EmployerPayProfile, Load } from "@/types/entities";
 
 export type PayProjectionState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "no-terms" }
-  | { status: "ready"; terms: PayTerms; period: PeriodProjection; previous: PeriodProjection };
+  | { status: "ready"; terms: PayTerms; period: PeriodProjection; previous: PeriodProjection; advances: CashAdvance[] };
 
 export function usePayProjection(): PayProjectionState {
   const version = useLiveVersion(["loads"]);
   const nowMs = useNowTick(60_000);
-  const [data, setData] = useState<{ rows: PayTermsRow[]; loads: Load[] } | "error" | null>(null);
+  const [data, setData] = useState<{ rows: PayTermsRow[]; loads: Load[]; advances: CashAdvance[] } | "error" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       apiClient.list<EmployerPayProfile>("pay-profiles"),
       apiClient.list<Load>("loads", { limit: "200" }),
+      // Advances are an add-on to the projection: until migration 00079 is
+      // applied (or on any failure) the projection still shows, netting $0.
+      apiClient.list<CashAdvance>("cash-advances", { limit: "200" }).catch(() => null),
     ])
-      .then(([profiles, loads]) => {
+      .then(([profiles, loads, advances]) => {
         if (cancelled) return;
         setData({
+          advances: advances?.data ?? [],
           rows: profiles.data.map((p) => ({
             employer_name: p.employer_name,
             rate_cents_per_mile: p.rate_cents_per_mile,
@@ -68,5 +72,6 @@ export function usePayProjection(): PayProjectionState {
     terms: current,
     period: projectPeriod(current, data.loads, today, options),
     previous: projectPreviousPeriod(current, data.loads, today, options),
+    advances: data.advances,
   };
 }

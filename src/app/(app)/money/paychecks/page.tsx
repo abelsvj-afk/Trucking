@@ -46,6 +46,14 @@ export default function PaychecksPage() {
               ? `${state.summary.totals.shortCount} paid short by ${formatCents(state.summary.totals.shortfallCents)} in all.`
               : ""}
           </p>
+          {state.summary.totals.advancesCents > 0 && (
+            <p role="status">
+              <Link href="/money/advances">Cash advances</Link> taken out of these pay weeks: {formatCents(state.summary.totals.advancesCents)}.
+              {state.summary.totals.unpaidCount > 0
+                ? ` After those advances, the unpaid loads should net ${formatRange(state.summary.totals.unpaidNetLowCents, state.summary.totals.unpaidNetHighCents)}.`
+                : ""}
+            </p>
+          )}
           <p role="note" className="row-sub">
             Expected pay uses the terms in force on each delivery date. &quot;Received&quot; is the pay line a settlement
             names for that load — record your settlements and this fills in. Your settlement is the final number.
@@ -69,6 +77,13 @@ export default function PaychecksPage() {
                       {w.shortCount > 0 ? ` · SHORT ${formatCents(w.shortfallCents)} on ${w.shortCount} load${w.shortCount === 1 ? "" : "s"}` : ""}
                       {w.unpaidCount > 0 ? ` · ${w.unpaidCount} not on a statement yet` : ""}
                     </span>
+                    {w.advancesCents > 0 && (
+                      <span className="row-sub">
+                        − {formatCents(w.advancesCents)} in cash advances already taken · net that should land:{" "}
+                        <strong>{formatRange(w.netLowCents, w.netHighCents)}</strong>
+                        {w.netHighCents < 0 ? " (more taken out than this week is expected to pay)" : ""}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

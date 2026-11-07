@@ -66,4 +66,33 @@ describe("buildPaySummary", () => {
     const s = buildPaySummary({ loads: [load({ miles: null })], terms, receivedByLoad: new Map(), hos: null, now });
     expect(s.weeks[0]).toMatchObject({ unpricedCount: 1, expectedLowCents: 0 });
   });
+
+  it("nets cash advances against their own pay week's expected pay", () => {
+    const deal = [{ ...terms[0]!, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
+    const s = buildPaySummary({
+      loads: [load({ id: "a", delivery_date: "2026-10-28", pickup_date: "2026-10-27" })], // week Oct 25-31, $600 expected
+      terms: deal,
+      receivedByLoad: new Map(),
+      advances: [
+        { amount_cents: 10000, advance_date: "2026-10-27" }, // same week
+        { amount_cents: 5000, advance_date: "2026-11-02" }, // next week (Nov 1-7): no finished loads
+      ],
+      hos: null,
+      now,
+    });
+    const withLoad = s.weeks.find((w) => w.start === "2026-10-25")!;
+    expect(withLoad).toMatchObject({ advancesCents: 10000, expectedLowCents: 60000, netLowCents: 50000, netHighCents: 50000 });
+    const advanceOnly = s.weeks.find((w) => w.start === "2026-11-01")!;
+    expect(advanceOnly).toMatchObject({ loadCount: 0, advancesCents: 5000, netLowCents: -5000, payday: "2026-11-13" });
+    expect(s.totals.advancesCents).toBe(15000);
+    // The unpaid load's week: $600 expected - $100 advances = $500 net.
+    expect(s.totals.unpaidNetLowCents).toBe(50000);
+    expect(s.totals.unpaidNetHighCents).toBe(50000);
+  });
+  it("with no advances the nets equal the gross figures", () => {
+    const s = buildPaySummary({ loads: [load({})], terms, receivedByLoad: new Map(), hos: null, now });
+    expect(s.totals.advancesCents).toBe(0);
+    expect(s.weeks[0]).toMatchObject({ advancesCents: 0, netLowCents: 60000, netHighCents: 60000 });
+    expect(s.totals.unpaidNetLowCents).toBe(60000);
+  });
 });
