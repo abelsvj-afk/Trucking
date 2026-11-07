@@ -25,6 +25,18 @@ A small native wrapper (Capacitor) that loads this same web app and adds one nat
 - Shell: `native/tracker` (Capacitor 8 + `@capacitor-community/background-geolocation` 1.3.1, all MIT, 0 audit findings, lockfile committed): a one-screen app (server address, key, Start/Stop), a foreground-service notification, a durable queue with backoff (`www/feed-queue.js`, unit-tested in the main suite). README there has the build + first-run steps.
 - NOT verified on a device: the build sandbox has no Android SDK, so the APK has not been built or run. First proof is on the phone (lock it, drive, watch Home's map and the Telegram "Switched to Driving" notice). King can build it on his VM with the Android command-line tools.
 
+## Tracker settings screen (owner request, 2026-11-07)
+The Tracker has two screens. **Main:** the saved server address (host shown in words, never the key), the
+status, and Start / Stop. **Settings:** the server URL and the device key ("API key"), with Save and Back.
+- Saved locally on the phone (Capacitor Preferences, keys `server` and `key` - the same keys as before, so
+  values already entered carry over). Nothing is sent anywhere until tracking starts.
+- Tracking uses the SAVED values, never whatever is half-typed in a field. A change saved while tracking
+  applies to the next send.
+- Validation before saving: the URL must be https (a trailing slash is trimmed); the key must look like a
+  device key (`tdv_` + 20-100 letters, digits, `_` or `-`, the same shape the server accepts). The key field
+  is a password field; the main screen shows only whether a key is saved and its last 4 characters.
+- With nothing saved, Start opens Settings instead of failing.
+
 ## Decision needed (owner)
 1. **Phone: iPhone or Android?** It decides the shell's cost and distribution.
 2. Go ahead with Path 2 after that (server feed first, then the shell project), keeping Path 1 as the no-install fallback.

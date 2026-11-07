@@ -29,4 +29,14 @@ describe("Tracker page wiring", () => {
     expect(html).toMatch(/addEventListener\("error"/);
     expect(html).toMatch(/addEventListener\("unhandledrejection"/);
   });
+  it("has a separate settings screen with server URL + key, and the main screen shows the saved address", () => {
+    expect(html).toMatch(/id="main-view"/);
+    expect(html).toMatch(/id="settings-view"[^>]*hidden/);
+    expect(html).toMatch(/id="server"/);
+    expect(html).toMatch(/id="key" type="password"/);
+    expect(html).toMatch(/id="saved-address"/);
+    // tracking sends with the SAVED values, never the raw input fields
+    expect(script).toMatch(/serverUrl: saved\.server/);
+    expect(script).not.toMatch(/serverUrl: \$\("server"\)/);
+  });
 });

@@ -11,20 +11,44 @@
     label { display: block; margin-top: 12px; font-weight: 600; }
     input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 1rem; }
     button { min-height: 56px; width: 100%; margin-top: 12px; font-size: 1.1rem; font-weight: 700; }
+    button.secondary { min-height: 48px; font-weight: 600; }
     #status { margin-top: 16px; padding: 12px; border: 2px solid currentColor; border-radius: 8px; }
+    .saved { margin-top: 12px; padding: 12px; border-radius: 8px; border: 1px solid currentColor; }
+    .saved .address { font-size: 1.1rem; font-weight: 700; word-break: break-all; }
     .small { font-size: 0.85rem; opacity: 0.8; }
+    .error { margin-top: 8px; font-weight: 600; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
-  <h1>Trucking OS Tracker</h1>
-  <p class="small">Keeps reporting where the truck is after you close the app, so your log can switch to Driving on its own. Paper-log helper, not an ELD.</p>
-  <label for="server">Server address</label>
-  <input id="server" inputmode="url" autocomplete="off" placeholder="https://your-app.fly.dev" />
-  <label for="key">Device key (from Trucking OS &rarr; Settings &rarr; Background tracking)</label>
-  <input id="key" type="password" autocomplete="off" placeholder="tdv_..." />
-  <button id="toggle" type="button">Start tracking</button>
-  <div id="status" role="status" aria-live="polite">Not tracking.</div>
-  <p class="small" id="detail"></p>
+  <!-- Main screen: the saved address, the status, Start / Stop. -->
+  <section id="main-view" aria-label="Tracker">
+    <h1>Trucking OS Tracker</h1>
+    <p class="small">Keeps reporting where the truck is after you close the app, so your log can switch to Driving on its own. Paper-log helper, not an ELD.</p>
+    <div class="saved" aria-label="Saved connection">
+      <div class="small">Reporting to</div>
+      <div class="address" id="saved-address">No server saved yet</div>
+      <div class="small" id="saved-key">No key saved yet</div>
+    </div>
+    <button id="toggle" type="button">Start tracking</button>
+    <div id="status" role="status" aria-live="polite">Not tracking.</div>
+    <p class="small" id="detail"></p>
+    <button id="open-settings" type="button" class="secondary">Settings</button>
+  </section>
+
+  <!-- Settings screen: server URL + device key, saved on this phone. -->
+  <section id="settings-view" aria-label="Settings" hidden>
+    <h1>Settings</h1>
+    <p class="small">Saved on this phone only. Tracking uses what you save here.</p>
+    <label for="server">Server URL</label>
+    <input id="server" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://your-app.fly.dev" />
+    <label for="key">API key (device key from Trucking OS &rarr; Settings &rarr; Background tracking)</label>
+    <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="tdv_..." />
+    <p class="error" id="settings-error" role="alert"></p>
+    <button id="save-settings" type="button">Save</button>
+    <button id="close-settings" type="button" class="secondary">Back</button>
+  </section>
+
   <script>
     // Any error while the page starts goes INTO the status box - a broken script must never look like a dead button.
     window.addEventListener("error", function (e) {

@@ -13,7 +13,7 @@ Install the APK on the phone (USB `adb install -r app-debug.apk`, or send the fi
 
 ## First run on the phone
 1. Trucking OS → Settings → Background tracking → name the phone → **Make a key**. Copy the key (shown once) and note the server address.
-2. Open **Trucking OS Tracker**, paste both, tap **Start tracking**.
+2. Open **Trucking OS Tracker** → **Settings**, paste the server URL and the key, tap **Save**. They are saved on the phone only; the main screen then shows the saved address (and only the key's last 4 characters). Tap **Start tracking**.
 3. Allow location and notifications. **"While using the app" is enough** - the app does not declare the separate "all the time" permission; it keeps reporting with the app closed through a foreground service, and the "Trucking OS Tracker" notification that stays up while it reports is what keeps that service alive (Android requires it). If your phone offers "Allow all the time", choose it; do not swipe the notification away.
 4. Phone settings → Apps → Trucking OS Tracker → Battery → **Unrestricted** (some makers kill background apps otherwise).
 

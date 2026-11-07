@@ -1,8 +1,10 @@
-// Trucking OS Tracker: the UI and the platform glue. All queue/sending rules live in feed-queue.js.
-// The background-geolocation plugin keeps a foreground service (with a visible notification) alive on
-// Android, which is what lets this keep reporting with the screen off and the app closed.
+// Trucking OS Tracker: the UI and the platform glue. Queue/sending rules live in feed-queue.js; connection
+// settings rules live in settings.js. The background-geolocation plugin keeps a foreground service (with a
+// visible notification) alive on Android, which is what lets this keep reporting with the screen off and the
+// app closed. Two screens: Main (saved address, status, Start/Stop) and Settings (server URL + device key).
 
 import { enqueue, flush, toFix, backoffMs, FLUSH_EVERY_MS } from "./feed-queue.js";
+import { validateSettings, isConfigured, describeSaved } from "./settings.js";
 
 const Cap = window.Capacitor;
 // registerPlugin comes from Capacitor's JS core (capacitor-core.js, loaded first by index.html) - the native bridge
@@ -20,6 +22,8 @@ const statusEl = $("status");
 const detailEl = $("detail");
 const toggleBtn = $("toggle");
 
+/** The SAVED connection - tracking only ever uses these, never a half-typed field. */
+let saved = { server: "", key: "" };
 let watcherId = null;
 let queue = [];
 let failures = 0;
@@ -29,6 +33,7 @@ let flushing = false;
 let nextTryAt = 0;
 
 async function load(key, fallback = "") {
+  if (!Prefs) return fallback;
   try {
     const { value } = await Prefs.get({ key });
     return value ?? fallback;
@@ -37,10 +42,12 @@ async function load(key, fallback = "") {
   }
 }
 async function save(key, value) {
+  if (!Prefs) return false;
   try {
     await Prefs.set({ key, value });
+    return true;
   } catch {
-    /* storage failure: tracking still works for this run */
+    return false;
   }
 }
 async function persistQueue() {
@@ -52,14 +59,67 @@ function show(text, detail = "") {
   detailEl.textContent = detail;
 }
 
+// ---- screens ------------------------------------------------------------------------------------------
+
+function renderSaved() {
+  const d = describeSaved(saved);
+  $("saved-address").textContent = d.address;
+  $("saved-key").textContent = d.keyText;
+}
+
+function openSettings(message = "") {
+  $("server").value = saved.server;
+  $("key").value = saved.key;
+  $("settings-error").textContent = message;
+  $("main-view").hidden = true;
+  $("settings-view").hidden = false;
+}
+
+function closeSettings() {
+  $("settings-view").hidden = true;
+  $("main-view").hidden = false;
+  renderSaved();
+}
+
+async function saveSettings() {
+  const checked = validateSettings($("server").value, $("key").value);
+  if (!checked.ok) {
+    $("settings-error").textContent = checked.error;
+    $(checked.field).focus();
+    return;
+  }
+  $("settings-error").textContent = "";
+  const ok = (await save("server", checked.server)) && (await save("key", checked.key));
+  if (!ok && Prefs) {
+    $("settings-error").textContent = "Couldn't save on this phone. Try again.";
+    return;
+  }
+  const changed = checked.server !== saved.server || checked.key !== saved.key;
+  saved = { server: checked.server, key: checked.key };
+  // A changed connection is a fresh start for the sender's backoff.
+  if (changed) {
+    failures = 0;
+    nextTryAt = 0;
+  }
+  closeSettings();
+  if (watcherId !== null) {
+    refresh();
+    detailEl.textContent = (changed ? "Saved - the next report uses the new settings. " : "Saved. ") + detailEl.textContent;
+  } else {
+    show("Saved. Tap Start tracking when you're ready.");
+  }
+}
+
+// ---- sending ------------------------------------------------------------------------------------------
+
 async function doFlush() {
-  if (flushing || Date.now() < nextTryAt) return;
+  if (flushing || Date.now() < nextTryAt || !isConfigured(saved)) return;
   flushing = true;
   try {
     const result = await flush({
       queue,
-      serverUrl: $("server").value.trim(),
-      key: $("key").value.trim(),
+      serverUrl: saved.server,
+      key: saved.key,
       failures,
       fetchFn: (...a) => fetch(...a),
     });
@@ -68,7 +128,7 @@ async function doFlush() {
     await persistQueue();
     if (result.outcome === "sent") lastSentAt = Date.now();
     if (result.outcome === "unauthorized") {
-      await stop("The server refused this key. It may have been revoked - make a new one in Settings.");
+      await stop("The server refused this key. It may have been revoked - make a new one in Trucking OS, then put it in Settings here.");
       return;
     }
     if (result.outcome === "retry") nextTryAt = Date.now() + backoffMs(failures);
@@ -83,6 +143,8 @@ function refresh() {
   const sent = lastSentAt ? "Last report sent " + new Date(lastSentAt).toLocaleTimeString() + "." : "Waiting for the first fix...";
   show(failures > 0 ? "Tracking - can't reach the server (will keep trying)." : "Tracking - reporting your position.", sent + " " + queue.length + " waiting to send.");
 }
+
+// ---- start / stop -------------------------------------------------------------------------------------
 
 /** What the user should read for an error from the native side - the real reason, never silence. */
 function describeStartError(err) {
@@ -112,39 +174,6 @@ async function addWatcherWhenReady(options, callback) {
   throw lastErr;
 }
 
-async function start() {
-  if (!BG || !Prefs) {
-    show(native ? "The tracker's plugin loader is missing (capacitor-core.js) - this build is broken; ask for a new one." : "This screen only works inside the Tracker app.");
-    return;
-  }
-  const server = $("server").value.trim();
-  const key = $("key").value.trim().replace(/^["']|["']$/g, "");
-  $("key").value = key;
-  await save("server", server);
-  await save("key", key);
-  if (!server.startsWith("https://") || !key.startsWith("tdv_")) {
-    show("Enter the https:// server address and the key that starts with tdv_.");
-    return;
-  }
-  show("Starting...", "Android may ask for Location permission - choose Allow.");
-  toggleBtn.disabled = true;
-  try {
-    watcherId = await startWatcher();
-  } catch (err) {
-    watcherId = null;
-    toggleBtn.disabled = false;
-    toggleBtn.textContent = "Start tracking";
-    await save("tracking", "0");
-    show(describeStartError(err));
-    return;
-  }
-  toggleBtn.disabled = false;
-  await save("tracking", "1");
-  toggleBtn.textContent = "Stop tracking";
-  timer = setInterval(() => void doFlush(), FLUSH_EVERY_MS);
-  refresh();
-}
-
 function startWatcher() {
   return addWatcherWhenReady(
     {
@@ -170,6 +199,34 @@ function startWatcher() {
   );
 }
 
+async function start() {
+  if (!BG || !Prefs) {
+    show(native ? "The tracker's plugin loader is missing (capacitor-core.js) - this build is broken; ask for a new one." : "This screen only works inside the Tracker app.");
+    return;
+  }
+  if (!isConfigured(saved)) {
+    openSettings("Save the server URL and your device key first.");
+    return;
+  }
+  show("Starting...", "Android may ask for Location permission - choose Allow.");
+  toggleBtn.disabled = true;
+  try {
+    watcherId = await startWatcher();
+  } catch (err) {
+    watcherId = null;
+    toggleBtn.disabled = false;
+    toggleBtn.textContent = "Start tracking";
+    await save("tracking", "0");
+    show(describeStartError(err));
+    return;
+  }
+  toggleBtn.disabled = false;
+  await save("tracking", "1");
+  toggleBtn.textContent = "Stop tracking";
+  timer = setInterval(() => void doFlush(), FLUSH_EVERY_MS);
+  refresh();
+}
+
 async function stop(message = "Not tracking.") {
   if (watcherId !== null && BG) {
     try {
@@ -186,24 +243,33 @@ async function stop(message = "Not tracking.") {
   show(message);
 }
 
-toggleBtn.addEventListener("click", () => {
-  const run = watcherId === null ? start() : stop();
-  run.catch((err) => {
+// ---- wiring -------------------------------------------------------------------------------------------
+
+/** Runs a handler and puts any error on screen - a button can never fail silently. */
+const guarded = (fn) => () => {
+  fn().catch((err) => {
     toggleBtn.disabled = false;
     show(describeStartError(err));
   });
-});
+};
+
+toggleBtn.addEventListener("click", guarded(() => (watcherId === null ? start() : stop())));
+$("open-settings").addEventListener("click", () => openSettings());
+$("close-settings").addEventListener("click", () => closeSettings());
+$("save-settings").addEventListener("click", guarded(saveSettings));
 
 (async () => {
-  if (Prefs) {
-    $("server").value = await load("server");
-    $("key").value = await load("key");
-    try {
-      queue = JSON.parse(await load("queue", "[]"));
-    } catch {
-      queue = [];
-    }
-    // Resume after the phone or the app restarted mid-shift.
-    if ((await load("tracking")) === "1") void start();
+  saved = { server: await load("server"), key: await load("key") };
+  try {
+    queue = JSON.parse(await load("queue", "[]"));
+  } catch {
+    queue = [];
   }
+  renderSaved();
+  if (!isConfigured(saved)) {
+    show("Not set up yet. Open Settings and save the server URL and your device key.");
+    return;
+  }
+  // Resume after the phone or the app restarted mid-shift.
+  if ((await load("tracking")) === "1") void start();
 })();
