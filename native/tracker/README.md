@@ -26,3 +26,9 @@ Install the APK on the phone (USB `adb install -r app-debug.apk`, or send the fi
 
 ## Dependencies (all MIT, maintained; vetted 2026-11-06)
 `@capacitor/core|android|cli` 8.6.0, `@capacitor/preferences` 8.0.1, `@capacitor-community/background-geolocation` 1.3.1. `npm audit`: 0 vulnerabilities. Pinned, with a committed lockfile.
+
+## Connection errors and the log (v1.0.4)
+- **Why "can't reach the server" used to appear no matter what was saved:** the app's page runs at `https://localhost` inside Android's WebView, and a browser-style `fetch` with an Authorization header to your server needs a CORS permission check (OPTIONS) that `/api/v1/position/feed` does not answer - so the WebView blocked the request before it left the phone. v1.0.4 turns on Capacitor's native HTTP (`plugins.CapacitorHttp.enabled` in `capacitor.config.json`), which sends requests through Android itself, with no CORS check. Not verified on a real device by the builder.
+- Every request uses the SAVED server URL and key (Settings), never half-typed fields. A change saved while tracking applies to the next send.
+- The status line shows the EXACT reason: the server's own HTTP status plus its error code/message (for example `Server answered HTTP 401 - UNAUTHORIZED: Unauthorized.`), or the network error (`No answer from <host> - TypeError: Failed to fetch ...`). A 200 that is a web page (login redirect, wrong address) is reported as such, not as success.
+- **Connection log** (main screen): the last 60 events, kept across restarts, also written to the phone's console (`adb logcat | grep tracker`). The device key is never in it.

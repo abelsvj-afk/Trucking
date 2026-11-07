@@ -39,4 +39,15 @@ describe("Tracker page wiring", () => {
     expect(script).toMatch(/serverUrl: saved\.server/);
     expect(script).not.toMatch(/serverUrl: \$\("server"\)/);
   });
+  it("sends through Android's native HTTP, not the WebView's CORS-checked fetch", () => {
+    const cfg = JSON.parse(readFileSync("native/tracker/capacitor.config.json", "utf8")) as { plugins?: { CapacitorHttp?: { enabled?: boolean } } };
+    expect(cfg.plugins?.CapacitorHttp?.enabled).toBe(true);
+  });
+  it("shows the exact last error and keeps a connection log", () => {
+    expect(html).toMatch(/id="log"/);
+    expect(script).toMatch(/lastError/);
+    expect(script).toMatch(/logEvent\("ERROR"/);
+    expect(script).toMatch(/scrubKey\(message, saved\.key\)/);
+    expect(script).not.toMatch(/can't reach the server \(will keep trying\)/);
+  });
 });

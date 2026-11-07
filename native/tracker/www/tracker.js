@@ -3,7 +3,7 @@
 // visible notification) alive on Android, which is what lets this keep reporting with the screen off and the
 // app closed. Two screens: Main (saved address, status, Start/Stop) and Settings (server URL + device key).
 
-import { enqueue, flush, toFix, backoffMs, FLUSH_EVERY_MS } from "./feed-queue.js";
+import { enqueue, flush, toFix, backoffMs, scrubKey, FLUSH_EVERY_MS } from "./feed-queue.js";
 import { validateSettings, isConfigured, describeSaved } from "./settings.js";
 
 const Cap = window.Capacitor;
@@ -31,6 +31,11 @@ let lastSentAt = null;
 let timer = null;
 let flushing = false;
 let nextTryAt = 0;
+/** The exact reason for the last failed send (server's own words or the network error); null when fine. */
+let lastError = null;
+/** Connection log: newest last, capped, kept across restarts, the device key never in it. */
+const LOG_MAX = 60;
+let logLines = [];
 
 async function load(key, fallback = "") {
   if (!Prefs) return fallback;
@@ -57,6 +62,22 @@ async function persistQueue() {
 function show(text, detail = "") {
   statusEl.textContent = text;
   detailEl.textContent = detail;
+}
+
+// ---- connection log -----------------------------------------------------------------------------------
+
+function renderLog() {
+  $("log").textContent = logLines.length ? logLines.join("\n") : "No connection events yet.";
+}
+
+/** Records a connection event (also to the phone's console for `adb logcat`). Never contains the key. */
+function logEvent(level, message) {
+  const line = new Date().toLocaleString() + "  " + level + "  " + scrubKey(message, saved.key);
+  logLines.push(line);
+  if (logLines.length > LOG_MAX) logLines = logLines.slice(logLines.length - LOG_MAX);
+  (level === "ERROR" ? console.error : console.log)("[tracker] " + line);
+  renderLog();
+  void save("log", JSON.stringify(logLines));
 }
 
 // ---- screens ------------------------------------------------------------------------------------------
@@ -100,6 +121,8 @@ async function saveSettings() {
   if (changed) {
     failures = 0;
     nextTryAt = 0;
+    lastError = null;
+    logEvent("INFO", "Settings saved - now reporting to " + checked.server + " with the saved key.");
   }
   closeSettings();
   if (watcherId !== null) {
@@ -126,12 +149,23 @@ async function doFlush() {
     queue = result.queue;
     failures = result.failures;
     await persistQueue();
-    if (result.outcome === "sent") lastSentAt = Date.now();
+    if (result.outcome === "sent") {
+      if (lastError) logEvent("INFO", "Connection restored - reports are being accepted again.");
+      lastError = null;
+      lastSentAt = Date.now();
+      if (result.detail) logEvent("ERROR", result.detail);
+    }
     if (result.outcome === "unauthorized") {
-      await stop("The server refused this key. It may have been revoked - make a new one in Trucking OS, then put it in Settings here.");
+      lastError = result.detail;
+      logEvent("ERROR", result.detail + " - tracking stopped.");
+      await stop("The server refused this key (" + result.detail + "). It may have been revoked - make a new one in Trucking OS, then put it in Settings here.");
       return;
     }
-    if (result.outcome === "retry") nextTryAt = Date.now() + backoffMs(failures);
+    if (result.outcome === "retry") {
+      lastError = result.detail;
+      nextTryAt = Date.now() + backoffMs(failures);
+      logEvent("ERROR", result.detail + " (attempt " + failures + ", " + queue.length + " waiting, next try in " + Math.round(backoffMs(failures) / 1000) + "s)");
+    }
     refresh();
   } finally {
     flushing = false;
@@ -141,7 +175,10 @@ async function doFlush() {
 function refresh() {
   if (watcherId === null) return;
   const sent = lastSentAt ? "Last report sent " + new Date(lastSentAt).toLocaleTimeString() + "." : "Waiting for the first fix...";
-  show(failures > 0 ? "Tracking - can't reach the server (will keep trying)." : "Tracking - reporting your position.", sent + " " + queue.length + " waiting to send.");
+  show(
+    failures > 0 ? "Tracking - the last report failed (will keep trying): " + (lastError || "unknown error") : "Tracking - reporting your position.",
+    sent + " " + queue.length + " waiting to send.",
+  );
 }
 
 // ---- start / stop -------------------------------------------------------------------------------------
@@ -210,6 +247,7 @@ async function start() {
   }
   show("Starting...", "Android may ask for Location permission - choose Allow.");
   toggleBtn.disabled = true;
+  logEvent("INFO", "Starting - reporting to " + saved.server + " with the saved key.");
   try {
     watcherId = await startWatcher();
   } catch (err) {
@@ -217,7 +255,9 @@ async function start() {
     toggleBtn.disabled = false;
     toggleBtn.textContent = "Start tracking";
     await save("tracking", "0");
-    show(describeStartError(err));
+    const why = describeStartError(err);
+    logEvent("ERROR", "Could not start: " + why);
+    show(why);
     return;
   }
   toggleBtn.disabled = false;
@@ -257,6 +297,11 @@ toggleBtn.addEventListener("click", guarded(() => (watcherId === null ? start() 
 $("open-settings").addEventListener("click", () => openSettings());
 $("close-settings").addEventListener("click", () => closeSettings());
 $("save-settings").addEventListener("click", guarded(saveSettings));
+$("clear-log").addEventListener("click", () => {
+  logLines = [];
+  renderLog();
+  void save("log", "[]");
+});
 
 (async () => {
   saved = { server: await load("server"), key: await load("key") };
@@ -265,6 +310,12 @@ $("save-settings").addEventListener("click", guarded(saveSettings));
   } catch {
     queue = [];
   }
+  try {
+    logLines = JSON.parse(await load("log", "[]"));
+  } catch {
+    logLines = [];
+  }
+  renderLog();
   renderSaved();
   if (!isConfigured(saved)) {
     show("Not set up yet. Open Settings and save the server URL and your device key.");

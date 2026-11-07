@@ -17,6 +17,8 @@
     .saved .address { font-size: 1.1rem; font-weight: 700; word-break: break-all; }
     .small { font-size: 0.85rem; opacity: 0.8; }
     .error { margin-top: 8px; font-weight: 600; }
+    .log { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; max-height: 40vh; overflow: auto; padding: 8px; border: 1px solid currentColor; border-radius: 8px; }
+    details { margin-top: 16px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -34,6 +36,11 @@
     <div id="status" role="status" aria-live="polite">Not tracking.</div>
     <p class="small" id="detail"></p>
     <button id="open-settings" type="button" class="secondary">Settings</button>
+    <details id="log-box">
+      <summary>Connection log</summary>
+      <pre id="log" class="log" aria-label="Connection log">No connection events yet.</pre>
+      <button id="clear-log" type="button" class="secondary">Clear log</button>
+    </details>
   </section>
 
   <!-- Settings screen: server URL + device key, saved on this phone. -->

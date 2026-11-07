@@ -2,5 +2,12 @@
   "appId": "com.truckingos.tracker",
   "appName": "Trucking OS Tracker",
   "webDir": "www",
-  "android": { "allowMixedContent": false }
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
 }
