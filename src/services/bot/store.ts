@@ -159,6 +159,8 @@ export interface BotBrainStore extends TelegramStore {
   dropExpiredPending(cutoffIso: string, keepKey?: string | null): Promise<number>;
   /** Every open proposal (a dump batch counts once), oldest first - used to ask "which one?" when it is unclear. */
   loadOpenPendingGroups(): Promise<{ key: string; toolName: string; summary: string; createdAt: string }[]>;
+  /** Every waiting pending row (singles and batch items), oldest first - for reconciling redundant proposals. */
+  loadOpenPendingRows(): Promise<PendingAction[]>;
   /** §9: every pending item of the oldest pending dump batch (empty when the oldest pending proposal is a single, or none is pending). */
   loadPendingBatch(): Promise<PendingAction[]>;
   savePendingAction(action: {

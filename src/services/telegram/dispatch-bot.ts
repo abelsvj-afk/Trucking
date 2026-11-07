@@ -18,6 +18,7 @@
 // degrades honestly to dispatch-only replies with no context.
 
 import { parseDispatchTrip } from "@/lib/dispatch-trip";
+import { formatReply } from "@/services/telegram/format-reply";
 import { formatDispatchSuggestion, type DispatchSuggestion } from "@/services/ai/dispatch";
 import { formatRecordableOutcome, type StageRecordablesResult } from "@/services/bot/stage-recordables";
 import type { BotChatInput, BotChatOutput } from "@/services/ai/bot-chat";
@@ -487,7 +488,8 @@ async function processTextItems(
               )
             ? "instruction_saved"
             : "remembered";
-    return { result, reply: segments.join("\n\n"), degraded: ctx.degraded, persist: true, afterSend };
+    // Owner 2026-11-07: no raw markdown stars - clean, emoji-labelled text, before it is sent AND before it is stored.
+    return { result, reply: formatReply(segments.join("\n\n")), degraded: ctx.degraded, persist: true, afterSend };
   } catch (err) {
     console.error("[telegram] bot turn failed", err);
     return {

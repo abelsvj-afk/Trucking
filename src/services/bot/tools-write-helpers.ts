@@ -149,7 +149,9 @@ export function makeUpdateTool(
         spec.table === "loads" && typeof patch.status === "string" && before.status === "completed" && patch.status !== "completed"
           ? ` ⚠ this moves a COMPLETED load back to ${patch.status}`
           : "";
-      return { ok: true, summary: `Update ${describeRecord(spec.label, before)}: ${changesInWords(patch, before)}${backward}` };
+      const zeroed = zeroedFields(patch, before);
+      const zeroNote = zeroed ? ` ⚠ this ZEROES ${zeroed}` : "";
+      return { ok: true, summary: `Update ${describeRecord(spec.label, before)}: ${changesInWords(patch, before)}${backward}${zeroNote}` };
     },
     async run(args) {
       const parsed = spec.botSchema.parse(args) as Row;
@@ -175,6 +177,19 @@ export function makeUpdateTool(
       return `${spec.confirm(args as Row)} Now: ${changesInWords(patch, existing)}.`;
     },
   };
+}
+
+/** Money / miles / pay fields that would go from a positive value to 0 or empty, in words ("" when none). */
+export function zeroedFields(patch: Row, before: Row): string {
+  const hits: string[] = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (!/(_cents|miles|weight|rate|pay|amount)/.test(key)) continue;
+    const prior = before[key];
+    if (typeof prior === "number" && prior > 0 && (value === 0 || value === null)) {
+      hits.push(`${key.replace(/_cents$/, "").replace(/_/g, " ")} (was ${shownValue(key, prior)})`);
+    }
+  }
+  return hits.join(", ");
 }
 
 export const idParam = (key: string, entity: string) => ({

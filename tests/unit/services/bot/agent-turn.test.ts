@@ -859,3 +859,157 @@ describe("the Yes key (a plain 'Yes' message) approves the waiting proposal", ()
     expect(db.expenses).toHaveLength(1);
   });
 });
+
+describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, readable proposals", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const live = (db: Record<string, Row[]>) => db.bot_pending_actions!.filter((r) => !r.deleted_at);
+  const L1 = "9c1e4c7a-0000-4000-8000-0000000000aa";
+  const withTerms = () => {
+    const seed = baseSeed(true);
+    seed.employer_pay_profiles = [
+      { id: "p0", company_id: COMPANY, employer_name: "Acme Freight", rate_cents_per_mile: 55, percent_of_load_bps: null, mile_basis: "all", worker_type: null, fuel_paid_by: null, effective_from: "2026-01-01", effective_to: null, deleted_at: null },
+    ];
+    return seed;
+  };
+  const proposeTurn = async (client: SupabaseClient, store: BotBrainStore, tool: string, args: Record<string, unknown>) => {
+    const { provider, runToolTurn } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "c", name: tool, arguments: JSON.stringify({ ...args, confirmation: "propose" }) }] },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, store, input("i dont pay for fuel"));
+    return { out, runToolTurn, client };
+  };
+
+  it("THE REPORTED BUG: 'I don't pay for fuel' as a pay-pin change keeps his rate (it used to wipe it to zero)", async () => {
+    const { client, db } = fakeClient(withTerms());
+    const store = telegramStore(client);
+    const { out } = await proposeTurn(client, store, "set_pay_pin", { fuel_paid_by: "owner", source: "he said the carrier pays fuel" });
+    expect(out.reply).toContain("fuel paid by: not set → owner");
+    expect(out.reply).not.toMatch(/CLEARS his rate/);
+    const { provider: noModel } = neverCalledProvider();
+    const done = await runAgentTurn(noModel, store, input("yes"));
+    expect(done.reply).toContain("Done");
+    const saved = db.bot_memories!.map((m) => String(m.content)).join("\n");
+    expect(saved).toMatch(/0\.55/); // the rate is still there
+    expect(saved).toMatch(/cpm_all_miles/);
+  });
+
+  it("a pay-pin call that names the same model but no rate keeps the rate too", async () => {
+    const { client, db } = fakeClient(withTerms());
+    const store = telegramStore(client);
+    await proposeTurn(client, store, "set_pay_pin", { model: "cpm_all_miles", fuel_paid_by: "owner", source: "x" });
+    const { provider: noModel } = neverCalledProvider();
+    await runAgentTurn(noModel, store, input("yes"));
+    expect(db.bot_memories!.map((m) => String(m.content)).join("\n")).toMatch(/0\.55/);
+  });
+
+  it("switching to a different rate-based model without a rate is refused, never stored as 'no rate'", async () => {
+    const { client, db } = fakeClient(withTerms());
+    const { out, runToolTurn } = await proposeTurn(client, telegramStore(client), "set_pay_pin", { model: "flat_per_load", source: "x" });
+    expect(live(db)).toHaveLength(0);
+    expect(JSON.stringify(runToolTurn.mock.calls[1] ?? [])).toMatch(/NOT PROPOSED.*needs its rate/);
+    expect(out.reply).not.toContain("⏳");
+  });
+
+  it("set_pay_terms: changing only who pays fuel says his rate stays; a zero rate with no percent is refused", async () => {
+    const { client, db } = fakeClient(withTerms());
+    const store = telegramStore(client);
+    const fuel = await proposeTurn(client, store, "set_pay_terms", { employer_name: "Acme Freight", fuel_paid_by: "employer" });
+    expect(fuel.out.reply).toContain("fuel paid by employer");
+    expect(fuel.out.reply).toContain("his rate stays as it is");
+    const zero = await proposeTurn(client, store, "set_pay_terms", { employer_name: "Acme Freight", rate_dollars_per_mile: 0 });
+    expect(JSON.stringify(zero.runToolTurn.mock.calls[1] ?? [])).toMatch(/NOT PROPOSED.*no per-mile rate and no percent/);
+    expect(live(db).filter((r) => r.tool_name === "set_pay_terms")).toHaveLength(1);
+  });
+
+  it("set_pay_terms shows before → after and warns when pay would drop", async () => {
+    const { client } = fakeClient(withTerms());
+    const r = await proposeTurn(client, telegramStore(client), "set_pay_terms", { employer_name: "Acme Freight", rate_dollars_per_mile: 0.4 });
+    expect(r.out.reply).toContain("per mile: $0.55 → $0.40 ⚠ lower pay");
+  });
+
+  it("an update that would zero a money field says so before he approves", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: L1, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
+    const { client } = fakeClient(seed);
+    const r = await proposeTurn(client, telegramStore(client), "update_load", { load_id: L1, rate_dollars: 0 });
+    expect(r.out.reply).toMatch(/⚠ this ZEROES rate \(was \$2000\.00\)/);
+  });
+
+  it("an identical proposal already waiting is not asked for again - he is told it is waiting", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: L1, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
+    seed.bot_pending_actions = [
+      { id: "w", company_id: COMPANY, channel: "telegram", tool_name: "update_load", arguments: { load_id: L1, delivery_date: "2026-11-06" }, summary: "Update load A → B: delivery date → 2026-11-06", created_at: ago(2), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { out } = await proposeTurn(client, telegramStore(client), "update_load", { load_id: L1, delivery_date: "2026-11-06" });
+    expect(live(db)).toHaveLength(1);
+    expect(out.reply).toContain("already waiting for your yes");
+    expect(out.reply.match(/Reply YES/g) ?? []).toHaveLength(1);
+    expect(out.reply).toContain("delivery date → 2026-11-06");
+  });
+
+  it("a newer change to the same load replaces the older waiting one", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: L1, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
+    seed.bot_pending_actions = [
+      { id: "w", company_id: COMPANY, channel: "telegram", tool_name: "update_load", arguments: { load_id: L1, delivery_date: "2026-11-06" }, summary: "old: delivery 6th", created_at: ago(2), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { out } = await proposeTurn(client, telegramStore(client), "update_load", { load_id: L1, delivery_date: "2026-11-07" });
+    const waiting = live(db);
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]!.arguments).toMatchObject({ delivery_date: "2026-11-07" });
+    expect(out.reply).toContain("replaces the earlier request still waiting: old: delivery 6th");
+  });
+
+  it("two changes to the same load in one turn become ONE proposal describing the merged change", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: L1, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
+    const { client, db } = fakeClient(seed);
+    const { provider } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          { id: "a", name: "update_load", arguments: JSON.stringify({ load_id: L1, delivery_date: "2026-11-06", confirmation: "propose" }) },
+          { id: "b", name: "update_load", arguments: JSON.stringify({ load_id: L1, rate_dollars: 2100, confirmation: "propose" }) },
+        ],
+      },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("delivery is the 6th and it pays 2100"));
+    const waiting = live(db);
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]!.arguments).toMatchObject({ delivery_date: "2026-11-06", rate_dollars: 2100 });
+    expect(out.reply).toContain("combined two changes");
+    expect(out.reply).toMatch(/delivery date → 2026-11-06/);
+    expect(out.reply).toMatch(/rate → \$2100\.00/);
+  });
+
+  it("confirmations say WHERE it was kept: 💾 an app record with its page, or 🧠 Abel's own note", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "e", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 88 }, summary: "Expense: $88.00 (repairs)", created_at: ago(1), deleted_at: null },
+    ];
+    const { client } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const rec = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(rec.reply).toContain("✅ Done");
+    expect(rec.reply).toContain("💾 Saved to your app → Money → Expenses.");
+
+    const seed2 = baseSeed(true);
+    seed2.bot_pending_actions = [
+      { id: "m", company_id: COMPANY, channel: "telegram", tool_name: "save_memory", arguments: { kind: "fact", content: "Dispatch texts after 8" }, summary: "Remember: Dispatch texts after 8", created_at: ago(1), deleted_at: null },
+    ];
+    const mem = await runAgentTurn(neverCalledProvider().provider, telegramStore(fakeClient(seed2).client), input("yes"));
+    expect(mem.reply).toContain("🧠 Remembered - this is my own note, not an app record");
+  });
+
+  it("proposals are laid out with emoji markers, not a bare 'I have NOT recorded' block", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { out } = await proposeTurn(client, telegramStore(client), "create_expense", { category: "repairs", amount_dollars: 88 });
+    expect(out.reply).toContain("⏳ I have NOT recorded this yet:");
+    expect(out.reply).toContain("👉 Reply YES to confirm, or NO to drop it.");
+  });
+});
