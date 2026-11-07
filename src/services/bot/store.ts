@@ -18,6 +18,8 @@ import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
 import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { createMemoryStore } from "./store-memory";
 import { createPendingStore } from "./store-pending";
+import { createOutcomesStore } from "./store-outcomes";
+import type { Outcome, OutcomeRow } from "./learning";
 import { createPayStore } from "./store-pay";
 import { createThreadStore } from "./store-threads";
 import { isMissingColumnError } from "./tool-helpers";
@@ -159,6 +161,10 @@ export interface BotBrainStore extends TelegramStore {
   dropExpiredPending(cutoffIso: string, keepKey?: string | null): Promise<number>;
   /** Every open proposal (a dump batch counts once), oldest first - used to ask "which one?" when it is unclear. */
   loadOpenPendingGroups(): Promise<{ key: string; toolName: string; summary: string; createdAt: string }[]>;
+  /** Learning (migration 00076): records how he answered a proposal. Best-effort - never throws, a missing table is fine. */
+  recordProposalOutcome(entry: { tool: string; args: Record<string, unknown>; summary: string; outcome: Outcome }): Promise<void>;
+  /** Learning: his recent answers (last 90 days, newest first). [] when the table is missing or unreadable. */
+  loadRecentOutcomes(): Promise<OutcomeRow[]>;
   /** Every waiting pending row (singles and batch items), oldest first - for reconciling redundant proposals. */
   loadOpenPendingRows(): Promise<PendingAction[]>;
   /** §9: every pending item of the oldest pending dump batch (empty when the oldest pending proposal is a single, or none is pending). */
@@ -537,6 +543,7 @@ export function createBotStore(
 
     // --- pending actions: see store-pending.ts ---
     ...createPendingStore(supabase, company, channel),
+    ...createOutcomesStore(supabase, company, channel),
 
     async isBotChatEnabled() {
       return capabilityEnabled(BOT_CHAT_CAPABILITY);

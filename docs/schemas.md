@@ -1021,6 +1021,20 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `deleted_at` timestamptz
 
 
+### `bot_proposal_outcomes` — created in 00076
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `tool_name` text not null check (length(btrim(tool_name)) > 0)
+- `signature` text not null check (length(btrim(signature)) > 0)
+- `outcome` text not null constraint bot_proposal_outcomes_outcome_valid check (outcome in ('approved', 'dropped', 'corrected', 'expired', 'failed', 'replaced'))
+- `summary` text not null
+- `arguments` jsonb
+- `channel` text
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+
 ### Columns added to already-documented tables since 00032
 
 - 00033 `documents.caption` text

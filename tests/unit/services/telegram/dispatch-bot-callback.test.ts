@@ -340,3 +340,21 @@ describe("personality: stickers and reactions (owner 2026-11-07)", () => {
     expect(d.sendMessage).toHaveBeenCalledWith(4242, "Great news");
   });
 });
+
+describe("GIF memes through the dispatch path", () => {
+  it("a {{gif:...}} marker is stripped from the text and sent via sendGif after the text; none on a serious message", async () => {
+    const d = deps();
+    const sendGif = vi.fn().mockResolvedValue(undefined);
+    Object.assign(d, { sendGif });
+    const chat = (reply: string, id: number) => {
+      (d as unknown as { runChat: ReturnType<typeof vi.fn> }).runChat.mockResolvedValue({ reply, memory: null });
+      return handleTelegramUpdate({ update_id: id, message: { chat: { id: 4242, type: "private" }, text: "hello", date: 1 } } as never, CONFIG, d);
+    };
+    await chat("🎉 Paycheck landed!\n{{gif:money rain}}", 110);
+    expect(d.sendMessage).toHaveBeenCalledWith(4242, "🎉 Paycheck landed!");
+    expect(sendGif).toHaveBeenCalledWith(4242, "money rain");
+    sendGif.mockClear();
+    await chat("⚠️ You're over your limit {{gif:facepalm}}", 111);
+    expect(sendGif).not.toHaveBeenCalled();
+  });
+});

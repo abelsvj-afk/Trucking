@@ -199,7 +199,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const botToken = config.botToken;
   // Personality: stickers come from a public sticker set (TELEGRAM_STICKER_SET; default Telegram's AnimatedEmojies).
-  const personality = createPersonalitySenders(botToken, { stickerSet: process.env.TELEGRAM_STICKER_SET });
+  const personality = createPersonalitySenders(botToken, { stickerSet: process.env.TELEGRAM_STICKER_SET, tenorKey: process.env.TENOR_API_KEY });
   // v2 (§8): the brain store powers the agent loop (tools, proposals,
   // the bot_chat kill switch). It wraps the same service-role client
   // and company scope as the v1 store - both are null together.
@@ -291,6 +291,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // §3.3: inline-keyboard asks + their tap resolution.
     sendYesNoMessage: (chatId, text) => sendTelegramYesNoMessage(botToken, chatId, text),
     sendSticker: (chatId, emoji) => personality.sendSticker(chatId, emoji),
+    sendGif: (chatId, query) => personality.sendGif(chatId, query),
     setReaction: (chatId, messageId, emoji) => personality.setReaction(chatId, messageId, emoji),
     sendAskMessage: (chatId, text, buttons) =>
       sendTelegramAskMessage(botToken, chatId, text, buttons),

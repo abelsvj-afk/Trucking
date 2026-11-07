@@ -6,7 +6,7 @@ import { describeIncomingMedia, extractFlair, isSeriousMessage, FLAIR_RULES } fr
 describe("extractFlair", () => {
   it("pulls out one sticker and one reaction and removes the markers from the text", () => {
     const f = extractFlair("🚚 Delivered! Nice work.\n{{sticker:🎉}}\n{{react:🔥}}");
-    expect(f).toEqual({ text: "🚚 Delivered! Nice work.", sticker: "🎉", reaction: "🔥" });
+    expect(f).toEqual({ text: "🚚 Delivered! Nice work.", sticker: "🎉", reaction: "🔥", gif: null });
   });
   it("keeps only the first sticker and the first reaction", () => {
     const f = extractFlair("Great {{sticker:😂}} {{sticker:🎉}} {{react:👍}} {{react:🔥}}");
@@ -18,7 +18,7 @@ describe("extractFlair", () => {
     const f = extractFlair("Hi {{react:💩}} {{sticker:hello}} {{sticker:}} {{react:👍");
     expect(f.sticker).toBeNull();
     expect(f.reaction).toBeNull();
-    expect(f.text).toBe("Hi {{react:👍");
+    expect(f.text).toBe("Hi"); // an unclosed marker is removed too, never shown
   });
   it("accepts an emoji written with a variation selector (the heart)", () => {
     expect(extractFlair("Thanks {{react:❤️}}").reaction).toBe("❤");
@@ -32,7 +32,7 @@ describe("extractFlair", () => {
     }
   });
   it("a plain reply with no markers is untouched", () => {
-    expect(extractFlair("You have 3h 10m left.")).toEqual({ text: "You have 3h 10m left.", sticker: null, reaction: null });
+    expect(extractFlair("You have 3h 10m left.")).toEqual({ text: "You have 3h 10m left.", sticker: null, reaction: null, gif: null });
   });
   it("isSeriousMessage", () => {
     expect(isSeriousMessage("🎉 Load delivered, paycheck landed")).toBe(false);
@@ -58,5 +58,31 @@ describe("a reply with no markers is returned exactly as written (indentation ke
   it("keeps indentation and double spaces when nothing was removed", () => {
     const text = "Plan:\n  ▫️ one  two\n  ▫️ three";
     expect(extractFlair(text).text).toBe(text);
+  });
+});
+
+describe("GIF memes: {{gif:search words}}", () => {
+  it("extracts one plain-words search and removes the marker", () => {
+    const f = extractFlair("🎉 Delivered!\n{{gif:celebration dance}}");
+    expect(f).toEqual({ text: "🎉 Delivered!", sticker: null, reaction: null, gif: "celebration dance" });
+  });
+  it("keeps only the first GIF, tidies spacing, and can ride with a sticker and a reaction", () => {
+    const f = extractFlair("Nice {{gif:  big   win }} {{gif:second one}} {{sticker:🎉}} {{react:🔥}}");
+    expect(f.gif).toBe("big win");
+    expect(f.sticker).toBe("🎉");
+    expect(f.reaction).toBe("🔥");
+    expect(f.text).toBe("Nice");
+  });
+  it("rejects anything that is not a few plain words, but still strips the marker", () => {
+    for (const bad of ["{{gif:}}", "{{gif:x}}", "{{gif:http://evil.example/x.gif}}", "{{gif:a;drop table}}", `{{gif:${"word ".repeat(20)}}}`]) {
+      const f = extractFlair(`Hi ${bad}`);
+      expect(f.gif).toBeNull();
+      expect(f.text).toBe("Hi");
+    }
+  });
+  it("never on a serious message", () => {
+    const f = extractFlair("⚠️ You're over the limit {{gif:facepalm}}");
+    expect(f.gif).toBeNull();
+    expect(f.text).not.toContain("{{");
   });
 });

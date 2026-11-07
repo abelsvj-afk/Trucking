@@ -1,7 +1,7 @@
 # Abel: readable messages, safe changes, no redundant approvals (design)
 
-Owner feedback 2026-11-07 (voice, from live use). Status: sections 1-5, 7 and 8 BUILT; section 6 is a proposal awaiting the owner's decision (machine learning),
-and the rest of section 8 is the temporal-reasoning roadmap.
+Owner feedback 2026-11-07 (voice, from live use). Status: all sections BUILT (owner approved everything on 2026-11-07: machine learning, the full temporal-reasoning
+list, and GIF memes).
 
 ## 1. Readable Telegram messages (no stars)
 Telegram shows plain text, so the model's markdown (`**bold**`, `* bullets`, `# headings`) appeared as literal
@@ -45,15 +45,22 @@ Two different ways Abel keeps things, now named in every confirmation:
 The write tools cover loads, expenses, fuel, maintenance, people, documents, threads, pay terms and pay pins.
 Gaps found so far are listed in the work queue as found; none are added speculatively.
 
-## 6. "Machine learning" - proposal for the owner's decision
-Honest scope: training a model is neither needed nor free-first for one driver. What he actually wants is an
-assistant that learns his preferences from his corrections. Feasible, in order:
-1. **Outcome log** (needs one small migration): every proposal's fate - approved, dropped, corrected, expired -
-   with the tool and a plain summary. This is the raw material for any learning and also feeds item 3.
-2. **Lessons from corrections**: when he corrects or rejects the same kind of proposal repeatedly, Abel proposes a
-   remembered fact ("Fuel is never on his card - never propose a fuel expense") he approves once.
-3. **Risk scoring**: proposals that resemble previously rejected ones get flagged before being shown.
-Nothing here changes authority: Abel still proposes, he approves. Not built until the owner chooses.
+## 6. Learning from his answers ("machine learning", approved 2026-11-07)
+Honest scope: no model is trained - one driver's data does not need it, and it would not be free-first. What "learning" means
+here is an assistant that measurably changes its behaviour from how HE answers it, with every step visible and reversible:
+1. **Outcome log** (migration 00076, `bot_proposal_outcomes`): the fate of every proposal - approved, dropped, corrected,
+   expired, failed, replaced (by a newer one) - with the tool, a signature (tool + category/kind), the plain summary and the
+   args. Written best-effort: a missing table or a failed write never affects the conversation.
+2. **Statistics in code** (`bot/learning.ts`, pure): per signature, approvals vs drops/corrections over the last 90 days,
+   recency-weighted. Stats are computed, never model-written, and are shown to the model as a "WHAT HE HAS TOLD ME BY ANSWERING"
+   block so it adapts (suggest less of what he keeps dropping, lead with what he keeps approving).
+3. **Lessons he approves**: when a signature crosses a threshold (>= 3 answers, drop-or-correct rate >= 75% or approval >= 90%),
+   a lesson is READY ("he usually drops fuel expenses - only propose them when he asks"). Abel proposes it as a memory with the
+   normal yes/no; nothing becomes a remembered fact without his approval. An existing lesson is never proposed twice.
+4. **Risk flag**: a new proposal whose signature he has mostly dropped carries a visible line ("🤔 you've dropped 4 of the last 5
+   suggestions like this") so a likely-wrong suggestion is questioned before he has to.
+5. `learning_report` read tool: "how has it gone?" answered from the log.
+Nothing changes authority: Abel still proposes and he approves. The log is his data, tenant-scoped like everything else.
 
 ## 6b. The owner's capability list (2026-11-07, in his order)
 1. Smarter - fewer redundant or wrong proposals, safer changes (sections 2-3, built).
@@ -72,15 +79,26 @@ Nothing here changes authority: Abel still proposes, he approves. Not built unti
 Taste is enforced in code, not just the prompt: at most one sticker and one reaction per reply; none on any message that
 carries a warning, an error, a failure or an approval request (⚠️ ❌ "NOT recorded" "Reply YES" ...). Wins, good news, friendly
 banter only.
-Not built: GIF/meme search (Tenor/Giphy) - needs an API key, content moderation and an owner choice of provider; proposed
-as optional later. Telegram's keyboard stickers/GIFs are the user's own to send - a bot can only send what it fetches.
+- **GIF memes** (`{{gif:search words}}`): looked up on Tenor (free API key, `TENOR_API_KEY`; medium content filter, safe-for-work
+  by default) and sent with `sendAnimation`. Same taste rules and caps as stickers (one flair of each kind per reply, none on
+  serious messages). Without the key the feature is simply off - Abel falls back to emoji and stickers. The key is a runtime secret
+  held only in the server's environment, like the bot token.
+Telegram's own keyboard stickers/GIFs are the user's to send - a bot can only send what it fetches.
 
-## 8. Temporal reasoning (owner 2026-11-07)
-First slice BUILT: Abel never does date math in its head. Two read tools compute it in code from "today" on the owner's
-clock (America/New_York): `when_is` (today / tomorrow / yesterday, "friday", "next friday", "last friday", "in 3 weeks",
-"10 days ago", "the 6th", "nov 6", "11/6", ISO dates, start/end of this/next/last week) and `time_between` (calendar days,
-weeks + days, weekdays between). Ambiguous phrases say which reading was used and give the other candidate.
-Roadmap (not built): event timelines ("what happened since Tuesday"), staleness - facts and statuses carry an age and Abel
-says "as of Tuesday" instead of asserting old state, deadline awareness (docs due, reminders), sequencing of loads on a calendar,
-and pay-period reasoning shared with the pay-week logic.
-
+## 8. Temporal reasoning (owner 2026-11-07, all of it approved)
+Abel never does date math in its head; everything below is computed in code on his clock (America/New_York).
+1. **Date phrases and spans** (`lib/temporal.ts`, tools `when_is`, `time_between`): weekdays, "next friday", "in 3 weeks", "the 6th"
+   (nearest occurrence, other reading named), month names, slash dates, week edges, day counts, weekdays between; unreadable input
+   is refused. **Pay-period phrases** share the pay-week logic: "payday", "next payday", "statement day", "end of the pay week",
+   "last pay week" resolve from his saved pay terms (never hardcoded; unset = said so).
+2. **Event timelines** (`timeline` tool, `bot/timeline.ts`): "what happened since Tuesday / last week / between X and Y" - loads
+   (picked up, delivered), expenses, fuel, maintenance, documents filed and duty-status changes, merged and ordered by day
+   with the weekday, optionally filtered by topic.
+3. **Staleness** (`lib/staleness.ts`): remembered facts carry their age in Abel's context ("noted Oct 20 - 18 days ago"), and a
+   time-bound fact ("this week", "today", "currently", "active") older than a day is flagged as possibly out of date, so Abel says
+   "as of Tuesday" rather than asserting old state as current.
+4. **Deadlines** (`whats_due` tool, `bot/deadlines.ts`): one list of what is coming up or overdue, soonest first, with days left -
+   credentials expiring, recurring bills, maintenance due by date, and the appointment windows / dates of his booked loads.
+5. **Calendar sequencing** (`load_calendar` tool, `lib/load-sequence.ts`): his booked loads in order with the gaps between them
+   and flagged problems - overlaps (the next pickup is before the last delivery), same-day turnarounds, long idle gaps, loads
+   with no dates.

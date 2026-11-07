@@ -77,3 +77,58 @@ describe("setReaction", () => {
     expect(t.calls[0]).toEqual({ method: "setMessageReaction", body: { chat_id: 4242, message_id: 55, reaction: [{ type: "emoji", emoji: "❤" }] } });
   });
 });
+
+describe("sendGif (Tenor, key-gated)", () => {
+  const KEY = "AIzaSyExampleTenorKeyExampleExample123";
+  function fakeTenor(results: { media_formats?: Record<string, { url?: string }> }[] | "fail") {
+    const calls: { url: string; method: string; body?: Record<string, unknown> }[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: url.includes("tenor") ? "tenor" : url.split("/").pop()!, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
+      if (url.includes("tenor.googleapis.com")) {
+        return results === "fail" ? new Response("nope", { status: 403 }) : new Response(JSON.stringify({ results }));
+      }
+      return new Response(JSON.stringify({ ok: true, result: true }));
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls };
+  }
+
+  it("searches Tenor with a medium content filter and sends the GIF as an animation", async () => {
+    const t = fakeTenor([{ media_formats: { mediumgif: { url: "https://media.tenor.com/abc/party.gif" } } }]);
+    await createPersonalitySenders(TOKEN, { tenorKey: KEY, fetchImpl: t.fetchImpl }).sendGif(4242, "celebration dance");
+    expect(t.calls[0]!.url).toContain("https://tenor.googleapis.com/v2/search?q=celebration%20dance");
+    expect(t.calls[0]!.url).toContain("contentfilter=medium");
+    expect(t.calls[0]!.url).toContain(`key=${KEY}`);
+    expect(t.calls[1]).toMatchObject({ method: "sendAnimation", body: { chat_id: 4242, animation: "https://media.tenor.com/abc/party.gif" } });
+  });
+  it("prefers the medium rendition, falls back to gif then tinygif, and ignores non-https results", async () => {
+    const t = fakeTenor([{ media_formats: { gif: { url: "http://insecure/x.gif" } } }, { media_formats: { tinygif: { url: "https://media.tenor.com/tiny.gif" } } }]);
+    await createPersonalitySenders(TOKEN, { tenorKey: KEY, fetchImpl: t.fetchImpl, random: () => 0 }).sendGif(1, "x y");
+    expect(t.calls[1]!.body!.animation).toBe("https://media.tenor.com/tiny.gif");
+  });
+  it("without a Tenor key the feature is OFF - nothing is requested or sent", async () => {
+    const t = fakeTenor([{ media_formats: { gif: { url: "https://x/y.gif" } } }]);
+    await createPersonalitySenders(TOKEN, { fetchImpl: t.fetchImpl }).sendGif(1, "party");
+    expect(t.calls).toHaveLength(0);
+  });
+  it("no results or a Tenor error sends nothing and throws nothing", async () => {
+    const none = fakeTenor([]);
+    await createPersonalitySenders(TOKEN, { tenorKey: KEY, fetchImpl: none.fetchImpl }).sendGif(1, "party");
+    expect(none.calls.some((c) => c.method === "sendAnimation")).toBe(false);
+    const bad = fakeTenor("fail");
+    await expect(createPersonalitySenders(TOKEN, { tenorKey: KEY, fetchImpl: bad.fetchImpl }).sendGif(1, "party")).resolves.toBeUndefined();
+    expect(bad.calls.some((c) => c.method === "sendAnimation")).toBe(false);
+  });
+  it("neither the Tenor key nor the bot token ever reaches a log line, even when the request throws with its URL", async () => {
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => void logged.push(a.map(String).join(" ")));
+    const boom = vi.fn(async () => { throw new Error(`fetch failed https://tenor.googleapis.com/v2/search?key=${KEY}`); }) as unknown as typeof fetch;
+    await createPersonalitySenders(TOKEN, { tenorKey: KEY, fetchImpl: boom }).sendGif(1, "party");
+    const forbidden = vi.fn(async () => new Response("no", { status: 403 })) as unknown as typeof fetch;
+    await createPersonalitySenders(TOKEN, { tenorKey: KEY, fetchImpl: forbidden }).sendGif(1, "party");
+    spy.mockRestore();
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.join("\n")).not.toContain(KEY);
+    expect(logged.join("\n")).not.toContain(TOKEN);
+  });
+});

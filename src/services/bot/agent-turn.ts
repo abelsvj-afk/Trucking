@@ -45,9 +45,11 @@ import { buildBotTools, executeWriteTool } from "./tools";
 import { gateExecutes } from "./execute-gate";
 import { stripConfirmationProse } from "./reply-prose";
 import { STYLE_RULES } from "@/services/telegram/format-reply";
+import { withAge } from "@/lib/staleness";
 import { FLAIR_RULES } from "@/services/telegram/flair";
 import { savedWhere } from "./saved-where";
 import { reconcileProposals } from "./reconcile-proposals";
+import { learningBlock, readyLessons, riskNote, signatureOf, summarizeOutcomes, type Outcome, type SignatureStats } from "./learning";
 import { expandMaintenancePairings } from "./maintenance-pairing";
 import { annotatePaperLogEdits } from "@/services/fleet/paper-logs";
 import {
@@ -120,7 +122,21 @@ const PAY_SAFETY_RULES =
 /** Temporal reasoning (owner 2026-11-07): dates and durations come from code, and old state is labelled as old. */
 const TEMPORAL_RULES =
   "TIME: never work out a weekday, a relative date ('next Friday', 'in 3 weeks', 'the 6th') or a count of days in your head - call when_is / time_between, and say the resolved calendar date back to him when it matters, naming which reading you used if the tool flags one. " +
-  "The NOW line is the current moment on his clock. Things go stale: a load's 'active' state, an ETA, a memory about 'this week' are true AS OF when they were recorded - check their dates against NOW and say 'as of Tuesday' instead of asserting old state as current. Keep events in order and say what happened before or after what.";
+  "The NOW line is the current moment on his clock. Things go stale: a load's 'active' state, an ETA, a memory about 'this week' are true AS OF when they were recorded - check their dates against NOW and say 'as of Tuesday' instead of asserting old state as current. Keep events in order and say what happened before or after what. " +
+  "For history ('what happened since Tuesday') call timeline; for 'what's coming up / what did I miss' call whats_due; for 'how does my week look / any conflicts / do I have time' call load_calendar. Pay dates (payday, statement day, end of the pay week) come from when_is, from HIS saved pay terms.";
+
+/** Learning (owner 2026-11-07): how he answered a proposal. Best-effort - never throws, never slows or breaks the turn. */
+async function logOutcome(store: BotBrainStore, row: { tool_name: string; arguments: Record<string, unknown>; summary: string }, outcome: Outcome): Promise<void> {
+  try {
+    await store.recordProposalOutcome({ tool: row.tool_name, args: row.arguments, summary: row.summary, outcome });
+  } catch {
+    /* learning must never affect a conversation */
+  }
+}
+
+const LEARNING_RULES =
+  "LEARNING: the 'WHAT HE HAS TOLD YOU BY ANSWERING' block is computed from his real approvals and drops - use it to suggest less of what he keeps turning down. " +
+  "When a LESSON READY line is present, propose it ONCE with save_memory exactly as written. Learning never relaxes approval: every write is still a proposal he answers.";
 
 export type ConfirmationKind = "yes" | "no" | "other";
 
@@ -235,6 +251,7 @@ async function resolvePending(
 ): Promise<BotChatOutput> {
   if (Date.now() - new Date(pending.created_at).getTime() > PENDING_EXPIRY_MS) {
     await store.clearPendingAction(pending.id);
+    await logOutcome(store, pending, "expired");
     return {
       reply:
         `That proposal expired - it was over 2 hours old, so I dropped it instead of recording something late: ${pending.summary}. ` +
@@ -243,11 +260,13 @@ async function resolvePending(
   }
   if (kind === "no") {
     await store.clearPendingAction(pending.id);
+    await logOutcome(store, pending, "dropped");
     return { reply: `Cancelled - I didn't record it: ${pending.summary}` };
   }
   await store.clearPendingAction(pending.id);
   try {
     const result = await executeWriteTool(store, pending.tool_name, pending.arguments);
+    await logOutcome(store, pending, "approved");
     return { reply: `✅ Done - ${result.charAt(0).toLowerCase()}${result.slice(1)}\n${savedWhere(pending.tool_name)}` };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown error";
@@ -255,6 +274,7 @@ async function resolvePending(
     // retry. Keeping it made it the newest proposal again, so every later YES hit the same dead item and
     // starved everything else. It is dropped, and he is told what to do instead.
     if (isPermanentWriteFailure(err)) {
+      await logOutcome(store, pending, "failed");
       return {
         reply:
           `That couldn't be recorded (${detail}), so I dropped it - nothing was saved: ${pending.summary}. ` +
@@ -295,8 +315,10 @@ async function executeBatchItems(store: BotBrainStore, items: PendingAction[]): 
     await store.clearPendingAction(item.id);
     try {
       const result = await executeWriteTool(store, item.tool_name, item.arguments);
+      await logOutcome(store, item, "approved");
       lines.push(`✅ ${item.item_number ?? ""}. ${result}`);
     } catch (err) {
+      await logOutcome(store, item, "failed");
       const detail = err instanceof Error ? err.message : "unknown error";
       lines.push(
         `❌ ${item.item_number ?? ""}. ${item.summary} — FAILED (${detail}). Nothing was saved for this one.`,
@@ -319,6 +341,7 @@ async function resolveBatch(
 ): Promise<BotChatOutput> {
   if (command.kind === "drop_all" || command.kind === "drop_rest") {
     await store.clearPendingActions(batch.map((i) => i.id));
+    for (const item of batch) await logOutcome(store, item, "dropped");
     return {
       reply:
         `Dropped — I didn't record ${batch.length === 1 ? "it" : `any of the ${batch.length} items`}: ` +
@@ -536,6 +559,7 @@ export async function runAgentTurn(
       const oldest = pendingBatch[0]!;
       if (Date.now() - new Date(oldest.created_at).getTime() > PENDING_EXPIRY_MS) {
         await store.clearPendingActions(pendingBatch.map((i) => i.id));
+        for (const item of pendingBatch) await logOutcome(store, item, "expired");
         return {
           reply:
             `That batch proposal expired — it was over 2 hours old, so I dropped all ${pendingBatch.length} item(s) instead of recording something late. ` +
@@ -568,6 +592,7 @@ export async function runAgentTurn(
     // NEW request. The cancel can never become a delete of a saved record.
     if (/^no\b[.,!]?\s+\S/i.test(input.userText.trim())) {
       await store.clearPendingAction(pending.id);
+      await logOutcome(store, pending, "dropped");
       cancelledSuggestion = pending.summary;
     }
   }
@@ -632,7 +657,7 @@ export async function runAgentTurn(
   if (input.snapshotText) contextBlocks.push(input.snapshotText);
   if (input.memories.length > 0) {
     contextBlocks.push(
-      `REMEMBERED FACTS ABOUT HIM AND HIS BUSINESS:\n${input.memories.map((m) => `- ${m.content}`).join("\n")}`,
+      `REMEMBERED FACTS ABOUT HIM AND HIS BUSINESS (a note in brackets means the fact is old or time-bound - say "as of <date>", never state it as current):\n${input.memories.map((m) => `- ${withAge(m.content, m.created_at)}`).join("\n")}`,
     );
   }
   if (input.memoryReport) {
@@ -642,10 +667,20 @@ export async function runAgentTurn(
     contextBlocks.push(`CONTEXT REPORT: ${input.memoryReport}`);
   }
 
+  // Learning: how he has answered before, computed in code (design section 6). Best-effort.
+  let outcomeStats: SignatureStats[] = [];
+  try {
+    const [outcomes, remembered] = await Promise.all([store.loadRecentOutcomes(), store.loadMemories().catch(() => [])]);
+    outcomeStats = summarizeOutcomes(outcomes, new Date());
+    const block = learningBlock(outcomeStats, readyLessons(outcomeStats, remembered.map((m) => m.content)));
+    if (block) contextBlocks.push(block);
+  } catch {
+    /* no learning this turn */
+  }
   const botTools = gateExecutes(buildBotTools(store), input.userText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${LEARNING_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
@@ -684,6 +719,7 @@ export async function runAgentTurn(
   }
   if (correctingPending && proposals.some((p) => p.tool === correctingPending!.tool_name)) {
     await store.clearPendingAction(correctingPending.id);
+    await logOutcome(store, correctingPending, "corrected");
   }
   // No redundant approvals (owner 2026-11-07): reconcile with what is already waiting and within this turn.
   let reconcileNotes: string[] = [];
@@ -703,7 +739,10 @@ export async function runAgentTurn(
           /* keep the later summary */
         }
       }
-      if (rec.clearIds.length > 0) await store.clearPendingActions(rec.clearIds);
+      if (rec.clearIds.length > 0) {
+        await store.clearPendingActions(rec.clearIds);
+        for (const w of waiting.filter((x) => rec.clearIds.includes(x.id))) await logOutcome(store, w, "replaced");
+      }
       proposals = rec.stage;
       reconcileNotes = rec.notes;
       alreadyWaiting = rec.alreadyWaiting;
@@ -758,6 +797,9 @@ export async function runAgentTurn(
     }
 
     const suffixes: string[] = [];
+    // A suggestion he usually turns down says so up front, so a likely-wrong one is questioned before he has to.
+    const risks = [...new Set(proposals.map((p) => riskNote(signatureOf(p.tool, p.args), outcomeStats)).filter((x): x is string => Boolean(x)))];
+    if (risks.length > 0) suffixes.push(`\n\n${risks.join("\n")}`);
     if (singles.length > 0) suffixes.push(proposalSuffix(singles.map((p) => p.summary)));
     for (const items of batches.values()) {
       suffixes.push(

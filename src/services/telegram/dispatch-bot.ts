@@ -210,6 +210,8 @@ export interface TelegramDeps {
   sendYesNoMessage?: (chatId: number, text: string) => Promise<void>;
   /** Personality: sends a sticker for an emoji (looked up in the configured sticker set). Best-effort; absent = none. */
   sendSticker?: (chatId: number, emoji: string) => Promise<void>;
+  /** Personality: sends a GIF meme for a few search words. Best-effort; absent (or no provider key) = none. */
+  sendGif?: (chatId: number, query: string) => Promise<void>;
   /** Personality: reacts to his message with an emoji. Best-effort; absent = none. */
   setReaction?: (chatId: number, messageId: number, emoji: string) => Promise<void>;
   /** §3.3: acknowledges a button tap (stops Telegram's spinner). Best-effort by contract. */
@@ -284,7 +286,7 @@ interface ProcessedTextTurn {
 }
 
 /** True only when Abel actually asked for a sticker or a reaction - the normal reply awaits nothing extra. */
-const wantsFlair = (flair: Flair | undefined): flair is Flair => Boolean(flair && (flair.sticker || flair.reaction));
+const wantsFlair = (flair: Flair | undefined): flair is Flair => Boolean(flair && (flair.sticker || flair.reaction || flair.gif));
 
 /** Sends the sticker and reaction Abel asked for, after the text. Never fails the turn. */
 async function sendFlair(deps: TelegramDeps, chatId: number, flair: Flair | undefined, messageId?: number): Promise<void> {
@@ -294,6 +296,13 @@ async function sendFlair(deps: TelegramDeps, chatId: number, flair: Flair | unde
       await deps.sendSticker(chatId, flair.sticker);
     } catch (err) {
       console.error("[telegram] sticker failed (the text already went out)", err instanceof Error ? err.message : "error");
+    }
+  }
+  if (flair.gif && deps.sendGif) {
+    try {
+      await deps.sendGif(chatId, flair.gif);
+    } catch (err) {
+      console.error("[telegram] gif failed (the text already went out)", err instanceof Error ? err.message : "error");
     }
   }
   if (flair.reaction && messageId !== undefined && deps.setReaction) {

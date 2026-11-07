@@ -10,7 +10,7 @@ const plainEmoji = (e: string) => e.replace(/️/g, "");
 
 export function createPersonalitySenders(
   botToken: string,
-  options: { stickerSet?: string; fetchImpl?: typeof fetch; now?: () => number; random?: () => number } = {},
+  options: { stickerSet?: string; tenorKey?: string; fetchImpl?: typeof fetch; now?: () => number; random?: () => number } = {},
 ) {
   const stickerSet = options.stickerSet || DEFAULT_STICKER_SET;
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -51,7 +51,38 @@ export function createPersonalitySenders(
     return cache.byEmoji.get(plainEmoji(emoji)) ?? [];
   }
 
+  /**
+   * GIF memes via Tenor (free API key held only in the server's environment; medium content filter). No key = the
+   * feature is off. Any failure sends nothing. The key is in the request URL, so errors are never logged with it.
+   */
+  async function findGifUrl(query: string): Promise<string | null> {
+    if (!options.tenorKey) return null;
+    try {
+      const url =
+        `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${encodeURIComponent(options.tenorKey)}` +
+        "&client_key=trucking-os&limit=10&media_filter=mediumgif,gif,tinygif&contentfilter=medium&random=true";
+      const res = await fetchImpl(url);
+      if (!res.ok) {
+        console.error("[telegram] gif search failed", res.status);
+        return null;
+      }
+      const json = (await res.json().catch(() => null)) as { results?: { media_formats?: Record<string, { url?: string }> }[] } | null;
+      const urls = (json?.results ?? [])
+        .map((r) => r.media_formats?.mediumgif?.url ?? r.media_formats?.gif?.url ?? r.media_formats?.tinygif?.url)
+        .filter((u): u is string => typeof u === "string" && u.startsWith("https://"));
+      return urls.length ? urls[Math.floor(random() * urls.length)]! : null;
+    } catch {
+      console.error("[telegram] gif search request failed");
+      return null;
+    }
+  }
+
   return {
+    async sendGif(chatId: number, query: string): Promise<void> {
+      const animation = await findGifUrl(query);
+      if (!animation) return; // no key, no result, or a failure: the text stands on its own
+      await call("sendAnimation", { chat_id: chatId, animation });
+    },
     async sendSticker(chatId: number, emoji: string): Promise<void> {
       const ids = await fileIdsFor(emoji);
       if (ids.length === 0) return; // nothing for that emoji: the text stands on its own

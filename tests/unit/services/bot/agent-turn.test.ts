@@ -23,7 +23,7 @@ const COMPANY = "company-1";
 
 type Row = Record<string, unknown>;
 
-type Filter = { op: "eq" | "is" | "gte" | "in" | "ilike"; col: string; val: unknown };
+type Filter = { op: "eq" | "is" | "gte" | "lte" | "in" | "ilike"; col: string; val: unknown };
 
 function matches(row: Row, filters: Filter[]): boolean {
   return filters.every((f) => {
@@ -35,6 +35,8 @@ function matches(row: Row, filters: Filter[]): boolean {
         return f.val === null ? value === null || value === undefined : value === f.val;
       case "gte":
         return typeof value === "string" && typeof f.val === "string" ? value >= f.val : Number(value) >= Number(f.val);
+      case "lte":
+        return typeof value === "string" && typeof f.val === "string" ? value <= f.val : value != null && Number(value) <= Number(f.val);
       case "in":
         return Array.isArray(f.val) && f.val.includes(value);
       case "ilike": {
@@ -86,6 +88,10 @@ class FakeQuery {
   }
   gte(col: string, val: unknown) {
     this.filters.push({ op: "gte", col, val });
+    return this;
+  }
+  lte(col: string, val: unknown) {
+    this.filters.push({ op: "lte", col, val });
     return this;
   }
   in(col: string, val: unknown) {
@@ -1044,5 +1050,218 @@ describe("temporal reasoning: Abel's time tools and rules (owner 2026-11-07)", (
     expect(sent).toMatch(/never work out a weekday/);
     expect(sent).toMatch(/PERSONALITY/);
     expect(sent).toMatch(/NEVER use asterisks/);
+  });
+});
+
+describe("learning from his answers (owner approved 2026-11-07)", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const outcomes = (db: Record<string, Row[]>) => (db.bot_proposal_outcomes ?? []).map((r) => `${r.signature}:${r.outcome}`);
+  const pendingExpense = (id: string, minutes = 1): Row => ({
+    id, company_id: COMPANY, channel: "telegram", tool_name: "create_expense",
+    arguments: { category: "repairs", amount_dollars: 100 }, summary: "Expense: $100.00 (repairs)", created_at: ago(minutes), deleted_at: null,
+  });
+  const histOutcome = (outcome: string, daysBack: number): Row => ({
+    id: `o-${outcome}-${daysBack}`, company_id: COMPANY, tool_name: "create_expense", signature: "create_expense/other", outcome,
+    summary: "Expense: $20 (other)", created_at: new Date(Date.now() - daysBack * 86_400_000).toISOString(), deleted_at: null,
+  });
+
+  it("approving, dropping and a 'No, ...' each leave an outcome row", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [pendingExpense("p1")];
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider: noModel } = neverCalledProvider();
+    await runAgentTurn(noModel, store, input("yes"));
+    expect(outcomes(db)).toEqual(["create_expense/repairs:approved"]);
+
+    (db.bot_pending_actions as Row[]).push(pendingExpense("p2"));
+    await runAgentTurn(noModel, store, input("no"));
+    expect(outcomes(db)).toEqual(["create_expense/repairs:approved", "create_expense/repairs:dropped"]);
+
+    (db.bot_pending_actions as Row[]).push(pendingExpense("p3"));
+    const { provider } = scriptedProvider([{ text: "Ok, scrapped.", toolCalls: [] }]);
+    await runAgentTurn(provider, store, input("No, that's wrong. It was a repair"));
+    expect(outcomes(db).at(-1)).toBe("create_expense/repairs:dropped");
+  });
+
+  it("an expired proposal and a failed one are logged as neutral outcomes, not as answers", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [pendingExpense("old", 3 * 60)];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(outcomes(db)).toEqual(["create_expense/repairs:expired"]);
+  });
+
+  it("a newer proposal replacing a waiting one logs 'replaced'", async () => {
+    const L = "9c1e4c7a-0000-4000-8000-0000000000aa";
+    const seed = baseSeed(true);
+    seed.loads = [{ id: L, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
+    seed.bot_pending_actions = [
+      { id: "w", company_id: COMPANY, channel: "telegram", tool_name: "update_load", arguments: { load_id: L, delivery_date: "2026-11-06" }, summary: "old", created_at: ago(2), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "u", name: "update_load", arguments: JSON.stringify({ load_id: L, delivery_date: "2026-11-07", confirmation: "propose" }) }] },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("make it the 7th"));
+    expect(outcomes(db)).toContain("update_load:replaced");
+  });
+
+  it("a pattern of drops becomes a lesson Abel is told to propose, and a risk flag on the next such suggestion", async () => {
+    const seed = baseSeed(true);
+    seed.bot_proposal_outcomes = [
+      histOutcome("dropped", 2), histOutcome("dropped", 3), histOutcome("dropped", 5), histOutcome("dropped", 8), histOutcome("approved", 9),
+    ];
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "c", name: "create_expense", arguments: JSON.stringify({ category: "other", amount_dollars: 20, confirmation: "propose" }) }] },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("add a 20 dollar expense"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toContain("WHAT HE HAS TOLD YOU BY ANSWERING");
+    expect(sent).toContain("LESSON READY");
+    expect(sent).toContain("(pattern: create_expense/other)");
+    expect(out.reply).toContain("🤔 You've turned down 4 of the last 5 new expense (other) suggestions - still want this one?");
+    expect(out.reply).toContain("⏳ I have NOT recorded this yet"); // learning never skips approval
+  });
+
+  it("a lesson he already approved (remembered) is not offered again", async () => {
+    const seed = baseSeed(true);
+    seed.bot_proposal_outcomes = [histOutcome("dropped", 2), histOutcome("dropped", 3), histOutcome("dropped", 5), histOutcome("dropped", 8)];
+    seed.bot_memories = [{ id: "m", company_id: COMPANY, kind: "fact", content: "Lesson learned from his answers: ... (pattern: create_expense/other)", source: "telegram", created_at: ago(500), deleted_at: null }];
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    expect(JSON.stringify(runToolTurn.mock.calls[0] ?? [])).not.toContain("(pattern: create_expense/other)");
+  });
+
+  it("with the outcome table missing, nothing breaks - the proposal flow works as before", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [pendingExpense("p1")];
+    const { client } = fakeClient(seed);
+    const real = client.from.bind(client);
+    (client as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      if (t === "bot_proposal_outcomes") throw new Error('relation "bot_proposal_outcomes" does not exist');
+      return real(t);
+    };
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
+    expect(out.reply).toContain("✅ Done");
+  });
+
+  it("learning_report answers from the log", async () => {
+    const seed = baseSeed(true);
+    seed.bot_proposal_outcomes = [histOutcome("dropped", 2), histOutcome("dropped", 3), histOutcome("approved", 4)];
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "r", name: "learning_report", arguments: "{}" }] },
+      { text: "Here you go.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("what have you learned about me"));
+    expect(JSON.stringify(runToolTurn.mock.calls[1] ?? [])).toMatch(/new expense \(other\) suggestions: approved 1, turned down 2/);
+  });
+});
+
+describe("temporal reasoning, full (owner approved 2026-11-07): timeline, deadlines, load calendar, pay phrases, staleness", () => {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const shift = (n: number) => new Date(Date.parse(`${today}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  const callTool = async (seed: Record<string, Row[]>, name: string, args: Record<string, unknown>) => {
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "t", name, arguments: JSON.stringify(args) }] },
+      { text: "ok", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("question"));
+    // ONLY what the tool returned (not the prompt, whose words would match first)
+    const messages = ((runToolTurn.mock.calls[1] as unknown[] | undefined)?.[0] ?? []) as { role: string; content: string }[];
+    return messages.filter((m) => m.role === "tool").map((m) => m.content).join("\n");
+  };
+
+  it("timeline: what happened since a day, from his real records, in order", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: "L1", company_id: COMPANY, origin: "Macon, GA", destination: "Tampa, FL", status: "completed", pickup_date: shift(-4), delivery_date: shift(-2), deleted_at: null }];
+    seed.expenses = [{ id: "E1", company_id: COMPANY, category: "repairs", amount_cents: 8800, expense_date: shift(-1), description: "tire", deleted_at: null }];
+    seed.maintenance_events = [{ id: "M1", company_id: COMPANY, description: "Oil change", service_date: shift(-3), deleted_at: null }];
+    const out = await callTool(seed, "timeline", { since: "5 days ago" });
+    expect(out).toContain("🚚 Pickup: Macon, GA → Tampa, FL");
+    expect(out).toContain("🚚 Delivered: Macon, GA → Tampa, FL");
+    expect(out).toContain("🧾 Expense $88.00 (repairs) - tire");
+    expect(out).toContain("🔧 Maintenance: Oil change");
+    expect(out.indexOf("Pickup")).toBeLessThan(out.indexOf("Delivered"));
+    expect(out.indexOf("Delivered")).toBeLessThan(out.indexOf("Expense"));
+  });
+
+  it("timeline refuses a window it can't read or that is too long, instead of guessing", async () => {
+    expect(await callTool(baseSeed(true), "timeline", { since: "sometime soon" })).toMatch(/can't read "sometime soon" as a date/);
+    expect(await callTool(baseSeed(true), "timeline", { since: "2025-01-01" })).toMatch(/longer than 92 days/);
+  });
+
+  it("whats_due: overdue first, then what is coming, across credentials, bills and loads", async () => {
+    const seed = baseSeed(true);
+    seed.credentials = [{ id: "C1", company_id: COMPANY, kind: "medical_card", label: "Medical card", expires_on: shift(-3), deleted_at: null }];
+    seed.loads = [{ id: "L2", company_id: COMPANY, origin: "A, GA", destination: "B, FL", status: "confirmed", pickup_date: shift(2), delivery_date: shift(3), deleted_at: null }];
+    const out = await callTool(seed, "whats_due", { within_days: 14 });
+    expect(out).toContain("🔴 OVERDUE");
+    expect(out).toMatch(/Medical card expires/);
+    expect(out).toMatch(/3 days overdue/);
+    expect(out).toMatch(/pickup A, GA → B, FL/);
+    expect(out.indexOf("OVERDUE")).toBeLessThan(out.indexOf("COMING UP"));
+  });
+
+  it("whats_due flags a confirmed load whose delivery date passed without being marked delivered", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: "L3", company_id: COMPANY, origin: "A, GA", destination: "B, FL", status: "confirmed", pickup_date: shift(-5), delivery_date: shift(-2), deleted_at: null }];
+    expect(await callTool(seed, "whats_due", {})).toMatch(/delivery date passed, not marked delivered: A, GA → B, FL/);
+  });
+
+  it("load_calendar: orders his loads and warns about an overlap and a deadhead", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [
+      { id: "L4", company_id: COMPANY, origin: "Macon, GA", destination: "Tampa, FL", status: "confirmed", pickup_date: shift(1), delivery_date: shift(4), deleted_at: null },
+      { id: "L5", company_id: COMPANY, origin: "Orlando, FL", destination: "Miami, FL", status: "confirmed", pickup_date: shift(3), delivery_date: shift(5), deleted_at: null },
+    ];
+    const out = await callTool(seed, "load_calendar", {});
+    expect(out.indexOf("Macon, GA → Tampa, FL")).toBeLessThan(out.indexOf("Orlando, FL → Miami, FL"));
+    expect(out).toMatch(/Overlap: Orlando, FL → Miami, FL starts 1 day BEFORE Macon, GA → Tampa, FL/);
+    expect(out).toMatch(/Deadhead: Macon, GA → Tampa, FL ends in Tampa, FL, but Orlando, FL → Miami, FL starts in Orlando, FL/);
+  });
+
+  it("when_is understands his pay calendar from the saved terms: Sunday-Saturday week, Thursday statement, Friday pay", async () => {
+    const seed = baseSeed(true);
+    seed.employer_pay_profiles = [
+      { id: "p0", company_id: COMPANY, employer_name: "Acme", rate_cents_per_mile: 0, percent_of_load_bps: 8500, mile_basis: null, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5, effective_from: "2026-01-01", effective_to: null, deleted_at: null },
+    ];
+    const payday = await callTool(seed, "when_is", { phrase: "payday" });
+    expect(payday).toMatch(/"payday" = Friday/);
+    const statement = await callTool(seed, "when_is", { phrase: "statement day" });
+    expect(statement).toMatch(/"statement day" = Thursday/);
+    const span = await callTool(seed, "time_between", { to: "next payday" });
+    expect(span).toMatch(/later/);
+  });
+
+  it("with no pay terms saved, a pay phrase says so instead of guessing", async () => {
+    expect(await callTool(baseSeed(true), "when_is", { phrase: "payday" })).toMatch(/no pay terms saved/);
+  });
+
+  it("remembered facts carry their age, and time-bound ones are flagged as possibly stale", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "ok", toolCalls: [] }]);
+    const old = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    const yesterday = `${shift(-1)}T17:00:00Z`; // midday Eastern, yesterday
+    await runAgentTurn(provider, telegramStore(client), {
+      ...input("hello"),
+      memories: [
+        { kind: "fact", content: "Steven pays on Fridays", created_at: old },
+        { kind: "fact", content: "My active load goes to Tampa", created_at: yesterday },
+        { kind: "fact", content: "Prefers texts over calls", created_at: new Date().toISOString() },
+      ],
+    });
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/Steven pays on Fridays \(noted [A-Z][a-z]{2} \d+, 20 days ago\)/);
+    expect(sent).toMatch(/My active load goes to Tampa \(⚠ time-bound - noted yesterday, may be out of date\)/);
+    expect(sent).toContain("- Prefers texts over calls\\n");
   });
 });
