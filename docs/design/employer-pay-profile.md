@@ -122,3 +122,69 @@ the PERCENT part, each present only when its term is set:
 
 **Migration 00074** (additive, nullable, no seed): `employer_pay_profiles.percent_of_load_bps`
 (0..10000), `.pay_week_ends_on` (0..6), `.statement_weekday` (0..6), `.payday_weekday` (0..6); `loads.pay_override_cents` (>= 0).
+
+## 9. Cash advances against a payday (owner 2026-11-07)
+
+Owner: he has already taken advances against his current pay and wants them
+netted against the real thing — expected pay for the pay period, minus the
+advances taken out of that pay, equals the exact net he should receive on
+payday. Section 8 said "advances: not built"; this section builds them.
+
+**Data — `cash_advances` (migration 00079, structure only, no seed):**
+
+| column | type | notes |
+|---|---|---|
+| id | uuid | |
+| company_id | uuid | RLS tenant isolation like every table |
+| driver_id | uuid null → drivers | **per-worker**: the worker who took the advance. Null = not assigned to a driver row (today: the owner himself, who has no driver row requirement). Never hardcoded to any employer or person. |
+| amount_cents | integer > 0 | positive by design (like `fund_entries`): an advance is always money taken out; the deduction sign comes from what it is, never from a negative amount typed by hand |
+| advance_date | date | the day the money was taken |
+| note | text null | his words for what it was ("fuel advance", "Comchek", …) |
+| created/updated/deleted_at | | standard soft-delete + submission idempotency columns (00041 pattern) |
+
+An advance is **not** a `settlement_lines` row: settlement lines record what
+a statement *did* deduct (kind `advance` exists there for that), and they
+require a settlement. An advance here is recorded when it is *taken*, before
+any statement exists, so the projection can net against it.
+
+**Which payday an advance deducts from.** An advance belongs to the pay week
+containing its `advance_date`, grouped with the pay terms in force on that
+date — the exact rule that already groups finished loads into pay weeks
+(`groupByPayWeek`). Its payday is that week's payday
+(`paydayAfter(weekEnd, payday_weekday)`; no payday date is shown while the
+payday weekday is UNSET). If his terms later change, an advance is re-grouped
+by the same rule as his loads, so the two never drift apart.
+
+**The net figure.** For any pay week or period:
+`net = expected − advances`, applied to both ends of the expected range.
+The advances total itself is always exact (it is money he counted out), so
+while `mile_basis` is UNSET the net shows as a range minus an exact amount —
+never one confident number (owner rule). A net can go negative when advances
+exceed the week's expected pay; it is shown as the negative number it is,
+with words ("more taken out than this week is expected to pay"), never
+clamped to $0.
+
+**Surfaces (frontend is mandatory):**
+- **Money → Cash advances** (`/money/advances`): the entry point — add an
+  advance (amount in dollars, date, optional driver, optional note), the
+  list grouped by pay week with each week's payday and advances total, and
+  delete for a mis-tap. Linked from the Money index, Paychecks and
+  Projected pay.
+- **Home → Projected pay preview**: this pay week's gross range, the
+  advances taken out of it, and the net range he should receive.
+- **Money → Projected pay**: per period (this week / last week) the same
+  gross − advances = net lines.
+- **Money → Paychecks**: each pay-week group shows its advances total and
+  the net that should land; a week with advances but no finished loads
+  still appears (money was taken against it). Header totals carry the
+  advances total.
+- **Home → Pay and hours card**: when advances exist, a line naming the
+  total taken and pointing at Paychecks for the week-by-week net.
+
+**Scope limits, stated plainly:** previews net every advance recorded for
+the company in the period (today the company is him; `driver_id` is stored
+per advance so a future multi-driver view can net per worker without a data
+change). Abel/Telegram entry ("I took a $100 advance") is **phase 2**: it
+fits the existing propose→yes write-tool pattern, but is not built in this
+pass. Tax/fuel/other deductions stay out — the settlement is still the
+final number.

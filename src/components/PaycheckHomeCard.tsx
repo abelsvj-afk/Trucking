@@ -18,7 +18,7 @@ export default function PaycheckHomeCard() {
   if (state.status !== "ready" || !state.summary.hasTerms) return null;
   const { active, totals, hos } = state.summary;
   const range = active?.line?.expected;
-  const nothing = !active && totals.unpaidCount === 0 && totals.shortCount === 0 && !hos;
+  const nothing = !active && totals.unpaidCount === 0 && totals.shortCount === 0 && totals.advancesCents === 0 && !hos;
   if (nothing) return null;
 
   return (
@@ -40,6 +40,12 @@ export default function PaycheckHomeCard() {
           {totals.unpaidCount > 0 ? `${totals.unpaidCount} finished, unpaid (~${formatRange(totals.unpaidLowCents, totals.unpaidHighCents)})` : ""}
           {totals.unpaidCount > 0 && totals.shortCount > 0 ? " · " : ""}
           {totals.shortCount > 0 ? `${totals.shortCount} short ${formatCents(totals.shortfallCents)}` : ""}
+        </p>
+      )}
+      {totals.advancesCents > 0 && (
+        <p>
+          <Link href="/money/advances">Cash advances</Link>: {formatCents(totals.advancesCents)} already taken out of your pay
+          {totals.unpaidCount > 0 ? ` · unpaid loads should net ~${formatRange(totals.unpaidNetLowCents, totals.unpaidNetHighCents)}` : ""}
         </p>
       )}
       {hos && (
