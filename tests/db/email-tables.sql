@@ -22,7 +22,7 @@ begin
   insert into email_messages (company_id, message_id, subject, received_at) values (b, '<b1@x>', 'B mail', now()) returning id into mb;
   insert into load_candidates (company_id, email_message_id, data, dedupe_key) values (a, ma, '{}', 'k-a'), (b, mb, '{}', 'k-b');
   insert into email_drafts (company_id, email_message_id, to_address, subject, body) values (a, ma, 'x@y.z', 'Re', 'body'), (b, mb, 'x@y.z', 'Re', 'body');
-  insert into email_poll_state (company_id) values (a), (b);
+  insert into email_poll_state (company_id, mailbox) values (a, 'dispatch'), (a, 'owner'), (b, 'dispatch');
 
   -- ---- constraints (each must be REFUSED) ----
   begin insert into email_messages (company_id, message_id, received_at) values (a, '<a1@x>', now()); raise exception 'FAIL: duplicate Message-ID accepted';
@@ -40,6 +40,12 @@ begin
   exception when unique_violation then raise notice 'ok: the same load from two sources is one candidate (dedupe key)'; end;
   begin insert into load_candidates (company_id, data, dedupe_key, status) values (a, '{}', 'k3', 'booked'); raise exception 'FAIL: a candidate can be "booked"';
   exception when check_violation then raise notice 'ok: a candidate is never a booked load'; end;
+  begin insert into email_poll_state (company_id, mailbox) values (a, 'dispatch'); raise exception 'FAIL: two poll rows for one mailbox';
+  exception when unique_violation then raise notice 'ok: one poll cursor per company and mailbox'; end;
+  begin insert into email_poll_state (company_id, mailbox) values (a, 'gmail'); raise exception 'FAIL: unknown mailbox accepted';
+  exception when check_violation then raise notice 'ok: only the dispatch and owner mailboxes exist'; end;
+  begin insert into email_messages (company_id, message_id, received_at, mailbox) values (a, '<m@x>', now(), 'ceo'); raise exception 'FAIL: unknown mailbox on a message';
+  exception when check_violation then raise notice 'ok: a message belongs to the dispatch or owner mailbox'; end;
   begin insert into email_poll_state (company_id, last_error_kind) values (gen_random_uuid(), 'x'); raise exception 'FAIL';
   exception when others then raise notice 'ok: poll state refuses a bad error kind / unknown company'; end;
 

@@ -1,20 +1,15 @@
-# Company inbox for Abel - RUNG 1: READ-ONLY (design)
+# Company inboxes for Abel - RUNG 1: READ-ONLY, BOTH MAILBOXES (design)
 
 Owner direction 2026-11-07: "The bot needs access to the email." The owner registered roadtolegacytrucking.com (IONOS); two Mail Basic
 mailboxes exist: **dispatch@** (the company inbox brokers write to) and **owner@** (the owner's own). This gives Abel the company inbox
 (`docs/agent-dispatch-build-plan.md` section 4.2, pulled forward). Status: BUILT, gated, NOT deployed, migration 00078 NOT applied.
 
-> **Scope discrepancy to settle (flagged 2026-11-07):** this build follows the relay Claude was given, which scopes Abel to **dispatch@ only**
-> (owner@ out of scope, env names `IONOS_EMAIL_USER` / `IONOS_EMAIL_PASSWORD`). The brief committed on main, `docs/design/abel-email-access.md`,
-> instead says both mailboxes (`IONOS_EMAIL_DISPATCH_*` / `IONOS_EMAIL_OWNER_*`, a `mailbox` label on every message). Both cannot be current.
-> The owner (or King) should say which stands. If both: owner@ is a second config of this same reader (the `mailbox` column already exists,
-> default 'dispatch'), and it changes who can see owner@ mail - a separate, explicit decision. Nothing in this build reads owner@.
+> **Scope (owner decision 2026-11-07, tapped in chat; brief `docs/design/abel-email-access.md`): BOTH mailboxes, read-only** - dispatch@ and owner@. King recommended dispatch-only; the owner chose both and this build follows the owner.
 
 ## 1. Scope - Observe and Draft only. Nothing in this build can send, delete, move or change mail.
-**In:** poll dispatch@'s INBOX over IMAP, read and store messages, classify them, surface what matters in Telegram, extract load offers
+**In:** poll the INBOX of BOTH dispatch@ and owner@ over IMAP (each independently), read and store messages, classify them, surface what matters in Telegram, extract load offers
 into candidates that go through the normal proposal flow, store UNSENT reply drafts, show real health.
-**Out (deliberately, each a separate owner decision - governance Major Change):** sending (SMTP, rung 2), owner@ (the owner's own box -
-Abel gets no access), any other mailbox, deleting/archiving/flagging/moving mail, filters, forwarding, employee/driver access.
+**Out (deliberately, each a separate owner decision - governance Major Change):** sending (SMTP, rung 2), any other mailbox (ceo@sajacousmixedit.com, Gmail, anything else), deleting/archiving/flagging/moving mail, filters, forwarding, employee/driver access to either inbox (both are owner-only surfaces; the owner@ box especially - the app has no employee login today, and when employee access is built (docs/design/employee-access.md) these routes and tools must be role-gated as part of it).
 The autonomy ladder's hard limits (build plan 0.2) apply untouched: money, signatures/terms and hours-of-service compliance never
 auto-send - and in this build NOTHING sends, so there is no button to approve.
 
@@ -22,21 +17,22 @@ auto-send - and in this build NOTHING sends, so there is no button to approve.
 IONOS Mail Basic is plain IMAP/SMTP password auth - no API, no OAuth, no app passwords. IMAP imap.ionos.com:993 TLS. The username is the
 full address. The password is that mailbox's own, set by the owner, and reaches production ONLY as a Fly secret; it is never in the repo,
 chat, logs or a response. Not verifiable from the build sandbox (egress blocked); **the closing proof is one production poll that reads real
-mail after deploy** (King sends a test message to dispatch@; Abel's next poll must surface it with a correct summary).
+mail after deploy** (King sends a test message to EACH mailbox; Abel's next poll must surface both in Telegram with correct summaries, each labelled with the mailbox it arrived in).
 
 ## 3. Configuration (env only)
-`IONOS_EMAIL_USER` (the dispatch@ address), `IONOS_EMAIL_PASSWORD` (Fly secret), `IONOS_IMAP_HOST` (default imap.ionos.com),
-`IONOS_IMAP_PORT` (default 993), `EMAIL_POLL_INTERVAL_MS` (default 5 minutes). Missing user or password = the integration reports itself
-OFF, honestly, everywhere it is shown. It never crashes and never pretends to be connected.
+`IONOS_EMAIL_DISPATCH_USER` / `IONOS_EMAIL_DISPATCH_PASSWORD` and `IONOS_EMAIL_OWNER_USER` / `IONOS_EMAIL_OWNER_PASSWORD` (the passwords are Fly
+secrets), `IONOS_IMAP_HOST` (default imap.ionos.com), `IONOS_IMAP_PORT` (default 993), `EMAIL_POLL_INTERVAL_MS` (default 5 minutes). Each
+mailbox is configured, polled, cursored and health-reported INDEPENDENTLY: a missing or failing mailbox never takes the other down. Missing user
+or password = that mailbox reports itself OFF, honestly, everywhere it is shown. It never crashes and never pretends to be connected.
 
 ## 4. Reading mail safely
 - One short-lived TLS connection per poll (no IDLE connection to leak). The INBOX is opened READ-ONLY (IMAP EXAMINE) and bodies are
   fetched with BODY.PEEK, so no flag (\Seen etc.) is ever changed on the server.
 - The code uses an explicit ALLOWLIST of IMAP operations (connect, open read-only, search, fetch, logout). A test scans the source and a
   fake client throws on anything else, so a delete/move/expunge/flag/append call cannot be added without failing the build.
-- Cursor: per mailbox `uidvalidity` + `last_uid`; a changed UIDVALIDITY resets to "last 7 days". First run reads the last 7 days only (never
+- Cursor: per mailbox (dispatch / owner) `uidvalidity` + `last_uid`; a changed UIDVALIDITY resets to "last 7 days". First run reads the last 7 days only (never
   the whole history). At most 25 messages per poll, oldest first, so the cursor only advances past what was fully processed.
-- Dedupe: unique `(company_id, message_id)` on the server's Message-ID (a stable hash of from+date+subject when it is missing). A message
+- Dedupe: unique `(company_id, message_id)` on the server's Message-ID (the `mailbox` column records which box received it) (a stable hash of from+date+subject when it is missing). A message
   is stored once, however many polls see it.
 - Attachments are NOT downloaded or interpreted; their file names are noted. (Rate-con PDFs are a later, separate decision.)
 - A body is limited to 20,000 characters of plain text (HTML converted, never rendered, links never followed).
@@ -51,8 +47,8 @@ can at most become a STAGED PROPOSAL the owner sees; there is no code path that 
 ## 6. Triage
 Classes: `load_offer`, `payment` (settlements, remittance, invoices), `facility` (shipper/receiver/appointment), `other`, `junk` (newsletters,
 marketing, spam). Unknown or low-confidence = `other`, never guessed into a thread. Surfacing:
-- `load_offer`, `payment`, `facility`, `other` -> a Telegram message promptly (summary + sender + subject).
-- `junk` -> never an interruption: it lands in ONE daily digest (8 AM Eastern, only if there is any) and in the inbox view.
+- `load_offer`, `payment`, `facility`, `other` -> a Telegram message promptly (summary + sender + subject), labelled with the mailbox it arrived in (dispatch@ / owner@).
+- `junk` -> never an interruption: it lands in ONE daily digest covering both mailboxes (8 AM Eastern, only if there is any) and in the inbox view.
 - A `load_offer` also becomes a **load candidate** (build plan 2.3): broker, lane (city/state), windows, miles, posted rate (per-mile is
   computed by us and labelled computed), commodity/equipment/weight as posted, requirements and traps verbatim, absence recorded as
   "not stated" (never filled in), provenance and a dedupe key. A candidate is NOT a load. It becomes one only through the existing booking
@@ -69,14 +65,14 @@ The `email_drafts.status` column can only be `draft` or `discarded`: the schema 
 required (execute gate); otherwise it is a proposal.
 
 ## 8. Health honesty
-`email_poll_state` records the last successful poll and the last failure. The Settings panel and Abel say exactly what is true: OFF (no
+`email_poll_state` (one row per company + mailbox) records the last successful poll and the last failure. The Settings panel and Abel say exactly what is true: OFF (no
 secrets), CONNECTED (last good poll at <Eastern time>), or FAILING with the plain cause - "email login failed - the password may have
 changed", "can't reach the mail server", "the mail server's security certificate was refused". Backend self-report: on the first failure
-of a new kind (and again when it recovers) Abel messages the owner himself; repeats are not spammed. A green light never sits on a dead
+of a new kind per mailbox (and again when it recovers) Abel messages the owner himself, naming the mailbox; repeats are not spammed. A green light never sits on a dead
 connection: "connected" requires a poll that succeeded within the last three intervals.
 
 ## 9. Revocation
-Because dispatch@'s password is independent, changing that one mailbox password cuts Abel off without touching owner@ or any other box.
+Each mailbox password is independent: changing one cuts Abel off from that box without touching the other, or the owner's IONOS account login.
 The password must NOT be reused from any other account when the Fly secret is set.
 
 ## 10. Tables (migration 00078, additive, tenant/RLS, anon 0)

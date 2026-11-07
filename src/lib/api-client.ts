@@ -310,14 +310,15 @@ export const apiClient = {
   // Lane 2: "What Abel remembers" - view / edit (supersede) / delete
   // over the shared brain store (Intelligence Upgrade Phase B).
   /** Company inbox (read-only): status + message summaries, or one message in full with ?id. */
-  inbox: (params: { q?: string; classification?: string } = {}) => {
+  inbox: (params: { q?: string; classification?: string; mailbox?: string } = {}) => {
     const qs = new URLSearchParams();
     if (params.q) qs.set("q", params.q);
     if (params.classification) qs.set("classification", params.classification);
-    return request<{ data: { status: import("@/services/email/status").EmailStatus; messages: import("@/services/email/store").StoredEmail[] } }>(`/api/v1/inbox${qs.size ? `?${qs}` : ""}`);
+    if (params.mailbox) qs.set("mailbox", params.mailbox);
+    return request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; messages: import("@/services/email/store").StoredEmail[] } }>(`/api/v1/inbox${qs.size ? `?${qs}` : ""}`);
   },
   inboxMessage: (id: string) =>
-    request<{ data: { status: import("@/services/email/status").EmailStatus; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
+    request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
   listMemories: (includeHistory = false) =>
     request<BotMemoryListResult>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
   editMemory: (id: string, content: string) =>

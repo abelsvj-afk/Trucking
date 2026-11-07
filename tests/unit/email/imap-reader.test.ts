@@ -56,7 +56,7 @@ describe("readNewMail", () => {
 });
 
 describe("withImapSession", () => {
-  const cfg = { user: "d@example.com", password: "secret-pass", host: "imap.example.com", port: 993, intervalMs: 300000 };
+  const cfg = { mailbox: "dispatch" as const, user: "d@example.com", password: "secret-pass", host: "imap.example.com", port: 993, intervalMs: 300000 };
   it("always closes the session and returns the value", async () => {
     const s = fake("1", []);
     const r = await withImapSession(cfg, async () => 7, async () => s);

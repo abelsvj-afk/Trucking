@@ -1056,7 +1056,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)
 - `message_id` text not null check (length(btrim(message_id)) > 0)
-- `mailbox` text not null default 'dispatch'
+- `mailbox` text not null default 'dispatch' constraint email_messages_mailbox_valid check (mailbox in ('dispatch', 'owner'))
 - `uid` bigint
 - `uidvalidity` bigint
 - `from_address` text
@@ -1105,7 +1105,8 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 
 ### `email_poll_state` — created in 00078
 
-- `company_id` uuid primary key references companies (id)
+- `company_id` uuid not null references companies (id)
+- `mailbox` text not null default 'dispatch' constraint email_poll_state_mailbox_valid check (mailbox in ('dispatch', 'owner'))
 - `uidvalidity` bigint
 - `last_uid` bigint
 - `last_attempt_at` timestamptz
@@ -1116,6 +1117,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `last_notified_state` text
 - `last_digest_date` date
 - `updated_at` timestamptz not null default now()
+- primary key (company_id, mailbox)
 
 
 ### Columns added to already-documented tables since 00032

@@ -1,9 +1,9 @@
 -- 00078 - Company inbox for Abel, RUNG 1 READ-ONLY (docs/design/company-inbox.md; owner direction 2026-11-07).
--- Abel reads dispatch@'s INBOX over IMAP and stores what he reads; nothing here can send, delete or change mail.
+-- Abel reads the dispatch@ and owner@ INBOXes over IMAP (owner scope decision 2026-11-07: both, read-only) and stores what he reads; nothing here can send, delete or change mail.
 --   email_messages     one row per message read (unique on the server Message-ID per company); body is plain text, untrusted
 --   load_candidates    the canonical load candidate (build plan 2.3) extracted from a load offer - NOT a load
 --   email_drafts       UNSENT reply drafts; the status column has no 'sent' value - the schema has no send state
---   email_poll_state   one row per company: cursor, last good poll, last failure (the honest health state)
+--   email_poll_state   one row per company + mailbox (dispatch, owner): cursor, last good poll, last failure (the honest health state)
 -- ADDITIVE, tenant-isolated (RLS), anon grants 0 by the 00067 defaults, composite (company_id, fk) FKs like 00070, no seed.
 
 create table email_messages (
@@ -11,7 +11,9 @@ create table email_messages (
   company_id uuid not null references companies (id),
   /** The server's Message-ID header (a stable hash of from+date+subject when it is missing). */
   message_id text not null check (length(btrim(message_id)) > 0),
-  mailbox text not null default 'dispatch',
+  /** Which of the two company mailboxes received it. */
+  mailbox text not null default 'dispatch'
+    constraint email_messages_mailbox_valid check (mailbox in ('dispatch', 'owner')),
   uid bigint,
   uidvalidity bigint,
   from_address text,
@@ -84,7 +86,10 @@ create table email_drafts (
 create index email_drafts_message_idx on email_drafts (company_id, email_message_id) where deleted_at is null;
 
 create table email_poll_state (
-  company_id uuid primary key references companies (id),
+  company_id uuid not null references companies (id),
+  /** One cursor / health row per mailbox - a failing box never takes the other down. */
+  mailbox text not null default 'dispatch'
+    constraint email_poll_state_mailbox_valid check (mailbox in ('dispatch', 'owner')),
   uidvalidity bigint,
   last_uid bigint,
   last_attempt_at timestamptz,
@@ -96,7 +101,8 @@ create table email_poll_state (
   /** What Abel last told the owner about the connection ('ok' | 'auth' | 'network' | 'tls' | 'other') - so a failure is announced once. */
   last_notified_state text,
   last_digest_date date,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  primary key (company_id, mailbox)
 );
 
 alter table email_messages enable row level security;
