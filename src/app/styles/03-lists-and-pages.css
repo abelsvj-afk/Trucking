@@ -301,6 +301,60 @@ a.page-action:hover,
   margin-top: 1rem;
 }
 
+/* Assistant tab window (owner 2026-11-07): the page is a fixed-height
+   column - header and capabilities on top, then a window that owns
+   the rest of the screen. Messages scroll INSIDE .chat-scroll only;
+   the composer dock below it never moves, so the reply box is
+   visible the moment the tab opens, newest message in view.
+   Height math: main gives 1.5rem top padding and 6rem bottom
+   padding (the fixed bottom nav's clearance) - the column takes
+   everything between. dvh keeps it honest on phone browsers. */
+.assistant-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 7.5rem);
+}
+
+.assistant-capabilities {
+  margin-bottom: 0.75rem;
+}
+
+.assistant-capabilities summary {
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+.chat-window {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background-color: var(--color-surface);
+  overflow: hidden;
+}
+
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 1rem 1rem;
+}
+
+.chat-dock {
+  flex: none;
+  border-top: 1px solid var(--color-border);
+  padding: 0.75rem 1rem 1rem;
+  background-color: var(--color-surface);
+}
+
+.chat-dock .prompt-chips {
+  margin-top: 0;
+}
+
 /* Index hubs (Fleet / Money / More): each entry gets its one-line
    "what is this for" under the link, so the hub teaches too. */
 .hub-desc {

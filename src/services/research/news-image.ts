@@ -63,26 +63,20 @@ function cacheSet(url: string, bytes: Buffer, now: number): void {
   cache.set(url, { at: now, bytes });
 }
 
-export async function loadNewsImage(
-  supabase: SupabaseClient,
-  signalId: string,
-  index: number,
+/**
+ * Fetch + re-encode + cache one already-validated publisher image URL.
+ * Shared by the news-image route (signal items) and the briefing-image
+ * route (a finding's own article image): identical safety posture -
+ * SSRF-safe fetch, sharp re-encode, the original bytes never served.
+ * Callers must validate the URL with validateImageUrl first.
+ */
+export async function serveValidatedImageUrl(
+  imageUrl: string,
   deps: NewsImageDeps = {},
 ): Promise<NewsImageResult> {
   const fetchImage = deps.fetchImage ?? fetchPublicImage;
   const normalize = deps.normalize ?? normalizeImage;
   const now = (deps.now ?? Date.now)();
-
-  // RLS scopes this to signals the caller may read (his company's, or the
-  // global ones); a missing row and another company's row look identical.
-  const { data, error } = await supabase.from("research_signals").select("items").eq("id", signalId).maybeSingle();
-  if (error) return { ok: false, status: 502, reason: "lookup-failed" };
-  const items = (data as { items?: unknown } | null)?.items;
-  if (!Array.isArray(items)) return { ok: false, status: 404, reason: "not-found" };
-  const imageUrl = (items[index] as { imageUrl?: unknown } | undefined)?.imageUrl;
-  if (typeof imageUrl !== "string" || validateImageUrl(imageUrl) === null) {
-    return { ok: false, status: 404, reason: "no-image" };
-  }
 
   const cached = cacheGet(imageUrl, now);
   if (cached) return { ok: true, bytes: cached, contentType: "image/jpeg" };
@@ -104,6 +98,26 @@ export async function loadNewsImage(
   } finally {
     inFlight -= 1;
   }
+}
+
+export async function loadNewsImage(
+  supabase: SupabaseClient,
+  signalId: string,
+  index: number,
+  deps: NewsImageDeps = {},
+): Promise<NewsImageResult> {
+  // RLS scopes this to signals the caller may read (his company's, or the
+  // global ones); a missing row and another company's row look identical.
+  const { data, error } = await supabase.from("research_signals").select("items").eq("id", signalId).maybeSingle();
+  if (error) return { ok: false, status: 502, reason: "lookup-failed" };
+  const items = (data as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) return { ok: false, status: 404, reason: "not-found" };
+  const imageUrl = (items[index] as { imageUrl?: unknown } | undefined)?.imageUrl;
+  if (typeof imageUrl !== "string" || validateImageUrl(imageUrl) === null) {
+    return { ok: false, status: 404, reason: "no-image" };
+  }
+
+  return serveValidatedImageUrl(imageUrl, deps);
 }
 
 function failureLabel(reason: FetchFailureReason): string {

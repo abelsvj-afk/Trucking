@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   FetchFailure,
   fetchPublicImage,
+  fetchPublicPage,
   guardedLookup,
   isPublicIp,
   sniffImageType,
@@ -193,6 +194,46 @@ describe("fetchPublicImage", () => {
     const transport = vi.fn(async () => okResponse(JPEG, "image/jpeg"));
     await fetchPublicImage("https://cdn.example.com/a", { transport });
     expect(transport).toHaveBeenCalledWith(expect.any(URL), { timeoutMs: 8000, maxBytes: 1_500_000 });
+  });
+});
+
+describe("fetchPublicPage - the og:image lookup fetch, same SSRF policy", () => {
+  const html = (body: string, type = "text/html") => ({
+    status: 200,
+    headers: { "content-type": type },
+    body: Buffer.from(body),
+  });
+
+  it("returns the page HTML and the final URL for an https page", async () => {
+    const transport: Transport = async () => html("<html><head></head></html>");
+    const r = await fetchPublicPage("https://pub.example/story", { transport });
+    expect(r).toEqual({ ok: true, html: "<html><head></head></html>", finalUrl: "https://pub.example/story" });
+  });
+
+  it("refuses non-https and private URLs before any fetch", async () => {
+    const transport = vi.fn();
+    expect(await fetchPublicPage("http://pub.example/story", { transport })).toEqual({ ok: false, reason: "bad-url" });
+    expect(await fetchPublicPage("https://169.254.169.254/story", { transport })).toEqual({ ok: false, reason: "bad-url" });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("follows a redirect but re-judges the hop: a redirect to a private host is blocked", async () => {
+    const transport: Transport = async (url) =>
+      url.hostname === "pub.example"
+        ? { status: 302, headers: { location: "https://192.168.1.1/admin" }, body: Buffer.alloc(0) }
+        : html("never");
+    expect(await fetchPublicPage("https://pub.example/story", { transport })).toEqual({ ok: false, reason: "blocked" });
+  });
+
+  it("rejects a 200 that is not HTML (never treats an image or JSON as a page)", async () => {
+    const transport: Transport = async () => ({ status: 200, headers: { "content-type": "image/jpeg" }, body: JPEG });
+    expect(await fetchPublicPage("https://pub.example/story", { transport })).toEqual({ ok: false, reason: "type" });
+  });
+
+  it("passes bounded limits to the transport (512KB page cap)", async () => {
+    const transport = vi.fn(async () => html("ok"));
+    await fetchPublicPage("https://pub.example/story", { transport });
+    expect(transport).toHaveBeenCalledWith(expect.any(URL), { timeoutMs: 8000, maxBytes: 512_000 });
   });
 });
 
