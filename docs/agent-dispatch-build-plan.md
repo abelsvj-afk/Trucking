@@ -1288,3 +1288,60 @@ repo state at `306e58eb`, `docs/governance.md`,
 `docs/ai-authority-matrix.md`, `docs/eld-compliance-roadmap.md`, and
 `docs/design/employer-pay-profile.md`. Nothing in this plan is built
 by its existence.*
+
+---
+
+## 10. Decisions addendum — owner, 2026-11-07 voice call (after the plan landed)
+
+Worked through one by one with the owner the same morning. These decisions
+sharpen §8; where they differ from the questions as posed, the decision wins.
+
+1. **Load boards are multiple, and agents are per driver.** The dispatcher
+   does not read one board for one man. Each driver/employee gets his own
+   agent (his Telegram partner), and that agent reads across **multiple**
+   load boards and feeds that driver his options. Phase 1's learning source
+   is unchanged: the loads arriving through Steven's company today, plus the
+   owner's own experience dictated into the system — the app develops and is
+   optimized continuously from that, over time, and it must be **functional
+   when he is ready to start with his own truck**, not finished-perfect.
+2. **Amazon Relay is later, and probably not solo.** The owner doubts he
+   qualifies for Relay himself; his expectation is it would need a hired
+   driver put on that account, or a signup attempted to see if they accept
+   him. Relay is removed from any solo-phase assumption; it returns when
+   there is a driver to put on it or an acceptance in hand.
+3. **Business email: yes, under the existing LLC.** He will retrieve his
+   LLC/EIN details and get a business email matching the trucking business
+   name he has in mind. A DBA/fictitious name does not change the EIN, so
+   the LLC's information can be used now. Company/owner-only pages in the
+   app are established as accessible **only to him** (his personal ID),
+   never to employees — that owner-only layer can start being built while
+   he is still driving for Steven.
+4. **Bonus pool: 10% to start.** Ten percent of verified dispatch savings
+   funds the driver bonus pool as the starting rule, adjustable once real
+   numbers exist. He wants the wider structure modeled on a box-truck
+   operator he follows (named from memory as "Truck Bros / Truckin Bros,"
+   a dreadhead creator on YouTube/Instagram who treats his employees
+   well) — that structure must be researched and verified before any
+   specifics are adopted; the name as recalled is not a citation.
+5. **Abel machine learning / outcome log: GO-AHEAD, and start ordered.**
+   The §6 proposal in `docs/design/bot-messages-and-safety.md` (outcome
+   log → lessons from corrections → risk scoring) is approved, and the
+   owner ordered the start on 2026-11-07. It remains a gated build like
+   everything else — built, gated, merge and deploy on his taps; approval
+   here is not a claim that it is live.
+6. **Scoring posture — the agent asks (this corrects §8 question 3).**
+   There is **no money-month switch** and no automatic re-ranking. Scoring
+   runs on each driver's own preference, and when a load creates a
+   trade-off, that driver's agent must **ask, smartly, before acting on
+   it**: state the effect plainly — "this is going to affect this; you
+   won't be able to get home at this time — do you want to do that or
+   no?" — and wait for the driver's answer. The trade-off is surfaced,
+   never silently absorbed into a score. §2.4's Gate 2 is amended
+   accordingly: a lifestyle conflict converts the workup into a question
+   to the driver, and the load is not ranked as a clean take until he
+   answers.
+
+The owner confirmed there were no other outstanding questions from §8 at
+this time; the remaining §8 items (infrastructure ceiling, auto-send
+appetite statement, ELD posture costing) stay open for a later pass and
+do not block Phase 1.
