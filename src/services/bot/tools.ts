@@ -35,6 +35,9 @@ import { buildPayTools } from "./pay-tools";
 import { buildPayProjectionTools } from "./pay-projection-tools";
 import { buildTemporalTools } from "./temporal-tools";
 import { buildLearningTools } from "./learning-tools";
+import { buildFleetTools } from "./fleet-tools";
+import { buildDriverQuestionTools } from "./driver-question-tools";
+import { buildNewsTools } from "./news-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
 import { propagateMileage } from "@/services/fleet/mileage";
@@ -1008,6 +1011,9 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push(...buildPayProjectionTools(store));
   tools.push(...buildTemporalTools(store));
   tools.push(...buildLearningTools(store));
+  tools.push(...buildFleetTools(store));
+  tools.push(...buildDriverQuestionTools(store));
+  tools.push(...buildNewsTools(store));
 
   // Phase C (threads + people): forward thread records, open
   // loops, and the evidence-based per-person model - own module

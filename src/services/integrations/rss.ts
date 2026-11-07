@@ -88,3 +88,8 @@ async function fetchOneFeed(feed: (typeof FEEDS)[number], fetchFn: typeof fetch)
 export async function fetchIndustryNews(fetchFn: typeof fetch = fetch): Promise<FeedFetchResult[]> {
   return Promise.all(FEEDS.map((feed) => fetchOneFeed(feed, fetchFn)));
 }
+
+/** Any list of feeds, each fetched independently (one dead feed never sinks the others). Used by the news digest. */
+export async function fetchFeedSet(feeds: { source: string; url: string }[], fetchFn: typeof fetch = fetch): Promise<FeedFetchResult[]> {
+  return Promise.all(feeds.map((feed) => fetchOneFeed(feed, fetchFn)));
+}

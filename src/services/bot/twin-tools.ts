@@ -73,7 +73,7 @@ export function buildTwinTools(store: BotBrainStore): AgentTool[] {
     {
       name: "record_load_decision",
       description:
-        "Log one of HIS load decisions in the decision log: a load he took or passed, in his words, plus the outcome when known. Only log decisions he actually made (he says so, or a thread shows it) - never infer a decision from silence. This log is what 'what do I usually do when a broker lowballs?' answers from, with counts.",
+        "Log one of HIS load decisions in the decision log: a load he took or passed, in his words, plus the outcome when known. Only log decisions he actually made (he says so, or a thread shows it) - never infer a decision from silence. Fill in the structured fields (states, miles, pay, deadhead, the driver, and his reason) whenever he gives them: that is what lets his preferences be LEARNED from the log. This log is what 'what do I usually do when a broker lowballs?' answers from, with counts.",
       parameters: {
         type: "object",
         properties: {
@@ -81,6 +81,13 @@ export function buildTwinTools(store: BotBrainStore): AgentTool[] {
           decision: { type: "string", enum: ["taken", "passed"] },
           load_id: { type: "string", description: "The recorded load's id, when it is one." },
           outcome_note: { type: "string", description: "What happened after, when known." },
+          driver_id: { type: "string", description: "The driver this decision was for (uuid from list_drivers), when it was not the owner himself." },
+          origin_state: { type: "string", description: "Two-letter pickup state, when known." },
+          destination_state: { type: "string", description: "Two-letter delivery state, when known." },
+          miles: { type: "number", description: "Loaded miles, when known." },
+          rate_dollars: { type: "number", description: "What the load pays in total, in dollars, when known." },
+          deadhead_miles: { type: "number", description: "Empty miles to the pickup, when known." },
+          reason: { type: "string", description: "WHY, in his words (\"too far from home\", \"rate too low\"), when he says." },
         },
         required: ["description", "decision"],
       },
@@ -91,6 +98,13 @@ export function buildTwinTools(store: BotBrainStore): AgentTool[] {
           decision: z.enum(["taken", "passed"]),
           load_id: z.string().uuid().optional(),
           outcome_note: z.string().min(1).optional(),
+          driver_id: z.string().uuid().optional(),
+          origin_state: z.string().length(2).optional(),
+          destination_state: z.string().length(2).optional(),
+          miles: z.number().int().nonnegative().optional(),
+          rate_dollars: z.number().nonnegative().optional(),
+          deadhead_miles: z.number().int().nonnegative().optional(),
+          reason: z.string().min(1).optional(),
         }),
       ),
       summarize(args) {
@@ -102,6 +116,13 @@ export function buildTwinTools(store: BotBrainStore): AgentTool[] {
           description: String(args.description),
           decision: args.decision as "taken" | "passed",
           outcomeNote: (args.outcome_note as string | undefined) ?? null,
+          driverId: (args.driver_id as string | undefined) ?? null,
+          originState: typeof args.origin_state === "string" ? args.origin_state.toUpperCase() : null,
+          destinationState: typeof args.destination_state === "string" ? args.destination_state.toUpperCase() : null,
+          miles: typeof args.miles === "number" ? args.miles : null,
+          rateCents: typeof args.rate_dollars === "number" ? Math.round(args.rate_dollars * 100) : null,
+          deadheadMiles: typeof args.deadhead_miles === "number" ? args.deadhead_miles : null,
+          reason: (args.reason as string | undefined) ?? null,
         });
         return `Logged: he ${args.decision === "taken" ? "took" : "passed on"} "${String(args.description)}". The decision log is what pattern questions read - with counts, never vibes.`;
       },

@@ -279,7 +279,20 @@ export interface BotBrainStore extends TelegramStore {
   /** Recent dispatch exchanges (for targeting recordSentReply). */
   listRecentExchanges(limit?: number): Promise<{ id: string; incoming: string; hasDraft: boolean; actualReplySent: string | null; editDistanceRatio: number | null; createdAt: string }[]>;
   /** Logs one of HIS load decisions (taken/passed + outcome) - the decision-log pattern source. */
-  recordLoadDecision(input: { loadId?: string | null; description: string; decision: "taken" | "passed"; outcomeNote?: string | null }): Promise<void>;
+  recordLoadDecision(input: {
+    loadId?: string | null;
+    description: string;
+    decision: "taken" | "passed";
+    outcomeNote?: string | null;
+    /** Migration 00077: the structured features that let a decision be LEARNED from (all optional). */
+    driverId?: string | null;
+    originState?: string | null;
+    destinationState?: string | null;
+    miles?: number | null;
+    rateCents?: number | null;
+    deadheadMiles?: number | null;
+    reason?: string | null;
+  }): Promise<void>;
   /** His logged load decisions, newest first (bounded). */
   listLoadDecisions(limit?: number): Promise<{ id: string; loadId: string | null; description: string; decision: string; outcomeNote: string | null; createdAt: string }[]>;
   /** Twin measurement over a window: captured replies + their mean edit distance (null avg when none/unmeasured). */
@@ -698,13 +711,29 @@ export function createBotStore(
     },
 
     async recordLoadDecision(input) {
-      const { error } = await supabase.from("load_decisions").insert({
+      const base = {
         company_id: company,
         load_id: input.loadId ?? null,
         description: input.description,
         decision: input.decision,
         outcome_note: input.outcomeNote ?? null,
-      });
+      };
+      const features = {
+        driver_id: input.driverId ?? null,
+        origin_state: input.originState ?? null,
+        destination_state: input.destinationState ?? null,
+        miles: input.miles ?? null,
+        rate_cents: input.rateCents ?? null,
+        deadhead_miles: input.deadheadMiles ?? null,
+        reason: input.reason ?? null,
+      };
+      const hasFeatures = Object.values(features).some((v) => v !== null);
+      let { error } = await supabase.from("load_decisions").insert(hasFeatures ? { ...base, ...features } : base);
+      // Graceful absence: before migration 00077 the structured columns do not exist - log the decision without them
+      // rather than losing it.
+      if (error && hasFeatures && /column/i.test(error.message) && /does not exist|could not find/i.test(error.message)) {
+        ({ error } = await supabase.from("load_decisions").insert(base));
+      }
       if (error) {
         if (/load_decisions/.test(error.message) && /does not exist|could not find/i.test(error.message)) {
           throw new Error(

@@ -66,6 +66,13 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
   - **GIF memes** (design §7): `{{gif:search words}}` via Tenor, medium content filter, same taste rules. **OFF until the server has a `TENOR_API_KEY`** (free key from Google's Tenor API; King sets it as a Fly secret). The default sticker set is still unverified against live Telegram.
 - Open: which in-app pages need nicer presentation (owner has not named them yet).
 
+## B0e. Fleet learning, news and the driver-question tools (owner 2026-11-07, "complete everything"; design `docs/design/fleet-learning-and-driver-questions.md`)
+- BUILT + gated, NOT deployed, migration **00077 NOT applied** (King applies after 00076; verified on scratch Postgres: 9 invalid inserts refused, composite tenant FKs, read/update/delete isolation proven directly, 63-table RLS suite). Until applied, preferences read as empty and writes say why - nothing else breaks; decisions still log (the structured fields fall back).
+- **His people:** `person_preferences` store; `driver_profile`, `record_preference` (always a proposal), `learn_driver_patterns` (interpretable counts with evidence, nothing saved until he says yes), `recommend_loads` (money / comfort / home-time with the owner's money-vs-comfort dial; conflicts shown, never hidden), `home_time_status`, `fleet_overview` (week revenue vs his target). `record_load_decision` now takes the structured fields.
+- **Questions drivers ask:** `lane_rate_history` (his own history), `delivery_feasibility` (his real HOS clocks: 11h / 14h / 30-min break / 10h reset, appointment margin), `quick_reference` (12 fixed reviewed checklists, test-enforced: no dollar figures, fines or yearly numbers).
+- **News:** `news_digest` over free RSS per topic (trucking, regulation, tech, politics, world); politics from several outlets, headlines as published, no editorializing, content treated as untrusted. **Feed URLs are UNVERIFIED from the sandbox** - an unreachable feed is named in the reply; King verifies from the deploy network.
+- **Designed, not built (needs the owner):** employee access (`docs/design/employee-access.md`, five decisions), per diem, parking / weigh stations, per-driver settlements.
+
 ## B1. Smart Path intelligence (design: `docs/design/smart-path-intelligence.md`, draft for owner review)
 - BUILT + gated: Phase 1 corridor points with ETA, states crossed; Phase 2a regional diesel (per-PADD EIA, stale labeled not ranked); 2b NWS weather at his arrival time; 2c state-rule machinery (table EMPTY on purpose).
 - Phase 3 road-work machinery BUILT (WZDx parser, corridor+ETA filter, section); feed registry EMPTY until a feed is verified from the deploy network (King: pick states, verify each feed once).

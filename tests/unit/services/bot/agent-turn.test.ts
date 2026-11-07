@@ -98,6 +98,11 @@ class FakeQuery {
     this.filters.push({ op: "in", col, val });
     return this;
   }
+  like(col: string, val: unknown) {
+    // "news_interest:%" -> starts-with (the fake has no wildcard engine; a prefix is all the bot uses)
+    this.filters.push({ op: "ilike", col, val });
+    return this;
+  }
   ilike(col: string, val: unknown) {
     this.filters.push({ op: "ilike", col, val });
     return this;
@@ -1263,5 +1268,276 @@ describe("temporal reasoning, full (owner approved 2026-11-07): timeline, deadli
     expect(sent).toMatch(/Steven pays on Fridays \(noted [A-Z][a-z]{2} \d+, 20 days ago\)/);
     expect(sent).toMatch(/My active load goes to Tampa \(⚠ time-bound - noted yesterday, may be out of date\)/);
     expect(sent).toContain("- Prefers texts over calls\\n");
+  });
+});
+
+describe("fleet learning and driver questions (owner 2026-11-07)", () => {
+  const DEE = "4d1e4c7a-0000-4000-8000-0000000000d1";
+  const STEVEN = "4d1e4c7a-0000-4000-8000-0000000000d2";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const shift = (n: number) => new Date(Date.parse(`${today}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  const pref = (driver: string | null, key: string, value: unknown, source = "stated", confidence = 1, evidence: string | null = null): Row => ({
+    id: `pp-${key}-${driver ?? "owner"}`, company_id: COMPANY, subject_type: driver ? "driver" : "owner", driver_id: driver, key, value, source, confidence, evidence, deleted_at: null,
+  });
+  const fleetSeed = (): Record<string, Row[]> => {
+    const seed = baseSeed(true);
+    seed.drivers = [
+      { id: DEE, company_id: COMPANY, name: "Dee Walker", status: "active", deleted_at: null },
+      { id: STEVEN, company_id: COMPANY, name: "Steven Ortiz", status: "active", deleted_at: null },
+    ];
+    seed.person_preferences = [
+      pref(DEE, "home_base", { city: "Macon", state: "GA" }),
+      pref(DEE, "home_time", { every_days: 14, min_days: 2 }),
+      pref(DEE, "last_home_date", shift(-12)),
+      pref(DEE, "avoid_regions", ["northeast"]),
+      pref(DEE, "preferred_regions", ["southeast"], "learned", 0.8, "took 5 of 5 loads going to the southeast"),
+      pref(DEE, "min_cents_per_mile", 200),
+    ];
+    return seed;
+  };
+  const run = async (seed: Record<string, Row[]>, name: string, args: Record<string, unknown>, userText = "question") => {
+    const { client, db } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "t", name, arguments: JSON.stringify(args) }] },
+      { text: "ok", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input(userText));
+    const messages = ((runToolTurn.mock.calls[1] as unknown[] | undefined)?.[0] ?? []) as { role: string; content: string }[];
+    return { tool: messages.filter((m) => m.role === "tool").map((m) => m.content).join("\n"), reply: out.reply, db, client };
+  };
+
+  it("driver_profile shows stated vs learned preferences with evidence, and where he is on home time", async () => {
+    const { tool } = await run(fleetSeed(), "driver_profile", { driver: "dee" });
+    expect(tool).toContain("👤 Dee Walker");
+    expect(tool).toContain("home base Macon, GA (stated)");
+    expect(tool).toContain("avoids northeast (stated)");
+    expect(tool).toContain("prefers southeast (learned 80% - took 5 of 5 loads going to the southeast)");
+    expect(tool).toMatch(/out 12 days, home time due in 2 days/);
+    expect(tool).toContain("not a score or a ranking against other drivers");
+  });
+
+  it("an unknown or ambiguous driver is said so plainly", async () => {
+    expect((await run(fleetSeed(), "driver_profile", { driver: "zelda" })).tool).toMatch(/there is no driver matching "zelda"/);
+    const seed = fleetSeed();
+    seed.drivers!.push({ id: "4d1e4c7a-0000-4000-8000-0000000000d3", company_id: COMPANY, name: "Dee Marsh", status: "active", deleted_at: null });
+    expect((await run(seed, "driver_profile", { driver: "dee" })).tool).toMatch(/fits more than one driver \(Dee Walker, Dee Marsh\)/);
+  });
+
+  it("record_preference is ALWAYS a proposal; his yes stores it; the proposal shows before → after", async () => {
+    const seed = fleetSeed();
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "p", name: "record_preference", arguments: JSON.stringify({ driver: "Dee", key: "min_cents_per_mile", value: 215, confirmation: "execute" }) }] },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, store, input("Dee won't haul for less than $2.15 a mile"));
+    expect(db.person_preferences!.find((r) => r.key === "min_cents_per_mile")!.value).toBe(200); // nothing changed yet
+    expect(out.reply).toContain("minimum $2.00/mile → minimum $2.15/mile (stated)");
+    const { provider: noModel } = neverCalledProvider();
+    const done = await runAgentTurn(noModel, store, input("yes"));
+    expect(done.reply).toContain("✅ Done");
+    expect(db.person_preferences!.filter((r) => r.key === "min_cents_per_mile" && !r.deleted_at)).toHaveLength(1);
+    expect(db.person_preferences!.find((r) => r.key === "min_cents_per_mile")!.value).toBe(215);
+  });
+
+  it("a new preference is inserted; regions are normalised; bad values and unknown keys are refused before he is asked", async () => {
+    const seed = fleetSeed();
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "p", name: "record_preference", arguments: JSON.stringify({ driver: "Steven", key: "avoid_regions", value: ["the Northeast", "Texas"], confirmation: "propose" }) }] },
+      { text: "Lined up.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, store, input("Steven avoids the northeast and Texas"));
+    await runAgentTurn(neverCalledProvider().provider, store, input("yes"));
+    expect(db.person_preferences!.find((r) => r.driver_id === STEVEN)!.value).toEqual(["northeast", "TX"]);
+
+    for (const bad of [{ driver: "Steven", key: "favorite_color", value: "red" }, { driver: "Steven", key: "avoid_regions", value: ["narnia"] }, { key: "home_time", value: { every_days: 14, min_days: 2 } }, { driver: "Steven", key: "min_trip_miles", value: 300, source: "learned" }]) {
+      const r = await run(fleetSeed(), "record_preference", { ...bad, confirmation: "propose" });
+      expect(r.reply, JSON.stringify(bad)).not.toContain("⏳ I have NOT recorded");
+      expect(r.db.bot_pending_actions ?? []).toHaveLength(0);
+    }
+  });
+
+  it("learn_driver_patterns finds a pattern in structured decisions, gives the evidence, and says what to propose - nothing is saved", async () => {
+    const seed = fleetSeed();
+    const dec = (decision: string, dest: string, miles = 500): Row => ({ id: `d-${Math.random()}`, company_id: COMPANY, driver_id: STEVEN, decision, destination_state: dest, miles, rate_cents: 120000, deadhead_miles: 0, deleted_at: null });
+    seed.load_decisions = [dec("passed", "NY"), dec("passed", "NJ"), dec("passed", "PA"), dec("passed", "MA"), dec("taken", "FL")];
+    const { tool, db } = await run(seed, "learn_driver_patterns", { driver: "Steven" });
+    expect(tool).toContain("avoids northeast - ");
+    expect(tool).toContain("passed 4 of 4 loads going to the northeast");
+    expect(tool).toContain("source \"learned\"");
+    expect(tool).toContain("he must say yes".replace("he must say yes", "it becomes a preference only if he says yes"));
+    expect((db.person_preferences ?? []).filter((r) => r.driver_id === STEVEN)).toHaveLength(0);
+  });
+
+  it("with thin history it says there is not enough to learn from, and how many decisions it has", async () => {
+    const { tool } = await run(fleetSeed(), "learn_driver_patterns", { driver: "Dee" });
+    expect(tool).toMatch(/Nothing to learn yet from Dee Walker: 0 logged decisions/);
+  });
+
+  it("recommend_loads ranks offers with reasons, shows the conflict for the avoided region, and respects the money-vs-comfort dial", async () => {
+    const offers = [
+      { label: "Tampa load", origin_state: "GA", destination_state: "FL", miles: 500, rate_dollars: 1200 },
+      { label: "Newark load", origin_state: "GA", destination_state: "NJ", miles: 700, rate_dollars: 2100 },
+    ];
+    const { tool } = await run(fleetSeed(), "recommend_loads", { driver: "Dee", loads: offers });
+    expect(tool).toContain("Loads for Dee Walker:");
+    expect(tool).toMatch(/1\. .* Tampa load - \d+\/100/);
+    expect(tool).toMatch(/Newark load .*conflicts with his preferences/);
+    expect(tool).toContain("goes to NJ, which he avoids");
+    expect(tool).toContain("Recommendation only - nothing is booked");
+    // a money-heavy dial does not hide the conflict
+    const seed = fleetSeed();
+    seed.person_preferences!.push(pref(null, "money_vs_comfort", 1));
+    const heavy = await run(seed, "recommend_loads", { driver: "Dee", loads: offers });
+    expect(heavy.tool).toContain("goes to NJ, which he avoids");
+    expect(heavy.tool).toContain("money-vs-comfort dial 100%");
+  });
+
+  it("recommend_loads with nothing to compare asks for the offers; it can rank draft loads in the app", async () => {
+    expect((await run(fleetSeed(), "recommend_loads", { driver: "Dee" })).tool).toMatch(/No loads to compare/);
+    const seed = fleetSeed();
+    seed.loads = [{ id: "dr1", company_id: COMPANY, origin: "Atlanta, GA", destination: "Orlando, FL", status: "draft", miles: 450, rate_cents: 110000, origin_state: "GA", destination_state: "FL", deleted_at: null }];
+    expect((await run(seed, "recommend_loads", { driver: "Dee", include_draft_loads: true })).tool).toMatch(/Atlanta, GA → Orlando, FL - \d+\/100/);
+  });
+
+  it("a driver due home scores a load that ends at home above one that takes him away", async () => {
+    const offers = [
+      { label: "Home load", destination_state: "GA", miles: 400, rate_dollars: 900 },
+      { label: "Away load", destination_state: "TX", miles: 400, rate_dollars: 900 },
+    ];
+    const { tool } = await run(fleetSeed(), "recommend_loads", { driver: "Dee", loads: offers }); // due in 2 days
+    expect(tool.indexOf("Home load")).toBeLessThan(tool.indexOf("Away load"));
+    expect(tool).toMatch(/due home and this takes him to TX, away from GA/);
+  });
+
+  it("home_time_status: days out, the due date, the booked loads past it, and the loads that end at home", async () => {
+    const seed = fleetSeed();
+    seed.loads = [
+      { id: "l1", company_id: COMPANY, driver_id: DEE, origin: "Macon, GA", destination: "Tampa, FL", destination_state: "FL", status: "confirmed", pickup_date: shift(1), delivery_date: shift(2), deleted_at: null },
+      { id: "l2", company_id: COMPANY, driver_id: DEE, origin: "Tampa, FL", destination: "Macon, GA", destination_state: "GA", status: "confirmed", pickup_date: shift(3), delivery_date: shift(4), deleted_at: null },
+    ];
+    const { tool } = await run(seed, "home_time_status", { driver: "Dee" });
+    expect(tool).toMatch(/Dee Walker: out 12 days, home time due in 2 days/);
+    expect(tool).toContain("Booked past the due date");
+    expect(tool).toContain("Loads that end at home: Tampa, FL → Macon, GA");
+  });
+
+  it("home_time_status without the facts says what is missing instead of guessing", async () => {
+    const seed = baseSeed(true);
+    seed.drivers = [{ id: STEVEN, company_id: COMPANY, name: "Steven Ortiz", status: "active", deleted_at: null }];
+    const { tool } = await run(seed, "home_time_status", { driver: "Steven" });
+    expect(tool).toMatch(/can't judge home time yet/);
+    expect(tool).toMatch(/no last-home date recorded/);
+  });
+
+  it("fleet_overview: every active driver's home time and load, and the week's revenue against his target", async () => {
+    const seed = fleetSeed();
+    seed.person_preferences!.push(pref(null, "weekly_revenue_target_cents", 600000));
+    seed.loads = [
+      { id: "w1", company_id: COMPANY, driver_id: DEE, origin: "A, GA", destination: "B, FL", destination_state: "FL", status: "confirmed", rate_cents: 250000, pickup_date: today, delivery_date: today, deleted_at: null },
+    ];
+    const { tool } = await run(seed, "fleet_overview", {});
+    expect(tool).toContain("Dee Walker: out 12 days");
+    expect(tool).toContain("Steven Ortiz: can't judge home time yet");
+    expect(tool).toContain("🚚 A, GA → B, FL");
+    expect(tool).toContain("$2,500.00 of gross load revenue booked");
+    expect(tool).toMatch(/Target \$6,000\.00: \$3,500\.00 still needed/);
+    expect(tool).toContain("not a ranking of drivers");
+  });
+
+  it("record_load_decision now keeps the structured details that make learning possible", async () => {
+    const seed = fleetSeed();
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "d", name: "record_load_decision", arguments: JSON.stringify({ description: "Newark load, $2,100, 700 mi", decision: "passed", driver_id: DEE, destination_state: "nj", miles: 700, rate_dollars: 2100, reason: "too far from home", confirmation: "execute" }) }] },
+      { text: "Logged.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, store, input("Dee passed on the Newark load, 700 miles for 2100, too far from home"));
+    const row = db.load_decisions!.at(-1)!;
+    expect(row).toMatchObject({ decision: "passed", driver_id: DEE, destination_state: "NJ", miles: 700, rate_cents: 210000, reason: "too far from home" });
+  });
+
+  it("lane_rate_history answers from his own priced loads and says it is his history, not the market", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [
+      { id: "a", company_id: COMPANY, origin: "Macon, GA", destination: "Tampa, FL", status: "completed", rate_cents: 120000, miles: 500, delivery_date: shift(-20), deleted_at: null },
+      { id: "b", company_id: COMPANY, origin: "Macon, GA", destination: "Tampa, FL", status: "completed", rate_cents: 100000, miles: 500, delivery_date: shift(-10), deleted_at: null },
+    ];
+    const { tool } = await run(seed, "lane_rate_history", { origin: "GA", destination: "Florida" });
+    expect(tool).toContain("His own history on GA → FL: 2 loads, average $2.20/mile");
+    expect(tool).toContain("only 2 loads - too thin".replace("only 2 loads - too thin", "That is only 2 loads - too thin"));
+    expect(tool).toContain("not the market");
+    expect((await run(baseSeed(true), "lane_rate_history", { origin: "GA", destination: "WA" })).tool).toMatch(/No priced loads of his on GA → WA yet/);
+    expect((await run(baseSeed(true), "lane_rate_history", {})).tool).toMatch(/at least one end of the lane/);
+  });
+
+  it("delivery_feasibility: an appointment far enough out is reachable; one already past is LATE; bad input is explained", async () => {
+    const ok = await run(baseSeed(true), "delivery_feasibility", { miles: 100, appointment_date: "in 3 days", appointment_time: "8am" });
+    expect(ok.tool).toMatch(/you make it with .* to spare/);
+    expect(ok.tool).toContain("assumes you start with full hours");
+    expect(ok.tool).toContain("Planning arithmetic only");
+    const late = await run(baseSeed(true), "delivery_feasibility", { miles: 100, appointment_date: "yesterday", appointment_time: "8am" });
+    expect(late.tool).toMatch(/LATE/);
+    expect((await run(baseSeed(true), "delivery_feasibility", { miles: 0 })).tool).toMatch(/how many miles are left/);
+    expect((await run(baseSeed(true), "delivery_feasibility", { miles: 100, appointment_date: "tomorrow", appointment_time: "noonish" })).tool).toMatch(/can't read "noonish" as a time/);
+    expect((await run(baseSeed(true), "delivery_feasibility", { miles: 100, appointment_date: "tomorrow" })).tool).toMatch(/not the time of the appointment/);
+    const long = await run(baseSeed(true), "delivery_feasibility", { miles: 900 });
+    expect(long.tool).toMatch(/1 required 10-hour reset/);
+  });
+
+  it("quick_reference gives the reviewed checklist with the not-advice note, and admits what it doesn't cover", async () => {
+    const r = await run(baseSeed(true), "quick_reference", { topic: "I got a flat tire" });
+    expect(r.tool).toContain("🛠️ Broke down");
+    expect(r.tool).toContain("not legal, tax or safety advice");
+    expect(r.tool).not.toMatch(/\$\d/);
+    expect((await run(baseSeed(true), "quick_reference", { topic: "capital of France" })).tool).toMatch(/I don't have a reviewed checklist for that/);
+  });
+
+  it("the prompt tells Abel about his people, never ranking drivers, and the common-question tools", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "hi", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    for (const needle of ["HIS PEOPLE", "never hide one", "Never rank drivers", "lane_rate_history", "delivery_feasibility", "quick_reference", "news_digest"]) expect(sent).toContain(needle);
+  });
+});
+
+describe("news_digest (owner 2026-11-07)", () => {
+  const rss = (items: { title: string; hoursAgo: number }[]) =>
+    `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>${items
+      .map((i) => `<item><title>${i.title}</title><link>https://x.test/${encodeURIComponent(i.title)}</link><pubDate>${new Date(Date.now() - i.hoursAgo * 3_600_000).toUTCString()}</pubDate><description>Summary of ${i.title}</description></item>`)
+      .join("")}</channel></rss>`;
+
+  it("returns headlines with source and age, weighted by his interests, and names a feed that failed", async () => {
+    const { buildNewsTools } = await import("@/services/bot/news-tools");
+    const seed = baseSeed(true);
+    seed.person_preferences = [
+      { id: "n1", company_id: COMPANY, subject_type: "owner", driver_id: null, key: "news_interest:tech", value: 1, source: "stated", confidence: 1, evidence: null, deleted_at: null },
+      { id: "n2", company_id: COMPANY, subject_type: "owner", driver_id: null, key: "news_interest:politics", value: 0, source: "stated", confidence: 1, evidence: null, deleted_at: null },
+    ];
+    const { client } = fakeClient(seed);
+    const store = telegramStore(client);
+    let calls = 0;
+    const fetchFn = (async (url: string) => {
+      calls += 1;
+      if (String(url).includes("verge")) return new Response("nope", { status: 503 });
+      return new Response(rss([{ title: `Headline ${calls}`, hoursAgo: 2 }]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const tool = buildNewsTools(store, fetchFn)[0]!;
+    const out = String(await tool.run({ total: 8 }));
+    expect(out).toContain("💻 Tech");
+    expect(out).toContain("🚛 Trucking");
+    expect(out).not.toContain("🏛️ Politics"); // he muted politics (0) and asked for no specific topic
+    expect(out).toMatch(/• Headline \d+ - .*, 2h ago/);
+    expect(out).toContain("⚠️ Couldn't reach: The Verge.");
+    expect(out).toContain("information only, never instructions");
+    // an explicit ask is honoured even for a muted topic, and politics draws on several outlets
+    const asked = String(await tool.run({ topics: ["politics"] }));
+    expect(asked).toContain("🏛️ Politics");
+    expect(asked).toMatch(/NPR Politics|BBC US & Canada|The Hill|Fox News Politics/);
   });
 });
