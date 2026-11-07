@@ -6,14 +6,38 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 const data: { profiles: unknown[]; loads: unknown[] } = { profiles: [], loads: [] };
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { list: vi.fn(async (r: string) => ({ data: r === "pay-profiles" ? data.profiles : data.loads })) },
+  apiClient: {
+    list: vi.fn(async (r: string) => ({ data: r === "pay-profiles" ? data.profiles : data.loads })),
+    // The merged Driver Pay card also reads the server pay summary;
+    // an empty one keeps these tests about the projection half.
+    paySummary: vi.fn(async () => ({
+      data: {
+        hasTerms: false,
+        active: null,
+        completed: [],
+        weeks: [],
+        totals: {
+          unpaidCount: 0,
+          unpaidLowCents: 0,
+          unpaidHighCents: 0,
+          shortCount: 0,
+          shortfallCents: 0,
+          advancesCents: 0,
+          unpaidNetLowCents: 0,
+          unpaidNetHighCents: 0,
+        },
+        hos: null,
+        asOf: "",
+      },
+    })),
+  },
   ApiClientError: class extends Error {},
 }));
 vi.mock("@/lib/use-live", () => ({ useLiveVersion: () => 0, useLiveConnected: () => false }));
 vi.mock("@/lib/time", async (orig) => ({ ...(await orig<typeof import("@/lib/time")>()), viewerTimeZone: () => "America/New_York" }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 
-import PayPreviewCard from "@/components/PayPreviewCard";
+import DriverPayHomeCard from "@/components/DriverPayHomeCard";
 import ProjectedPayPage from "@/app/(app)/money/pay/page";
 
 const profile = (mile_basis: string | null) => ({ id: "p", employer_name: "Acme", rate_cents_per_mile: 55, mile_basis, worker_type: null, fuel_paid_by: null, effective_from: "2026-10-01", effective_to: null });
@@ -27,11 +51,11 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); cleanup(); });
 
-describe("Home pay preview", () => {
+describe("Home driver pay (merged section)", () => {
   it("unset basis: a labeled range, and it says so", async () => {
     data.profiles = [profile(null)];
     data.loads = [L({ delivery_date: "2026-11-06" })];
-    render(<PayPreviewCard />);
+    render(<DriverPayHomeCard />);
     expect(await screen.findByText("$495.00 – $550.00")).toBeTruthy();
     expect(screen.getByRole("note").textContent).toMatch(/miles basis isn.t set, so this is a range/);
   });
@@ -39,20 +63,20 @@ describe("Home pay preview", () => {
   it("pinned basis: one number, no assumption note", async () => {
     data.profiles = [profile("loaded")];
     data.loads = [L({ delivery_date: "2026-11-06" })];
-    render(<PayPreviewCard />);
+    render(<DriverPayHomeCard />);
     expect(await screen.findByText("$495.00")).toBeTruthy();
     expect(screen.queryByRole("note")).toBeNull();
   });
 
   it("no pay terms: asks for them instead of showing a number", async () => {
-    render(<PayPreviewCard />);
+    render(<DriverPayHomeCard />);
     expect(await screen.findByText(/Add pay terms/)).toBeTruthy();
   });
 
   it("no booked loads this week: says so", async () => {
     data.profiles = [profile("all")];
     data.loads = [L({ delivery_date: "2026-10-01" })];
-    render(<PayPreviewCard />);
+    render(<DriverPayHomeCard />);
     expect(await screen.findByText("No booked loads this pay week yet.")).toBeTruthy();
   });
 });
