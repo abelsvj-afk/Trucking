@@ -1,16 +1,18 @@
 // The honest health of the company inbox (docs/design/company-inbox.md section 8). "Connected" requires a poll that
 // succeeded within the last three intervals - a green light never sits on a dead connection.
 
-import { getEmailConfig, describeConfig, type EmailConfigResult } from "./config";
+import { getAllEmailConfigs, describeConfig, MAILBOXES, MAILBOX_LABEL, type EmailConfigResult, type Mailbox } from "./config";
 import type { PollState } from "./store";
 
 export type EmailHealth = "off" | "waiting" | "connected" | "stale" | "failing";
 
 export interface EmailStatus {
+  mailbox: Mailbox;
   health: EmailHealth;
   /** Plain words for the owner. */
   message: string;
-  mailbox: string | null;
+  /** The mailbox's address (never the password); null when OFF. */
+  address: string | null;
   lastOkAt: string | null;
   lastErrorKind: string | null;
   intervalMinutes: number | null;
@@ -23,12 +25,12 @@ const FAIL_WORDS: Record<string, string> = {
   other: "The last mailbox poll failed for a reason I can't classify.",
 };
 
-export function buildEmailStatus(configResult: EmailConfigResult, state: PollState | null, now: Date, etLabel: (iso: string) => string): EmailStatus {
+export function buildEmailStatus(mailbox: Mailbox, configResult: EmailConfigResult, state: PollState | null, now: Date, etLabel: (iso: string) => string): EmailStatus {
   if (!configResult.ok) {
-    return { health: "off", message: configResult.reason, mailbox: null, lastOkAt: null, lastErrorKind: null, intervalMinutes: null };
+    return { mailbox, health: "off", message: configResult.reason, address: null, lastOkAt: null, lastErrorKind: null, intervalMinutes: null };
   }
   const d = describeConfig(configResult.config);
-  const base = { mailbox: d.user, intervalMinutes: d.intervalMinutes, lastOkAt: state?.lastOkAt ?? null, lastErrorKind: state?.lastErrorKind ?? null };
+  const base = { mailbox, address: d.user, intervalMinutes: d.intervalMinutes, lastOkAt: state?.lastOkAt ?? null, lastErrorKind: state?.lastErrorKind ?? null };
   if (state?.lastErrorKind && (!state.lastOkAt || (state.lastErrorAt && state.lastErrorAt >= state.lastOkAt))) {
     return { ...base, health: "failing", message: `${FAIL_WORDS[state.lastErrorKind] ?? FAIL_WORDS.other}${state.lastOkAt ? ` Last good read: ${etLabel(state.lastOkAt)}.` : " It has never read mail successfully."}` };
   }
@@ -40,4 +42,14 @@ export function buildEmailStatus(configResult: EmailConfigResult, state: PollSta
   return { ...base, health: "connected", message: `Connected. Last good read: ${etLabel(state.lastOkAt)}.` };
 }
 
-export const currentEmailConfig = (env: Record<string, string | undefined> = process.env) => getEmailConfig(env);
+/** Both mailboxes, each reported on its own - one failing never hides or changes the other. */
+export function buildAllStatuses(
+  states: Record<Mailbox, PollState | null>,
+  now: Date,
+  etLabel: (iso: string) => string,
+  configs: Record<Mailbox, EmailConfigResult> = getAllEmailConfigs(),
+): EmailStatus[] {
+  return MAILBOXES.map((m) => buildEmailStatus(m, configs[m], states[m], now, etLabel));
+}
+
+export const mailboxName = (m: Mailbox): string => MAILBOX_LABEL[m];

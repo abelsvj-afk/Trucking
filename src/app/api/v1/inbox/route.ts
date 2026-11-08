@@ -7,8 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
 import { createClient } from "@/services/db/server";
 import { createEmailStore } from "@/services/email/store";
-import { buildEmailStatus } from "@/services/email/status";
-import { getEmailConfig } from "@/services/email/config";
+import { buildAllStatuses } from "@/services/email/status";
+import { getAllEmailConfigs, MAILBOXES, type Mailbox } from "@/services/email/config";
 import { etTime } from "@/services/email/time";
 
 const headers = { "Cache-Control": "no-store" };
@@ -18,25 +18,31 @@ export const GET = createApiHandler(async (req: NextRequest, { auth }) => {
   const supabase = await createClient();
   const store = createEmailStore(supabase, auth.companyId);
   const url = new URL(req.url);
-  const config = getEmailConfig();
-  const status = buildEmailStatus(config, config.ok ? await store.getPollState().catch(() => null) : null, new Date(), etTime);
+  const configs = getAllEmailConfigs();
+  const states = Object.fromEntries(
+    await Promise.all(MAILBOXES.map(async (m) => [m, configs[m].ok ? await store.getPollState(m).catch(() => null) : null] as const)),
+  ) as Record<Mailbox, Awaited<ReturnType<typeof store.getPollState>> | null>;
+  const statuses = buildAllStatuses(states, new Date(), etTime, configs);
+  const anyOn = MAILBOXES.some((m) => configs[m].ok);
 
   const id = url.searchParams.get("id");
   if (id) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: { code: "VALIDATION", message: "Invalid message id." } }, { status: 400, headers });
     const message = await store.get(id);
     if (!message) return NextResponse.json({ error: { code: "NOT_FOUND", message: "No such message." } }, { status: 404, headers });
-    return NextResponse.json({ data: { status, message, drafts: await store.listDrafts(id) } }, { headers });
+    return NextResponse.json({ data: { statuses, message, drafts: await store.listDrafts(id) } }, { headers });
   }
 
   const classification = url.searchParams.get("classification");
-  const messages = config.ok
+  const mailbox = url.searchParams.get("mailbox");
+  const messages = anyOn
     ? await store.list({
+        mailbox: (MAILBOXES as readonly string[]).includes(mailbox ?? "") ? (mailbox as Mailbox) : undefined,
         query: url.searchParams.get("q") ?? undefined,
         classification: classification && CLASSES.includes(classification) ? classification : undefined,
         limit: 50,
       })
     : [];
   // Bodies stay out of the list.
-  return NextResponse.json({ data: { status, messages: messages.map((m) => ({ ...m, bodyText: null })) } }, { headers });
+  return NextResponse.json({ data: { statuses, messages: messages.map((m) => ({ ...m, bodyText: null })) } }, { headers });
 });

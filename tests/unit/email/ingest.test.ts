@@ -4,7 +4,7 @@ import type { ImapSession, RawMessage } from "@/services/email/imap-reader";
 import type { DraftRow, EmailStore, PollState, StoredEmail } from "@/services/email/store";
 import type { Candidate } from "@/services/email/triage";
 
-const CFG = { user: "dispatch@example.com", password: "pw-secret", host: "imap.example.com", port: 993, intervalMs: 300000 };
+const CFG = { mailbox: "dispatch" as const, user: "dispatch@example.com", password: "pw-secret", host: "imap.example.com", port: 993, intervalMs: 300000 };
 
 function raw(uid: number, id: string, subject: string, body: string, from = "Broker Bob <bob@broker.example>"): RawMessage {
   const src = `From: ${from}\r\nTo: dispatch@example.com\r\nSubject: ${subject}\r\nMessage-ID: <${id}@broker.example>\r\nDate: Fri, 06 Nov 2026 14:00:00 -0500\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
@@ -21,26 +21,28 @@ function session(msgs: RawMessage[], uidValidity = "1"): ImapSession {
   };
 }
 
-function memStore(): EmailStore & { messages: Map<string, StoredEmail & { uid: number }>; candidates: Map<string, { id: string; status: string; key: string }>; state: PollState; drafts: DraftRow[] } {
+function memStore(): EmailStore & { messages: Map<string, StoredEmail & { uid: number }>; candidates: Map<string, { id: string; status: string; key: string }>; state: PollState; states: Record<string, PollState>; drafts: DraftRow[] } {
   const messages = new Map<string, StoredEmail & { uid: number }>();
   const candidates = new Map<string, { id: string; status: string; key: string }>();
-  const state: PollState = { uidvalidity: null, lastUid: 0, lastAttemptAt: null, lastOkAt: null, lastErrorKind: null, lastErrorAt: null, consecutiveFailures: 0, lastNotifiedState: null, lastDigestDate: null };
+  const mk = (): PollState => ({ uidvalidity: null, lastUid: 0, lastAttemptAt: null, lastOkAt: null, lastErrorKind: null, lastErrorAt: null, consecutiveFailures: 0, lastNotifiedState: null, lastDigestDate: null });
+  const states: Record<string, PollState> = { dispatch: mk(), owner: mk() };
+  const state = states.dispatch!;
   const drafts: DraftRow[] = [];
   let n = 0;
   return {
-    messages, candidates, state, drafts,
-    async getPollState() { return { ...state }; },
-    async savePollState(p) { Object.assign(state, p); },
-    async insertMessage(m, uid) {
+    messages, candidates, state, states, drafts,
+    async getPollState(mb) { return { ...states[mb]! }; },
+    async savePollState(mb, p) { Object.assign(states[mb]!, p); },
+    async insertMessage(mailbox, m, uid) {
       const dup = [...messages.values()].find((x) => x.messageId === m.messageId);
       if (dup) return { id: dup.id, inserted: false };
       const id = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
-      messages.set(id, { id, uid, messageId: m.messageId, fromAddress: m.fromAddress, fromName: m.fromName, replyTo: m.replyTo, toAddresses: m.toAddresses, subject: m.subject, receivedAt: m.receivedAt, bodyText: m.bodyText, attachments: m.attachments, classification: "unclassified", summary: null, surfacedAt: null, digestSentAt: null, linkedProposalId: null });
+      messages.set(id, { id, mailbox, uid, messageId: m.messageId, fromAddress: m.fromAddress, fromName: m.fromName, replyTo: m.replyTo, toAddresses: m.toAddresses, subject: m.subject, receivedAt: m.receivedAt, bodyText: m.bodyText, attachments: m.attachments, classification: "unclassified", summary: null, surfacedAt: null, digestSentAt: null, linkedProposalId: null });
       return { id, inserted: true };
     },
     async setTriage(id, c, s) { const m = messages.get(id)!; m.classification = c; m.summary = s; },
     async markSurfaced(id, p) { const m = messages.get(id)!; m.surfacedAt = "now"; m.linkedProposalId = p ?? null; },
-    async listUnsurfaced() { return [...messages.values()].filter((m) => !m.surfacedAt && m.classification !== "junk"); },
+    async listUnsurfaced(_l, mb) { return [...messages.values()].filter((m) => !m.surfacedAt && m.classification !== "junk" && (!mb || m.mailbox === mb)); },
     async listJunkForDigest() { return [...messages.values()].filter((m) => m.classification === "junk" && !m.digestSentAt); },
     async markDigestSent(ids) { for (const i of ids) messages.get(i)!.digestSentAt = "now"; },
     async list() { return [...messages.values()]; },
@@ -107,6 +109,7 @@ describe("pollOnce", () => {
     expect(String(saved[0]!.sourceQuote)).toMatch(/^email-candidate:/);
     expect((saved[0]!.args as Record<string, unknown>).status).toBe("draft");
     expect(sent[0]).toContain("Load offer");
+    expect(sent[0]).toContain("dispatch@ inbox");
     expect(sent[0]).toContain("computed by me, not posted");
     expect(sent[0]).toContain("Reply YES");
     expect(store.state.lastUid).toBe(1);
@@ -187,7 +190,7 @@ describe("pollOnce", () => {
     const late = deps({ reply: junk, now: new Date("2026-11-07T14:00:00Z") }); // 9 AM ET
     await pollOnce(late.d);
     expect(late.sent).toHaveLength(1);
-    expect(late.sent[0]).toContain("Junk in the dispatch inbox");
+    expect(late.sent[0]).toContain("Junk in the company inboxes");
     await pollOnce({ ...late.d }); // same day again
     expect(late.sent).toHaveLength(1);
   });
@@ -209,13 +212,34 @@ describe("pollOnce", () => {
     await pollOnce(bad);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("password may have changed");
+    expect(sent[0]).toContain("dispatch@");
     expect(sent[0]).not.toContain("pw-secret");
     expect(store.state.consecutiveFailures).toBe(3);
     expect(store.state.lastUid).toBe(0);
     await pollOnce(d); // recovers
-    expect(sent.some((t) => t.includes("connected again"))).toBe(true);
+    expect(sent.some((t) => t.includes("dispatch@ inbox is connected again"))).toBe(true);
     expect(store.state.consecutiveFailures).toBe(0);
     expect(store.state.lastErrorKind).toBeNull();
+  });
+
+  it("each mailbox is polled with its own cursor and labelled in the alert; one failing does not affect the other", async () => {
+    const store = memStore();
+    const sent: string[] = [];
+    const base = { emailStore: store, brain: strictBrain().brain, provider: null, notify: async (t: string) => { sent.push(t); return true; }, now: () => new Date("2026-11-07T20:00:00Z") };
+    const ownerCfg = { ...CFG, mailbox: "owner" as const, user: "owner@example.com", password: "owner-pw" };
+    const r1 = await pollOnce({ ...base, config: CFG, open: async () => { throw Object.assign(new Error("x"), { authenticationFailed: true }); } });
+    const r2 = await pollOnce({ ...base, config: ownerCfg, open: async () => session([raw(7, "o1", "Settlement", "Your pay is ready")]) });
+    expect(r1.ok).toBe(false);
+    expect(r2.ok).toBe(true);
+    expect(store.states.dispatch!.lastErrorKind).toBe("auth");
+    expect(store.states.owner!.lastErrorKind).toBeNull();
+    expect(store.states.owner!.lastUid).toBe(7);
+    expect(store.states.dispatch!.lastUid).toBe(0);
+    expect(sent.some((t) => t.includes("can't read the dispatch@ inbox") && t.includes("IONOS_EMAIL_DISPATCH_PASSWORD"))).toBe(true);
+    const owned = [...store.messages.values()];
+    expect(owned).toHaveLength(1);
+    expect(owned[0]!.mailbox).toBe("owner");
+    expect(sent.some((t) => t.includes("owner@ inbox") && t.includes("Settlement"))).toBe(true);
   });
 
   it("a different kind of failure is announced again", async () => {

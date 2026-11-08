@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ParsedEmail } from "./parse";
 import type { Candidate, MailClass } from "./triage";
 import type { ErrorKind } from "./errors";
+import type { Mailbox } from "./config";
 
 export interface PollState {
   uidvalidity: string | null;
@@ -20,6 +21,7 @@ export interface PollState {
 
 export interface StoredEmail {
   id: string;
+  mailbox: Mailbox;
   messageId: string;
   fromAddress: string | null;
   fromName: string | null;
@@ -37,11 +39,12 @@ export interface StoredEmail {
 }
 
 const MESSAGE_COLUMNS =
-  "id, message_id, from_address, from_name, reply_to, to_addresses, subject, received_at, body_text, attachments, classification, summary, surfaced_at, digest_sent_at, linked_proposal_id";
+  "id, mailbox, message_id, from_address, from_name, reply_to, to_addresses, subject, received_at, body_text, attachments, classification, summary, surfaced_at, digest_sent_at, linked_proposal_id";
 
 function toStored(r: Record<string, unknown>): StoredEmail {
   return {
     id: String(r.id),
+    mailbox: r.mailbox === "owner" ? "owner" : "dispatch",
     messageId: String(r.message_id),
     fromAddress: (r.from_address as string | null) ?? null,
     fromName: (r.from_name as string | null) ?? null,
@@ -70,17 +73,17 @@ export interface DraftRow {
 }
 
 export interface EmailStore {
-  getPollState(): Promise<PollState>;
-  savePollState(patch: Partial<PollState>): Promise<void>;
+  getPollState(mailbox: Mailbox): Promise<PollState>;
+  savePollState(mailbox: Mailbox, patch: Partial<PollState>): Promise<void>;
   /** Stores a message once however many polls see it. `inserted` is false for a repeat. */
-  insertMessage(m: ParsedEmail, uid: number, uidvalidity: string): Promise<{ id: string; inserted: boolean }>;
+  insertMessage(mailbox: Mailbox, m: ParsedEmail, uid: number, uidvalidity: string): Promise<{ id: string; inserted: boolean }>;
   setTriage(id: string, classification: MailClass, summary: string): Promise<void>;
   markSurfaced(id: string, proposalId?: string | null): Promise<void>;
   /** Messages stored but not yet classified/surfaced (a poll that stopped midway), oldest first. */
-  listUnsurfaced(limit: number): Promise<StoredEmail[]>;
+  listUnsurfaced(limit: number, mailbox?: Mailbox): Promise<StoredEmail[]>;
   listJunkForDigest(limit: number): Promise<StoredEmail[]>;
   markDigestSent(ids: string[]): Promise<void>;
-  list(opts: { query?: string; classification?: string; limit?: number }): Promise<StoredEmail[]>;
+  list(opts: { query?: string; classification?: string; mailbox?: Mailbox; limit?: number }): Promise<StoredEmail[]>;
   get(id: string): Promise<StoredEmail | null>;
   /** Creates the candidate, or returns the existing id (same dedupe key = same load from another source). */
   upsertCandidate(emailId: string | null, c: Candidate, key: string, expiresAt: string | null): Promise<{ id: string; created: boolean }>;
@@ -97,8 +100,8 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
     if (error) throw new Error(error.message);
   };
   return {
-    async getPollState() {
-      const { data, error } = await client.from("email_poll_state").select("*").eq("company_id", company).maybeSingle();
+    async getPollState(mailbox) {
+      const { data, error } = await client.from("email_poll_state").select("*").eq("company_id", company).eq("mailbox", mailbox).maybeSingle();
       throwIf(error);
       const r = (data ?? {}) as Record<string, unknown>;
       return {
@@ -114,8 +117,8 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
       };
     },
 
-    async savePollState(patch) {
-      const row: Record<string, unknown> = { company_id: company, updated_at: new Date().toISOString() };
+    async savePollState(mailbox, patch) {
+      const row: Record<string, unknown> = { company_id: company, mailbox, updated_at: new Date().toISOString() };
       if ("uidvalidity" in patch) row.uidvalidity = patch.uidvalidity == null ? null : Number(patch.uidvalidity);
       if ("lastUid" in patch) row.last_uid = patch.lastUid;
       if ("lastAttemptAt" in patch) row.last_attempt_at = patch.lastAttemptAt;
@@ -125,13 +128,14 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
       if ("consecutiveFailures" in patch) row.consecutive_failures = patch.consecutiveFailures;
       if ("lastNotifiedState" in patch) row.last_notified_state = patch.lastNotifiedState;
       if ("lastDigestDate" in patch) row.last_digest_date = patch.lastDigestDate;
-      const { error } = await client.from("email_poll_state").upsert(row, { onConflict: "company_id" });
+      const { error } = await client.from("email_poll_state").upsert(row, { onConflict: "company_id,mailbox" });
       throwIf(error);
     },
 
-    async insertMessage(m, uid, uidvalidity) {
+    async insertMessage(mailbox, m, uid, uidvalidity) {
       const row = {
         company_id: company,
+        mailbox,
         message_id: m.messageId,
         uid,
         uidvalidity: Number(uidvalidity) || null,
@@ -167,8 +171,8 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
       throwIf(error);
     },
 
-    async listUnsurfaced(limit) {
-      const { data, error } = await client
+    async listUnsurfaced(limit, mailbox) {
+      let q = client
         .from("email_messages")
         .select(MESSAGE_COLUMNS)
         .eq("company_id", company)
@@ -177,6 +181,8 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
         .neq("classification", "junk")
         .order("received_at", { ascending: true })
         .limit(limit);
+      if (mailbox) q = q.eq("mailbox", mailbox);
+      const { data, error } = await q;
       throwIf(error);
       return ((data ?? []) as Record<string, unknown>[]).map(toStored);
     },
@@ -201,9 +207,10 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
       throwIf(error);
     },
 
-    async list({ query, classification, limit = 20 }) {
+    async list({ query, classification, mailbox, limit = 20 }) {
       let q = client.from("email_messages").select(MESSAGE_COLUMNS).eq("company_id", company).is("deleted_at", null);
       if (classification) q = q.eq("classification", classification);
+      if (mailbox) q = q.eq("mailbox", mailbox);
       const term = (query ?? "").replace(/[%,()*\\]/g, " ").trim();
       if (term) q = q.or(`subject.ilike.%${term}%,from_address.ilike.%${term}%,from_name.ilike.%${term}%,summary.ilike.%${term}%`);
       const { data, error } = await q.order("received_at", { ascending: false }).limit(Math.min(Math.max(limit, 1), 50));

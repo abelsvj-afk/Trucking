@@ -77,12 +77,22 @@ describe("fetchIndustryNews", () => {
     expect(results[0]!.error).toContain(results[0]!.source);
   });
 
-  it("fetches the FMCSA newsroom from its taxonomy feed URL", async () => {
+  it("fetches FMCSA headlines from Google News and no longer polls the FMCSA Newsroom (HTTP 403 from production)", async () => {
     parseStringMock.mockResolvedValue({ items: [] });
     const fetchFn = okFetch();
     await fetchIndustryNews(fetchFn as never);
     const urls = fetchFn.mock.calls.map((c) => String(c[0]));
-    expect(urls).toContain("https://www.fmcsa.dot.gov/taxonomy/term/191/feed");
-    expect(urls).not.toContain("https://www.fmcsa.dot.gov/rss.xml");
+    expect(urls).toContain("https://news.google.com/rss/search?q=FMCSA&hl=en-US&gl=US&ceid=US:en");
+    expect(urls.some((u) => u.includes("fmcsa.dot.gov"))).toBe(false);
+  });
+});
+
+import { NEWS_FEEDS } from "@/services/integrations/news-feeds";
+describe("no feed list still points at the FMCSA Newsroom", () => {
+  it("the news digest feeds were swapped too, and the regulation topic is not left empty", () => {
+    const all = Object.values(NEWS_FEEDS).flat();
+    expect(all.some((f) => f.url.includes("fmcsa.dot.gov"))).toBe(false);
+    expect(NEWS_FEEDS.regulation.length).toBeGreaterThan(0);
+    expect(NEWS_FEEDS.regulation[0]!.url).toContain("news.google.com/rss/search?q=FMCSA");
   });
 });

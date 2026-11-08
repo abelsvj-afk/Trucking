@@ -13,6 +13,8 @@ import { usePageTitle } from "@/lib/use-page-title";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { formatCents, formatDay, formatRange } from "@/lib/pay-projection";
 import type { PaycheckStatus } from "@/lib/paycheck";
+import { paydayTitle, stillOwedWords } from "@/lib/payday-text";
+import type { PaySummaryLoad } from "@/services/api/pay-summary";
 
 const STATUS_WORDS: Record<PaycheckStatus, string> = {
   paid: "Paid",
@@ -28,7 +30,7 @@ export default function PaychecksPage() {
 
   return (
     <div>
-      <PageHeader title="Paychecks" purpose="Finished loads: what you should have been paid vs. what landed." />
+      <PageHeader title="Paychecks" purpose="Your pay organised by payday: what you should get, what was taken as advances, what landed, and what is still owed — with the loads behind each." />
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message="Couldn't load your paycheck check." onRetry={() => window.location.reload()} />}
       {state.status === "ready" && !state.summary.hasTerms && (
@@ -58,63 +60,102 @@ export default function PaychecksPage() {
             Expected pay uses the terms in force on each delivery date. &quot;Received&quot; is the pay line a settlement
             names for that load — record your settlements and this fills in. Your settlement is the final number.
           </p>
-          {state.summary.weeks.length > 0 && (
-            <section aria-label="By pay week">
-              <h2>By pay week</h2>
-              <ul>
-                {state.summary.weeks.map((w) => (
-                  <li key={w.start}>
-                    <span className="row-title">
-                      {formatDay(w.start)} to {formatDay(w.end)} · {w.loadCount} load{w.loadCount === 1 ? "" : "s"}
-                    </span>
-                    <span className="row-sub">
-                      Statement {w.statement ? formatDay(w.statement) : "day not set"} · paid {w.payday ? formatDay(w.payday) : "day not set"}
-                    </span>
-                    <span className="row-sub">
-                      Should be {formatRange(w.expectedLowCents, w.expectedHighCents)}
-                      {w.unpricedCount > 0 ? ` (+${w.unpricedCount} load${w.unpricedCount === 1 ? "" : "s"} I can't price yet)` : ""} · statements name{" "}
-                      {formatCents(w.receivedCents)}
-                      {w.shortCount > 0 ? ` · SHORT ${formatCents(w.shortfallCents)} on ${w.shortCount} load${w.shortCount === 1 ? "" : "s"}` : ""}
-                      {w.unpaidCount > 0 ? ` · ${w.unpaidCount} not on a statement yet` : ""}
-                    </span>
-                    {w.advancesCents > 0 && (
-                      <span className="row-sub">
-                        − {formatCents(w.advancesCents)} in cash advances already taken · net that should land:{" "}
-                        <strong>{formatRange(w.netLowCents, w.netHighCents)}</strong>
-                        {w.netHighCents < 0 ? " (more taken out than this week is expected to pay)" : ""}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+          {state.summary.paydays.length > 0 && (
+            <section aria-label="By payday">
+              <h2>By payday</h2>
+              {state.summary.paydays.map((g) => (
+                <article key={g.payday ?? g.periodStart} aria-label={paydayTitle(g)}>
+                  <h3>
+                    {paydayTitle(g)}
+                    {g.overdue ? " — past due" : ""}
+                  </h3>
+                  <p className="row-sub">
+                    Pay weeks {formatDay(g.periodStart)} to {formatDay(g.periodEnd)} · {g.loadCount} load{g.loadCount === 1 ? "" : "s"}
+                    {g.statement ? ` · statement ${formatDay(g.statement)}` : ""}
+                  </p>
+                  <dl>
+                    <div>
+                      <dt>Expected total</dt>
+                      <dd>
+                        {formatRange(g.expectedLowCents, g.expectedHighCents)}
+                        {g.unpricedCount > 0 ? ` (+${g.unpricedCount} load${g.unpricedCount === 1 ? "" : "s"} I can't price yet)` : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Advances taken</dt>
+                      <dd>{g.advancesCents > 0 ? `− ${formatCents(g.advancesCents)}` : "none"}</dd>
+                    </div>
+                    <div>
+                      <dt>Net expected</dt>
+                      <dd>
+                        <strong>{formatRange(g.netLowCents, g.netHighCents)}</strong>
+                        {g.netHighCents < 0 ? " (more taken out than this payday is expected to pay)" : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Received so far</dt>
+                      <dd>{formatCents(g.receivedCents)}</dd>
+                    </div>
+                    <div>
+                      <dt>Still owed</dt>
+                      <dd>
+                        <strong>{stillOwedWords(g)}</strong>
+                        {g.shortCount > 0 ? ` · SHORT ${formatCents(g.shortfallCents)} on ${g.shortCount} load${g.shortCount === 1 ? "" : "s"}` : ""}
+                      </dd>
+                    </div>
+                  </dl>
+                  {g.loads.length > 0 && (
+                    <ul aria-label={`Loads in ${paydayTitle(g)}`}>
+                      {g.loads.map((c) => (
+                        <LoadRow key={c.loadId} c={c} />
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              ))}
             </section>
           )}
-          {state.summary.completed.length === 0 && <p>No finished loads yet.</p>}
-          <ul>
-            {state.summary.completed.map((c) => (
-              <li key={c.loadId}>
-                <span className="row-title">
-                  <Link href={`/loads/${c.loadId}`}>{c.origin} → {c.destination}</Link>
-                </span>
-                <span className="row-sub">
-                  {c.deliveryDate ?? "no delivery date"} ·{" "}
-                  <strong>{c.line ? STATUS_WORDS[c.line.status] : "No terms"}</strong>
-                  {c.line?.expected.lowCents != null && c.line.expected.highCents != null
-                    ? ` · expected ${formatRange(c.line.expected.lowCents, c.line.expected.highCents)}`
-                    : ""}
-                  {c.line?.receivedCents != null ? ` · received ${formatCents(c.line.receivedCents)}` : ""}
-                  {c.line && c.line.status === "short" ? ` · short ${formatCents(c.line.shortfallCents)}` : ""}
-                </span>
-                {c.line && !c.line.termsUsed.inForce && (
-                  <span className="row-sub" role="note">
-                    No pay terms covered this date, so the nearest ({c.line.termsUsed.employer_name}) were used.
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          {(() => {
+            const inPaydays = new Set(state.summary.paydays.flatMap((g) => g.loads.map((l) => l.loadId)));
+            const rest = state.summary.completed.filter((c) => !inPaydays.has(c.loadId));
+            if (state.summary.completed.length === 0) return <p>No finished loads yet.</p>;
+            if (rest.length === 0) return null;
+            return (
+              <section aria-label="Loads without a pay date">
+                <h2>Finished loads with no pay date</h2>
+                <ul>
+                  {rest.map((c) => (
+                    <LoadRow key={c.loadId} c={c} />
+                  ))}
+                </ul>
+              </section>
+            );
+          })()}
         </>
       )}
     </div>
+  );
+}
+
+function LoadRow({ c }: { c: PaySummaryLoad }) {
+  return (
+    <li>
+      <span className="row-title">
+        <Link href={`/loads/${c.loadId}`}>{c.origin} → {c.destination}</Link>
+      </span>
+      <span className="row-sub">
+        {c.deliveryDate ?? "no delivery date"} · <strong>{c.line ? STATUS_WORDS[c.line.status] : "No terms"}</strong>
+        {c.line?.expected.lowCents != null && c.line.expected.highCents != null
+          ? ` · expected ${formatRange(c.line.expected.lowCents, c.line.expected.highCents)}`
+          : ""}
+        {c.line?.receivedCents != null ? ` · received ${formatCents(c.line.receivedCents)}` : ""}
+        {c.line && c.line.status === "short" ? ` · short ${formatCents(c.line.shortfallCents)}` : ""}
+      </span>
+      {c.line && !c.line.termsUsed.inForce && (
+        <span className="row-sub" role="note">
+          No pay terms covered this date, so the nearest ({c.line.termsUsed.employer_name}) were used.
+        </span>
+      )}
+    </li>
   );
 }

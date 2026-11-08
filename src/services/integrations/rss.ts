@@ -15,8 +15,10 @@
 import Parser from "rss-parser";
 
 const FEEDS = [
-  // The FMCSA newsroom's taxonomy feed (King's fix, 2026-11-05; the old /rss.xml did not answer from production).
-  { source: "FMCSA Newsroom", url: "https://www.fmcsa.dot.gov/taxonomy/term/191/feed" },
+  // FMCSA headlines via Google News (owner order 2026-11-06 "if we drop it, it has to be replaced"; King live-checked: answers 200).
+  // This replaces the FMCSA Newsroom feed, which answers HTTP 403 from production egress on every poll; the official half of the
+  // coverage is the Federal Register watcher.
+  { source: "Google News: FMCSA", url: "https://news.google.com/rss/search?q=FMCSA&hl=en-US&gl=US&ceid=US:en" },
   { source: "FreightWaves", url: "https://www.freightwaves.com/news/feed" },
   { source: "Overdrive", url: "https://www.overdriveonline.com/feed" },
 ];

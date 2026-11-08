@@ -7,7 +7,7 @@ import { formatBatchProposal } from "@/services/bot/dump-intake";
 import { buildBotTools } from "@/services/bot/tools";
 import type { BotBrainStore } from "@/services/bot/store";
 import { addDays } from "@/lib/temporal";
-import type { EmailConfig } from "./config";
+import { MAILBOX_LABEL, type EmailConfig, type Mailbox } from "./config";
 import type { Classified } from "./errors";
 import { readNewMail, withImapSession, type ImapSession } from "./imap-reader";
 import { parseRaw, type ParsedEmail } from "./parse";
@@ -45,8 +45,8 @@ const CLASS_LABEL: Record<MailClass, string> = {
 const sender = (m: { fromName: string | null; fromAddress: string | null }) => m.fromName ? `${m.fromName} <${m.fromAddress ?? "?"}>` : (m.fromAddress ?? "unknown sender");
 
 /** The Telegram text for one message. The summary is model output about UNTRUSTED content - shown as information only. */
-export function composeMessageAlert(m: { classification: MailClass; fromName: string | null; fromAddress: string | null; subject: string | null; summary: string | null }): string {
-  const lines = [`📬 ${CLASS_LABEL[m.classification]} - dispatch inbox`, `From: ${sender(m)}`, `Subject: ${m.subject ?? "(no subject)"}`];
+export function composeMessageAlert(m: { mailbox?: Mailbox; classification: MailClass; fromName: string | null; fromAddress: string | null; subject: string | null; summary: string | null }): string {
+  const lines = [`📬 ${CLASS_LABEL[m.classification]} - ${MAILBOX_LABEL[m.mailbox ?? "dispatch"]} inbox`, `From: ${sender(m)}`, `Subject: ${m.subject ?? "(no subject)"}`];
   if (m.summary) lines.push("", m.summary);
   if (m.classification === "unclassified") lines.push("", "(Not sorted yet - I couldn't classify this one.)");
   return lines.join("\n");
@@ -110,26 +110,29 @@ async function stageOffer(deps: IngestDeps, candidateId: string, c: Candidate, m
 }
 
 async function announceHealth(deps: IngestDeps, state: PollState, next: "ok" | Classified["kind"], failure?: Classified): Promise<void> {
+  const mailbox = deps.config.mailbox;
+  const label = MAILBOX_LABEL[mailbox];
   const previous = state.lastNotifiedState;
   if (previous === next) return; // a repeat is never re-announced
   if (next === "ok") {
     if (previous === null) {
       // First ever successful poll: nothing was broken, nothing to announce - just remember it.
-      await deps.emailStore.savePollState({ lastNotifiedState: "ok" });
+      await deps.emailStore.savePollState(mailbox, { lastNotifiedState: "ok" });
       return;
     }
-    if (await deps.notify("✅ The dispatch inbox is connected again. I'm reading mail normally.")) await deps.emailStore.savePollState({ lastNotifiedState: "ok" });
+    if (await deps.notify(`✅ The ${label} inbox is connected again. I'm reading its mail normally.`)) await deps.emailStore.savePollState(mailbox, { lastNotifiedState: "ok" });
     return;
   }
-  const text = `⚠️ I can't read the dispatch inbox. ${failure?.message ?? "The mailbox poll failed."}${next === "auth" ? " Nothing is wrong on your phone - the mailbox login needs attention (the Fly secret IONOS_EMAIL_PASSWORD)." : ""}`;
-  if (await deps.notify(text)) await deps.emailStore.savePollState({ lastNotifiedState: next });
+  const text = `⚠️ I can't read the ${label} inbox. ${failure?.message ?? "The mailbox poll failed."}${next === "auth" ? ` The mailbox login needs attention (the Fly secret IONOS_EMAIL_${mailbox.toUpperCase()}_PASSWORD).` : ""}`;
+  if (await deps.notify(text)) await deps.emailStore.savePollState(mailbox, { lastNotifiedState: next });
 }
 
 export async function pollOnce(deps: IngestDeps): Promise<PollOutcome> {
   const { emailStore, now } = deps;
-  const state = await emailStore.getPollState();
+  const mailbox = deps.config.mailbox;
+  const state = await emailStore.getPollState(mailbox);
   const startedAt = now();
-  await emailStore.savePollState({ lastAttemptAt: startedAt.toISOString() });
+  await emailStore.savePollState(mailbox, { lastAttemptAt: startedAt.toISOString() });
 
   const read = await withImapSession(
     deps.config,
@@ -137,7 +140,7 @@ export async function pollOnce(deps: IngestDeps): Promise<PollOutcome> {
     deps.open,
   );
   if (!read.ok) {
-    await emailStore.savePollState({ lastErrorKind: read.failure.kind, lastErrorAt: startedAt.toISOString(), consecutiveFailures: state.consecutiveFailures + 1 });
+    await emailStore.savePollState(mailbox, { lastErrorKind: read.failure.kind, lastErrorAt: startedAt.toISOString(), consecutiveFailures: state.consecutiveFailures + 1 });
     await announceHealth(deps, state, read.failure.kind, read.failure);
     return { ok: false, stored: 0, surfaced: 0, failure: read.failure };
   }
@@ -152,10 +155,10 @@ export async function pollOnce(deps: IngestDeps): Promise<PollOutcome> {
     } catch {
       continue; // an unparseable message is skipped, never allowed to wedge the cursor
     }
-    const { id, inserted } = await emailStore.insertMessage(email, raw.uid, uidvalidity);
+    const { id, inserted } = await emailStore.insertMessage(mailbox, email, raw.uid, uidvalidity);
     if (inserted) fresh.push({ id, email });
   }
-  await emailStore.savePollState({
+  await emailStore.savePollState(mailbox, {
     uidvalidity,
     lastUid: nextLastUid,
     lastOkAt: startedAt.toISOString(),
@@ -173,6 +176,7 @@ export async function pollOnce(deps: IngestDeps): Promise<PollOutcome> {
 
 async function triageAndSurface(deps: IngestDeps, fresh: { id: string; email: ParsedEmail }[], firstRun: boolean): Promise<number> {
   const { emailStore } = deps;
+  const mailbox = deps.config.mailbox;
   const today = etDate(deps.now());
   const provider = deps.provider ? safeProvider(deps.provider) : null;
   const triaged = new Map<string, { classification: MailClass; summary: string; candidate: Candidate | null }>();
@@ -186,11 +190,11 @@ async function triageAndSurface(deps: IngestDeps, fresh: { id: string; email: Pa
   }
 
   // Everything stored and not yet surfaced (also catches a previous poll that stopped midway), junk excluded.
-  const waiting = await emailStore.listUnsurfaced(50);
+  const waiting = await emailStore.listUnsurfaced(50, mailbox);
   if (firstRun && waiting.length > MAX_SURFACED_PER_POLL) {
     // Backfill after a first connection or a rebuilt mailbox: one summary instead of a flood.
     const lines = waiting.slice(0, 12).map((m) => `• ${sender(m)} - ${m.subject ?? "(no subject)"}`);
-    const ok = await deps.notify(`📬 Dispatch inbox connected. ${waiting.length} messages from the last 7 days are waiting (not opened on the server):\n${lines.join("\n")}${waiting.length > 12 ? `\n…and ${waiting.length - 12} more` : ""}\nAsk me to show the inbox for details.`);
+    const ok = await deps.notify(`📬 ${MAILBOX_LABEL[mailbox]} inbox connected. ${waiting.length} messages from the last 7 days are waiting (not opened on the server):\n${lines.join("\n")}${waiting.length > 12 ? `\n…and ${waiting.length - 12} more` : ""}\nAsk me to show the inbox for details.`);
     if (ok) for (const m of waiting) await emailStore.markSurfaced(m.id);
     return ok ? waiting.length : 0;
   }
@@ -240,19 +244,20 @@ function safeProvider(make: () => AiProvider): AiProvider | null {
   }
 }
 
-/** Junk never interrupts: one digest at/after 8 AM Eastern, only if there is any, at most once per Eastern day. */
+/** Junk never interrupts: one digest (both mailboxes together) at/after 8 AM Eastern, only if there is any, at most once per Eastern day. */
 export async function sendDigestIfDue(deps: IngestDeps): Promise<boolean> {
   const now = deps.now();
   if (etHour(now) < DIGEST_HOUR_ET) return false;
   const today = etDate(now);
-  const state = await deps.emailStore.getPollState();
-  if (state.lastDigestDate === today) return false;
+  for (const box of ["dispatch", "owner"] as const) {
+    if ((await deps.emailStore.getPollState(box)).lastDigestDate === today) return false;
+  }
   const junk = await deps.emailStore.listJunkForDigest(100);
   if (junk.length === 0) return false;
-  const lines = junk.slice(0, 15).map((m) => `• ${sender(m)} - ${m.subject ?? "(no subject)"}`);
-  const ok = await deps.notify(`🗑 Junk in the dispatch inbox (${junk.length}) - nothing needed from you:\n${lines.join("\n")}${junk.length > 15 ? `\n…and ${junk.length - 15} more` : ""}`);
+  const lines = junk.slice(0, 15).map((m) => `• [${MAILBOX_LABEL[m.mailbox]}] ${sender(m)} - ${m.subject ?? "(no subject)"}`);
+  const ok = await deps.notify(`🗑 Junk in the company inboxes (${junk.length}) - nothing needed from you:\n${lines.join("\n")}${junk.length > 15 ? `\n…and ${junk.length - 15} more` : ""}`);
   if (!ok) return false;
   await deps.emailStore.markDigestSent(junk.map((m) => m.id));
-  await deps.emailStore.savePollState({ lastDigestDate: today });
+  await deps.emailStore.savePollState(deps.config.mailbox, { lastDigestDate: today });
   return true;
 }
