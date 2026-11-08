@@ -9,6 +9,13 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { formatDateTime } from "@/lib/time";
 
+// The tracker Android app ships as a GitHub release (tag tracker-v1.0.4); this stable
+// /releases/download/ URL always serves that release's APK asset. When a new tracker
+// version is published, bump the tag in BOTH places in this one line - this constant is
+// the only place the download URL lives.
+export const TRACKER_ANDROID_DOWNLOAD_URL =
+  "https://github.com/abelsvj-afk/Trucking/releases/download/tracker-v1.0.4/trucking-os-tracker-v1.0.4.apk";
+
 type Device = { id: string; label: string; created_at: string; last_used_at: string | null };
 
 function lastSeen(iso: string | null): string {
@@ -65,6 +72,18 @@ export default function BackgroundTrackingSettings() {
         The Trucking OS Tracker app on your Android phone keeps reporting where the truck is after you close this app, so
         your log can switch to Driving on its own. Each phone gets its own key. A key can only send position — nothing else.
       </p>
+
+      <p className="row-sub">
+        Don&apos;t have the Tracker app yet? It&apos;s the Android companion app that reports the truck&apos;s position with
+        this app closed. Install it on the phone, then make a key below and paste it into the Tracker app. Installing it
+        over an older Tracker copy keeps that copy&apos;s saved server address and key.
+      </p>
+      <p>
+        <a role="button" href={TRACKER_ANDROID_DOWNLOAD_URL}>
+          Download the tracker app (Android)
+        </a>
+      </p>
+      <p className="row-sub">There is no iPhone version of the Tracker app yet.</p>
 
       {fresh && (
         <div role="status" className="hud-note">
