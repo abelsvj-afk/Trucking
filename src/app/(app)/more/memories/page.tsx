@@ -21,6 +21,7 @@ import {
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import { formatDate, formatDateTime } from "@/lib/time";
 
 type PageState =
   | { status: "loading" }
@@ -125,7 +126,7 @@ export default function MemoriesPage() {
           <p role="alert">
             Heads up: Abel&rsquo;s night shift{" "}
             {state.consolidation.lastRanAt
-              ? `hasn&rsquo;t run since ${new Date(state.consolidation.lastRanAt).toLocaleString("en-US")} — `
+              ? `hasn&rsquo;t run since ${formatDateTime(state.consolidation.lastRanAt, "America/New_York")} — `
               : "has never run — "}
             so his weekly summaries and memory proposals are behind. It&rsquo;s supposed to run on
             its own every night; if this notice is still here tomorrow, the consolidation scheduler
@@ -146,7 +147,7 @@ export default function MemoriesPage() {
                 <div>
                   <strong>{KIND_LABELS[memory.kind] ?? memory.kind}</strong>{" "}
                   <span>
-                    {new Date(memory.created_at).toLocaleDateString("en-US")}
+                    {formatDate(memory.created_at, "America/New_York")}
                     {replaced ? " · replaced" : ""}
                   </span>
                 </div>

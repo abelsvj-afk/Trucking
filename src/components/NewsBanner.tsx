@@ -19,6 +19,7 @@ import WordReveal from "@/components/WordReveal";
 import { useLiveVersion } from "@/lib/use-live";
 import { FEED_OFF_TEXT, FEED_SETUP_TEXT } from "@/lib/feed-status";
 import type { ResearchPageData } from "@/types/entities";
+import { formatDateTime } from "@/lib/time";
 
 const ROTATE_MS = 6000;
 const MANUAL_PAUSE_MS = 12000;
@@ -250,7 +251,7 @@ export default function NewsBanner() {
             {stale && (
               <p className="news-banner-warning" role="alert">
                 ⚠️ Research runner hasn&apos;t checked in since{" "}
-                {new Date(page.runner!.last_tick_at!).toLocaleString()} — headlines may be
+                {formatDateTime(page.runner!.last_tick_at!, "America/New_York")} — headlines may be
                 behind.
               </p>
             )}

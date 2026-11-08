@@ -18,6 +18,7 @@ import { feedStatus, type FeedStatus } from "@/lib/feed-status";
 import Link from "next/link";
 import type { IndustryBriefing, ResearchPageData } from "@/types/entities";
 import type { ServiceStatus } from "@/types/service-status";
+import { formatDate } from "@/lib/time";
 
 type PageState =
   | { status: "loading" }
@@ -107,7 +108,7 @@ export default function IndustryIntelligencePage() {
               <p>
                 {CONFIDENCE_LABELS[briefing.confidence]} — based on: {briefing.based_on.join(", ")}
               </p>
-              <p>{new Date(briefing.generated_at).toLocaleDateString()}</p>
+              <p>{formatDate(briefing.generated_at, "America/New_York")}</p>
               <button
                 type="button"
                 onClick={() => handleDismiss(briefing.id)}

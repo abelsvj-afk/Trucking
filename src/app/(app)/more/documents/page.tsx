@@ -25,6 +25,7 @@ import type {
   Trailer,
   Truck,
 } from "@/types/entities";
+import { formatDate } from "@/lib/time";
 
 const ENTITY_TYPES: { label: string; value: RelatedEntityType; resource: string }[] = [
   { label: "Truck", value: "truck", resource: "trucks" },
@@ -266,7 +267,7 @@ function DocumentsInner() {
               <li key={incident.id}>
                 {incident.storage_path}{" "}
                 <span className="row-sub">
-                  recorded {new Date(incident.created_at).toLocaleDateString()}
+                  recorded {formatDate(incident.created_at, "America/New_York")}
                 </span>{" "}
                 <button type="button" onClick={() => handleRetryIncident(incident.id)}>
                   Retry removal
@@ -417,7 +418,7 @@ function DocumentsInner() {
                       {doc.file_name}{" "}
                       <span className="row-sub">
                         {doc.deleted_at
-                          ? `Removed ${new Date(doc.deleted_at).toLocaleDateString()}`
+                          ? `Removed ${formatDate(doc.deleted_at, "America/New_York")}`
                           : ""}
                         {doc.retention_status ? ` · file ${doc.retention_status}` : ""}
                       </span>{" "}

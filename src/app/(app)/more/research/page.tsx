@@ -24,6 +24,7 @@ import { usePageTitle } from "@/lib/use-page-title";
 import { formatRelativeAge } from "@/lib/news-banner";
 import WordReveal from "@/components/WordReveal";
 import type { ResearchBriefing, ResearchPageData } from "@/types/entities";
+import { formatDateTime } from "@/lib/time";
 
 type PageState =
   | { status: "loading" }
@@ -90,7 +91,7 @@ function BriefingSnapshot({
       </p>
       <p>
         Topic: {briefing.topic} · {CONFIDENCE_LABELS[briefing.confidence]} ·{" "}
-        {new Date(briefing.created_at).toLocaleString()}
+        {formatDateTime(briefing.created_at, "America/New_York")}
         {briefing.telegram_notified_at && " · sent to Telegram"}
       </p>
       <ul>
@@ -395,14 +396,14 @@ export default function ResearchPage() {
             <p role="alert">
               ⚠️ The research runner hasn&apos;t ticked
               {state.page.runner.last_tick_at
-                ? ` since ${new Date(state.page.runner.last_tick_at).toLocaleString()}`
+                ? ` since ${formatDateTime(state.page.runner.last_tick_at, "America/New_York")}`
                 : " yet"}
               {" "}— briefings may be behind. The watchdog also flags this on Telegram.
             </p>
           )}
           {state.page.runner && !state.page.runner.stale && state.page.runner.last_tick_at && (
             <p>
-              Runner last ticked {new Date(state.page.runner.last_tick_at).toLocaleString()}
+              Runner last ticked {formatDateTime(state.page.runner.last_tick_at, "America/New_York")}
               {state.page.runner.last_source && ` (via ${state.page.runner.last_source})`}.
             </p>
           )}
@@ -418,7 +419,7 @@ export default function ResearchPage() {
                   {WATCHER_LABELS[watcher.watcher_key] ?? watcher.watcher_key}:{" "}
                   {watcher.last_status ?? "not polled yet"}
                   {watcher.last_polled_at &&
-                    ` - last checked ${new Date(watcher.last_polled_at).toLocaleString()}`}
+                    ` - last checked ${formatDateTime(watcher.last_polled_at, "America/New_York")}`}
                   {watcher.last_error && ` - ${cleanResearchError(watcher.last_error)}`}
                 </li>
               ))}
@@ -431,7 +432,7 @@ export default function ResearchPage() {
                 {state.page.runs.map((run) => (
                   <li key={run.id}>
                     {RUN_STATUS_LABELS[run.status] ?? run.status} - {run.topic} ({run.trigger_kind},{" "}
-                    {new Date(run.created_at).toLocaleString()})
+                    {formatDateTime(run.created_at, "America/New_York")})
                     {run.error_message && ` - ${cleanResearchError(run.error_message)}`}
                   </li>
                 ))}

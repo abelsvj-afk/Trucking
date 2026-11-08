@@ -148,10 +148,12 @@ function TripTasksSection({ loadId }: { loadId: string }) {
 
 function formatStampTime(iso: string) {
   return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/New_York",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   });
 }
 

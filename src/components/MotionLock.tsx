@@ -67,7 +67,7 @@ export function setFormsInert(root: ParentNode, inert: boolean): number {
 }
 
 function clockLabel(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
 interface AutoAttempt {
