@@ -45,7 +45,7 @@ silent (owner's spec). Watchers are keyless-first:
 |---|---|---|---|
 | `eia_diesel` | EIA API v2 weekly retail diesel, U.S. avg (same series as Stage 4) | Free key (`EIA_API_KEY`) when present; **graceful skip** without it (`status='skipped'`, reason recorded — the key's free registration is an owner setup item, see §8) | One observation signal per new weekly period; carries the week-over-week % change, which is what the trigger threshold reads |
 | `federal_register` | Federal Register API (`federalregister.gov/api/v1`), FMCSA agency, RULE + PRORULE documents | None — free, no key | One signal per new document; magnitude high for a final RULE matching tracked keywords (HOS, ELD, insurance minimums, speed limiter, clearinghouse, emissions, broker transparency), medium for proposed rules / non-matching finals |
-| `industry_news` | The Stage-4 RSS feeds (FMCSA Newsroom, FreightWaves, Overdrive) via `services/integrations/rss.ts` | None | **Burst** signals: ≥ `NEWS_BURST_MIN_ITEMS` items inside the poll window matching the same tracked topic cluster (fuel, rates/market, regulation, carrier failure/layoffs, technology/electric) |
+| `industry_news` | The Stage-4 RSS feeds (Google News FMCSA headlines, FreightWaves, Overdrive; the FMCSA Newsroom feed was dropped - HTTP 403 from production egress - and replaced, with the Federal Register watcher as the official half) via `services/integrations/rss.ts` | None | **Burst** signals: ≥ `NEWS_BURST_MIN_ITEMS` items inside the poll window matching the same tracked topic cluster (fuel, rates/market, regulation, carrier failure/layoffs, technology/electric) |
 
 Every signal row stores the raw items it was built from (title, link,
 published date, summary) in `research_signals.items` — that stored

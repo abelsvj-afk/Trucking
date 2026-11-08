@@ -20,7 +20,8 @@ import type { BotBrainStore } from "./store";
 import { validateWith } from "./tool-helpers";
 import { loadHosCost } from "@/lib/hos-cost";
 import { loadHosWindow } from "@/services/api/hos-window";
-import { glanceFromSnapshot } from "@/services/api/pay-summary";
+import { glanceFromSnapshot, loadPaySummary } from "@/services/api/pay-summary";
+import { formatPayday } from "@/lib/payday-text";
 import {
   formatPayPin,
   isPinned,
@@ -286,6 +287,30 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
         });
         if (insertError) throw new Error(insertError.message);
         return `Updated pay terms for ${a.employer_name}; the earlier terms are kept in the history.`;
+      },
+    },
+    {
+      name: "paychecks_by_payday",
+      description:
+        "His paychecks organised by PAYDAY - the same figures the Paychecks page shows, from the same builder: per payday the expected total, cash advances already taken, net expected, what statements have named so far, and what is still owed, with the loads behind each. Use this for 'when do I get paid', 'what is my next check', 'what do I still have coming', 'how much was taken in advances'. Gross at his stated terms; his settlement is the final number. Never state a different pay figure from these.",
+      parameters: { type: "object", properties: { count: { type: "number", description: "How many paydays (default 4, max 12)." } } },
+      access: "read",
+      async run(args) {
+        const n = typeof args.count === "number" ? Math.max(1, Math.min(12, Math.floor(args.count))) : 4;
+        let summary;
+        try {
+          summary = await loadPaySummary(store.client, store.companyId);
+        } catch {
+          return "The paycheck picture couldn't be loaded right now (so I can't give a figure - not even a partial one). Say that plainly; don't estimate pay from memory.";
+        }
+        if (!summary.hasTerms) return "No pay terms are recorded yet, so no paycheck can be priced. Offer to set them with set_pay_terms.";
+        if (summary.paydays.length === 0) return "No finished loads or cash advances fall in any pay week yet.";
+        const shown = summary.paydays.slice(0, n);
+        return [
+          "PAYCHECKS BY PAYDAY (newest first). Expected is gross at his terms; received is what statements have named; his settlement is the final number.",
+          ...shown.map(formatPayday),
+          summary.paydays.length > shown.length ? `(${summary.paydays.length - shown.length} older payday(s) not shown.)` : "",
+        ].filter(Boolean).join("\n");
       },
     },
     {

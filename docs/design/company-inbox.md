@@ -75,5 +75,5 @@ connection: "connected" requires a poll that succeeded within the last three int
 Each mailbox password is independent: changing one cuts Abel off from that box without touching the other, or the owner's IONOS account login.
 The password must NOT be reused from any other account when the Fly secret is set.
 
-## 10. Tables (migration 00078, additive, tenant/RLS, anon 0)
+## 10. Tables (migration 00078 = the applied dispatch@-only draft; 00080 = the two-mailbox delta, additive, tenant/RLS, anon 0)
 `email_messages`, `load_candidates`, `email_drafts`, `email_poll_state` - see `docs/schemas.md`.

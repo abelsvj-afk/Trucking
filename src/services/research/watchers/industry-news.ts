@@ -1,6 +1,6 @@
 // Deep Research Engine watcher: industry news bursts
 // (docs/design/research-engine.md §2). Reuses Stage 4's RSS layer
-// (FMCSA Newsroom, FreightWaves, Overdrive - free, no key) and turns
+// (Google News FMCSA headlines, FreightWaves, Overdrive - free, no key) and turns
 // raw items into pressure only when a tracked topic CLUSTER heats up:
 // >= config.newsBurstMinItems items inside the window matching the
 // same topic. One loud headline is noise; a cluster is pressure.

@@ -1071,7 +1071,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)
 - `message_id` text not null check (length(btrim(message_id)) > 0)
-- `mailbox` text not null default 'dispatch' constraint email_messages_mailbox_valid check (mailbox in ('dispatch', 'owner'))
+- `mailbox` text not null default 'dispatch' constraint email_messages_mailbox_valid (added in 00080) check (mailbox in ('dispatch', 'owner'))
 - `uid` bigint
 - `uidvalidity` bigint
 - `from_address` text
@@ -1118,7 +1118,7 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `updated_at` timestamptz not null default now()
 - `deleted_at` timestamptz
 
-### `email_poll_state` — created in 00078
+### `email_poll_state` — created in 00078; `mailbox` column, its check and the (company_id, mailbox) primary key added in 00080 (00078 had `company_id` as the primary key)
 
 - `company_id` uuid not null references companies (id)
 - `mailbox` text not null default 'dispatch' constraint email_poll_state_mailbox_valid check (mailbox in ('dispatch', 'owner'))
@@ -1136,6 +1136,8 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 
 
 ### Columns added to already-documented tables since 00032
+
+- 00081 `cash_advances.driver_id` becomes a composite tenant FK `(company_id, driver_id) -> drivers (company_id, id)` (constraint `cash_advances_driver_id_tenant_fkey`; replaces the simple FK from 00079; stays nullable)
 
 - 00033 `documents.caption` text
 - 00077 `load_decisions.driver_id` uuid (composite tenant FK to drivers)

@@ -117,7 +117,8 @@ ${JOB_KNOWLEDGE_BRIEF}`;
 const PAY_SAFETY_RULES =
   "PAY SAFETY: telling you WHO PAYS for fuel or tolls changes ONLY that one field (fuel_paid_by / tolls_paid_by) - never send a rate, a percent, miles or any money value with it, and never set a rate, miles or pay to 0 unless he says that number in so many words. " +
   "set_pay_pin and set_pay_terms keep every field you do not name. Before proposing a pay change, read his current terms (get_pay_status / projected_pay) and say what CHANGES, before and after. " +
-  "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again.";
+  "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again. " +
+  "For what he is OWED or when he gets paid (next check, advances taken, what is still coming) call paychecks_by_payday - the same figures his Paychecks page shows - and never state a different number; if it can't load, say the figure is unavailable rather than estimating.";
 
 /** Temporal reasoning (owner 2026-11-07): dates and durations come from code, and old state is labelled as old. */
 const TEMPORAL_RULES =

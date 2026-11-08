@@ -32,8 +32,8 @@ begin
   -- 1b. every composite tenant FK has the one consistent shape: (company_id, col) -> (company_id, id)
   select count(*) into n from pg_constraint c
   where c.contype = 'f' and c.connamespace = 'public'::regnamespace and c.conname like '%_tenant_fkey';
-  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message)
-  if n <> 67 then raise exception 'expected 67 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
+  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver)
+  if n <> 68 then raise exception 'expected 68 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
 
   select string_agg(c.conname, ', ') into bad
   from pg_constraint c
@@ -46,7 +46,7 @@ begin
     );
   if bad is not null then raise exception 'composite FK with wrong shape or not validated: %', bad; end if;
 
-  raise notice 'completeness: 0 unconverted tenant FKs; 67 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
+  raise notice 'completeness: 0 unconverted tenant FKs; 68 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
 end $$;
 
 -- 2. behavior ---------------------------------------------------------------------------
@@ -104,13 +104,20 @@ begin
   exception when foreign_key_violation then refused := true; end;
   if not refused then failures := failures || 'UPDATE loads.truck_id; '; end if;
 
+  -- cash_advances.driver_id (00081): composite like every other reference
+  refused := false;
+  begin insert into cash_advances (company_id, driver_id, amount_cents, advance_date) values (a, driver_b, 5000, current_date);
+  exception when foreign_key_violation then refused := true; end;
+  if not refused then failures := failures || 'cash_advances.driver_id; '; end if;
+
   -- same-company references still work exactly as before
+  insert into cash_advances (company_id, driver_id, amount_cents, advance_date) values (a, null, 5000, current_date); -- an unassigned advance is a designed case
   insert into expenses (company_id, category, amount_cents, expense_date, truck_id, load_id) values (a, 'other', 100, current_date, truck_a, load_a);
   insert into fuel_purchases (company_id, truck_id, gallons, price_per_gallon_cents, total_cost_cents, purchased_at, load_id) values (a, truck_a, 10, 400, 4000, now(), load_a);
   update loads set truck_id = truck_a where id = load_a;
 
   if failures <> '' then raise exception 'cross-company reference was ACCEPTED for: %', failures; end if;
-  raise notice 'behavior: 7/7 cross-company references refused by the FK layer (RLS bypassed); same-company references accepted';
+  raise notice 'behavior: 8/8 cross-company references refused by the FK layer (RLS bypassed); same-company references accepted';
 end $$;
 
 rollback;

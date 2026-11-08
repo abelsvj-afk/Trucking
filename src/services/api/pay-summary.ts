@@ -53,6 +53,40 @@ export interface PayWeekGroup {
   unpaidHighCents: number;
 }
 
+/**
+ * One PAYDAY: the pay weeks that land on the same payday, with the money plainly separated (owner order 2026-11-06/07).
+ *   expected     what the finished loads should pay at the terms in force (a range while the miles basis is unset)
+ *   advances     cash advances already taken out of those weeks (exact)
+ *   net          expected - advances (can go negative; never clamped)
+ *   received     the pay lines statements have named for these loads so far
+ *   stillOwed    net - received. Negative means nothing more is owed (a statement already covered it); the page says so in words.
+ * The per-load rows stay underneath (`loads`), not instead of this.
+ */
+export interface PaydayGroup {
+  /** The day the money lands; null while the pay terms don't say. */
+  payday: string | null;
+  statement: string | null;
+  periodStart: string;
+  periodEnd: string;
+  weekStarts: string[];
+  loadCount: number;
+  unpricedCount: number;
+  expectedLowCents: number;
+  expectedHighCents: number;
+  advancesCents: number;
+  netLowCents: number;
+  netHighCents: number;
+  receivedCents: number;
+  stillOwedLowCents: number;
+  stillOwedHighCents: number;
+  shortCount: number;
+  shortfallCents: number;
+  unpaidCount: number;
+  /** Payday has passed (Eastern) and money is still owed - worth a look. */
+  overdue: boolean;
+  loads: PaySummaryLoad[];
+}
+
 export interface PaySummary {
   /** null when no pay terms exist yet - nothing can be priced. */
   hasTerms: boolean;
@@ -61,6 +95,8 @@ export interface PaySummary {
   completed: PaySummaryLoad[];
   /** The same finished loads grouped by his pay week (newest first). */
   weeks: PayWeekGroup[];
+  /** The pay weeks regrouped by PAYDAY (newest first) with per-load detail - the one builder the Paychecks page and Abel both read. */
+  paydays: PaydayGroup[];
   totals: {
     unpaidCount: number;
     unpaidLowCents: number;
@@ -185,6 +221,48 @@ export function mergeAdvanceWeeks(weeks: PayWeekGroup[], advances: readonly Adva
   return merged;
 }
 
+/** Regroups pay weeks by the payday they land on. Pure; the per-load rows come from the same `completed` list the page already shows. */
+export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[], today: string): PaydayGroup[] {
+  const byId = new Map(completed.map((c) => [c.loadId, c]));
+  const groups = new Map<string, PaydayGroup>();
+  for (const w of weeks) {
+    const key = w.payday ?? `week:${w.start}`;
+    const g =
+      groups.get(key) ??
+      {
+        payday: w.payday, statement: w.statement, periodStart: w.start, periodEnd: w.end, weekStarts: [],
+        loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, advancesCents: 0, netLowCents: 0, netHighCents: 0,
+        receivedCents: 0, stillOwedLowCents: 0, stillOwedHighCents: 0, shortCount: 0, shortfallCents: 0, unpaidCount: 0, overdue: false, loads: [],
+      };
+    g.weekStarts.push(w.start);
+    if (w.start < g.periodStart) g.periodStart = w.start;
+    if (w.end > g.periodEnd) g.periodEnd = w.end;
+    g.loadCount += w.loadCount;
+    g.unpricedCount += w.unpricedCount;
+    g.expectedLowCents += w.expectedLowCents;
+    g.expectedHighCents += w.expectedHighCents;
+    g.advancesCents += w.advancesCents;
+    g.netLowCents += w.netLowCents;
+    g.netHighCents += w.netHighCents;
+    g.receivedCents += w.receivedCents;
+    g.shortCount += w.shortCount;
+    g.shortfallCents += w.shortfallCents;
+    g.unpaidCount += w.unpaidCount;
+    for (const id of w.loadIds) {
+      const row = byId.get(id);
+      if (row) g.loads.push(row);
+    }
+    groups.set(key, g);
+  }
+  for (const g of groups.values()) {
+    g.stillOwedLowCents = g.netLowCents - g.receivedCents;
+    g.stillOwedHighCents = g.netHighCents - g.receivedCents;
+    g.overdue = g.payday !== null && g.payday < today && g.stillOwedHighCents > 0;
+    g.loads.sort((a, b) => (b.deliveryDate ?? "").localeCompare(a.deliveryDate ?? ""));
+  }
+  return [...groups.values()].sort((a, b) => (b.payday ?? b.periodStart).localeCompare(a.payday ?? a.periodStart));
+}
+
 export function buildPaySummary(input: {
   loads: Load[];
   terms: PayTermsRow[];
@@ -248,7 +326,8 @@ export function buildPaySummary(input: {
       totals.unpaidNetHighCents += net.highCents;
     }
   }
-  return { hasTerms: terms.length > 0, active, completed, weeks, totals, hos, asOf: now.toISOString() };
+  const paydays = groupByPayday(weeks, completed, todayEastern(now));
+  return { hasTerms: terms.length > 0, active, completed, weeks, paydays, totals, hos, asOf: now.toISOString() };
 }
 
 export async function loadPaySummary(client: SupabaseClient, companyId: string, now: Date = new Date()): Promise<PaySummary> {
@@ -256,11 +335,12 @@ export async function loadPaySummary(client: SupabaseClient, companyId: string, 
     client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "completed"]).order("delivery_date", { ascending: false, nullsFirst: false }).limit(300),
     client.from("employer_pay_profiles").select("employer_name, rate_cents_per_mile, mile_basis, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to").eq("company_id", companyId).is("deleted_at", null),
     client.from("settlement_lines").select("load_id, amount_cents").eq("company_id", companyId).eq("kind", "load_pay").not("load_id", "is", null).is("deleted_at", null),
-    // Advances degrade to none until migration 00079 is applied - the rest of the paycheck picture must not break first.
-    client.from("cash_advances").select("amount_cents, advance_date, driver_id").eq("company_id", companyId).is("deleted_at", null).then((r) => (r.error ? { data: [] as AdvanceLike[] } : r)),
+    // An advances error is NOT swallowed: expected pay with zero advances deducted would present as final while part of its inputs
+    // failed to load. It fails visibly like loads, terms and settlement lines (00079 is applied; the old bridge's reason is gone).
+    client.from("cash_advances").select("amount_cents, advance_date, driver_id").eq("company_id", companyId).is("deleted_at", null),
     loadHosWindow(client, companyId, now).catch(() => null),
   ]);
-  if (loadsRes.error || termsRes.error || linesRes.error) throw new Error("The paycheck picture could not be loaded.");
+  if (loadsRes.error || termsRes.error || linesRes.error || advancesRes.error) throw new Error("The paycheck picture could not be loaded.");
   const receivedByLoad = new Map<string, number>();
   for (const l of (linesRes.data ?? []) as { load_id: string; amount_cents: number }[]) {
     receivedByLoad.set(l.load_id, (receivedByLoad.get(l.load_id) ?? 0) + l.amount_cents);

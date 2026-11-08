@@ -18,7 +18,8 @@ export const NEWS_FEEDS: Record<NewsTopic, { source: string; url: string }[]> = 
     { source: "Land Line", url: "https://landline.media/feed/" },
   ],
   regulation: [
-    { source: "FMCSA Newsroom", url: "https://www.fmcsa.dot.gov/taxonomy/term/191/feed" },
+    // The FMCSA Newsroom feed was removed (HTTP 403 from production egress); headlines come from Google News, the official rules from the Federal Register watcher.
+    { source: "Google News: FMCSA", url: "https://news.google.com/rss/search?q=FMCSA&hl=en-US&gl=US&ceid=US:en" },
   ],
   tech: [
     { source: "Ars Technica", url: "https://feeds.arstechnica.com/arstechnica/index" },

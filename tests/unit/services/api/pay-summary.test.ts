@@ -96,3 +96,83 @@ describe("buildPaySummary", () => {
     expect(s.totals.unpaidNetLowCents).toBe(60000);
   });
 });
+
+describe("loadPaySummary: a money figure never presents as final when part of its inputs failed to load", () => {
+  // A query-builder fake: every table answers from `tables`; each result is thenable like supabase-js's builders.
+  function fakeClient(tables: Record<string, { data?: unknown[]; error?: { message: string } }>) {
+    const builder = (table: string) => {
+      const result = { data: tables[table]?.data ?? [], error: tables[table]?.error ?? null };
+      const b: Record<string, unknown> = {};
+      for (const m of ["select", "eq", "is", "in", "not", "order", "limit", "gte", "lte", "lt", "gt"]) b[m] = () => b;
+      b.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(result).then(res, rej);
+      return b;
+    };
+    return { from: (t: string) => builder(t) } as never;
+  }
+
+  it("fails visibly when the advances query errors (it used to return expected pay with zero advances, silently)", async () => {
+    const { loadPaySummary } = await import("@/services/api/pay-summary");
+    const client = fakeClient({ cash_advances: { error: { message: "boom" } } });
+    await expect(loadPaySummary(client, "c")).rejects.toThrow("The paycheck picture could not be loaded.");
+  });
+
+  it("still fails visibly for loads, terms and settlement lines (unchanged)", async () => {
+    const { loadPaySummary } = await import("@/services/api/pay-summary");
+    for (const table of ["loads", "employer_pay_profiles", "settlement_lines"]) {
+      await expect(loadPaySummary(fakeClient({ [table]: { error: { message: "x" } } }), "c")).rejects.toThrow("could not be loaded");
+    }
+  });
+
+  it("loads normally when every query succeeds", async () => {
+    const { loadPaySummary } = await import("@/services/api/pay-summary");
+    const s = await loadPaySummary(fakeClient({}), "c");
+    expect(s.totals.advancesCents).toBe(0);
+  });
+});
+
+describe("paychecks organised by payday", () => {
+  const deal = [{ ...terms[0]!, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
+  const loads = [
+    load({ id: "a", delivery_date: "2026-10-31", pickup_date: "2026-10-30" }), // week Oct 25-31, payday Fri Nov 6
+    load({ id: "b", delivery_date: "2026-10-27", pickup_date: "2026-10-26" }), // same week / payday
+    load({ id: "c", delivery_date: "2026-11-01", pickup_date: "2026-10-31" }), // next week, payday Fri Nov 13
+  ];
+  const adv = [{ amount_cents: 25000, advance_date: "2026-10-28", driver_id: null }];
+
+  it("per payday: expected total, advances, net, received, still owed - with the loads underneath", () => {
+    const s = buildPaySummary({ loads, terms: deal, receivedByLoad: new Map([["a", 60000]]), advances: adv, hos: null, now });
+    expect(s.paydays.map((p) => p.payday)).toEqual(["2026-11-13", "2026-11-06"]);
+    const p = s.paydays[1]!;
+    expect(p.expectedLowCents).toBe(120000);
+    expect(p.advancesCents).toBe(25000);
+    expect(p.netLowCents).toBe(95000);
+    expect(p.receivedCents).toBe(60000);
+    expect(p.stillOwedLowCents).toBe(35000);
+    expect(p.loads.map((l) => l.loadId).sort()).toEqual(["a", "b"]); // per-load detail is kept, not replaced
+    expect(p.overdue).toBe(false); // payday is Nov 6; "now" is Nov 5 Eastern, so it has not passed
+    const later = buildPaySummary({ loads, terms: deal, receivedByLoad: new Map([["a", 60000]]), advances: adv, hos: null, now: new Date("2026-11-07T15:00:00Z") });
+    expect(later.paydays[1]!.overdue).toBe(true); // Nov 7 Eastern: payday passed and 35,000 is still owed
+  });
+
+  it("is not past due before the payday, and a fully covered payday owes nothing", () => {
+    const s = buildPaySummary({ loads, terms: deal, receivedByLoad: new Map([["a", 60000], ["b", 60000]]), advances: adv, hos: null, now });
+    const p = s.paydays[1]!;
+    expect(p.stillOwedHighCents).toBeLessThanOrEqual(0);
+    expect(p.overdue).toBe(false);
+  });
+
+  it("an advance in a week with no finished loads still shows its payday", () => {
+    const s = buildPaySummary({ loads: [], terms: deal, receivedByLoad: new Map(), advances: [{ amount_cents: 10000, advance_date: "2026-11-03" }], hos: null, now });
+    expect(s.paydays).toHaveLength(1);
+    expect(s.paydays[0]).toMatchObject({ advancesCents: 10000, loadCount: 0, netLowCents: -10000 });
+  });
+
+  it("the paydays reconcile with the pay weeks (one source of truth)", () => {
+    const s = buildPaySummary({ loads, terms: deal, receivedByLoad: new Map([["a", 60000]]), advances: adv, hos: null, now });
+    const sum = (f: (x: { expectedLowCents: number; advancesCents: number; receivedCents: number }) => number, xs: { expectedLowCents: number; advancesCents: number; receivedCents: number }[]) => xs.reduce((t, x) => t + f(x), 0);
+    for (const f of [(x: { expectedLowCents: number }) => x.expectedLowCents, (x: { advancesCents: number }) => x.advancesCents, (x: { receivedCents: number }) => x.receivedCents]) {
+      expect(sum(f as never, s.paydays)).toBe(sum(f as never, s.weeks));
+    }
+    expect(s.totals.advancesCents).toBe(sum((x) => x.advancesCents, s.paydays));
+  });
+});
