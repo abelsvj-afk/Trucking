@@ -62,3 +62,31 @@ export function getAllEmailConfigs(env: Env = process.env): Record<Mailbox, Emai
 export function describeConfig(c: EmailConfig): { mailbox: Mailbox; user: string; host: string; port: number; intervalMinutes: number } {
   return { mailbox: c.mailbox, user: c.user, host: c.host, port: c.port, intervalMinutes: Math.round(c.intervalMs / 60_000) };
 }
+
+// --- Sending (owner decision 2026-11-07; docs/design/abel-email-access.md addendum) -------------------------------------------
+// The SAME four IONOS credentials are reused. owner@ sending is active; dispatch@ sending is DORMANT behind a flag, default off.
+
+export const DEFAULT_SMTP_HOST = "smtp.ionos.com";
+/** IONOS's documented primary SMTP setting: implicit SSL/TLS on 465 (587 STARTTLS is also offered; set IONOS_SMTP_PORT=587 to use it). */
+export const DEFAULT_SMTP_PORT = 465;
+
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  /** true = implicit TLS (465); false = STARTTLS required (587). */
+  secure: boolean;
+}
+
+export function getSmtpSettings(env: Env = process.env): SmtpSettings {
+  const port = Number(env.IONOS_SMTP_PORT);
+  const p = Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_SMTP_PORT;
+  return { host: (env.IONOS_SMTP_HOST ?? "").trim() || DEFAULT_SMTP_HOST, port: p, secure: p === 465 };
+}
+
+/** dispatch@ sending is off unless explicitly switched on. owner@ sending needs no flag. */
+export function isSendEnabled(mailbox: Mailbox, env: Env = process.env): boolean {
+  if (mailbox === "owner") return true;
+  return ["1", "true", "yes", "on"].includes((env.EMAIL_SEND_DISPATCH_ENABLED ?? "").trim().toLowerCase());
+}
+
+export const DISPATCH_SEND_OFF_REASON = "Dispatch sending isn't switched on. It is built but dormant until the dispatch program is in use (EMAIL_SEND_DISPATCH_ENABLED).";

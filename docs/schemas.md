@@ -1113,7 +1113,10 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `to_address` text not null check (length(btrim(to_address)) > 0)
 - `subject` text not null
 - `body` text not null check (length(btrim(body)) > 0)
-- `status` text not null default 'draft' constraint email_drafts_status_valid check (status in ('draft', 'discarded'))
+- `status` text not null default 'draft' constraint email_drafts_status_valid check (status in ('draft', 'discarded', 'sending', 'sent', 'failed')) — widened from ('draft', 'discarded') in 00082 (email sending)
+- `send_attempted_at` timestamptz (00082)
+- `send_error` text (00082) — the plain-words reason of the last failed send
+- `sent_at` timestamptz (00082)
 - `created_at` timestamptz not null default now()
 - `updated_at` timestamptz not null default now()
 - `deleted_at` timestamptz
@@ -1134,6 +1137,24 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `updated_at` timestamptz not null default now()
 - primary key (company_id, mailbox)
 
+
+### `email_sent` — created in 00082
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `mailbox` text not null constraint email_sent_mailbox_valid check (mailbox in ('dispatch', 'owner'))
+- `email_message_id` uuid not null — the inbox message it replies to; composite tenant FK `email_sent_message_tenant_fkey` -> email_messages (company_id, id)
+- `draft_id` uuid
+- `to_address` text not null check (length(btrim(to_address)) > 0)
+- `subject` text not null
+- `body` text not null check (length(btrim(body)) > 0)
+- `message_id` text not null — the Message-ID given to the outgoing message; unique per company
+- `in_reply_to` text
+- `approved_body_hash` text not null check (length(approved_body_hash) = 64) — SHA-256 of the exact body the owner approved
+- `sent_at` timestamptz not null default now()
+- `stored_in_sent_folder` boolean not null default false
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz
 
 ### Columns added to already-documented tables since 00032
 

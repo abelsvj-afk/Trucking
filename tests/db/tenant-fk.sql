@@ -32,8 +32,8 @@ begin
   -- 1b. every composite tenant FK has the one consistent shape: (company_id, col) -> (company_id, id)
   select count(*) into n from pg_constraint c
   where c.contype = 'f' and c.connamespace = 'public'::regnamespace and c.conname like '%_tenant_fkey';
-  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver)
-  if n <> 68 then raise exception 'expected 68 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
+  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver), +1 from 00082 (email_sent.email_message)
+  if n <> 69 then raise exception 'expected 69 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
 
   select string_agg(c.conname, ', ') into bad
   from pg_constraint c
@@ -46,7 +46,7 @@ begin
     );
   if bad is not null then raise exception 'composite FK with wrong shape or not validated: %', bad; end if;
 
-  raise notice 'completeness: 0 unconverted tenant FKs; 68 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
+  raise notice 'completeness: 0 unconverted tenant FKs; 69 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
 end $$;
 
 -- 2. behavior ---------------------------------------------------------------------------

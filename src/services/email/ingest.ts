@@ -49,6 +49,9 @@ export function composeMessageAlert(m: { mailbox?: Mailbox; classification: Mail
   const lines = [`📬 ${CLASS_LABEL[m.classification]} - ${MAILBOX_LABEL[m.mailbox ?? "dispatch"]} inbox`, `From: ${sender(m)}`, `Subject: ${m.subject ?? "(no subject)"}`];
   if (m.summary) lines.push("", m.summary);
   if (m.classification === "unclassified") lines.push("", "(Not sorted yet - I couldn't classify this one.)");
+  // owner@ is the mailbox Abel can send from (owner decision 2026-11-07): offer to draft a reply together. Nothing is sent without his
+  // yes to the exact text. dispatch@ sending is dormant, so no offer there.
+  if (m.mailbox === "owner" && m.classification !== "junk") lines.push("", "I can draft a reply here - just say so, and nothing goes out until you approve the exact text.");
   return lines.join("\n");
 }
 

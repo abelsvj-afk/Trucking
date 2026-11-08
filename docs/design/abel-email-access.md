@@ -109,3 +109,31 @@ Each mailbox password is independent: if Abel's access to a box ever needs to be
 revoked, changing that one mailbox's password cuts Abel off from that box without
 touching the other, or the owner's IONOS account login. That is also why neither
 mailbox password should be reused from any other account when the Fly secrets are set.
+
+
+---
+
+# ADDENDUM 2026-11-07 (owner decision, voice call) - SENDING: owner@ ACTIVE, dispatch@ DORMANT
+
+This **supersedes the read-only / "no SMTP" scope above** exactly as follows, and nothing more. Everything about reading (IMAP, triage, untrusted content, owner@ visible only to the owner) is unchanged.
+
+## What changes
+1. Abel can SEND email over SMTP from either mailbox, using the SAME four existing Fly secrets (`IONOS_EMAIL_DISPATCH_USER/PASSWORD`, `IONOS_EMAIL_OWNER_USER/PASSWORD`). No new secret. Server: `smtp.ionos.com`, **port 465, implicit SSL/TLS** (IONOS's documented primary setting; 587 STARTTLS is also offered and can be chosen with `IONOS_SMTP_PORT=587`). Override host with `IONOS_SMTP_HOST`.
+2. **owner@ sending is ACTIVE. dispatch@ sending is built but DORMANT**: it is refused, with the reason "Dispatch sending isn't switched on", unless `EMAIL_SEND_DISPATCH_ENABLED=true` is set. Default false. It wakes up later, when the dispatch bot/program is in use - not in this build. No send offers are made for dispatch mail while dormant.
+3. Workflow for owner@ (owner's words): new mail arrives -> Abel tells him in Telegram -> they respond together -> Abel sends the reply from owner@ on his go-ahead.
+
+## The approval gate (hard rule)
+- A send happens ONLY through the `send_email` tool, which is **always a proposal** (`alwaysPropose`): the model can never execute it on its own say-so. The proposal shows the exact draft (to, subject, full body) and carries the draft id and a SHA-256 of the exact body shown. It sends only after the owner answers yes to THAT proposal in his conversation.
+- At execution the tool re-reads the draft and requires: it exists, it is still `draft` (or `failed`, i.e. never sent), and its current body hash equals the hash he approved. **Any edit (`revise_email_draft`) changes the hash, so an edit after approval blocks the send** and he must approve the new text. A draft that was `sent` can never be sent again.
+- The recipient is never taken from model text: `to` is the stored draft's address (derived by code from Reply-To else From at draft time). One recipient only - no Cc, no Bcc, no attachments.
+- No auto-send, no send classes, no send from a page load, a poll, a scheduler or the web UI (the web inbox page can show drafts and sent mail but has no send control).
+- Money commitments, signatures/terms and hours-of-service answers never auto-send (the autonomy ladder is unchanged); here NOTHING auto-sends.
+
+## Threading, record, errors
+- Reply headers: `In-Reply-To` and `References` carry the original message's Message-ID; subject is `Re: ...`; the new message gets its own Message-ID at the mailbox's domain.
+- Record: every send writes an `email_sent` row (mailbox, to, subject, body, our Message-ID, in-reply-to, the `email_messages` row it replies to, the approved body hash, time, whether the Sent-folder copy was stored). The draft becomes `sent`. A copy is appended to the mailbox's Sent folder by IMAP APPEND (the only write to a server mailbox in the whole build, to one folder, never touching existing mail); if APPEND fails the DB record stands and the failure is logged and shown, not silent.
+- Failures: classified in plain words (login failed / recipient rejected / can't reach the mail server / certificate refused). The draft becomes `failed` with the reason; Abel tells the owner in Telegram; the Company inbox health area lists recent send failures. **At most one automatic retry, and only for a connection-level failure**; a rejected recipient or login failure is never retried. Nothing loops.
+- Telegram on arrival (owner@ only): sender, subject, one-line summary and "I can draft a reply here - just say so."
+
+## Data (migration 00082, additive)
+`email_drafts.status` widens to draft / discarded / sending (the atomic claim that stops a double yes sending twice) / sent / failed (+ `send_error`, `send_attempted_at`, `sent_at`); new `email_sent` table (RLS, composite tenant FK to `email_messages`). 00078-00081 are applied and frozen.

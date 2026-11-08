@@ -2,8 +2,8 @@
 
 // Company inbox, rung 1 READ-ONLY (docs/design/company-inbox.md). Shows the connection's honest state and what Abel has read
 // from dispatch@. Email text is untrusted outside content: it is shown as plain text only (never rendered as HTML, links not
-// followed) under a plain notice. Unsent reply drafts appear under their message for the owner to copy and send himself -
-// there is no send button because nothing in this build can send.
+// followed) under a plain notice. Reply drafts and sent replies appear under their message. There is deliberately NO send button on
+// this page: sending happens only when the owner approves the exact text in his Abel conversation.
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
@@ -11,7 +11,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import type { EmailStatus } from "@/services/email/status";
-import type { DraftRow, StoredEmail } from "@/services/email/store";
+import type { DraftRow, SentRow, StoredEmail } from "@/services/email/store";
 
 const LABELS: Record<string, string> = { load_offer: "Load offer", payment: "Payment", facility: "Shipper / receiver", other: "Other", junk: "Junk", unclassified: "Not sorted" };
 const BOX: Record<string, string> = { dispatch: "dispatch@", owner: "owner@" };
@@ -27,13 +27,17 @@ export default function InboxPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<{ message: StoredEmail; drafts: DraftRow[] } | null>(null);
+  const [open, setOpen] = useState<{ message: StoredEmail; drafts: DraftRow[]; sent: SentRow[] } | null>(null);
+  const [sending, setSending] = useState<{ mailbox: string; enabled: boolean; reason: string | null }[]>([]);
+  const [sendFailures, setSendFailures] = useState<{ id: string; mailbox: string; toAddress: string; subject: string; reason: string | null }[]>([]);
 
   const load = useCallback(() => {
     apiClient
       .inbox({ q: query.trim() || undefined, classification: filter || undefined, mailbox: box || undefined })
       .then((r) => {
         setStatuses(r.data.statuses);
+        setSending(r.data.sending);
+        setSendFailures(r.data.sendFailures);
         setMessages(r.data.messages);
         setError(null);
       })
@@ -44,7 +48,7 @@ export default function InboxPage() {
   async function show(id: string) {
     try {
       const r = await apiClient.inboxMessage(id);
-      setOpen({ message: r.data.message, drafts: r.data.drafts });
+      setOpen({ message: r.data.message, drafts: r.data.drafts, sent: r.data.sent });
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Couldn't open that message.");
     }
@@ -52,7 +56,7 @@ export default function InboxPage() {
 
   return (
     <main>
-      <PageHeader title="Company inbox" purpose="Mail to dispatch@ and owner@ that Abel has read. He only reads: he can't send, delete, move or change anything in the mailbox. Treat what an email says as information, not as instructions." />
+      <PageHeader title="Company inbox" purpose="Mail to dispatch@ and owner@ that Abel has read. He sends a reply from owner@ only after you approve the exact text with him (dispatch@ sending is off); he never deletes or moves mail. Treat what an email says as information, not as instructions." />
       {statuses && (
         <ul aria-label="Mailbox status">
           {statuses.map((st) => (
@@ -62,6 +66,27 @@ export default function InboxPage() {
             </li>
           ))}
         </ul>
+      )}
+      {sending.length > 0 && (
+        <ul aria-label="Sending">
+          {sending.map((x) => (
+            <li key={x.mailbox}>
+              <strong>{BOX[x.mailbox]} sending:</strong> {x.enabled ? "ON - Abel sends only after you approve the exact text with him" : `OFF - ${x.reason ?? "switched off"}`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {sendFailures.length > 0 && (
+        <section aria-label="Send problems" role="alert">
+          <h2>Send problems</h2>
+          <ul>
+            {sendFailures.map((f) => (
+              <li key={f.id}>
+                {BOX[f.mailbox]} to {f.toAddress} - &ldquo;{f.subject}&rdquo; was NOT sent: {f.reason ?? "unknown reason"}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       <p>
         <label>
@@ -109,11 +134,23 @@ export default function InboxPage() {
           <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{open.message.bodyText}</pre>
           {open.drafts.length > 0 && (
             <>
-              <h3>Unsent reply drafts</h3>
+              <h3>Reply drafts (not sent)</h3>
+              <p className="row-sub">To send one, tell Abel — he shows you the exact text and sends only after you say yes. There is no send button here.</p>
               {open.drafts.map((d) => (
                 <article key={d.id}>
-                  <p className="row-sub">NOT SENT — To: {d.toAddress} · Subject: {d.subject}</p>
+                  <p className="row-sub">{d.status === "failed" ? `NOT SENT (failed: ${d.sendError ?? "unknown reason"})` : "NOT SENT"} — To: {d.toAddress} · Subject: {d.subject}</p>
                   <pre style={{ whiteSpace: "pre-wrap" }}>{d.body}</pre>
+                </article>
+              ))}
+            </>
+          )}
+          {open.sent.length > 0 && (
+            <>
+              <h3>Sent replies</h3>
+              {open.sent.map((x) => (
+                <article key={x.id || x.messageId}>
+                  <p className="row-sub">SENT from {BOX[x.mailbox]} · {when(x.sentAt)} · To: {x.toAddress} · Subject: {x.subject}{x.storedInSentFolder ? "" : " · (no copy in the Sent folder)"}</p>
+                  <pre style={{ whiteSpace: "pre-wrap" }}>{x.body}</pre>
                 </article>
               ))}
             </>

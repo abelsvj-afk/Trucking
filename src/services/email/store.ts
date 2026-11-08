@@ -62,14 +62,32 @@ function toStored(r: Record<string, unknown>): StoredEmail {
   };
 }
 
+export type DraftStatus = "draft" | "discarded" | "sending" | "sent" | "failed";
+
 export interface DraftRow {
   id: string;
   emailMessageId: string;
   toAddress: string;
   subject: string;
   body: string;
-  status: "draft" | "discarded";
+  status: DraftStatus;
   createdAt: string;
+  sendError: string | null;
+  sentAt: string | null;
+}
+
+export interface SentRow {
+  id: string;
+  mailbox: Mailbox;
+  emailMessageId: string;
+  toAddress: string;
+  subject: string;
+  body: string;
+  messageId: string;
+  inReplyTo: string | null;
+  approvedBodyHash: string;
+  sentAt: string;
+  storedInSentFolder: boolean;
 }
 
 export interface EmailStore {
@@ -90,7 +108,19 @@ export interface EmailStore {
   setCandidateStatus(id: string, status: "new" | "proposed" | "taken" | "passed" | "expired"): Promise<void>;
   listCandidates(limit: number): Promise<{ id: string; status: string; data: Candidate; firstSeenAt: string }[]>;
   createDraft(emailMessageId: string, toAddress: string, subject: string, body: string): Promise<DraftRow>;
+  /** Open drafts (draft or failed), newest first. */
   listDrafts(emailMessageId?: string): Promise<DraftRow[]>;
+  getDraft(id: string): Promise<DraftRow | null>;
+  /** Rewrites an unsent draft's body. Returns null when the draft is not open (already sent / being sent / discarded). */
+  updateDraftBody(id: string, body: string): Promise<DraftRow | null>;
+  /** The atomic claim: moves draft|failed -> sending ONLY while the body is still exactly `expectedBody`. False = lost the race or it changed. */
+  claimDraftForSend(id: string, expectedBody: string, attemptedAt: string): Promise<boolean>;
+  markDraftSent(id: string, sentAt: string): Promise<void>;
+  markDraftFailed(id: string, reason: string, attemptedAt: string): Promise<void>;
+  insertSent(row: Omit<SentRow, "id">): Promise<SentRow>;
+  listSent(opts?: { emailMessageId?: string; limit?: number }): Promise<SentRow[]>;
+  /** Drafts whose last send failed and have not been fixed, newest first. */
+  listSendFailures(limit?: number): Promise<(DraftRow & { mailbox: Mailbox })[]>;
 }
 
 const isDuplicate = (e: { message?: string; code?: string } | null) => Boolean(e && (e.code === "23505" || /duplicate key|unique/i.test(e.message ?? "")));
@@ -259,14 +289,105 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
       const { data, error } = await client
         .from("email_drafts")
         .insert({ company_id: company, email_message_id: emailMessageId, to_address: toAddress, subject, body })
-        .select("id, email_message_id, to_address, subject, body, status, created_at")
+        .select(DRAFT_COLUMNS)
         .single();
       throwIf(error);
       return toDraft(data as Record<string, unknown>);
     },
 
+    async getDraft(id) {
+      const { data, error } = await client.from("email_drafts").select(DRAFT_COLUMNS).eq("company_id", company).eq("id", id).is("deleted_at", null).maybeSingle();
+      throwIf(error);
+      return data ? toDraft(data as Record<string, unknown>) : null;
+    },
+
+    async updateDraftBody(id, body) {
+      const { data, error } = await client
+        .from("email_drafts")
+        .update({ body, status: "draft", send_error: null, updated_at: new Date().toISOString() })
+        .eq("company_id", company)
+        .eq("id", id)
+        .in("status", ["draft", "failed"])
+        .is("deleted_at", null)
+        .select(DRAFT_COLUMNS)
+        .maybeSingle();
+      throwIf(error);
+      return data ? toDraft(data as Record<string, unknown>) : null;
+    },
+
+    async claimDraftForSend(id, expectedBody, attemptedAt) {
+      const { data, error } = await client
+        .from("email_drafts")
+        .update({ status: "sending", send_attempted_at: attemptedAt, updated_at: attemptedAt })
+        .eq("company_id", company)
+        .eq("id", id)
+        .eq("body", expectedBody)
+        .in("status", ["draft", "failed"])
+        .is("deleted_at", null)
+        .select("id");
+      throwIf(error);
+      return (data ?? []).length === 1;
+    },
+
+    async markDraftSent(id, sentAt) {
+      const { error } = await client.from("email_drafts").update({ status: "sent", sent_at: sentAt, send_error: null, updated_at: sentAt }).eq("company_id", company).eq("id", id);
+      throwIf(error);
+    },
+
+    async markDraftFailed(id, reason, attemptedAt) {
+      const { error } = await client.from("email_drafts").update({ status: "failed", send_error: reason.slice(0, 500), send_attempted_at: attemptedAt, updated_at: attemptedAt }).eq("company_id", company).eq("id", id);
+      throwIf(error);
+    },
+
+    async insertSent(row) {
+      const { data, error } = await client
+        .from("email_sent")
+        .insert({
+          company_id: company,
+          mailbox: row.mailbox,
+          email_message_id: row.emailMessageId,
+          to_address: row.toAddress,
+          subject: row.subject,
+          body: row.body,
+          message_id: row.messageId,
+          in_reply_to: row.inReplyTo,
+          approved_body_hash: row.approvedBodyHash,
+          sent_at: row.sentAt,
+          stored_in_sent_folder: row.storedInSentFolder,
+        })
+        .select(SENT_COLUMNS)
+        .single();
+      throwIf(error);
+      return toSent(data as Record<string, unknown>);
+    },
+
+    async listSent(opts = {}) {
+      let q = client.from("email_sent").select(SENT_COLUMNS).eq("company_id", company).is("deleted_at", null);
+      if (opts.emailMessageId) q = q.eq("email_message_id", opts.emailMessageId);
+      const { data, error } = await q.order("sent_at", { ascending: false }).limit(Math.min(opts.limit ?? 20, 50));
+      throwIf(error);
+      return ((data ?? []) as Record<string, unknown>[]).map(toSent);
+    },
+
+    async listSendFailures(limit = 10) {
+      const { data, error } = await client
+        .from("email_drafts")
+        .select(`${DRAFT_COLUMNS}, email_messages!inner(mailbox)`)
+        .eq("company_id", company)
+        .eq("status", "failed")
+        .is("deleted_at", null)
+        .order("send_attempted_at", { ascending: false })
+        .limit(limit);
+      throwIf(error);
+      return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+        const m = r.email_messages as { mailbox?: string } | { mailbox?: string }[] | null;
+        const mailbox = (Array.isArray(m) ? m[0]?.mailbox : m?.mailbox) === "owner" ? "owner" : "dispatch";
+        return { ...toDraft(r), mailbox: mailbox as Mailbox };
+      });
+    },
+
     async listDrafts(emailMessageId) {
-      let q = client.from("email_drafts").select("id, email_message_id, to_address, subject, body, status, created_at").eq("company_id", company).is("deleted_at", null).eq("status", "draft");
+      let q = client.from("email_drafts").select(DRAFT_COLUMNS).eq("company_id", company).is("deleted_at", null).in("status", ["draft", "failed"]);
       if (emailMessageId) q = q.eq("email_message_id", emailMessageId);
       const { data, error } = await q.order("created_at", { ascending: false }).limit(30);
       throwIf(error);
@@ -275,6 +396,11 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
   };
 }
 
+const DRAFT_COLUMNS = "id, email_message_id, to_address, subject, body, status, created_at, send_error, sent_at";
+const SENT_COLUMNS = "id, mailbox, email_message_id, to_address, subject, body, message_id, in_reply_to, approved_body_hash, sent_at, stored_in_sent_folder";
+
+const DRAFT_STATUSES: readonly DraftStatus[] = ["draft", "discarded", "sending", "sent", "failed"];
+
 function toDraft(r: Record<string, unknown>): DraftRow {
   return {
     id: String(r.id),
@@ -282,7 +408,25 @@ function toDraft(r: Record<string, unknown>): DraftRow {
     toAddress: String(r.to_address),
     subject: String(r.subject),
     body: String(r.body),
-    status: r.status === "discarded" ? "discarded" : "draft",
+    status: (DRAFT_STATUSES as readonly string[]).includes(String(r.status)) ? (r.status as DraftStatus) : "draft",
     createdAt: String(r.created_at),
+    sendError: (r.send_error as string | null) ?? null,
+    sentAt: (r.sent_at as string | null) ?? null,
+  };
+}
+
+function toSent(r: Record<string, unknown>): SentRow {
+  return {
+    id: String(r.id),
+    mailbox: r.mailbox === "owner" ? "owner" : "dispatch",
+    emailMessageId: String(r.email_message_id),
+    toAddress: String(r.to_address),
+    subject: String(r.subject),
+    body: String(r.body),
+    messageId: String(r.message_id),
+    inReplyTo: (r.in_reply_to as string | null) ?? null,
+    approvedBodyHash: String(r.approved_body_hash),
+    sentAt: String(r.sent_at),
+    storedInSentFolder: Boolean(r.stored_in_sent_folder),
   };
 }

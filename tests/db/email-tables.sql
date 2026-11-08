@@ -30,8 +30,19 @@ begin
   insert into email_messages (company_id, message_id, received_at) values (b, '<a1@x>', now()); -- the same ID in ANOTHER company is fine
   begin insert into email_messages (company_id, message_id, received_at, classification) values (a, '<c@x>', now(), 'spam'); raise exception 'FAIL: bad classification accepted';
   exception when check_violation then raise notice 'ok: classification is a closed set'; end;
-  begin insert into email_drafts (company_id, email_message_id, to_address, subject, body, status) values (a, ma, 'x@y.z', 's', 'b', 'sent'); raise exception 'FAIL: a "sent" draft exists';
-  exception when check_violation then raise notice 'ok: the schema has NO sent state for drafts'; end;
+  -- 00082 (email sending): 'sent' and 'failed' now exist; anything else is still refused
+  begin insert into email_drafts (company_id, email_message_id, to_address, subject, body, status) values (a, ma, 'x@y.z', 's', 'b', 'posted'); raise exception 'FAIL: an unknown draft status exists';
+  exception when check_violation then raise notice 'ok: draft status is a closed set (draft, discarded, sending, sent, failed)'; end;
+  insert into email_drafts (company_id, email_message_id, to_address, subject, body, status) values (a, ma, 'x@y.z', 's', 'b', 'sent');
+  begin insert into email_sent (company_id, mailbox, email_message_id, to_address, subject, body, message_id, approved_body_hash) values (a, 'gmail', ma, 'x@y.z', 's', 'b', '<m1@x>', repeat('a', 64)); raise exception 'FAIL: unknown sending mailbox';
+  exception when check_violation then raise notice 'ok: a message is sent from the dispatch or owner mailbox only'; end;
+  begin insert into email_sent (company_id, mailbox, email_message_id, to_address, subject, body, message_id, approved_body_hash) values (a, 'owner', ma, 'x@y.z', 's', 'b', '<m1@x>', 'short'); raise exception 'FAIL: a sent row without a full approval hash';
+  exception when check_violation then raise notice 'ok: every sent message carries the SHA-256 of the body the owner approved'; end;
+  begin insert into email_sent (company_id, mailbox, email_message_id, to_address, subject, body, message_id, approved_body_hash) values (a, 'owner', mb, 'x@y.z', 's', 'b', '<m2@x>', repeat('a', 64)); raise exception 'FAIL: a sent row pointed at another company''s message';
+  exception when foreign_key_violation then raise notice 'ok: a sent message cannot reference another company''s message (composite FK)'; end;
+  insert into email_sent (company_id, mailbox, email_message_id, to_address, subject, body, message_id, approved_body_hash) values (a, 'owner', ma, 'x@y.z', 's', 'b', '<m1@x>', repeat('a', 64)), (b, 'owner', mb, 'x@y.z', 's', 'b', '<m1@x>', repeat('b', 64));
+  begin insert into email_sent (company_id, mailbox, email_message_id, to_address, subject, body, message_id, approved_body_hash) values (a, 'owner', ma, 'x@y.z', 's', 'b', '<m1@x>', repeat('a', 64)); raise exception 'FAIL: the same Message-ID sent twice';
+  exception when unique_violation then raise notice 'ok: one sent row per outgoing Message-ID'; end;
   begin insert into email_drafts (company_id, email_message_id, to_address, subject, body) values (a, mb, 'x@y.z', 's', 'b'); raise exception 'FAIL: a draft pointed at another company''s message';
   exception when foreign_key_violation then raise notice 'ok: a draft cannot reference another company''s message (composite FK)'; end;
   begin insert into load_candidates (company_id, email_message_id, data, dedupe_key) values (a, mb, '{}', 'k2'); raise exception 'FAIL: candidate pointed at another company''s message';
@@ -56,6 +67,7 @@ begin
   select count(*) into n from load_candidates where company_id = b; if n <> 0 then raise exception 'FAIL: A read B''s candidates'; end if;
   select count(*) into n from email_drafts where company_id = b; if n <> 0 then raise exception 'FAIL: A read B''s drafts'; end if;
   select count(*) into n from email_poll_state where company_id = b; if n <> 0 then raise exception 'FAIL: A read B''s poll state'; end if;
+  select count(*) into n from email_sent where company_id = b; if n <> 0 then raise exception 'FAIL: A read B''s sent mail'; end if;
   select count(*) into n from email_messages; if n <> 1 then raise exception 'FAIL: A sees % messages, expected only its own 1', n; end if;
   update email_messages set subject = 'hacked' where id = mb; get diagnostics n = row_count; if n <> 0 then raise exception 'FAIL: A updated B''s message'; end if;
   delete from email_messages where id = mb; get diagnostics n = row_count; if n <> 0 then raise exception 'FAIL: A deleted B''s message'; end if;

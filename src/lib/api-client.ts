@@ -315,10 +315,10 @@ export const apiClient = {
     if (params.q) qs.set("q", params.q);
     if (params.classification) qs.set("classification", params.classification);
     if (params.mailbox) qs.set("mailbox", params.mailbox);
-    return request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; messages: import("@/services/email/store").StoredEmail[] } }>(`/api/v1/inbox${qs.size ? `?${qs}` : ""}`);
+    return request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; sending: { mailbox: "dispatch" | "owner"; enabled: boolean; reason: string | null }[]; sendFailures: { id: string; mailbox: "dispatch" | "owner"; toAddress: string; subject: string; reason: string | null }[]; messages: import("@/services/email/store").StoredEmail[] } }>(`/api/v1/inbox${qs.size ? `?${qs}` : ""}`);
   },
   inboxMessage: (id: string) =>
-    request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
+    request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[]; sent: import("@/services/email/store").SentRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
   listMemories: (includeHistory = false) =>
     request<BotMemoryListResult>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
   editMemory: (id: string, content: string) =>

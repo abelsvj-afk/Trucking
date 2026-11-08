@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { pollOnce, composeMessageAlert, candidateToLoadArgs, type IngestDeps } from "@/services/email/ingest";
 import type { ImapSession, RawMessage } from "@/services/email/imap-reader";
-import type { DraftRow, EmailStore, PollState, StoredEmail } from "@/services/email/store";
+import { memStore } from "../../helpers/mem-email-store";
 import type { Candidate } from "@/services/email/triage";
 
 const CFG = { mailbox: "dispatch" as const, user: "dispatch@example.com", password: "pw-secret", host: "imap.example.com", port: 993, intervalMs: 300000 };
@@ -18,46 +18,6 @@ function session(msgs: RawMessage[], uidValidity = "1"): ImapSession {
     async searchFromUid(u) { const r = msgs.map((m) => m.uid).filter((x) => x >= u); return r.length ? r : msgs.slice(-1).map((m) => m.uid); },
     async fetchSources(uids) { return msgs.filter((m) => uids.includes(m.uid)); },
     async close() {},
-  };
-}
-
-function memStore(): EmailStore & { messages: Map<string, StoredEmail & { uid: number }>; candidates: Map<string, { id: string; status: string; key: string }>; state: PollState; states: Record<string, PollState>; drafts: DraftRow[] } {
-  const messages = new Map<string, StoredEmail & { uid: number }>();
-  const candidates = new Map<string, { id: string; status: string; key: string }>();
-  const mk = (): PollState => ({ uidvalidity: null, lastUid: 0, lastAttemptAt: null, lastOkAt: null, lastErrorKind: null, lastErrorAt: null, consecutiveFailures: 0, lastNotifiedState: null, lastDigestDate: null });
-  const states: Record<string, PollState> = { dispatch: mk(), owner: mk() };
-  const state = states.dispatch!;
-  const drafts: DraftRow[] = [];
-  let n = 0;
-  return {
-    messages, candidates, state, states, drafts,
-    async getPollState(mb) { return { ...states[mb]! }; },
-    async savePollState(mb, p) { Object.assign(states[mb]!, p); },
-    async insertMessage(mailbox, m, uid) {
-      const dup = [...messages.values()].find((x) => x.messageId === m.messageId);
-      if (dup) return { id: dup.id, inserted: false };
-      const id = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
-      messages.set(id, { id, mailbox, uid, messageId: m.messageId, fromAddress: m.fromAddress, fromName: m.fromName, replyTo: m.replyTo, toAddresses: m.toAddresses, subject: m.subject, receivedAt: m.receivedAt, bodyText: m.bodyText, attachments: m.attachments, classification: "unclassified", summary: null, surfacedAt: null, digestSentAt: null, linkedProposalId: null });
-      return { id, inserted: true };
-    },
-    async setTriage(id, c, s) { const m = messages.get(id)!; m.classification = c; m.summary = s; },
-    async markSurfaced(id, p) { const m = messages.get(id)!; m.surfacedAt = "now"; m.linkedProposalId = p ?? null; },
-    async listUnsurfaced(_l, mb) { return [...messages.values()].filter((m) => !m.surfacedAt && m.classification !== "junk" && (!mb || m.mailbox === mb)); },
-    async listJunkForDigest() { return [...messages.values()].filter((m) => m.classification === "junk" && !m.digestSentAt); },
-    async markDigestSent(ids) { for (const i of ids) messages.get(i)!.digestSentAt = "now"; },
-    async list() { return [...messages.values()]; },
-    async get(id) { return messages.get(id) ?? null; },
-    async upsertCandidate(_e, _c, key) {
-      const ex = [...candidates.values()].find((c) => c.key === key);
-      if (ex) return { id: ex.id, created: false };
-      const id = `11111111-1111-4111-8111-${String(++n).padStart(12, "0")}`;
-      candidates.set(id, { id, status: "new", key });
-      return { id, created: true };
-    },
-    async setCandidateStatus(id, s) { candidates.get(id)!.status = s; },
-    async listCandidates() { return []; },
-    async createDraft(emailMessageId, to, subject, body) { const d: DraftRow = { id: "d1", emailMessageId, toAddress: to, subject, body, status: "draft", createdAt: "now" }; drafts.push(d); return d; },
-    async listDrafts() { return drafts; },
   };
 }
 
