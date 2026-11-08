@@ -226,7 +226,7 @@ export default function SmartPathMap({
           id: "smart-path-route-line",
           type: "line",
           source: "smart-path-route",
-          paint: { "line-color": "#2563eb", "line-width": 5, "line-opacity": 0.85 },
+          paint: { "line-color": "#111111", "line-width": 5, "line-opacity": 0.85 },
         });
         draw();
       });

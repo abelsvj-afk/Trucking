@@ -10,11 +10,11 @@ import type { RouteCheckResponse } from "@/types/smart-path";
 
 describe("truck icon", () => {
   it("is a vector semi truck: cab + trailer, taller than wide, in the requested colour, with a white outline", () => {
-    const svg = truckIconSvg({ color: "#2563eb", widthPx: 26 });
+    const svg = truckIconSvg({ color: "#f2b705", widthPx: 26 });
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg).toContain('viewBox="0 0 32 88"');
     expect(svg).toContain(`height="${Math.round(26 * 2.75)}"`);
-    expect(svg).toContain("#2563eb");
+    expect(svg).toContain("#f2b705");
     expect(svg).toContain('fill="#fff"'); // outline
     expect((svg.match(/<rect/g) ?? []).length).toBeGreaterThanOrEqual(10); // cab, windshield, mirrors, trailer, tires...
   });

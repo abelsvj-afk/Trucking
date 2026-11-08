@@ -62,6 +62,11 @@ export default function DutyHud() {
   const drivingLocked = clocks?.state === "ready" && activeLocks(clocks.clocks).length > 0;
 
   return (
+    <>
+      {/* MAP-FIRST HOME (owner ruling 2026-11-07): the map is the hero of Home; the duty status and the clocks sit directly under it,
+          and the pay preview follows them (page.tsx), so hours and pay stay in view without scrolling past the map. */}
+      <HomePositionCard position={position} headingDeg={headingDeg ?? null} speedMph={speedMph ?? null} motion={motion} hero />
+
     <section aria-label="Duty status and clocks" className="hud">
       {motion === "moving" && (
         <p role="status" className="hud-note">
@@ -120,7 +125,7 @@ export default function DutyHud() {
         </>
       )}
 
-      <div className="hud-buttons" role="group" aria-label="Change duty status">
+      <div className="hud-buttons" role="group" aria-label="Change duty status" data-motion-exempt>
         {BUTTON_ORDER.map((status) => (
           <button
             key={status}
@@ -162,8 +167,6 @@ export default function DutyHud() {
 
       {explain && <ClockExplainerSheet clockKey={explain} cycleLabel={hos?.cycle ?? null} onClose={() => setExplain(null)} />}
 
-      <HomePositionCard position={position} headingDeg={headingDeg ?? null} speedMph={speedMph ?? null} motion={motion} />
-
       <p className="hud-links">
         <button
           type="button"
@@ -201,5 +204,6 @@ export default function DutyHud() {
         ELD/official log wins.
       </p>
     </section>
+    </>
   );
 }

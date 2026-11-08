@@ -412,7 +412,7 @@ export default function AbelDrop() {
                       />
                     </filter>
                   </defs>
-                  <g filter="url(#abel-goo)" fill="#2563eb">
+                  <g filter="url(#abel-goo)" fill="#f2b705">
                     <circle cx="36" cy="36" r="26" />
                     <motion.circle
                       cx="36"

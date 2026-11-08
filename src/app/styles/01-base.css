@@ -5,15 +5,17 @@
  * (e.g. --color-primary => bg-primary/text-primary/border-primary).
  */
 @theme {
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-light: #eff6ff;
-  /* Button background: in the dark scheme --color-primary lightens to
-     #3b82f6 for links/text (white on it is only 3.68:1), so buttons get
-     their own token that stays at the passing value in both schemes
-     (white on #2563eb = 5.17:1). */
-  --color-primary-button: #2563eb;
-  --color-primary-button-hover: #1d4ed8;
+  /* BLACK-AND-GOLD (owner ruling 2026-11-07, option A; ChatGPT audit rank 3 "no accidental blue primary-action styling remains").
+     This block and the two dark blocks in 02-nav-and-motion.css are the ONE authoritative colour definition. Contrast (WCAG AA,
+     measured): link/text gold #7a5a00 on white 6.38:1; button text #111 on gold #f2b705 10.39:1; dark gold #e5b83a on #121212
+     10.03:1. Gold means "action"; green only "good", red only "danger". */
+  --color-primary: #7a5a00;
+  --color-primary-hover: #5c4300;
+  --color-primary-light: #fdf6df;
+  /* Button background: gold in BOTH schemes, with near-black text (--color-on-primary) - white on gold would fail. */
+  --color-primary-button: #f2b705;
+  --color-primary-button-hover: #d9a200;
+  --color-on-primary: #111111;
   /* Destructive-action background, same in both schemes so white text
      on it always passes (white on #b91c1c = 6.47:1). */
   --color-danger-button: #b91c1c;
@@ -30,20 +32,14 @@
   --color-danger-light: #fef2f2;
 
   --color-surface: #ffffff;
-  --color-surface-alt: #f8fafc;
-  --color-border: #e2e8f0;
-  /* Essential boundaries only (input/select/textarea resting borders):
-     3.47:1 on white, meeting WCAG 1.4.11's 3:1. Decorative card
-     borders keep the light --color-border. */
-  --color-border-strong: #7c8ba0;
-  --color-text: #0f172a;
-  --color-text-muted: #64748b;
-  /* Muted text that sits on tinted surfaces (page-purpose lines on the
-     primary-light gradient, paused/unknown badges and unpressed
-     segmented buttons on the border track): 6.96:1 on #eff6ff,
-     7.58:1 on white, 6.15:1 on #e2e8f0. The global muted token is
-     unchanged - it passes on plain white. */
-  --color-text-muted-strong: #475569;
+  --color-surface-alt: #faf8f3;
+  --color-border: #e7e2d3;
+  /* Essential boundaries only (input/select/textarea resting borders): 3.67:1 on white, meeting WCAG 1.4.11's 3:1. */
+  --color-border-strong: #8c8573;
+  --color-text: #111111;
+  --color-text-muted: #5f5a4e;
+  /* Muted text that sits on tinted surfaces (page-purpose lines on the gold-tint gradient, paused/unknown badges): 8.71:1 on #fdf6df. */
+  --color-text-muted-strong: #4a463b;
 
   /* Motion tokens (UI/UX pass): durations/easings for feedback motion
      (toasts, dialogs). Entrance animation of content is gone - see the
@@ -60,7 +56,7 @@
 
   /* Elevation - real shadows, not just borders, so cards/nav/buttons read
      as raised surfaces instead of flat outlined boxes. */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-xs: 0 1px 2px rgba(17, 17, 17, 0.06);
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10), 0 2px 4px rgba(15, 23, 42, 0.06);
   --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.14), 0 4px 8px rgba(15, 23, 42, 0.06);
@@ -182,7 +178,7 @@ a[role="button"] {
   border: 1px solid transparent;
   border-radius: 0.625rem;
   background-color: var(--color-primary-button);
-  color: white;
+  color: var(--color-on-primary);
   font-family: inherit;
   font-size: 1rem;
   font-weight: 600;
@@ -478,7 +474,7 @@ a[href="#main-content"] {
   left: 0.5rem;
   z-index: 100;
   background-color: var(--color-primary-button);
-  color: white;
+  color: var(--color-on-primary);
   padding: 0.5rem 1rem;
   border-radius: 0 0 0.5rem 0.5rem;
   min-height: auto;

@@ -23,7 +23,7 @@ export default function DrivePreview({
       {resumeAvailable && session && (
         <div
           style={{
-            border: "2px solid #2563eb",
+            border: "2px solid #f2b705",
             borderRadius: "12px",
             padding: "12px",
             marginBottom: "12px",

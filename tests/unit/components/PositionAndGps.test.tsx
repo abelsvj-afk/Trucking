@@ -156,3 +156,19 @@ describe("StatusSheet GPS location (audit B6)", () => {
     expect(screen.getByLabelText(/Where/)).toBeTruthy();
   });
 });
+
+describe("map-first Home: the hero map never silently vanishes", () => {
+  it("with no fix the hero says why and how to fix it; the plain card still renders nothing", () => {
+    const hero = render(<HomePositionCard position={null} hero />);
+    expect(screen.getByText(/Map off — no fresh location/)).toBeTruthy();
+    expect(screen.getByText(/hours and pay below are not affected/)).toBeTruthy();
+    hero.unmount();
+    const { container } = render(<HomePositionCard position={null} />);
+    expect(container.textContent).toBe("");
+  });
+  it("with a fresh fix the hero map is the taller edge-to-edge variant", () => {
+    const { container } = render(<HomePositionCard position={fix(3_000)} hero />);
+    expect(container.querySelector(".home-position-hero")).toBeTruthy();
+    expect(screen.getByTestId("map")).toBeTruthy();
+  });
+});

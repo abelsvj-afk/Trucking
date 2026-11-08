@@ -47,3 +47,15 @@ It is a UI/UX *program* (11 ranked improvements across 71 routes), not a defect 
 | 3 Black-and-gold design system | Awaiting your colour ruling above. |
 | 4 One timezone (America/New_York everywhere) | DONE for every UI instant (timestamps now format through `formatDate`/`formatDateTime`/explicit `timeZone: America/New_York`; calendar dates built at noon were already zone-safe). A source scan test fails if a browser-zone formatter returns. Not covered: server-built strings and the load-appointment entry/DST test matrix the audit also asks for. |
 | 6 Driving-mode restrictions | Not touched. |
+
+
+## Owner round 2 (rulings 2026-11-07 night) - BUILT + gated on `m4-reanchor`, NOT merged, NOT deployed
+Order the owner gave: financial delete confirmations, setup checklist, settings by task, driving mode (duty switch free), then palette A and map-first Home. "PHONE" = the owner's live phone-width check is the acceptance test.
+| Item | What was built | PHONE |
+|---|---|---|
+| Financial delete confirmations | The only unconfirmed money delete was the cash-advance Delete (one tap); it now asks first and says the net will go UP. Expenses/fuel already confirm; account snapshots already did. A scan test fails if a money screen calls `apiClient.remove` without a confirmation. | no |
+| Setup checklist | Home card detecting completion from real records (pay terms, miles basis, pay week + payday, truck, first load; optional: truck profile, driver). Links to each unfinished task, essential vs optional, hide button, shows nothing on a load failure or when all done. HOS carrier settings cannot be detected as "confirmed" (stored values are provisional defaults), so they are not on the checklist. | yes |
+| Settings by task | Jump bar + headings: My pay / Hours and truck / Connections / Appearance and Home / Abel and AI / Account. Long AI-switch explanations sit behind "What this does". | yes |
+| Driving mode | While moving, every standalone EDIT/DELETE button is blocked (not just forms), tapping one explains why in the lock banner; the duty-status buttons and sheet, AI kill switches, dialogs, filters/toggles, retry and links stay free. Not covered: the Abel chat drop (outside the page body) and server-side enforcement. | yes |
+| Black-and-gold (option A) | One token set: gold `#f2b705` buttons with near-black text, gold links (`#7a5a00` light / `#e5b83a` dark), warm off-white and true-black surfaces; the blue is gone from the stylesheets, map route/pins, truck art and PWA colours (tripwire test). All pairs measured AA. **Not done: the PWA/app icon PNGs still carry the old art - regenerating binary icons needs your artwork.** | yes |
+| Map-first Home | The map leads Home (edge to edge, 36% of the screen height), then the duty status and clocks, then the pay preview, then news/setup/next step. With no fresh location it says why instead of vanishing. Layout measured at 320 and 390 px with no horizontal overflow. | yes |

@@ -40,11 +40,14 @@ export default function HomePositionCard({
   headingDeg: deviceHeading = null,
   speedMph: deviceSpeed = null,
   motion: deviceMotion = "unknown",
+  hero = false,
 }: {
   position: VehiclePosition | null;
   headingDeg?: number | null;
   speedMph?: number | null;
   motion?: MotionState;
+  /** The map is Home's main screen: taller, edge to edge, and it never silently vanishes. */
+  hero?: boolean;
 }) {
   const nowMs = useNowTick(5_000);
   // This device's own fix wins. Without one (just reopened, GPS warming up, permission off) fall back to
@@ -63,13 +66,13 @@ export default function HomePositionCard({
     () => (position && route ? routeProgress({ lat: position.lat, lng: position.lng }, route.geometry) : null),
     [position, route],
   );
-  if (!position) return null;
+  if (!position) return hero ? <NoFixCard /> : null;
   const age = nowMs - position.atMs;
-  if (!fromServer && age > POSITION_FRESH_MS) return null;
+  if (!fromServer && age > POSITION_FRESH_MS) return hero ? <NoFixCard /> : null;
 
   const speedText = speedMph !== null && motion !== "stopped" ? String(Math.round(speedMph)) : motion === "stopped" ? "0" : "—";
   return (
-    <section aria-label="Where you are" className="home-position">
+    <section aria-label="Where you are" className={hero ? "home-position home-position-hero" : "home-position"}>
       <div className="home-map-wrap">
         <DriveMap
           geometry={route?.geometry ?? []}
@@ -87,7 +90,7 @@ export default function HomePositionCard({
           traveledGeometry={progress?.onRoute ? progress.traveled : []}
           onUserPan={() => {}}
           night={false}
-          height="min(40vh, 340px)"
+          height={hero ? "clamp(220px, 36vh, 400px)" : "min(40vh, 340px)"}
           label={route ? "Map following your truck along your planned route" : "Map following your truck"}
         />
         <div className="home-map-overlay">
@@ -112,6 +115,24 @@ export default function HomePositionCard({
         )}
         {fromServer ? "Last position from Telegram live location" : "Phone GPS"} · ±{Math.round(position.accuracyM)} m · {positionAgeText(age)} ·{" "}
         <Link href="/smart-path">{route ? "Route details" : "Plan a route"}</Link>
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The map is Home's main screen, so when there is no fresh location it says WHY and how to fix it, instead of leaving a hole
+ * (live audit 2026-11-07: the card simply was not there). Never a blank map or a guessed position.
+ */
+function NoFixCard() {
+  return (
+    <section aria-label="Where you are" className="home-position home-position-hero home-position-empty">
+      <p role="status">
+        <strong>Map off — no fresh location.</strong> Allow location for this site in your browser, or share Telegram Live Location with
+        Abel, and your truck appears here. Your hours and pay below are not affected.
+      </p>
+      <p className="row-sub">
+        <Link href="/smart-path">Plan a route</Link>
       </p>
     </section>
   );

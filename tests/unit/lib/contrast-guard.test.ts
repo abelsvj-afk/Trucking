@@ -59,8 +59,8 @@ describe("contrast guard - light scheme", () => {
 
   it("paused/segmented muted-strong on the border track meets 4.5:1", () => {
     expect(ratio(L("--color-text-muted-strong"), L("--color-border"))).toBeGreaterThanOrEqual(4.5);
-    // ...and the global muted token itself was NOT darkened to get there.
-    expect(L("--color-text-muted")).toBe("#64748b");
+    // ...and the global muted token passes on plain white (black-and-gold palette).
+    expect(ratio(L("--color-text-muted"), "#ffffff")).toBeGreaterThanOrEqual(4.5);
   });
 
   it("muted-strong on the primary-light tint and on white meets 4.5:1", () => {
@@ -69,7 +69,7 @@ describe("contrast guard - light scheme", () => {
   });
 
   it("input resting border meets the 3:1 non-text bar on white", () => {
-    expect(L("--color-border-strong")).toBe("#7c8ba0");
+    expect(L("--color-border-strong")).toBe("#8c8573");
     expect(ratio(L("--color-border-strong"), "#ffffff")).toBeGreaterThanOrEqual(3.0);
     expect(css).toMatch(/border: 1px solid var\(--color-border-strong\)/);
   });
@@ -88,12 +88,13 @@ describe("contrast guard - light scheme", () => {
 });
 
 describe("contrast guard - dark scheme", () => {
-  it("primary buttons: white on the button token meets 4.5:1", () => {
-    expect(ratio("#ffffff", D("--color-primary-button"))).toBeGreaterThanOrEqual(4.5);
+  it("primary buttons: the on-primary text meets 4.5:1 on the gold button token", () => {
+    expect(ratio(D("--color-on-primary"), D("--color-primary-button"))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(D("--color-on-primary"), D("--color-primary-button-hover"))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("link primary stays and passes on the dark surface", () => {
-    expect(D("--color-primary")).toBe("#3b82f6");
+  it("link primary is gold and passes on the dark surface", () => {
+    expect(D("--color-primary")).toBe("#e5b83a");
     expect(ratio(D("--color-primary"), D("--color-surface"))).toBeGreaterThanOrEqual(4.5);
   });
 
@@ -123,5 +124,20 @@ describe("contrast guard - map pins and entrance motion", () => {
     expect(css).not.toMatch(/main li \{[^}]*animation: fadeInUp/);
     // The reduced-motion guard must survive.
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+  });
+});
+
+describe("black-and-gold identity (owner ruling 2026-11-07, option A)", () => {
+  it("light-scheme buttons and links pass with the gold tokens, and no blue primary survives in the stylesheets", () => {
+    expect(ratio(L("--color-on-primary"), L("--color-primary-button"))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(L("--color-on-primary"), L("--color-primary-button-hover"))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(L("--color-primary"), "#ffffff")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(L("--color-primary"), L("--color-primary-light"))).toBeGreaterThanOrEqual(4.5);
+    for (const blue of ["#2563eb", "#1d4ed8", "#3b82f6", "#60a5fa", "#93c5fd", "#172554", "#eff6ff", "#0f2040"]) {
+      expect(css.toLowerCase()).not.toContain(blue);
+    }
+  });
+  it("no button paints white text on the gold background", () => {
+    expect(css).not.toMatch(/background-color: var\(--color-primary-button(?:-hover)?\);\s*\n\s*color: white;/);
   });
 });

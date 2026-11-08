@@ -328,3 +328,68 @@ dl.stack > dd {
 dl.stack > dd:last-child {
   margin-bottom: 0;
 }
+
+/* --- Settings grouped by driver task (audit rank 11): a jump bar and a heading per task. */
+.settings-jump ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  box-shadow: none;
+  background: transparent;
+  border: 0;
+}
+.settings-jump li {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+}
+.settings-jump a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+h2.settings-group {
+  margin: 2rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 2px solid var(--color-border-strong);
+  scroll-margin-top: 1rem;
+}
+
+/* A button blocked by the driving lock reads as unavailable (it is aria-disabled, and tapping it explains why in the lock banner). */
+button[data-motion-locked="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Map-first Home (owner ruling 2026-11-07): the map is the main screen - edge to edge, no card padding around it. */
+.home-position-hero {
+  margin: 0 -1rem;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.home-position-hero .row-sub {
+  padding: 0 1rem;
+}
+.home-position-hero.home-position-empty {
+  margin: 0.75rem 0;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.home-position-hero.home-position-empty p {
+  padding: 0;
+}

@@ -22,8 +22,8 @@
 
 .page-purpose {
   /* Sits on the primary-light page gradient at the top of every
-     screen: muted was 4.37:1 there; muted-strong is 6.96:1 on
-     #eff6ff and 9.90:1 on the dark tint (audit Section D). */
+     screen: muted was 4.37:1 there; muted-strong is 8.71:1 on
+     the gold tint #fdf6df and 10.25:1 on the dark tint (audit Section D; black-and-gold palette). */
   color: var(--color-text-muted-strong);
   font-size: 0.9375rem;
   line-height: 1.45;
@@ -44,7 +44,7 @@ a.page-action,
   padding: 0 1.25rem;
   border-radius: 0.625rem;
   background-color: var(--color-primary-button);
-  color: white;
+  color: var(--color-on-primary);
   font-weight: 600;
   box-shadow: var(--shadow-sm);
   white-space: nowrap;
@@ -53,7 +53,7 @@ a.page-action,
 a.page-action:hover,
 .empty-state a:hover {
   background-color: var(--color-primary-button-hover);
-  color: white;
+  color: var(--color-on-primary);
   text-decoration: none;
 }
 
@@ -283,7 +283,7 @@ a.page-action:hover,
 
 .chat-turn-user {
   background-color: var(--color-primary-button);
-  color: white;
+  color: var(--color-on-primary);
   margin-left: auto;
   border-bottom-right-radius: 0.25rem;
 }

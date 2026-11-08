@@ -88,7 +88,7 @@ const STOP_COLORS: Record<DriveStop["kind"], string> = {
   start: "#0f766a",
   pickup: "#15803d",
   delivery: "#b91c1c",
-  rest: "#2563eb",
+  rest: "#3f3f46",
   fuel: "#b45309",
   food: "#7c3aed",
   workout: "#e11d48",
@@ -228,7 +228,7 @@ export default function DriveMap({
           id: "drive-route-line",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#2563eb", "line-width": 5, "line-opacity": 0.85 },
+          paint: { "line-color": "#111111", "line-width": 5, "line-opacity": 0.85 },
         });
         // The part already driven: dimmed over the route so progress reads at a glance.
         map.addSource("drive-traveled", {
@@ -284,7 +284,7 @@ export default function DriveMap({
           const sig = `${poor}:${positionQuality === "lost"}`;
           if (icon.dataset.sig !== sig) {
             icon.dataset.sig = sig;
-            icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#2563eb", opacity: positionQuality === "lost" ? 0.55 : 1, widthPx: 32 });
+            icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: positionQuality === "lost" ? 0.55 : 1, widthPx: 32 });
           }
           // Heading-up: the map is rotated to the heading, so the truck points up on screen.
           // North-up: the icon itself rotates. No heading yet: it points up and nothing more is claimed.

@@ -70,7 +70,7 @@ export function buildMapStops(
       kind: "rest",
       point,
       badge: `S${i + 1}`,
-      color: "#2563eb",
+      color: "#3f3f46",
       title: "Sleep stop",
       lines: [
         `Near mile ${rest.distanceMilesFromOrigin}`,

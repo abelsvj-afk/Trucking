@@ -66,6 +66,43 @@ export function setFormsInert(root: ParentNode, inert: boolean): number {
   return forms.length;
 }
 
+/**
+ * DRIVING-MODE POLICY for standalone buttons (audit rank 6; owner order 2026-11-07: "driving mode with the duty switch left free").
+ * While locked, every <button> in the page body that EDITS or DELETES is blocked - not only controls inside forms. These stay free:
+ *   - anything in a `data-motion-exempt` region (the duty-status switcher and its sheet, the AI kill switches, the banners);
+ *   - dialog/sheet controls (so a Cancel or Close always works);
+ *   - view-only controls: filter/toggle buttons (aria-pressed), disclosure buttons (aria-expanded), retry buttons in an alert,
+ *     and anything marked `data-motion-allow`.
+ * A blocked button is marked aria-disabled and its tap is swallowed and EXPLAINED (the lock banner says which action waits for a stop),
+ * never silently dead. Links (reading, navigation) are untouched.
+ */
+export function isEditingButton(el: Element): boolean {
+  if (el.closest("[data-motion-exempt], [data-motion-allow], [role='dialog'], [role='alertdialog'], .sheet-panel, .news-banner")) return false;
+  if (el.hasAttribute("aria-pressed") || el.hasAttribute("aria-expanded")) return false;
+  if (el.closest("[role='alert']")) return false; // retry / dismiss on an error message
+  return true;
+}
+
+export function setButtonsLocked(root: ParentNode, locked: boolean): number {
+  let touched = 0;
+  const buttons = Array.from(root.querySelectorAll("button")).filter(isEditingButton);
+  for (const el of buttons) {
+    if (locked) {
+      if (el.hasAttribute("disabled") || el.closest("[inert]") || el.getAttribute("data-motion-locked") === "true") continue;
+      el.setAttribute("aria-disabled", "true");
+      el.setAttribute("data-motion-locked", "true");
+      touched += 1;
+    }
+  }
+  if (!locked) {
+    for (const el of Array.from(root.querySelectorAll('button[data-motion-locked="true"]'))) {
+      el.removeAttribute("aria-disabled");
+      el.removeAttribute("data-motion-locked");
+    }
+  }
+  return touched;
+}
+
 function clockLabel(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
@@ -99,6 +136,7 @@ function Watcher() {
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [autoNotice, setAutoNotice] = useState<string | null>(null);
+  const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
   const [stationaryDismissedFor, setStationaryDismissedFor] = useState<number | null>(null);
   const attempt = useRef<AutoAttempt | null>(null);
 
@@ -109,13 +147,30 @@ function Watcher() {
     const main = document.getElementById("main-content");
     if (!main) return;
     setFormsInert(main, locked);
+    setButtonsLocked(main, locked);
     if (!locked) return;
-    // Forms that mount while locked (a new page, a sheet) are locked too.
-    const observer = new MutationObserver(() => setFormsInert(main, true));
+    // Forms and buttons that mount while locked (a new page, a sheet) are locked too.
+    const observer = new MutationObserver(() => {
+      setFormsInert(main, true);
+      setButtonsLocked(main, true);
+    });
     observer.observe(main, { childList: true, subtree: true });
+    // A tap on a blocked button is swallowed and explained - never silently dead.
+    const swallow = (event: Event) => {
+      const button = (event.target as Element | null)?.closest?.('button[data-motion-locked="true"]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const name = (button.textContent ?? "").trim().slice(0, 40) || "That";
+      setBlockedNotice(`"${name}" is locked while you're moving. It works as soon as you stop. Your duty status is always available.`);
+    };
+    main.addEventListener("click", swallow, true);
     return () => {
       observer.disconnect();
+      main.removeEventListener("click", swallow, true);
       setFormsInert(main, false);
+      setButtonsLocked(main, false);
+      setBlockedNotice(null);
     };
   }, [locked, pathname]);
 
@@ -189,7 +244,8 @@ function Watcher() {
       <>
         {notice}
         <div role="status" className="motion-lock-banner" data-motion-exempt>
-          <p>You&apos;re moving — forms and editing are locked until you stop. Reading is still on.</p>
+          <p>You&apos;re moving — forms, editing and deleting are locked until you stop. Reading and your duty status are still on.</p>
+          {blockedNotice && <p role="alert">{blockedNotice}</p>}
           {duty !== "driving" && (
             <>
               <p>Your log doesn&apos;t say Driving.</p>

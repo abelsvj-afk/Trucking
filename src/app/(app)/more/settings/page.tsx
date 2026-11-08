@@ -40,6 +40,7 @@ import {
   HOME_BUSINESS_SUMMARY_STORAGE_KEY,
 } from "@/lib/home-display";
 import type { AiSettings } from "@/types/ai-settings";
+import { SETTINGS_GROUPS, splitLabel } from "@/lib/settings-groups";
 
 const THEME_OPTIONS: { value: ThemeChoice; label: string }[] = [
   { value: "light", label: "Light" },
@@ -194,21 +195,30 @@ export default function AccountSettingsPage() {
     <div>
       <PageHeader title="Account & settings" purpose={aiSummaryLine(state)} />
 
-      <section aria-label="Sign out">
-        <button type="button" onClick={handleSignOut} disabled={signingOut}>
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
-      </section>
+      <nav aria-label="Settings sections" className="settings-jump">
+        <ul>
+          {SETTINGS_GROUPS.map((g) => (
+            <li key={g.id}>
+              <a href={`#${g.id}`}>{g.label}</a>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
+      <h2 id="settings-pay" className="settings-group">My pay</h2>
+      <PayTermsSettings />
+
+      <h2 id="settings-hours" className="settings-group">My hours and truck</h2>
       <HosCarrierSettings />
 
+      <BackgroundTrackingSettings />
+
+      <h2 id="settings-connections" className="settings-group">Connections</h2>
       <TelegramConnectionSettings />
 
       <EmailInboxSettings />
 
-      <BackgroundTrackingSettings />
-
-      <PayTermsSettings />
+      <h2 id="settings-look" className="settings-group">Appearance and Home</h2>
       <section aria-label="Appearance">
         <h2>Appearance</h2>
         <p>
@@ -248,6 +258,7 @@ export default function AccountSettingsPage() {
         </label>
       </section>
 
+      <h2 id="settings-ai" className="settings-group">Abel and AI</h2>
       <section aria-label="AI authorization" data-motion-exempt>
         <h2>AI authorization</h2>
         <p>
@@ -281,12 +292,25 @@ export default function AccountSettingsPage() {
                     disabled={state.settings.globally_disabled}
                     onChange={(event) => toggleCapability(capability, event.target.checked)}
                   />
-                  {CAPABILITY_LABELS[capability] ?? capability}
+                  {splitLabel(CAPABILITY_LABELS[capability] ?? capability).name}
                 </label>
+                {splitLabel(CAPABILITY_LABELS[capability] ?? capability).detail && (
+                  <details>
+                    <summary>What this does</summary>
+                    <p className="row-sub">{splitLabel(CAPABILITY_LABELS[capability] ?? capability).detail}</p>
+                  </details>
+                )}
               </li>
             ))}
           </ul>
         )}
+      </section>
+
+      <h2 id="settings-account" className="settings-group">Account</h2>
+      <section aria-label="Sign out">
+        <button type="button" onClick={handleSignOut} disabled={signingOut}>
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
       </section>
     </div>
   );

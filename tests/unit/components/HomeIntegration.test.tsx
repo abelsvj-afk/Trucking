@@ -136,3 +136,15 @@ describe("Home, whole page", () => {
     expect(screen.getByRole("button", { name: /Switch to Driving now/ })).toBeTruthy();
   });
 });
+
+describe("map-first Home order (owner ruling 2026-11-07)", () => {
+  it("the map leads, the clocks follow, then the pay preview - all above the news strip", async () => {
+    const { readFileSync } = await import("node:fs");
+    const hud = readFileSync("src/components/hud/DutyHud.tsx", "utf8");
+    expect(hud.indexOf("<HomePositionCard")).toBeGreaterThan(0);
+    expect(hud.indexOf("<HomePositionCard")).toBeLessThan(hud.indexOf('aria-label="Duty status and clocks"'));
+    const home = readFileSync("src/app/(app)/page.tsx", "utf8");
+    expect(home.indexOf("<DutyHud />")).toBeLessThan(home.indexOf("<DriverPayHomeCard />"));
+    expect(home.indexOf("<DriverPayHomeCard />")).toBeLessThan(home.indexOf("<NewsBanner />"));
+  });
+});

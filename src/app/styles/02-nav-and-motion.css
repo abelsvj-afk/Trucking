@@ -239,18 +239,18 @@ nav[aria-label="Primary"] a[aria-current="page"] {
    light (:root:not([data-theme="light"]) inside the media query), OR
    whenever the owner forced dark (:root[data-theme="dark"], no media
    query). The two blocks below must carry identical tokens. Dark
-   scheme fixes (audit Section D): primary stays #3b82f6 for
-   links/text (4.82:1 on the #111827 surface - passes), buttons use
-   --color-primary-button (#2563eb; white on it 5.17:1), the active
-   tab pill and quick actions use #93c5fd on #172554 (8.15:1), input
-   borders use border-strong #7c8ba0 (5.12:1 on the surface). */
+   scheme (black-and-gold, owner ruling 2026-11-07): links/text use gold #e5b83a (10.03:1 on the #121212
+   surface), buttons use --color-primary-button (#f2b705) with near-black --color-on-primary text (10.39:1), the active
+   tab and quick actions use gold on the #2a2208 tint (8.45:1), input borders use border-strong #8c8573 (5.10:1 on the
+   surface). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-primary: #3b82f6;
-    --color-primary-hover: #60a5fa;
-    --color-primary-light: #172554;
-    --color-primary-button: #2563eb;
-    --color-primary-button-hover: #1d4ed8;
+    --color-primary: #e5b83a;
+    --color-primary-hover: #f2cf6b;
+    --color-primary-light: #2a2208;
+    --color-primary-button: #f2b705;
+    --color-primary-button-hover: #d9a200;
+    --color-on-primary: #111111;
     --color-danger-button: #b91c1c;
     --color-success: #4ade80;
     --color-success-light: #052e16;
@@ -258,36 +258,37 @@ nav[aria-label="Primary"] a[aria-current="page"] {
     --color-warning-light: #451a03;
     --color-danger: #f87171;
     --color-danger-light: #450a0a;
-    --color-surface: #111827;
-    --color-surface-alt: #0b1120;
-    --color-border: #1f2937;
-    --color-border-strong: #7c8ba0;
-    --color-text: #f1f5f9;
-    --color-text-muted: #94a3b8;
-    --color-text-muted-strong: #cbd5e1;
+    --color-surface: #121212;
+    --color-surface-alt: #0a0a0a;
+    --color-border: #2a2a2a;
+    --color-border-strong: #8c8573;
+    --color-text: #f5f1e6;
+    --color-text-muted: #a8a291;
+    --color-text-muted-strong: #d6d0bf;
   }
 
   :root:not([data-theme="light"]) body {
-    background: linear-gradient(180deg, #0f2040 0%, var(--color-surface-alt) 260px);
+    background: linear-gradient(180deg, #1c1606 0%, var(--color-surface-alt) 260px);
   }
 
   :root:not([data-theme="light"]) nav[aria-label="Primary"] {
-    background-color: rgba(17, 24, 39, 0.92);
+    background-color: rgba(18, 18, 18, 0.94);
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
   }
 
   :root:not([data-theme="light"]) nav[aria-label="Primary"] a[aria-current="page"],
   :root:not([data-theme="light"]) .quick-actions a {
-    color: #93c5fd;
+    color: #e5b83a;
   }
 }
 
 :root[data-theme="dark"] {
-  --color-primary: #3b82f6;
-  --color-primary-hover: #60a5fa;
-  --color-primary-light: #172554;
-  --color-primary-button: #2563eb;
-  --color-primary-button-hover: #1d4ed8;
+  --color-primary: #e5b83a;
+  --color-primary-hover: #f2cf6b;
+  --color-primary-light: #2a2208;
+  --color-primary-button: #f2b705;
+  --color-primary-button-hover: #d9a200;
+  --color-on-primary: #111111;
   --color-danger-button: #b91c1c;
   --color-success: #4ade80;
   --color-success-light: #052e16;
@@ -295,25 +296,25 @@ nav[aria-label="Primary"] a[aria-current="page"] {
   --color-warning-light: #451a03;
   --color-danger: #f87171;
   --color-danger-light: #450a0a;
-  --color-surface: #111827;
-  --color-surface-alt: #0b1120;
-  --color-border: #1f2937;
-  --color-border-strong: #7c8ba0;
-  --color-text: #f1f5f9;
-  --color-text-muted: #94a3b8;
-  --color-text-muted-strong: #cbd5e1;
+  --color-surface: #121212;
+  --color-surface-alt: #0a0a0a;
+  --color-border: #2a2a2a;
+  --color-border-strong: #8c8573;
+  --color-text: #f5f1e6;
+  --color-text-muted: #a8a291;
+  --color-text-muted-strong: #d6d0bf;
 }
 
 :root[data-theme="dark"] body {
-  background: linear-gradient(180deg, #0f2040 0%, var(--color-surface-alt) 260px);
+  background: linear-gradient(180deg, #1c1606 0%, var(--color-surface-alt) 260px);
 }
 
 :root[data-theme="dark"] nav[aria-label="Primary"] {
-  background-color: rgba(17, 24, 39, 0.92);
+  background-color: rgba(18, 18, 18, 0.94);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
 }
 
 :root[data-theme="dark"] nav[aria-label="Primary"] a[aria-current="page"],
 :root[data-theme="dark"] .quick-actions a {
-  color: #93c5fd;
+  color: #e5b83a;
 }

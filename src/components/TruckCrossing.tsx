@@ -31,8 +31,8 @@ function TruckGlyph() {
   return (
     <svg width="72" height="36" viewBox="0 0 72 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="2" y="8" width="38" height="18" rx="2" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
-      <path d="M40 14h11l7 7v5H40z" fill="#2563eb" stroke="#1d4ed8" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M51 16.5h4.5l4 4.5H51z" fill="#eff6ff" />
+      <path d="M40 14h11l7 7v5H40z" fill="#f2b705" stroke="#8a6500" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M51 16.5h4.5l4 4.5H51z" fill="#fdf6df" />
       <g className="truck-wheel">
         <circle cx="14" cy="28" r="4.5" fill="#0f172a" />
         <circle cx="14" cy="28" r="1.8" fill="#64748b" />

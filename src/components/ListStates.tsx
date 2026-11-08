@@ -17,7 +17,7 @@ export function ListLoading() {
         xmlns="http://www.w3.org/2000/svg"
       >
         <rect x="1" y="3" width="15" height="8" rx="1" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
-        <path d="M16 6h4.5l3 3v2H16z" fill="#2563eb" stroke="#1d4ed8" strokeWidth="1" strokeLinejoin="round" />
+        <path d="M16 6h4.5l3 3v2H16z" fill="#f2b705" stroke="#8a6500" strokeWidth="1" strokeLinejoin="round" />
         <g className="truck-wheel">
           <circle cx="6" cy="13" r="2" fill="#0f172a" />
         </g>

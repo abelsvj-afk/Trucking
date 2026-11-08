@@ -13,6 +13,7 @@ import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePickerList } from "@/lib/use-picker-list";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { viewerTimeZone } from "@/lib/time";
 import { zonedDate } from "@/lib/zoned-day";
 import { formatCents, formatDay } from "@/lib/pay-projection";
@@ -91,7 +92,11 @@ export default function CashAdvancesPage() {
     }
   }
 
+  // Money records never delete on one tap: the button asks first (it is kept in the Deleted view, but the pay figures change).
+  const [pendingDelete, setPendingDelete] = useState<CashAdvance | null>(null);
+
   async function handleDelete(advance: CashAdvance) {
+    setPendingDelete(null);
     try {
       await apiClient.remove("cash-advances", advance.id);
       reload();
@@ -108,6 +113,14 @@ export default function CashAdvancesPage() {
 
   return (
     <div>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this cash advance?"
+        message={pendingDelete ? `${formatCents(pendingDelete.amount_cents)} taken ${formatDay(pendingDelete.advance_date)} will stop being taken out of that payday, so the net you should get goes UP by that amount. If it was recorded against the wrong week, delete it and record it with the date you actually took it.` : ""}
+        confirmLabel="Delete advance"
+        onConfirm={() => pendingDelete && void handleDelete(pendingDelete)}
+        onCancel={() => setPendingDelete(null)}
+      />
       <PageHeader
         title="Cash advances"
         purpose="Money you took out of a pay period before payday. These come straight off that week's expected pay, so the net you see on Home and in Paychecks is the net that should land."
@@ -177,7 +190,7 @@ export default function CashAdvancesPage() {
                     {formatDay(advance.advance_date)} · {driverName(advance.driver_id)}
                     {advance.note ? ` · ${advance.note}` : ""}
                   </span>{" "}
-                  <button type="button" onClick={() => handleDelete(advance)}>
+                  <button type="button" onClick={() => setPendingDelete(advance)}>
                     Delete
                   </button>
                 </li>

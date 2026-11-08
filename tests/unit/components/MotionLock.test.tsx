@@ -102,8 +102,8 @@ describe("MotionLock (app-wide driving lock)", () => {
     motionHolder.state = "moving";
     await mount(<Page />);
     expect(screen.getByRole("form", { name: "Expense" }).hasAttribute("inert")).toBe(true);
-    expect(screen.getByRole("status").textContent).toContain("forms and editing are locked");
-    expect(screen.getByRole("status").textContent).toContain("Reading is still on");
+    expect(screen.getByRole("status").textContent).toContain("forms, editing and deleting are locked");
+    expect(screen.getByRole("status").textContent).toContain("Reading and your duty status are still on");
   });
 
   it("a form that appears while moving (a new page, a popup) is locked too", async () => {
@@ -413,5 +413,76 @@ describe("D-12 - the 'can't tell if you're moving' banner (location unknown/off 
     motionHolder.state = "stopped";
     await mount(<Page />);
     expect(screen.queryByTestId("cant-tell-banner")).toBeNull();
+  });
+});
+
+import { isEditingButton, setButtonsLocked } from "@/components/MotionLock";
+
+describe("driving-mode policy for standalone buttons (audit rank 6)", () => {
+  function page(html: string) {
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    document.body.appendChild(root);
+    return root;
+  }
+
+  it("blocks editing/deleting buttons outside any form, leaves the duty switcher, dialogs, toggles and retry free", () => {
+    const root = page(`
+      <button id="del">Delete</button>
+      <button id="markpaid">Mark paid today</button>
+      <div data-motion-exempt><button id="duty">On duty</button></div>
+      <div role="group" data-motion-exempt><button id="duty2" aria-pressed="false">Driving</button></div>
+      <button id="filter" aria-pressed="true">Late</button>
+      <button id="disc" aria-expanded="false">More</button>
+      <div role="alert"><button id="retry">Retry</button></div>
+      <div role="alertdialog"><button id="cancel">Cancel</button></div>
+      <button id="allow" data-motion-allow>Peek</button>`);
+    expect(setButtonsLocked(root, true)).toBe(2);
+    const locked = (id: string) => root.querySelector(`#${id}`)!.getAttribute("data-motion-locked") === "true";
+    expect(["del", "markpaid"].every(locked)).toBe(true);
+    expect(["duty", "duty2", "filter", "disc", "retry", "cancel", "allow"].some(locked)).toBe(false);
+    expect(root.querySelector("#del")!.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("unlocking restores exactly what was locked, and an already-disabled button is not ours to touch", () => {
+    const root = page(`<button id="a">Save</button><button id="b" disabled>Off</button>`);
+    setButtonsLocked(root, true);
+    expect(root.querySelector("#b")!.hasAttribute("data-motion-locked")).toBe(false);
+    setButtonsLocked(root, false);
+    expect(root.querySelector("#a")!.hasAttribute("aria-disabled")).toBe(false);
+    expect(root.querySelector("#a")!.hasAttribute("data-motion-locked")).toBe(false);
+  });
+
+  it("the Home duty-status buttons are marked exempt in the source", async () => {
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync("src/components/hud/DutyHud.tsx", "utf8")).toMatch(/aria-label="Change duty status" data-motion-exempt/);
+    const el = document.createElement("button");
+    expect(isEditingButton(el)).toBe(true);
+  });
+});
+
+describe("a tap on a blocked button is explained, and the duty switch still works while moving", () => {
+  it("swallows the click, says why, and leaves the duty button free", async () => {
+    setPermission("granted");
+    motionHolder.duty = "driving";
+    motionHolder.state = "moving";
+    motionHolder.speed = 55;
+    const onDelete = vi.fn();
+    const onDuty = vi.fn();
+    const { fireEvent } = await import("@testing-library/react");
+    await mount(
+      <div>
+        <MotionLock />
+        <main id="main-content">
+          <button onClick={onDelete}>Delete advance</button>
+          <div data-motion-exempt><button onClick={onDuty}>Off duty</button></div>
+        </main>
+      </div>,
+    );
+    fireEvent.click(screen.getByText("Delete advance"));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(await screen.findByText(/"Delete advance" is locked while you're moving/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Off duty"));
+    expect(onDuty).toHaveBeenCalledTimes(1);
   });
 });

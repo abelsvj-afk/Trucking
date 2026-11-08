@@ -19,6 +19,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import DutyHud from "@/components/hud/DutyHud";
 import NewsBanner from "@/components/NewsBanner";
+import SetupChecklist from "@/components/SetupChecklist";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
 import ActiveLoadCard from "@/components/ActiveLoadCard";
@@ -130,7 +131,12 @@ export default function HomePage() {
 
       <DutyHud />
 
+      {/* Pay preview stays visible right under the hours (map-first Home). */}
+      <DriverPayHomeCard />
+
       <NewsBanner />
+
+      <SetupChecklist />
 
       <Reveal aria-label="Your next step" className="next-step" index={0}>
         <h2>Your next step</h2>
@@ -176,8 +182,6 @@ export default function HomePage() {
       </Reveal>
 
       <ActiveLoadCard />
-
-      <DriverPayHomeCard />
 
       <ActivePlanCard />
 
