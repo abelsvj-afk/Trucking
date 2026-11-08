@@ -63,6 +63,12 @@ export class OpenAiProvider implements AgentCapableProvider, AiVisionProvider {
    * JSON string the model produced - the loop parses defensively.
    */
   async runToolTurn(messages: AiAgentMessage[], tools: AiToolSpec[]): Promise<AiToolTurnResult> {
+    // Last line of defence: the API rejects the WHOLE request above 128 tools. Callers select under the limit; if one ever sends more,
+    // trim to the limit and say so loudly rather than fail every message.
+    if (tools.length > 128) {
+      console.error(`[openai] ${tools.length} tools offered; the API limit is 128 - trimming`);
+      tools = tools.slice(0, 128);
+    }
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages: messages.map((message) => {

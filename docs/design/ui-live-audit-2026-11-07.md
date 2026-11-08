@@ -27,7 +27,23 @@ I cannot screenshot your live phone, and the build sandbox cannot load map tiles
 5. **Larger scope question for you (not built):** do you want Home's map to stay a glance card, or become the primary Home surface (full width, route + next stop + ETA overlay)? That is a redesign and your call.
 
 ## Colour direction - PROPOSAL ONLY (nothing changed)
-Today: a saturated blue (`#2563eb`) used for buttons, links, active tab and a blue-tinted page gradient, on near-white. On a phone outdoors that is cold, low-contrast against the white nav, and reads as "default web app".
-Proposed direction for your ruling - **"Road" palette**: warm off-white background, deep charcoal text, ONE strong accent that means "action" (amber/safety-orange `#d9730d` for primary buttons and the active tab), green kept only for "good", red only for "danger", and the blue retired. Reasons: orange/amber reads as road signage and is visible in glare; dark text on warm white lowers eye strain at night; a single action colour stops everything from looking tappable. Dark mode keeps the same accent, lightened. All pairs would be checked to WCAG AA before shipping (the current tokens already carry contrast notes).
-Alternatives if you dislike orange: (b) **deep teal** `#0f766e` accent - calmer, still distinct from status colours; (c) **keep blue but darker and less saturated** (`#1e40af`, no page gradient).
-Decision needed from you: a / b / c (or "none"). Nothing is implemented until you rule.
+Correction after reading the ChatGPT audit (`docs/ui-ux-audit-2026-11-07.md`, rank 3): it treats **black-and-gold** as the owner's established identity ("no accidental blue primary-action styling remains"). My earlier "orange Road palette" proposal was made without that and is withdrawn. The code today is still the blue `#2563eb` scheme, which is why it feels off.
+Proposed direction for your ruling: **black-and-gold** - near-black surfaces in dark mode and warm off-white in light mode, ONE gold accent (`#c9a227`-family; darker `#8a6d00` for text on light so it passes WCAG AA) for primary buttons, the active tab and links; green only for "good", red only for "danger"; the blue retired everywhere. One token file, then the 71 routes inherit it. Alternatives: (b) gold on charcoal only in dark mode, light mode neutral; (c) keep the blue, darker and flatter.
+Decision needed: a / b / c. Nothing is implemented until you rule.
+
+## Abel was down: 131 tools offered, the API limit is 128 (root cause, fixed)
+Every Abel message failed because each request carried the whole tool registry (131 after the email and payday tools; 130 before) and the model API rejects more than 128. Fix: `services/bot/tool-budget.ts` - each turn offers all write tools plus the read tools that match what was said, capped at 120; the full registry is unchanged (writes still execute from it after a yes). A last-resort trim in the OpenAI provider logs loudly instead of failing every message. Tests pin: the registry is over the limit, every selection is under it, writes are always offered, the matching reads are kept, no duplicate tool names. **This needs a deploy to take effect.**
+
+## The ChatGPT audit (source-code audit of main f24ba2e) - what this round covers and what it does not
+It is a UI/UX *program* (11 ranked improvements across 71 routes), not a defect list; I did not complete it, and I will not say I did.
+| Audit item | Status |
+|---|---|
+| 8 Financial loading/error/empty states | Partly: the Invoices crash (root cause above), advances errors now fail visibly, Paychecks/Summary/Truck Fund states and estimates are labelled. Deletion confirmation on every financial record: not audited here. |
+| 11 Settings and assistant identity | Partly: one name (Abel), honest AI headline. Grouping Settings by driver task and expandable long descriptions: not done. |
+| 10 Research presentation | Partly: plain-words errors, one feed status. Visual hierarchy/confidence redesign: not done. |
+| 7 Touch targets | Buttons and inputs already 44 px; the news pagination dots and 320 px width were not re-measured. |
+| 1 Home consolidation | Already built on main by the feature branch (single driver-pay section); not re-verified live. |
+| 2 PWA / offline, 5 Assistant composer, 9 first-run onboarding | Built or designed on main/branches earlier; not re-verified live, onboarding not built. |
+| 3 Black-and-gold design system | Awaiting your colour ruling above. |
+| 4 One timezone (America/New_York everywhere) | NOT done: 45 UI call sites still format with the browser's zone. It is mechanical but touches every page; say go and it is the next unit. |
+| 6 Driving-mode restrictions | Not touched. |
