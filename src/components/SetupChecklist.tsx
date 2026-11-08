@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
 import { allDone, buildSetupChecklist, essentialRemaining, type SetupFacts, type SetupItem } from "@/lib/setup-checklist";
 
 const DISMISS_KEY = "setup-checklist-dismissed";
@@ -31,8 +32,10 @@ export default function SetupChecklist() {
       apiClient.list<{ height_in: number | null }>("trucks", { limit: "50" }),
       apiClient.list<{ id: string }>("loads", { limit: "1" }),
       apiClient.list<{ id: string }>("drivers", { limit: "1" }),
+      // Optional signal: a failed read just leaves the HOS item out, it never blocks the rest.
+      Promise.resolve().then(() => apiClient.getHosSettings()).catch(() => null),
     ])
-      .then(([pay, trucks, loads, drivers]) => {
+      .then(([pay, trucks, loads, drivers, hosSettings]) => {
         if (cancelled) return;
         setItems(
           buildSetupChecklist({
@@ -41,6 +44,9 @@ export default function SetupChecklist() {
             truckWithProfileCount: trucks.data.filter((t) => t.height_in != null).length,
             loadCount: loads.data.length,
             driverCount: drivers.data.length,
+            hosProvisional: hosSettings
+              ? isProvisionalCarrierConfig({ cycle: hosSettings.hos_cycle, periodAnchor: hosSettings.hos_period_anchor, restartEnabled: hosSettings.hos_restart_enabled, carrierTimeZone: hosSettings.hos_carrier_timezone })
+              : null,
           }),
         );
       })

@@ -4,12 +4,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { buildSetupChecklist, essentialRemaining } from "@/lib/setup-checklist";
 
 const list = vi.fn();
-vi.mock("@/lib/api-client", () => ({ apiClient: { list: (...a: unknown[]) => list(...a) } }));
+const hos = vi.fn();
+vi.mock("@/lib/api-client", () => ({ apiClient: { list: (...a: unknown[]) => list(...a), getHosSettings: () => hos() } }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 import SetupChecklist from "@/components/SetupChecklist";
 
 const answer = (map: Record<string, unknown[]>) => list.mockImplementation(async (r: string) => ({ data: map[r] ?? [] }));
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => { window.localStorage.clear(); hos.mockResolvedValue(null); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("buildSetupChecklist detects from real records", () => {
@@ -47,8 +48,24 @@ describe("SetupChecklist", () => {
   });
   it("shows nothing once every item is done", async () => {
     answer({ "pay-profiles": [{ rate_cents_per_mile: 55, mile_basis: "all", pay_week_ends_on: 6, payday_weekday: 5, effective_to: null }], trucks: [{ height_in: 150 }], loads: [{ id: "l" }], drivers: [{ id: "d" }] });
+    hos.mockResolvedValue({ hos_cycle: "60/7", hos_period_anchor: "06:00", hos_restart_enabled: true, hos_carrier_timezone: "America/Chicago" });
     const { container } = render(<SetupChecklist />);
     await new Promise((r) => setTimeout(r, 20));
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("HOS rules item", () => {
+  it("appears (optional) while the carrier settings still equal the placeholder defaults, and is left out when unknown", async () => {
+    const { PROVISIONAL_HOS_CONFIG } = await import("@/lib/hos-periods");
+    answer({});
+    hos.mockResolvedValue({ hos_cycle: PROVISIONAL_HOS_CONFIG.cycle, hos_period_anchor: PROVISIONAL_HOS_CONFIG.periodAnchor, hos_restart_enabled: PROVISIONAL_HOS_CONFIG.restartEnabled, hos_carrier_timezone: PROVISIONAL_HOS_CONFIG.carrierTimeZone });
+    render(<SetupChecklist />);
+    expect(await screen.findByText(/Confirm your carrier's hours-of-service rules/)).toBeTruthy();
+    cleanup();
+    hos.mockResolvedValue(null);
+    render(<SetupChecklist />);
+    await screen.findByText("Enter your pay terms");
+    expect(screen.queryByText(/hours-of-service rules/)).toBeNull();
   });
 });
