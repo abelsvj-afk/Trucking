@@ -48,21 +48,34 @@ export default function DriverPayHomeCard() {
   const totals = summary?.totals ?? null;
   const hos = summary?.hos ?? null;
 
+  // Pay truth fail-safe, client half (ChatGPT audit 2026-11-07, owner
+  // Option A 2026-11-07): a FAILED cash-advances read in the projection
+  // is "unavailable", never zero. In that state no net figure drawn from
+  // the projection is rendered anywhere in this card and the gap is
+  // stated plainly; gross figures still show. (The server pay summary
+  // fails visibly on its own advances error - see pay-summary - so a
+  // ready summary's totals are real and stay as they were.)
+  const advancesUnavailable = projection !== null && projection.advancesAvailable === false;
+
   const period = projection?.period ?? null;
-  const weekAdvancesCents = projection && period ? sumAdvances(advancesForPeriod(projection.advances, period.start, period.end)) : 0;
-  const weekNet = period ? netRange(period.lowCents, period.highCents, weekAdvancesCents) : null;
+  const weekAdvancesCents =
+    projection && period && !advancesUnavailable
+      ? sumAdvances(advancesForPeriod(projection.advances, period.start, period.end))
+      : 0;
+  const weekNet = period && !advancesUnavailable ? netRange(period.lowCents, period.highCents, weekAdvancesCents) : null;
   // Advances are netted in exactly one place in this story: against
   // this pay week's projection when this week has any. Advances taken
   // against other weeks' still-unpaid loads are shown netted against
   // those instead - never both, so no dollar reads as counted twice.
-  const showUnpaidAdvances = weekAdvancesCents === 0 && totals !== null && totals.advancesCents > 0;
+  const showUnpaidAdvances = !advancesUnavailable && weekAdvancesCents === 0 && totals !== null && totals.advancesCents > 0;
 
   const hasWeek = period !== null && (period.rows.length > 0 || weekAdvancesCents > 0);
   const nothing =
     !active &&
     !hasWeek &&
     (totals === null || (totals.unpaidCount === 0 && totals.shortCount === 0 && !showUnpaidAdvances)) &&
-    !hos;
+    !hos &&
+    !advancesUnavailable;
   if (nothing && !period) return null;
 
   return (
@@ -126,6 +139,12 @@ export default function DriverPayHomeCard() {
           {totals.unpaidCount > 0
             ? ` · unpaid loads should net ~${formatRange(totals.unpaidNetLowCents, totals.unpaidNetHighCents)}`
             : ""}
+        </p>
+      )}
+      {advancesUnavailable && (
+        <p className="row-sub" role="note">
+          Cash advances couldn&apos;t load, so these pay figures don&apos;t take advances out — they may be
+          incomplete.
         </p>
       )}
       {hos && (
