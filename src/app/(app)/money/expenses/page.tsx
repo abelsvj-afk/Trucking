@@ -66,7 +66,8 @@ export default function ExpensesListPage() {
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (
         <ul>
-          {state.result.data.map((expense) => (
+          {/* Newest by the expense's own date, not by when it was typed in - a back-dated entry must not sit above this month's. */}
+          {[...state.result.data].sort((a, b) => b.expense_date.localeCompare(a.expense_date)).map((expense) => (
             <li key={expense.id}>
               <Link href={`/money/expenses/${expense.id}`}>
                 <span className="row-title">

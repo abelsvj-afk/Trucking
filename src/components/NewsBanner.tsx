@@ -17,6 +17,7 @@ import { buildBannerItems, formatRelativeAge } from "@/lib/news-banner";
 import { topicEmoji } from "@/lib/research-topics";
 import WordReveal from "@/components/WordReveal";
 import { useLiveVersion } from "@/lib/use-live";
+import { FEED_OFF_TEXT, FEED_SETUP_TEXT } from "@/lib/feed-status";
 import type { ResearchPageData } from "@/types/entities";
 
 const ROTATE_MS = 6000;
@@ -195,7 +196,7 @@ export default function NewsBanner() {
     return (
       <section aria-label="News" className="news-banner news-banner-muted">
         <p className="news-banner-line">
-          News is off — the research engine is turned off.{" "}
+          {FEED_OFF_TEXT}{" "}
           <Link href="/more/settings">Turn on Deep research in Settings →</Link>
         </p>
       </section>
@@ -236,8 +237,7 @@ export default function NewsBanner() {
         {page !== null && setup && (
           <>
             <p className="news-banner-line">
-              The research engine hasn&apos;t run yet — it needs its one-time setup before
-              headlines appear.
+              {FEED_SETUP_TEXT}
             </p>
             <p className="news-banner-actions">
               <Link href="/more/research">Open the Research tab →</Link>

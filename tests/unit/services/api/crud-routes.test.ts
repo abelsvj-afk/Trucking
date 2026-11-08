@@ -151,3 +151,24 @@ describe("createCrudRoutes", () => {
     expect(eqCalls).toEqual([]);
   });
 });
+
+describe("createCrudRoutes: URL-named routes reach the snake_case table (Invoices page error)", () => {
+  it.each([["load-invoices", "load_invoices"], ["recurring-obligations", "recurring_obligations"], ["broker-followups", "broker_followups"]])(
+    "%s queries the table %s, not the hyphenated URL name",
+    async (resource, table) => {
+      const asked: string[] = [];
+      const client = mockSupabase({ data: [], count: 0 });
+      vi.mocked(createClient).mockResolvedValue({ from: (t: string) => { asked.push(t); return client.from(); } } as never);
+      const routes = createCrudRoutes<TestRow>(resource, schemas);
+      const res = await routes.list(new NextRequest(`http://localhost/api/v1/${resource}`));
+      expect(res.status).toBe(200);
+      expect(asked).toEqual([table]);
+    },
+  );
+
+  it("no route file passes a hyphenated name to a bare supabase.from()", async () => {
+    const { execSync } = await import("node:child_process");
+    const out = execSync(`grep -rnE "\\.from\\(\\"[a-z]+-[a-z-]+\\"\\)" src || true`).toString();
+    expect(out.trim()).toBe("");
+  });
+});

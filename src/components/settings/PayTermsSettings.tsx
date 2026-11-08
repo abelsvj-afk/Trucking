@@ -203,7 +203,7 @@ function ProfileEditor({ profile, onChanged }: { profile: EmployerPayProfile; on
 }
 
 /** Starts the first (or an additional employer's) pay terms. Nothing is pre-filled: terms are entered by the owner. */
-function AddTerms({ onAdded }: { onAdded: () => void }) {
+function AddTerms({ onAdded, currentEmployers }: { onAdded: () => void; currentEmployers: string[] }) {
   const [employer, setEmployer] = useState("");
   const [fields, setFields] = useState<PayFieldValues>(EMPTY_FIELDS);
   const [busy, setBusy] = useState(false);
@@ -215,6 +215,10 @@ function AddTerms({ onAdded }: { onAdded: () => void }) {
         e.preventDefault();
         const checked = bodyOf(fields);
         if (!employer.trim()) return setError("Enter the employer's name.");
+        // One entry per employer: a second open row for the same name is how "Kontoor" ended up listed twice.
+        if (currentEmployers.some((name) => name.trim().toLowerCase() === employer.trim().toLowerCase())) {
+          return setError(`${employer.trim()} already has current pay terms above. Edit them there, or use "Terms changed — start new terms" so the old ones are kept in the history.`);
+        }
         if (!checked.ok) return setError(checked.error);
         if (checked.body.rate_cents_per_mile === 0 && checked.body.percent_of_load_bps == null) {
           return setError("Enter a per-mile rate, a percent of the load, or both.");
@@ -261,8 +265,18 @@ export default function PayTermsSettings() {
 
   if (error) return <ListError message={error} onRetry={load} />;
   if (!rows) return <ListLoading />;
-  const current = rows.filter((r) => !r.effective_to);
-  const history = rows.filter((r) => r.effective_to).sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+  const open = rows.filter((r) => !r.effective_to).sort((a, b) => b.effective_from.localeCompare(a.effective_from) || b.updated_at.localeCompare(a.updated_at));
+  // ONE entry per employer: if two open rows carry the same employer name (an earlier duplicate save), the newest is THE current
+  // terms - it is also the one every pay figure already uses - and the older one is listed under Earlier terms, marked.
+  const seen = new Set<string>();
+  const current = open.filter((r) => {
+    const key = r.employer_name.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const superseded = open.filter((r) => !current.includes(r));
+  const history = [...rows.filter((r) => r.effective_to), ...superseded].sort((a, b) => b.effective_from.localeCompare(a.effective_from));
   return (
     <section aria-label="Pay terms">
       <h2>Pay terms</h2>
@@ -274,7 +288,7 @@ export default function PayTermsSettings() {
       {current.map((p) => (
         <ProfileEditor key={`${p.id}-${p.updated_at}`} profile={p} onChanged={load} />
       ))}
-      <AddTerms onAdded={load} />
+      <AddTerms onAdded={load} currentEmployers={current.map((r) => r.employer_name)} />
       {history.length > 0 && (
         <details>
           <summary>Earlier terms</summary>
@@ -284,7 +298,7 @@ export default function PayTermsSettings() {
                 {p.employer_name}: {p.rate_cents_per_mile > 0 ? `$${dollarsFromCents(p.rate_cents_per_mile)}/mi` : ""}
                 {p.rate_cents_per_mile > 0 && p.percent_of_load_bps ? " + " : ""}
                 {p.percent_of_load_bps ? `${percentFromBps(p.percent_of_load_bps)} of the load` : ""} · {label(BASIS, p.mile_basis)} ·{" "}
-                {label(WORKER, p.worker_type)} · {p.effective_from} to {p.effective_to}
+                {label(WORKER, p.worker_type)} · {p.effective_from} to {p.effective_to ?? "now (a duplicate of the current terms above - not used)"}
               </li>
             ))}
           </ul>

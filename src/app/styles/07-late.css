@@ -253,7 +253,7 @@ textarea[data-motion-locked="true"] {
   position: fixed;
   left: 0.75rem;
   right: 0.75rem;
-  bottom: 5rem;
+  bottom: calc(var(--bottom-clear) + 0.5rem);
   z-index: 80;
   padding: 1rem;
   border-radius: 12px;
@@ -261,4 +261,70 @@ textarea[data-motion-locked="true"] {
   color: var(--color-text);
   border: 2px solid var(--color-primary);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+/* --- Fieldsets (live audit 2026-11-07): the Truck detail and Truck profile forms put their labels and inputs inside a <fieldset>,
+   which was never styled - so it stayed block flow and the (inline) labels ran into the (inline-block) inputs on one line, labels
+   and fields did not line up. A fieldset is now the same vertical flex column as a form: label above its field, every field
+   full width. min-width: 0 stops a fieldset growing past the phone width (its browser default is min-content). */
+fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem 1rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+}
+
+fieldset > legend {
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+fieldset fieldset {
+  border-style: dashed;
+}
+
+fieldset input,
+fieldset select,
+fieldset textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* A checkbox/radio row inside a fieldset keeps its own row layout, not the full-width text-field sizing. */
+fieldset input[type="checkbox"],
+fieldset input[type="radio"] {
+  width: auto;
+  min-height: 0;
+}
+
+/* --- Label/value lists that carry a SENTENCE (live audit 2026-11-07: the Truck Fund Emergency fund amount overlapped its
+   explanation). The default <dl> is a two-column label | big-number grid, right for a figure and wrong for prose. dl.stack puts the
+   label above its value at the left, at normal reading size, so a long value wraps under its label instead of colliding. */
+/* Root cause of the overlap: the label column was minmax(0, 1fr) next to an auto-sized value column, so a long value took all the
+   room and squeezed the label to ~0 width - the label then printed underneath the value. The label column now keeps a floor. */
+dl {
+  grid-template-columns: minmax(6.5rem, 1fr) minmax(0, auto);
+}
+dl.stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem 0;
+}
+
+dl.stack > dd {
+  text-align: left;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin-bottom: 0.75rem;
+}
+
+dl.stack > dd:last-child {
+  margin-bottom: 0;
 }

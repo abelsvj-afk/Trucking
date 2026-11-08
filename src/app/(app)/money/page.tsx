@@ -47,7 +47,7 @@ export default function MoneyPage() {
       </ul>
 
       <AskAssistant
-        heading="Ask about the money in plain words — King answers from these same records:"
+        heading="Ask about the money in plain words — Abel answers from these same records:"
         prompts={["What did I earn this week?", "What have I spent on fuel this month?", "Which load paid the best per mile?"]}
       />
     </div>

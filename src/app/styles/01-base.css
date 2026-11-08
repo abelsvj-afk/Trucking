@@ -133,9 +133,19 @@ body main {
   margin: 0 auto;
 }
 
-/* Only the app shell's main needs room above the fixed bottom nav. */
+/* Only the app shell's main needs room above the fixed bottom nav. The nav is its own height (52px tab + 2 x 0.5rem padding + 1px
+   border = ~69px) PLUS the device's bottom safe area (the home-indicator strip, ~34px on a modern phone, which the old fixed 6rem
+   ignored - so the last button/field sat under the bar). --bottom-nav-h carries the nav's real height; the content clears it, the
+   safe area, and a comfortable gap. scroll-padding makes a focused field or a "scroll into view" stop ABOVE the bar, not behind it. */
+:root {
+  --bottom-nav-h: 4.5rem;
+  --bottom-clear: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+}
+html {
+  scroll-padding-bottom: calc(var(--bottom-clear) + 1rem);
+}
 #main-content {
-  padding-bottom: calc(4.5rem + 1.5rem);
+  padding-bottom: calc(var(--bottom-clear) + 2rem);
 }
 
 /* --- Login: the one screen outside the app shell (see the #main-content

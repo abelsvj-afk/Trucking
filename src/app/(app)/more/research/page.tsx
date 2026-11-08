@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
+import { cleanResearchError } from "@/lib/research-errors";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatRelativeAge } from "@/lib/news-banner";
 import WordReveal from "@/components/WordReveal";
@@ -418,7 +419,7 @@ export default function ResearchPage() {
                   {watcher.last_status ?? "not polled yet"}
                   {watcher.last_polled_at &&
                     ` - last checked ${new Date(watcher.last_polled_at).toLocaleString()}`}
-                  {watcher.last_error && ` - ${watcher.last_error}`}
+                  {watcher.last_error && ` - ${cleanResearchError(watcher.last_error)}`}
                 </li>
               ))}
             </ul>
@@ -431,7 +432,7 @@ export default function ResearchPage() {
                   <li key={run.id}>
                     {RUN_STATUS_LABELS[run.status] ?? run.status} - {run.topic} ({run.trigger_kind},{" "}
                     {new Date(run.created_at).toLocaleString()})
-                    {run.error_message && ` - ${run.error_message}`}
+                    {run.error_message && ` - ${cleanResearchError(run.error_message)}`}
                   </li>
                 ))}
               </ul>

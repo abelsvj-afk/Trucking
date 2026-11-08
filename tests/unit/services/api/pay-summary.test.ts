@@ -176,3 +176,48 @@ describe("paychecks organised by payday", () => {
     expect(s.totals.advancesCents).toBe(sum((x) => x.advancesCents, s.paydays));
   });
 });
+
+describe("Projected Pay and Paychecks agree (owner's live numbers: $1,308.95 - $400.00 = $908.95)", () => {
+  const t = [{ employer_name: "Acme", rate_cents_per_mile: 55, mile_basis: "all" as const, effective_from: "2026-01-01", effective_to: null, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
+  // Rate $0.00 on the load (the live root cause): pay comes from miles x $0.55. 2,379.91 miles -> $1,308.95.
+  const booked = load({ id: "x", status: "confirmed", rate_cents: 0, miles: 2379.91, loaded_miles: 2379.91, deadhead_miles: 0, pickup_date: "2026-11-02", delivery_date: "2026-11-04" } as Partial<Load>);
+  const advances = [{ amount_cents: 40000, advance_date: "2026-11-03" }];
+  const today = new Date("2026-11-05T15:00:00Z");
+
+  it("Projected Pay's week net equals the Paychecks payday net", async () => {
+    const { projectPeriod } = await import("@/lib/pay-projection");
+    const { advancesForPeriod, netRange, sumAdvances } = await import("@/lib/cash-advances");
+    const period = projectPeriod(t[0]!, [booked], "2026-11-05");
+    expect(period.lowCents).toBe(130895);
+    const projectedNet = netRange(period.lowCents, period.highCents, sumAdvances(advancesForPeriod(advances, period.start, period.end)));
+    expect(projectedNet.lowCents).toBe(90895);
+
+    const s = buildPaySummary({ loads: [booked], terms: t, receivedByLoad: new Map(), advances, hos: null, now: today });
+    const p = s.paydays[0]!;
+    expect(p.expectedLowCents).toBe(130895);
+    expect(p.advancesCents).toBe(40000);
+    expect(p.netLowCents).toBe(90895);
+    expect(p.netLowCents).toBe(projectedNet.lowCents);
+    expect(p.unpaidCount).toBe(0); // booked, not delivered: expected, but not flagged unpaid/short
+  });
+
+  it("a $0.00 rate does not zero a percent-of-load part; it is 'no rate yet'", async () => {
+    const { projectLoad } = await import("@/lib/pay-projection");
+    const r = projectLoad({ employer_name: "x", rate_cents_per_mile: 0, mile_basis: null, percent_of_load_bps: 8500 }, { ...booked, rate_cents: 0 } as never);
+    expect(r.kind).toBe("unavailable");
+  });
+});
+
+describe("loads with a $0.00 rate are valued from miles x pay terms (Summary / Truck Fund)", () => {
+  it("keeps a real rate, estimates a zero rate, and never invents without miles or terms", async () => {
+    const { loadEarnings, totalEarnings } = await import("@/lib/load-earnings");
+    const t = [{ employer_name: "Acme", rate_cents_per_mile: 55, mile_basis: "all" as const, effective_from: "2026-01-01", effective_to: null }];
+    const base = { id: "a", origin: "A", destination: "B", status: "completed", pickup_date: "2026-11-01", delivery_date: "2026-11-02", loaded_miles: null, deadhead_miles: null } as const;
+    expect(loadEarnings({ ...base, miles: 1000, rate_cents: 250000 }, t)).toEqual({ cents: 250000, source: "rate" });
+    expect(loadEarnings({ ...base, miles: 1000, rate_cents: 0 }, t)).toEqual({ cents: 55000, source: "estimated" });
+    expect(loadEarnings({ ...base, miles: null, rate_cents: null }, t).source).toBe("none");
+    expect(loadEarnings({ ...base, miles: 1000, rate_cents: 0 }, []).source).toBe("none");
+    const total = totalEarnings([{ ...base, miles: 1000, rate_cents: 0 }, { ...base, id: "b", miles: 100, rate_cents: 10000 }], t);
+    expect(total).toMatchObject({ cents: 65000, estimatedCount: 1, estimatedCents: 55000, noValueCount: 0 });
+  });
+});

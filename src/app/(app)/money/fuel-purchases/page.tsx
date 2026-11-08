@@ -66,7 +66,8 @@ export default function FuelPurchasesListPage() {
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (
         <ul>
-          {state.result.data.map((purchase) => (
+          {/* Newest by the purchase's own date, not by when it was logged. */}
+          {[...state.result.data].sort((a, b) => b.purchased_at.localeCompare(a.purchased_at)).map((purchase) => (
             <li key={purchase.id}>
               <Link href={`/money/fuel-purchases/${purchase.id}`}>
                 <span className="row-title">

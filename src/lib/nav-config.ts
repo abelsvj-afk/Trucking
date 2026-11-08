@@ -44,7 +44,7 @@ export interface BottomTab {
    *   surface itself, not a generic pin.
    * - Money → Wallet: the money hub (spend/fund/summary), broader
    *   than a coin.
-   * - Assistant → Bot: King the assistant, unmistakably the AI door.
+   * - Assistant → Bot: Abel the assistant, unmistakably the AI door.
    * - More → MoreHorizontal: the conventional "everything else" dots.
    * Rendered at 22px, strokeWidth 1.75 by the shell layout.
    */
@@ -56,7 +56,7 @@ export const BOTTOM_TABS: BottomTab[] = [
   { href: "/loads", label: "Loads", Icon: Package },
   { href: "/smart-path", label: "Smart Path", Icon: Route },
   { href: "/money", label: "Money", Icon: Wallet },
-  { href: "/more/assistant", label: "Assistant", Icon: Bot },
+  { href: "/more/assistant", label: "Abel", Icon: Bot },
   { href: "/more", label: "More", Icon: MoreHorizontal },
 ];
 

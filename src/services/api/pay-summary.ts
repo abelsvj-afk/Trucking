@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pickActiveLoad } from "@/lib/active-load";
 import { checkLoad, termsForDate, type PaycheckLine, type PayTermsRow } from "@/lib/paycheck";
-import { paydayAfter, weekBounds } from "@/lib/pay-projection";
+import { COUNTED_STATUSES, paydayAfter, weekBounds } from "@/lib/pay-projection";
 import { groupAdvancesByWeek, netRange, type AdvanceLike } from "@/lib/cash-advances";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { loadHosCost, type HosGlance, type LoadHosCost } from "@/lib/hos-cost";
@@ -166,12 +166,14 @@ export function groupByPayWeek(completed: PaySummaryLoad[], terms: PayTermsRow[]
       g.expectedHighCents += line.expected.highCents;
     }
     g.receivedCents += line?.receivedCents ?? 0;
-    if (line?.status === "unpaid") {
+    // A booked (confirmed, not delivered) load is EXPECTED pay but is not "unpaid" or "short" yet - those need a finished load.
+    const finished = c.status === "completed";
+    if (finished && line?.status === "unpaid") {
       g.unpaidCount += 1;
       g.unpaidLowCents += line.expected.lowCents ?? 0;
       g.unpaidHighCents += line.expected.highCents ?? 0;
     }
-    if (line?.status === "short") {
+    if (finished && line?.status === "short") {
       g.shortCount += 1;
       g.shortfallCents += line.shortfallCents;
     }
@@ -317,7 +319,14 @@ export function buildPaySummary(input: {
     }
   }
 
-  const weeks = mergeAdvanceWeeks(groupByPayWeek(completed, terms, live), advances, terms);
+  // The pay weeks and paydays use the SAME loads Projected Pay counts (booked + finished, COUNTED_STATUSES), priced by the same
+  // projection, so "expected - advances" is one number on both pages. Booked-not-delivered loads are expected pay but never
+  // flagged unpaid/short; the flat `completed` list above stays finished-only.
+  const counted = live
+    .filter((l) => COUNTED_STATUSES.has(l.status))
+    .sort((a, b) => (b.delivery_date ?? "").localeCompare(a.delivery_date ?? ""))
+    .map(row);
+  const weeks = mergeAdvanceWeeks(groupByPayWeek(counted, terms, live), advances, terms);
   for (const w of weeks) {
     totals.advancesCents += w.advancesCents;
     if (w.unpaidCount > 0) {
@@ -326,7 +335,7 @@ export function buildPaySummary(input: {
       totals.unpaidNetHighCents += net.highCents;
     }
   }
-  const paydays = groupByPayday(weeks, completed, todayEastern(now));
+  const paydays = groupByPayday(weeks, counted, todayEastern(now));
   return { hasTerms: terms.length > 0, active, completed, weeks, paydays, totals, hos, asOf: now.toISOString() };
 }
 

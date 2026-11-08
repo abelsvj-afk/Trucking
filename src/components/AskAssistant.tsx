@@ -17,8 +17,8 @@ export default function AskAssistant({
   prompts: string[];
 }) {
   return (
-    <section aria-label="Ask the assistant" className="ask-assistant">
-      <h2>Ask the assistant</h2>
+    <section aria-label="Ask Abel" className="ask-assistant">
+      <h2>Ask Abel</h2>
       <p>{heading}</p>
       <div className="prompt-chips">
         {prompts.map((prompt) => (

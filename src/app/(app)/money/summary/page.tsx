@@ -170,6 +170,20 @@ export default function FinancialSummaryPage() {
             </dd>
           </dl>
 
+          {summary.estimatedPay && (summary.estimatedPay.loadCount > 0 || summary.estimatedPay.unvaluedCount > 0) && (
+            <p role="note">
+              {summary.estimatedPay.loadCount > 0 && (
+                <>
+                  {summary.estimatedPay.loadCount} delivered load{summary.estimatedPay.loadCount === 1 ? " has" : "s have"} no rate recorded, so {summary.estimatedPay.loadCount === 1 ? "it counts" : "they count"} as $0 in the revenue above.
+                  At your pay terms times the miles, {summary.estimatedPay.loadCount === 1 ? "it" : "they"} would be about{" "}
+                  <strong>{formatDollars(summary.estimatedPay.cents)}</strong> — an estimate, shown separately and not added to revenue.{" "}
+                </>
+              )}
+              {summary.estimatedPay.unvaluedCount > 0 &&
+                `${summary.estimatedPay.unvaluedCount} more can't be valued yet (no mileage or pay terms).`}
+            </p>
+          )}
+
           {summary.pipeline.loadsWithoutRateCount > 0 && (
             <p>
               {summary.pipeline.loadsWithoutRateCount}{" "}

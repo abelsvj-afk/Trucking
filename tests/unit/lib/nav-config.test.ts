@@ -8,7 +8,7 @@ describe("BOTTOM_TABS (parked decision (a) default)", () => {
       ["/loads", "Loads"],
       ["/smart-path", "Smart Path"],
       ["/money", "Money"],
-      ["/more/assistant", "Assistant"],
+      ["/more/assistant", "Abel"],
       ["/more", "More"],
     ]);
   });
@@ -36,8 +36,8 @@ describe("resolveActiveTab", () => {
     expect(labelFor("/smart-path")).toBe("Smart Path");
   });
 
-  it("longest prefix wins: /more/assistant lights Assistant, not More", () => {
-    expect(labelFor("/more/assistant")).toBe("Assistant");
+  it("longest prefix wins: /more/assistant lights Abel, not More", () => {
+    expect(labelFor("/more/assistant")).toBe("Abel");
   });
 
   it("lights More for the rest of the More hub", () => {

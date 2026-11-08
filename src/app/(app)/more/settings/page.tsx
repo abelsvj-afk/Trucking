@@ -69,6 +69,19 @@ type SettingsState =
   | { status: "error"; message: string }
   | { status: "loaded"; settings: AiSettings };
 
+/** The headline states what the switches below ACTUALLY are (live audit 2026-11-07: it said everything AI is off while all 14 were on). */
+function aiSummaryLine(state: { status: string; settings?: AiSettings }): string {
+  const base = "Your account — and the switches that decide what the AI is allowed to do.";
+  if (state.status !== "loaded" || !state.settings) return base;
+  const { globally_disabled, capabilities } = state.settings;
+  const total = Object.keys(capabilities).length;
+  const on = Object.values(capabilities).filter(Boolean).length;
+  if (globally_disabled) return `${base} The master switch is OFF, so no AI runs at all (${on} of ${total} individual switches are on but held back).`;
+  if (on === 0) return `${base} All ${total} AI switches are OFF.`;
+  if (on === total) return `${base} The master switch is ON and all ${total} AI switches are ON.`;
+  return `${base} The master switch is ON; ${on} of ${total} AI switches are ON and ${total - on} are off.`;
+}
+
 export default function AccountSettingsPage() {
   usePageTitle("Settings");
   const router = useRouter();
@@ -179,7 +192,7 @@ export default function AccountSettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Account & settings" purpose="Your account — and the switches that decide what the AI is allowed to do. Everything AI starts OFF until you turn it on here." />
+      <PageHeader title="Account & settings" purpose={aiSummaryLine(state)} />
 
       <section aria-label="Sign out">
         <button type="button" onClick={handleSignOut} disabled={signingOut}>
