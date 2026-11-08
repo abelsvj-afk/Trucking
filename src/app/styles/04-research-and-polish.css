@@ -7,6 +7,21 @@
   border-radius: 0.5rem;
 }
 
+/* Briefing finding imagery (owner 2026-11-07): the cited article's
+   own preview image under its finding. A short, capped banner so it
+   anchors the section without pushing the finding's own lines (or
+   the briefing headline above the findings) off the first
+   screenful; a finding with no servable image renders with none. */
+.briefing-finding-img {
+  display: block;
+  width: 100%;
+  max-width: 26rem;
+  height: 8.5rem;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  margin-top: 0.5rem;
+}
+
 /* The closing "Original sources" block of a briefing read: in-app
    content first, exits last and visibly secondary. */
 .original-sources {

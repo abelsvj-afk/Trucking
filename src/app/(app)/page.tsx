@@ -2,11 +2,14 @@
 
 // Home dashboard (docs/design/ui-ux.md, "UI/UX upgrade" section). The
 // first screen answers three questions in order: what do I do next,
-// where do my hours stand, and how's the money this month - then
-// offers the four quick actions and the assistant. Task 3.11 built the
-// money card; the UI/UX upgrade adds the next-step card, the duty
-// clock (the Fleet → Hours of service summary, same lib/hos.ts math),
-// and the quick actions around it.
+// where do my hours stand, and what does my driver pay look like -
+// then offers the four quick actions and the assistant. The "This
+// month" business financial summary at the bottom is the future
+// company view and renders only when the owner switches it on in
+// Settings (src/lib/home-display.ts). Task 3.11 built the money card;
+// the UI/UX upgrade adds the next-step card, the duty clock (the
+// Fleet → Hours of service summary, same lib/hos.ts math), and the
+// quick actions around it.
 
 import Link from "next/link";
 import { useFinancialSummary } from "@/lib/use-financial-summary";
@@ -19,8 +22,7 @@ import NewsBanner from "@/components/NewsBanner";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
 import ActiveLoadCard from "@/components/ActiveLoadCard";
-import PayPreviewCard from "@/components/PayPreviewCard";
-import PaycheckHomeCard from "@/components/PaycheckHomeCard";
+import DriverPayHomeCard from "@/components/DriverPayHomeCard";
 import DayWrapCard from "@/components/DayWrapCard";
 import Reveal from "@/components/Reveal";
 import NumberTicker from "@/components/NumberTicker";
@@ -31,6 +33,7 @@ import { formatSinceTime } from "@/lib/time";
 import { useNowTick } from "@/lib/use-now-tick";
 import type { DutyLog } from "@/types/entities";
 import { revenueConventionLabel } from "@/types/financial-summary";
+import { useShowBusinessSummary } from "@/lib/home-display";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -86,6 +89,10 @@ function homeHosPaperLabel(logs: DutyLog[], documents: PaperDocLike[]): string |
 export default function HomePage() {
   usePageTitle("Home");
   const { state, retry } = useFinancialSummary();
+  // The "This month" business summary below is the future company
+  // view; hidden unless the owner switches it on in Settings
+  // (src/lib/home-display.ts, owner order 2026-11-07).
+  const showBusinessSummary = useShowBusinessSummary();
   // The full carrier-anchored window (never a newest-200 page that could
   // truncate the history the cycle depends on) - the same read as the HUD
   // and the Hours page; live via the live layer.
@@ -170,8 +177,7 @@ export default function HomePage() {
 
       <ActiveLoadCard />
 
-      <PayPreviewCard />
-      <PaycheckHomeCard />
+      <DriverPayHomeCard />
 
       <ActivePlanCard />
 
@@ -202,6 +208,7 @@ export default function HomePage() {
         </p>
       )}
 
+      {showBusinessSummary && (
       <Reveal aria-label="This month's financial summary" index={3}>
         <h2>This month</h2>
         {state.status === "loading" && <ListLoading />}
@@ -231,6 +238,7 @@ export default function HomePage() {
         )}
         <Link href="/money/summary">View full summary</Link>
       </Reveal>
+      )}
 
       <AskAssistant
         heading="King knows your loads, hours, money, and fleet — and can log things for you. Try one:"

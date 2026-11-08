@@ -35,7 +35,16 @@ import { NextResponse, type NextRequest } from "next/server";
 // §4) is public here for the same reason as /api/internal: Telegram's
 // servers have no user session; the route enforces its own webhook
 // secret + chat-id allowlist and fails closed without a bot token.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed"];
+// /sw.js and /manifest.webmanifest (PWA installability, owner report
+// 2026-11-07): Chrome's install check runs signed-out, so if these two
+// static files redirect to /login the browser concludes the app
+// "cannot be installed" even for a signed-in owner. They carry no
+// data - the worker script and the manifest are identical for every
+// visitor - so they are public like the icon files (which the matcher
+// below already exempts from this proxy entirely). ONLY these two
+// exact asset paths are added; no page, API route, or data path is
+// widened.
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed", "/sw.js", "/manifest.webmanifest"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

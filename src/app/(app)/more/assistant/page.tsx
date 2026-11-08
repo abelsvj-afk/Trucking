@@ -15,12 +15,21 @@
 // omnipresence coverage + dump intake, design §9), chat bubbles, and
 // a ?q= prefill so the Ask-the-assistant entry points on Home / Loads
 // / Money land with the question already typed.
+//
+// Scroll/composer fix (owner 2026-11-07): the conversation lives in
+// a window fixed in the screen - scrolling happens inside the
+// message box only, the composer is stationed at the bottom and
+// always visible, and the view sticks to the bottom (opening lands
+// on the newest message). If he has scrolled up to read history, an
+// incoming reply does not yank him down; his own sends always land
+// at the bottom. The rules live in lib/chat-scroll.ts.
 
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
+import { bottomScrollTop, isAtBottom, shouldStickAfterTurnsChange } from "@/lib/chat-scroll";
 import type { BotChatTurn } from "@/services/ai/bot-chat";
 
 interface ChatResponse {
@@ -65,6 +74,13 @@ function AssistantInner() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
+  // Stick-to-bottom bookkeeping: sticking starts true so opening the
+  // tab lands on the newest message; scrolling up on purpose clears
+  // it; his own send re-arms it for that turn only.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickingRef = useRef(true);
+  const ownSendRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     apiClient
@@ -85,10 +101,32 @@ function AssistantInner() {
     };
   }, []);
 
+  // Pin to the newest message after the turn list renders - when
+  // sticking (on open, or while he is at the bottom) or when the
+  // change is his own send. Never when he scrolled up to read.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ownSend = ownSendRef.current;
+    ownSendRef.current = false;
+    if (!shouldStickAfterTurnsChange(stickingRef.current, ownSend)) return;
+    el.scrollTop = bottomScrollTop(el);
+    stickingRef.current = true;
+  }, [turns, loading]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickingRef.current = isAtBottom(el);
+  }, []);
+
   async function send(text: string) {
     if (!text || sending) return;
     setError(null);
     setSending(true);
+    // His own sends always land at the bottom.
+    ownSendRef.current = true;
+    stickingRef.current = true;
     setTurns((prev) => [...prev, { role: "user", text }]);
     setDraft("");
     try {
@@ -108,14 +146,14 @@ function AssistantInner() {
   }
 
   return (
-    <div>
+    <div className="assistant-page">
       <PageHeader
         title="Assistant"
         purpose="King — the same assistant as your Telegram bot, one conversation across both. Ask in plain words, or tell it to log something."
       />
 
-      <section aria-label="What the assistant can do">
-        <h2>What the assistant can do</h2>
+      <details className="assistant-capabilities">
+        <summary>What the assistant can do</summary>
         <ul className="capability-list">
           {CAPABILITIES.map((capability) => (
             <li key={capability}>{capability}</li>
@@ -126,7 +164,7 @@ function AssistantInner() {
           numbers to save only those, or NO to drop it. Files themselves still upload under More →
           Documents; paste text here.
         </p>
-      </section>
+      </details>
 
       {pendingSummary && (
         <p role="status" style={{ whiteSpace: "pre-wrap" }}>
@@ -137,56 +175,62 @@ function AssistantInner() {
         </p>
       )}
 
-      {loading ? (
-        <p>Loading your conversation…</p>
-      ) : turns.length === 0 ? (
-        <div className="empty-state">
-          <p className="empty-state-title">No conversation yet</p>
-          <p>
-            This is where you talk to King. Ask what you&apos;ve spent on fuel this week, or tap a starter
-            below — you can also just say hello.
-          </p>
+      <div className="chat-window">
+        <div className="chat-scroll" ref={scrollRef} onScroll={handleScroll}>
+          {loading ? (
+            <p>Loading your conversation…</p>
+          ) : turns.length === 0 ? (
+            <div className="empty-state">
+              <p className="empty-state-title">No conversation yet</p>
+              <p>
+                This is where you talk to King. Ask what you&apos;ve spent on fuel this week, or tap a starter
+                below — you can also just say hello.
+              </p>
+            </div>
+          ) : (
+            <div className="chat-list" aria-label="Conversation">
+              {turns.map((turn, i) => (
+                <p key={i} className={`chat-turn chat-turn-${turn.role}`}>
+                  {turn.text}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="chat-list" aria-label="Conversation">
-          {turns.map((turn, i) => (
-            <p key={i} className={`chat-turn chat-turn-${turn.role}`}>
-              {turn.text}
-            </p>
-          ))}
-        </div>
-      )}
 
-      <div className="prompt-chips" aria-label="Starter prompts">
-        {STARTER_PROMPTS.map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            className="prompt-chip"
-            disabled={sending}
-            onClick={() => void send(prompt)}
-          >
-            {prompt}
-          </button>
-        ))}
+        <div className="chat-dock">
+          <div className="prompt-chips" aria-label="Starter prompts">
+            {STARTER_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                className="prompt-chip"
+                disabled={sending}
+                onClick={() => void send(prompt)}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          {error && <p role="alert">{error}</p>}
+
+          <form onSubmit={handleSend}>
+            <label htmlFor="assistant-message">Message</label>
+            <textarea
+              id="assistant-message"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              rows={3}
+              required
+              placeholder="Ask, or tell me to log something…"
+            />
+            <button type="submit" disabled={sending}>
+              {sending ? "Working…" : "Send"}
+            </button>
+          </form>
+        </div>
       </div>
-
-      {error && <p role="alert">{error}</p>}
-
-      <form onSubmit={handleSend}>
-        <label htmlFor="assistant-message">Message</label>
-        <textarea
-          id="assistant-message"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          rows={3}
-          required
-          placeholder="Ask, or tell me to log something…"
-        />
-        <button type="submit" disabled={sending}>
-          {sending ? "Working…" : "Send"}
-        </button>
-      </form>
     </div>
   );
 }

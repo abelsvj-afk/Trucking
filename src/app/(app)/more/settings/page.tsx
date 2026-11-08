@@ -34,6 +34,11 @@ import {
   THEME_STORAGE_KEY,
   type ThemeChoice,
 } from "@/lib/theme";
+import {
+  resolveShowBusinessSummary,
+  storeShowBusinessSummary,
+  HOME_BUSINESS_SUMMARY_STORAGE_KEY,
+} from "@/lib/home-display";
 import type { AiSettings } from "@/types/ai-settings";
 
 const THEME_OPTIONS: { value: ThemeChoice; label: string }[] = [
@@ -92,6 +97,26 @@ export default function AccountSettingsPage() {
   function pickTheme(choice: ThemeChoice) {
     setPickedTheme(choice);
     applyThemeChoice(choice);
+  }
+
+  // Home "This month" business summary visibility (owner order
+  // 2026-11-07, src/lib/home-display.ts): same device-local pattern
+  // as the theme pick - hidden by default, the stored value read via
+  // useSyncExternalStore, a pick in this session overriding at once.
+  const storedBusinessSummary = useSyncExternalStore(
+    (onChange) => {
+      window.addEventListener("storage", onChange);
+      return () => window.removeEventListener("storage", onChange);
+    },
+    () => window.localStorage.getItem(HOME_BUSINESS_SUMMARY_STORAGE_KEY),
+    () => null,
+  );
+  const [pickedBusinessSummary, setPickedBusinessSummary] = useState<boolean | null>(null);
+  const showBusinessSummary = pickedBusinessSummary ?? resolveShowBusinessSummary(storedBusinessSummary);
+
+  function pickBusinessSummary(show: boolean) {
+    setPickedBusinessSummary(show);
+    storeShowBusinessSummary(show);
   }
 
   const fetchSettings = useCallback(() => {
@@ -189,6 +214,25 @@ export default function AccountSettingsPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section aria-label="Home screen">
+        <h2>Home screen</h2>
+        <p>
+          The &ldquo;This month&rdquo; block on Home is your future company view — revenue, expenses
+          and operating result for money running through your own company. While your income is
+          driver pay, it just reads as zeros, so it stays hidden unless you switch it on here.
+          Your pick is saved on this device.
+        </p>
+        <label htmlFor="home_business_summary">
+          <input
+            id="home_business_summary"
+            type="checkbox"
+            checked={showBusinessSummary}
+            onChange={(event) => pickBusinessSummary(event.target.checked)}
+          />
+          Show the &ldquo;This month&rdquo; business summary on Home
+        </label>
       </section>
 
       <section aria-label="AI authorization" data-motion-exempt>
