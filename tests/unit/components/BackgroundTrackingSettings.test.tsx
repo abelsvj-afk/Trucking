@@ -10,7 +10,7 @@ vi.mock("@/lib/api-client", () => ({
   apiClient: { deviceTokens: () => deviceTokens(), createDeviceToken: (l: string) => createDeviceToken(l), revokeDeviceToken: (id: string) => revokeDeviceToken(id) },
   ApiClientError: class extends Error {},
 }));
-import BackgroundTrackingSettings from "@/components/settings/BackgroundTrackingSettings";
+import BackgroundTrackingSettings, { TRACKER_ANDROID_DOWNLOAD_URL } from "@/components/settings/BackgroundTrackingSettings";
 
 describe("BackgroundTrackingSettings", () => {
   it("shows a new key ONCE, then only the device (never the secret) in the list", async () => {
@@ -33,6 +33,19 @@ describe("BackgroundTrackingSettings", () => {
     expect(document.body.textContent).not.toContain("tdv_SECRET");
     expect(screen.getByText("My Android")).toBeTruthy();
     expect(document.body.textContent).toContain("never used");
+  });
+
+  it("offers the tracker Android download at the stable release URL, and says there is no iPhone version", async () => {
+    deviceTokens.mockResolvedValue({ data: [] });
+    render(<BackgroundTrackingSettings />);
+    await act(async () => {});
+    const link = screen.getByRole("button", { name: "Download the tracker app (Android)" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/abelsvj-afk/Trucking/releases/download/tracker-v1.0.4/trucking-os-tracker-v1.0.4.apk",
+    );
+    expect(TRACKER_ANDROID_DOWNLOAD_URL).toBe(link.getAttribute("href"));
+    expect(document.body.textContent).toContain("no iPhone version of the Tracker app yet");
+    expect(document.body.textContent).toContain("keeps that copy's saved server address and key");
   });
 
   it("revokes a device", async () => {
