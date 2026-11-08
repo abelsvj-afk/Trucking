@@ -4,10 +4,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
-const data: { profiles: unknown[]; loads: unknown[] } = { profiles: [], loads: [] };
+const data: { profiles: unknown[]; loads: unknown[]; advances: unknown[]; advancesFail: boolean } = { profiles: [], loads: [], advances: [], advancesFail: false };
 vi.mock("@/lib/api-client", () => ({
   apiClient: {
-    list: vi.fn(async (r: string) => ({ data: r === "pay-profiles" ? data.profiles : data.loads })),
+    list: vi.fn(async (r: string) => {
+      if (r === "cash-advances") {
+        if (data.advancesFail) throw new Error("advances read failed");
+        return { data: data.advances };
+      }
+      return { data: r === "pay-profiles" ? data.profiles : data.loads };
+    }),
     // The merged Driver Pay card also reads the server pay summary;
     // an empty one keeps these tests about the projection half.
     paySummary: vi.fn(async () => ({
@@ -48,6 +54,8 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-11-05T15:00:00Z")); // Thursday, Nov 5 (week 2026-11-02..08)
   data.profiles = [];
   data.loads = [];
+  data.advances = [];
+  data.advancesFail = false;
 });
 afterEach(() => { vi.useRealTimers(); cleanup(); });
 
@@ -78,6 +86,40 @@ describe("Home driver pay (merged section)", () => {
     data.loads = [L({ delivery_date: "2026-10-01" })];
     render(<DriverPayHomeCard />);
     expect(await screen.findByText("No booked loads this pay week yet.")).toBeTruthy();
+  });
+});
+
+describe("advances fail-safe (projection surfaces)", () => {
+  it("Home driver pay: advances read failed - gross range shows, the gap is stated, no net is rendered", async () => {
+    data.profiles = [profile("all")];
+    data.loads = [L({ delivery_date: "2026-11-06" })];
+    data.advancesFail = true;
+    render(<DriverPayHomeCard />);
+    expect(await screen.findByText("$550.00")).toBeTruthy();
+    expect(screen.getByText(/Cash advances couldn.t load/)).toBeTruthy();
+    expect(screen.queryByText(/net you should get/)).toBeNull();
+    // Gross labeling not regressed.
+    expect(screen.getByText(/before fuel, taxes and deductions/)).toBeTruthy();
+  });
+
+  it("Home driver pay: advances loaded - the net line renders exactly as before", async () => {
+    data.profiles = [profile("all")];
+    data.loads = [L({ delivery_date: "2026-11-06" })];
+    data.advances = [{ id: "a1", amount_cents: 5000, advance_date: "2026-11-04", driver_id: null }];
+    render(<DriverPayHomeCard />);
+    expect(await screen.findByText(/net you should get:/)).toBeTruthy();
+    expect(screen.getByText(/\$500\.00/)).toBeTruthy();
+    expect(screen.queryByText(/couldn.t load/)).toBeNull();
+  });
+
+  it("Projected pay page: advances read failed - gap stated on the page, no net in either period", async () => {
+    data.profiles = [profile("all")];
+    data.loads = [L({ delivery_date: "2026-11-06" })];
+    data.advancesFail = true;
+    render(<ProjectedPayPage />);
+    expect(await screen.findByText(/Cash advances couldn.t load/)).toBeTruthy();
+    expect(screen.queryByText(/net you should get/)).toBeNull();
+    expect(screen.getByText(/before fuel, taxes and any other deductions/)).toBeTruthy();
   });
 });
 

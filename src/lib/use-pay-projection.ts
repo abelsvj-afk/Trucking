@@ -18,26 +18,44 @@ export type PayProjectionState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "no-terms" }
-  | { status: "ready"; terms: PayTerms; period: PeriodProjection; previous: PeriodProjection; advances: CashAdvance[] };
+  | {
+      status: "ready";
+      terms: PayTerms;
+      period: PeriodProjection;
+      previous: PeriodProjection;
+      advances: CashAdvance[];
+      /**
+       * false when the cash-advances read FAILED: advances is then an empty
+       * placeholder and consumers must say the figures don't take advances
+       * out - never net against it as if zero were recorded.
+       */
+      advancesAvailable: boolean;
+    };
 
 export function usePayProjection(): PayProjectionState {
   const version = useLiveVersion(["loads"]);
   const nowMs = useNowTick(60_000);
-  const [data, setData] = useState<{ rows: PayTermsRow[]; loads: Load[]; advances: CashAdvance[] } | "error" | null>(null);
+  const [data, setData] = useState<{ rows: PayTermsRow[]; loads: Load[]; advances: CashAdvance[]; advancesAvailable: boolean } | "error" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       apiClient.list<EmployerPayProfile>("pay-profiles"),
       apiClient.list<Load>("loads", { limit: "200" }),
-      // Advances are an add-on to the projection: until migration 00079 is
-      // applied (or on any failure) the projection still shows, netting $0.
-      apiClient.list<CashAdvance>("cash-advances", { limit: "200" }).catch(() => null),
+      // Migration 00079 is applied, so a failed advances read is a real
+      // failure, not a pre-migration state: the projection still shows its
+      // gross figures, but the failure travels with the state
+      // (advancesAvailable false) instead of silently netting $0.
+      apiClient.list<CashAdvance>("cash-advances", { limit: "200" }).then(
+        (r) => ({ data: r.data, available: true }),
+        () => ({ data: [] as CashAdvance[], available: false }),
+      ),
     ])
       .then(([profiles, loads, advances]) => {
         if (cancelled) return;
         setData({
-          advances: advances?.data ?? [],
+          advances: advances.data,
+          advancesAvailable: advances.available,
           rows: profiles.data.map((p) => ({
             employer_name: p.employer_name,
             rate_cents_per_mile: p.rate_cents_per_mile,
@@ -73,5 +91,6 @@ export function usePayProjection(): PayProjectionState {
     period: projectPeriod(current, data.loads, today, options),
     previous: projectPreviousPeriod(current, data.loads, today, options),
     advances: data.advances,
+    advancesAvailable: data.advancesAvailable,
   };
 }
