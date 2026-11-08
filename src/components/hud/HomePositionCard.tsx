@@ -90,7 +90,7 @@ export default function HomePositionCard({
           traveledGeometry={progress?.onRoute ? progress.traveled : []}
           onUserPan={() => {}}
           night={false}
-          height={hero ? "clamp(220px, 36vh, 400px)" : "min(40vh, 340px)"}
+          height={hero ? "clamp(220px, 50vh, 600px)" : "min(40vh, 340px)"}
           label={route ? "Map following your truck along your planned route" : "Map following your truck"}
         />
         <div className="home-map-overlay">
