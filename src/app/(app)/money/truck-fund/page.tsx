@@ -252,7 +252,7 @@ export default function TruckFundPage() {
               What completed loads settled, minus the costs logged against them. This is earned,
               not saved — it only becomes fund money when you log moving it below.
             </p>
-            <dl>
+            <dl className="stack">
               <dt>This week ({data.periods.week.from} – {data.periods.week.to})</dt>
               <dd>
                 Settled {formatDollars(data.periods.week.settled_income_cents)} — costs{" "}
@@ -266,11 +266,24 @@ export default function TruckFundPage() {
                 {formatDollars(data.periods.month.settled_net_cents)}
               </dd>
             </dl>
+            {data.income_estimate.loads_estimated_from_miles > 0 && (
+              <p className="row-sub" role="note">
+                {data.income_estimate.loads_estimated_from_miles} completed load
+                {data.income_estimate.loads_estimated_from_miles === 1 ? " has" : "s have"} no rate recorded, so {data.income_estimate.loads_estimated_from_miles === 1 ? "it is" : "they are"} counted
+                at your pay terms times the miles (an estimate, not a recorded rate).
+              </p>
+            )}
+            {data.income_estimate.loads_without_value > 0 && (
+              <p className="row-sub" role="note">
+                {data.income_estimate.loads_without_value} completed load{data.income_estimate.loads_without_value === 1 ? "" : "s"} can&apos;t be valued yet
+                (no rate and no mileage or pay terms) — counted as $0 until that is filled in.
+              </p>
+            )}
           </section>
 
           <section aria-labelledby="buckets-heading">
             <h2 id="buckets-heading">Your other buckets</h2>
-            <dl>
+            <dl className="stack">
               <dt>Business-credit bucket</dt>
               <dd>
                 {formatDollars(data.funds.business_credit.balance_cents)}
@@ -280,11 +293,11 @@ export default function TruckFundPage() {
               <dt>Emergency fund</dt>
               <dd>
                 {formatDollars(data.funds.emergency_fund.balance_cents)} of{" "}
-                {formatDollars(EMERGENCY_FUND_TARGET_CENTS)} — your Finance Project&apos;s target,
-                shown here for context; that plan runs the emergency fund, this page just shows
-                it.
-                {data.funds.emergency_fund.last_entry_date &&
-                  ` Last entry ${data.funds.emergency_fund.last_entry_date}.`}
+                {formatDollars(EMERGENCY_FUND_TARGET_CENTS)}
+                <span className="row-sub">
+                  Your Finance Project&apos;s target, shown here for context; that plan runs the emergency fund, this page just shows it.
+                  {data.funds.emergency_fund.last_entry_date && ` Last entry ${data.funds.emergency_fund.last_entry_date}.`}
+                </span>
               </dd>
             </dl>
           </section>

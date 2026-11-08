@@ -7,13 +7,14 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
+import { formatDateTime } from "@/lib/time";
 
 type Device = { id: string; label: string; created_at: string; last_used_at: string | null };
 
 function lastSeen(iso: string | null): string {
   if (!iso) return "never used";
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
-  return mins < 2 ? "reporting just now" : mins < 120 ? `last report ${mins} min ago` : `last report ${new Date(iso).toLocaleString()}`;
+  return mins < 2 ? "reporting just now" : mins < 120 ? `last report ${mins} min ago` : `last report ${formatDateTime(iso, "America/New_York")}`;
 }
 
 export default function BackgroundTrackingSettings() {

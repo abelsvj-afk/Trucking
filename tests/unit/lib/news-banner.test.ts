@@ -211,3 +211,15 @@ describe("buildBannerItems", () => {
     expect(s).toMatchObject({ kind: "signal", headline: "Raw pressure", sub: null, unread: false });
   });
 });
+
+describe("one instance per story", () => {
+  it("a headline that appears as a briefing and as a signal rotates once; the higher-ranked copy stays", async () => {
+    const { buildBannerItems } = await import("@/lib/news-banner");
+    const now = new Date("2026-11-07T12:00:00Z");
+    const briefing = { id: "b1", topic: "fuel", title: "Diesel jumps 12 cents", headline: "Diesel up", created_at: "2026-11-07T10:00:00Z", read_at: null, delivery_class: "urgent" };
+    const dupSignal = { id: "s1", topic: "fuel", summary: "Diesel jumps 12 cents!", observed_at: "2026-11-07T11:00:00Z", magnitude: 0.9, items: [] };
+    const other = { id: "s2", topic: "rules", summary: "New ELD rule proposed", observed_at: "2026-11-07T11:00:00Z", magnitude: 0.8, items: [] };
+    const items = buildBannerItems({ data: [briefing], signals: [dupSignal, other] } as never, now);
+    expect(items.map((i) => i.id)).toEqual(["b1", "s2"]);
+  });
+});

@@ -43,6 +43,9 @@ import {
 } from "@/services/financial-summary/snapshot";
 import { computeSummaryMeasures } from "@/services/financial-summary/summary";
 import { REVENUE_CONVENTION } from "@/types/financial-summary";
+import { createClient } from "@/services/db/server";
+import { fetchPayTerms } from "@/services/api/pay-terms";
+import { totalEarnings } from "@/lib/load-earnings";
 
 export const GET = createApiHandler(async (req, ctx) => {
   const url = new URL(req.url);
@@ -83,6 +86,33 @@ export const GET = createApiHandler(async (req, ctx) => {
   }
 
   const measures = computeSummaryMeasures(data, range, window);
+
+  // Delivered loads whose rate is $0.00/missing count as $0 in the verified revenue above (that rule is unchanged and never
+  // blended). Beside it, a SEPARATE estimate values those same loads from miles x the pay terms in force, labelled as an
+  // estimate, so a lease-on month with no typed rates reads as what it earned instead of a bare zero. Best-effort: it never
+  // blocks or alters the verified totals.
+  let estimatedPay: { cents: number; loadCount: number; unvaluedCount: number } | null = null;
+  try {
+    const supabase = await createClient();
+    const [{ data: delivered, error }, terms] = await Promise.all([
+      supabase
+        .from("loads")
+        .select("id, origin, destination, status, miles, loaded_miles, deadhead_miles, pay_override_cents, rate_cents, pickup_date, delivery_date")
+        .eq("company_id", ctx.auth.companyId)
+        .eq("status", "completed")
+        .is("deleted_at", null)
+        .gte("delivery_date", range.from)
+        .lte("delivery_date", range.to),
+      fetchPayTerms(supabase, ctx.auth.companyId),
+    ]);
+    if (!error) {
+      const unrated = ((delivered ?? []) as Parameters<typeof totalEarnings>[0]).filter((l) => !(l.rate_cents && l.rate_cents > 0));
+      const t = totalEarnings(unrated, terms);
+      if (unrated.length > 0) estimatedPay = { cents: t.estimatedCents, loadCount: t.estimatedCount, unvaluedCount: t.noValueCount };
+    }
+  } catch {
+    estimatedPay = null;
+  }
   const { revenue, expenses, fuel, maintenance } = data.components;
 
   return NextResponse.json({
@@ -96,6 +126,7 @@ export const GET = createApiHandler(async (req, ctx) => {
     net_cents: measures.periodOperatingResultCents,
     components: data.components,
     pipeline: data.pipeline,
+    estimatedPay,
     exceptions: {
       completedMissingDeliveryDate: data.completedMissingDeliveryDate,
     },

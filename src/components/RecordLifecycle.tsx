@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, ListError } from "@/components/ListStates";
+import { formatDate } from "@/lib/time";
 
 // List pages call this to get their Deleted toggle state, honoring the
 // ?view=deleted deep link the post-delete message points at. The flip
@@ -218,7 +219,7 @@ export function DeletedListSection<Row extends DeletedRowShape>({
                   {[
                     sublabelFor?.(row) ?? null,
                     row.deleted_at
-                      ? `Deleted ${new Date(row.deleted_at).toLocaleDateString()}`
+                      ? `Deleted ${formatDate(row.deleted_at, "America/New_York")}`
                       : null,
                   ]
                     .filter(Boolean)

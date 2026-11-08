@@ -121,3 +121,27 @@ describe("PayTermsSettings", () => {
     expect(calls[0]).toContain('"percent_of_load_bps":8800');
   });
 });
+
+describe("one entry per employer", () => {
+  const row = (id: string, from: string) => ({ id, employer_name: "Kontoor", rate_cents_per_mile: 55, mile_basis: "all", worker_type: null, fuel_paid_by: null, effective_from: from, effective_to: null, updated_at: `u${id}` });
+
+  it("two open rows for the same employer show ONE editor; the older is listed under Earlier terms as a duplicate", async () => {
+    listMock.mockResolvedValue({ data: [row("old", "2026-10-01"), row("new", "2026-10-20")] });
+    render(<PayTermsSettings />);
+    await screen.findByRole("form", { name: "Pay terms for Kontoor" });
+    expect(screen.getAllByRole("form", { name: "Pay terms for Kontoor" })).toHaveLength(1);
+    expect(screen.getByText(/duplicate of the current terms above/)).toBeTruthy();
+  });
+
+  it("adding terms for an employer that already has current terms is refused with a pointer, not a second entry", async () => {
+    listMock.mockResolvedValue({ data: [row("a", "2026-10-01")] });
+    render(<PayTermsSettings />);
+    await screen.findByRole("form", { name: "Pay terms for Kontoor" });
+    const add = within(screen.getByRole("form", { name: "Add pay terms" }));
+    fireEvent.change(add.getByLabelText("Employer"), { target: { value: "kontoor" } });
+    fireEvent.change(add.getByLabelText(/Pay per mile/), { target: { value: "0.60" } });
+    fireEvent.click(add.getByText("Save pay terms"));
+    expect(await screen.findByText(/already has current pay terms above/)).toBeTruthy();
+    expect(calls.filter((c) => c.startsWith("create"))).toHaveLength(0);
+  });
+});

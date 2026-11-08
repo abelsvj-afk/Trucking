@@ -28,6 +28,7 @@ import { useToast } from "@/components/Toast";
 import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { truckTypeLabel } from "@/lib/fleet-display";
 import type { Truck, VehicleDefect } from "@/types/entities";
+import { formatDate } from "@/lib/time";
 
 export default function TruckDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -114,7 +115,7 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
             {openDefects.map((defect) => (
               <li key={defect.id}>
                 {defect.description} — {defect.status}, first noted{" "}
-                {new Date(defect.created_at).toLocaleDateString("en-US")}
+                {formatDate(defect.created_at, "America/New_York")}
               </li>
             ))}
           </ul>

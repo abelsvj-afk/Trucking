@@ -101,10 +101,14 @@ export interface CrudRouteOptions {
 }
 
 export function createCrudRoutes<Row extends { id: string }>(
-  table: string,
+  resourceName: string,
   schemas: { create: z.ZodType<Record<string, unknown>>; update: z.ZodType<Record<string, unknown>> },
   options: CrudRouteOptions = {},
 ) {
+  // A route is named for its URL ("load-invoices"); the table is its snake_case twin ("load_invoices"). Three routes
+  // (load-invoices, recurring-obligations, broker-followups) passed the hyphenated URL name and every request failed with
+  // "table not found" - the Invoices page showed an error. Normalised here so no route can repeat the mistake.
+  const table = resourceName.replace(/-/g, "_");
   const crud = createCrudService<Row>(table);
   const filterableFields = options.filterableFields ?? [];
 

@@ -123,7 +123,7 @@ export default function LoadsListPage() {
       )}
 
       <AskAssistant
-        heading="King can price and sanity-check a load before you commit:"
+        heading="Abel can price and sanity-check a load before you commit:"
         prompts={["Is my next load paying enough per mile?", "What loads do I have coming up?", "What did my best load this month pay per mile?"]}
       />
     </div>

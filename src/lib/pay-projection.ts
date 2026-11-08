@@ -114,7 +114,8 @@ function projectMiles(terms: PayTerms, load: ProjectableLoad): LoadProjection {
 function projectPercent(terms: PayTerms, load: ProjectableLoad): LoadProjection {
   const bps = terms.percent_of_load_bps ?? 0;
   const base = { loadId: load.id };
-  if (load.rate_cents == null) {
+  // A $0.00 rate is "no rate yet" too: percent of nothing would silently price the load at $0.
+  if (load.rate_cents == null || load.rate_cents <= 0) {
     return { ...base, kind: "unavailable", lowCents: null, highCents: null, counted: null,
       note: `Your pay includes ${pct(bps)} of the load, and this load has no rate yet — add the rate on the load.` };
   }

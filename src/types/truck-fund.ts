@@ -72,6 +72,8 @@ export interface TruckFundOverview {
   truck_fund_progress: TruckFundProgressView;
   settings: FundSettingsView;
   periods: { week: PeriodTotalsView; month: PeriodTotalsView };
+  /** Completed loads valued from miles x pay terms because their rate is $0.00/missing (never presented as a recorded rate). */
+  income_estimate: { loads_estimated_from_miles: number; loads_without_value: number };
   suggestion: SweepSuggestionView | null;
   entries: FundEntry[];
   ladder: LadderStepView[];

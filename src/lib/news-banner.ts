@@ -131,6 +131,24 @@ export function buildBannerItems(
     return new Date(b.at).getTime() - new Date(a.at).getTime();
   });
 
+  // ONE instance per story (live audit 2026-11-07: the same headline rotated in twice, once as a briefing and once as the
+  // signal behind it). Items are already in rank order, so the highest-ranked copy stays. A story matches on its normalised
+  // headline OR on a briefing's one-line summary equalling another item's headline.
+  const norm = (text: string | null) => (text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const seenHeadlines = new Set<string>();
+  const summaryAliases = new Set<string>(); // a briefing's one-line summary only ever matches another item's HEADLINE, never another summary
+  const unique = merged.filter((item) => {
+    const headline = norm(item.headline);
+    const summary = norm(item.sub);
+    const duplicate = seenHeadlines.has(headline) || summaryAliases.has(headline) || (summary.length > 0 && seenHeadlines.has(summary));
+    if (duplicate) return false;
+    seenHeadlines.add(headline);
+    if (summary.length > 0) summaryAliases.add(summary);
+    return true;
+  });
+  merged.length = 0;
+  merged.push(...unique);
+
   // A fresh briefing (<=72h) leads the rotation when one exists -
   // briefings are the product; signals are the pulse (§5).
   const freshIndex = merged.findIndex(

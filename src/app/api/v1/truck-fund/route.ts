@@ -12,6 +12,9 @@
 // owner makes explicitly.
 
 import { NextResponse } from "next/server";
+import { totalEarnings, loadEarnings } from "@/lib/load-earnings";
+import { fetchPayTerms } from "@/services/api/pay-terms";
+import { todayEastern } from "@/lib/eastern-date";
 import { createApiHandler } from "@/services/api/handler";
 import { createClient } from "@/services/db/server";
 import {
@@ -54,9 +57,11 @@ function toPeriodView(totals: PeriodTotals): PeriodTotalsView {
   };
 }
 
-export const GET = createApiHandler(async () => {
+export const GET = createApiHandler(async (_req, ctx) => {
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  // The viewer's day (Eastern), never UTC: after 7-8 PM Eastern a UTC date is already tomorrow and the week/month shifted early.
+  const today = todayEastern(new Date());
+  const payTerms = await fetchPayTerms(supabase, ctx.auth.companyId);
   const week = weekRange(today);
   const month = monthRange(today);
   const fetchFrom = week.from < month.from ? week.from : month.from;
@@ -81,7 +86,7 @@ export const GET = createApiHandler(async () => {
     supabase.from("fund_settings").select("*").is("deleted_at", null).limit(1),
     supabase
       .from("loads")
-      .select("rate_cents, pickup_date, delivery_date")
+      .select("id, origin, destination, status, miles, loaded_miles, deadhead_miles, pay_override_cents, rate_cents, pickup_date, delivery_date")
       .eq("status", "completed")
       .is("deleted_at", null),
     supabase
@@ -136,16 +141,18 @@ export const GET = createApiHandler(async () => {
     settings.target_cents,
   );
 
-  const loads: PeriodLoadRow[] = (
-    (loadsResult.data ?? []) as {
-      rate_cents: number | null;
-      pickup_date: string | null;
-      delivery_date: string | null;
-    }[]
-  ).map((load) => ({
-    rate_cents: load.rate_cents,
+  const loadRows = (loadsResult.data ?? []) as {
+    id: string; origin: string; destination: string; status: string; miles: number | null; loaded_miles: number | null;
+    deadhead_miles: number | null; pay_override_cents: number | null; rate_cents: number | null;
+    pickup_date: string | null; delivery_date: string | null;
+  }[];
+  // A completed load whose rate is $0.00/missing is valued from its miles at the pay terms in force (the same projection every
+  // pay page uses), so "settled" is not zero just because the rate was never typed. The count is returned so the page says so.
+  const loads: PeriodLoadRow[] = loadRows.map((load) => ({
+    rate_cents: loadEarnings(load, payTerms).cents,
     effective_date: load.delivery_date ?? load.pickup_date,
   }));
+  const earnedEstimate = totalEarnings(loadRows, payTerms);
 
   const costs: PeriodCostRow[] = [
     ...((expensesResult.data ?? []) as { amount_cents: number | null; expense_date: string }[]).map(
@@ -212,6 +219,7 @@ export const GET = createApiHandler(async () => {
     },
     settings,
     periods: { week: toPeriodView(weekTotals), month: toPeriodView(monthTotals) },
+    income_estimate: { loads_estimated_from_miles: earnedEstimate.estimatedCount, loads_without_value: earnedEstimate.noValueCount },
     suggestion: rawSuggestion
       ? { amount_cents: rawSuggestion.amountCents, period: "week", text: rawSuggestion.text }
       : null,

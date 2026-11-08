@@ -55,6 +55,8 @@ export interface FinancialSummary {
   /** Booked, not yet delivered (draft + confirmed loads): shown
    * separately, never added to revenue or net (D-01). */
   pipeline: FinancialComponentTotal & { loadsWithoutRateCount: number };
+  /** Delivered loads in the range with no rate, valued from miles x the pay terms in force. Separate from, and never added to, revenue_cents. null = none, or the estimate could not be made. */
+  estimatedPay?: { cents: number; loadCount: number; unvaluedCount: number } | null;
   exceptions: {
     /** Completed loads with no delivery date: excluded from revenue
      * and surfaced here, never silently dropped (C.2). */

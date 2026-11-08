@@ -65,7 +65,7 @@ export default function AssistantPage() {
 }
 
 function AssistantInner() {
-  usePageTitle("Assistant");
+  usePageTitle("Abel");
   const searchParams = useSearchParams();
   const [turns, setTurns] = useState<BotChatTurn[]>([]);
   const [pendingSummary, setPendingSummary] = useState<string | null>(null);
@@ -148,8 +148,8 @@ function AssistantInner() {
   return (
     <div className="assistant-page">
       <PageHeader
-        title="Assistant"
-        purpose="King — the same assistant as your Telegram bot, one conversation across both. Ask in plain words, or tell it to log something."
+        title="Abel"
+        purpose="Abel — the same assistant as your Telegram bot, one conversation across both. Ask in plain words, or tell it to log something."
       />
 
       <details className="assistant-capabilities">
@@ -183,7 +183,7 @@ function AssistantInner() {
             <div className="empty-state">
               <p className="empty-state-title">No conversation yet</p>
               <p>
-                This is where you talk to King. Ask what you&apos;ve spent on fuel this week, or tap a starter
+                This is where you talk to Abel. Ask what you&apos;ve spent on fuel this week, or tap a starter
                 below — you can also just say hello.
               </p>
             </div>

@@ -196,7 +196,7 @@ export default function HomePage() {
             <PackagePlus size={20} strokeWidth={1.75} aria-hidden="true" /> Add load
           </Link>
           <Link href="/more/assistant">
-            <Bot size={20} strokeWidth={1.75} aria-hidden="true" /> Ask the assistant
+            <Bot size={20} strokeWidth={1.75} aria-hidden="true" /> Ask Abel
           </Link>
         </div>
       </Reveal>
@@ -236,12 +236,18 @@ export default function HomePage() {
             </dd>
           </dl>
         )}
+        {state.status === "loaded" && state.summary.estimatedPay && state.summary.estimatedPay.loadCount > 0 && (
+          <p className="row-sub" role="note">
+            {state.summary.estimatedPay.loadCount} delivered load{state.summary.estimatedPay.loadCount === 1 ? " has" : "s have"} no rate recorded, so revenue shows $0 — at your pay terms times the miles that is about{" "}
+            {formatDollars(state.summary.estimatedPay.cents)} (an estimate, not added above).
+          </p>
+        )}
         <Link href="/money/summary">View full summary</Link>
       </Reveal>
       )}
 
       <AskAssistant
-        heading="King knows your loads, hours, money, and fleet — and can log things for you. Try one:"
+        heading="Abel knows your loads, hours, money, and fleet — and can log things for you. Try one:"
         prompts={[
           "How many hours do I have left today?",
           "What did I earn this week?",

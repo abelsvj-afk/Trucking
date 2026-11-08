@@ -43,6 +43,7 @@ import { buildLifePhaseText } from "./life-phase";
 import { formatOpenLoopsBlock } from "./threads";
 import { buildBotTools, executeWriteTool } from "./tools";
 import { gateExecutes } from "./execute-gate";
+import { selectToolsForTurn } from "./tool-budget";
 import { stripConfirmationProse } from "./reply-prose";
 import { STYLE_RULES } from "@/services/telegram/format-reply";
 import { withAge } from "@/lib/staleness";
@@ -695,7 +696,7 @@ export async function runAgentTurn(
   } catch {
     /* no learning this turn */
   }
-  const botTools = gateExecutes(buildBotTools(store), input.userText);
+  const botTools = gateExecutes(selectToolsForTurn(buildBotTools(store), input.userText), input.userText);
   const result = await runAgentLoop({
     provider,
     system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
