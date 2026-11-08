@@ -11,6 +11,32 @@ const CONFIRMATION_PROSE: RegExp[] = [
   /[^.!?\n]*\b(?:shall|should)\s+I\s+(?:go\s+ahead\s+and\s+)?(?:record|save|log|add)\b[^?\n]*\?/gi,
 ];
 
+/**
+ * Model-facing instruction lines that ride inside some tool results (a draft
+ * display used to end with "Show him all of this... then call send_email...").
+ * Tool results are grounding text for the MODEL; when an executed proposal's
+ * result is quoted back to the owner after his yes (resolvePending), these
+ * lines are stripped first - he must never see instructions meant for the
+ * model (live leak 2026-11-07, when a draft-save result was read back whole).
+ */
+const MODEL_ONLY_LINE: RegExp[] = [
+  /^\s*show him\b.*$/i,
+  /^\s*then call\s+\w+.*$/i,
+  /^\s*call\s+\w+\s+with\s+this\s+.*$/i,
+  /^\s*if he wants a change,?\s+call\s+.*$/i,
+  /^\s*nothing is sent until he says to send this text:.*$/i,
+  /^\s*model note\b.*$/i,
+];
+
+export function stripModelOnlyLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !MODEL_ONLY_LINE.some((p) => p.test(line)))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function stripConfirmationProse(reply: string): string {
   let out = reply;
   for (const pattern of CONFIRMATION_PROSE) out = out.replace(pattern, "");

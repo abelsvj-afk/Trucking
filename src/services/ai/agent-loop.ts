@@ -59,6 +59,19 @@ export interface AgentTool {
    */
   alwaysPropose?: boolean;
   /**
+   * This write is REVERSIBLE and is itself only a staging step for a
+   * later, separately-approved action (an email DRAFT: sending stays
+   * behind send_email's own always-propose gate). When the execute
+   * gate has established that the owner's own message names this
+   * action, the loop runs it immediately even if the model passed
+   * confirmation: "propose" - staging it as a proposal made the
+   * owner's "draft a reply" take two yeses and left later turns with
+   * no saved draft to send (live failure 2026-11-07: his YESes kept
+   * executing the draft-SAVE instead of the send). The flag governs
+   * only the loop; it never weakens the downstream approval gate.
+   */
+  immediateWhenNamed?: boolean;
+  /**
    * Validates raw proposed arguments without executing (§9). Used
    * by dump staging to check an extracted item against the target
    * tool's own Zod schema before it is stored as a proposal.
@@ -141,7 +154,9 @@ function specFor(tool: AgentTool): AiToolSpec {
       tool.description +
       (tool.alwaysPropose
         ? ' This tool NEVER records anything immediately, even when the owner directly orders it: every call is staged as a proposal and takes effect only when he replies yes to it. Tell him that plainly.'
-        : ' The "confirmation" argument is required: use "execute" ONLY when the owner directly told you in this message to record this (e.g. "log fuel $120 at Pilot"); use "propose" for anything you are suggesting yourself - a proposal is NOT recorded unless the owner replies yes.'),
+        : tool.immediateWhenNamed
+          ? ' This tool only stages work for a later action the owner approves separately, so when he asks for it, it is done immediately - pass confirmation "execute". Nothing final is recorded by it.'
+          : ' The "confirmation" argument is required: use "execute" ONLY when the owner directly told you in this message to record this (e.g. "log fuel $120 at Pilot"); use "propose" for anything you are suggesting yourself - a proposal is NOT recorded unless the owner replies yes.'),
     parameters: {
       ...tool.parameters,
       properties: {
@@ -257,7 +272,10 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
         continue;
       }
 
-      if (tool.access === "write" && (args.confirmation !== "execute" || tool.alwaysPropose)) {
+      if (
+        tool.access === "write" &&
+        (tool.alwaysPropose || (args.confirmation !== "execute" && !tool.immediateWhenNamed))
+      ) {
         const { confirmation: _dropped, ...writeArgs } = args;
         void _dropped;
 

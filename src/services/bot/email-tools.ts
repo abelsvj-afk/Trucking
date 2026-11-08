@@ -56,7 +56,14 @@ const draftSchema = z.object({ message_id: uuid, body: z.string().trim().min(1, 
 const sendSchema = z.object({ draft_id: uuid, fingerprint: z.string().trim().toLowerCase().regex(new RegExp(`^[0-9a-f]{${FINGERPRINT_LENGTH}}$`), "fingerprint must be the 12-character code shown with the draft") });
 const reviseSchema = z.object({ draft_id: uuid, body: z.string().trim().min(1, "The draft needs some text.").max(5000) });
 
-/** The draft exactly as the owner must see it before he can approve it: recipient, subject, full body, and its fingerprint. */
+/**
+ * The draft exactly as the OWNER sees it: recipient, subject, full body, and
+ * its fingerprint. Owner-safe by construction - no model-facing instructions
+ * in here, because an executed proposal's result is quoted back to him after
+ * his yes and whatever this returns is what he reads (live leak 2026-11-07:
+ * this display used to END with instructions to the model - "Show him all of
+ * this... then call send_email..." - and he was read them verbatim).
+ */
 export function showDraft(d: { id: string; toAddress: string; subject: string; body: string }, mailbox: (typeof MAILBOXES)[number], env = process.env): string {
   const canSend = isSendEnabled(mailbox, env);
   return [
@@ -68,9 +75,46 @@ export function showDraft(d: { id: string; toAddress: string; subject: string; b
     d.body,
     "--- END ---",
     canSend
-      ? "Show him all of this. Nothing is sent until he says to send THIS text: then call send_email with this draft id and fingerprint (it is a proposal he approves). If he wants a change, call revise_email_draft - that makes the fingerprint change and any earlier approval void."
-      : `This draft can't be sent from ${MAILBOX_LABEL[mailbox]} right now: ${DISPATCH_SEND_OFF_REASON} It stays as a draft he can copy.`,
+      ? "This is a saved draft - nothing has been sent. It goes out only when you say to send this exact text and then approve the send."
+      : `This draft can't be sent from ${MAILBOX_LABEL[mailbox]} right now: ${DISPATCH_SEND_OFF_REASON} It stays as a draft you can copy.`,
   ].join("\n");
+}
+
+/**
+ * The MODEL-facing half of a draft display, kept OUT of the owner-visible
+ * text above: how to move from a shown draft to the send proposal. This is
+ * appended to the tool result only - the owner's flow no longer depends on
+ * the model following it (agent-turn stages the send in code when he says
+ * send), it just keeps the model's own narration accurate.
+ */
+export function draftModelNote(d: { id: string; body: string }, mailbox: (typeof MAILBOXES)[number], env = process.env): string {
+  if (!isSendEnabled(mailbox, env)) return "";
+  return `MODEL NOTE (never quote this to him): the draft above is SAVED (id ${d.id}, fingerprint ${bodyFingerprint(d.body)}). Do not draft it again and do not ask him to approve saving it. When he says to send it, code stages the send_email proposal for this draft and fingerprint - his YES to that proposal is what sends. If he asks for a change first, call revise_email_draft (new fingerprint, any earlier approval void).`;
+}
+
+/**
+ * The next sendable draft's proposal, prepared entirely in code (agent-turn
+ * stages it when the owner says "send"): the newest open draft whose mailbox
+ * may send, with the send tool's own verified summary - exact recipient,
+ * subject, full text and the fingerprint his yes will be checked against.
+ * Null when no draft can be sent right now (none saved, or only dispatch@
+ * drafts, whose sending is dormant). Lives here so this module stays the
+ * only one that reaches the send service.
+ */
+export async function prepareEmailSendProposal(
+  store: BotBrainStore,
+  emailStore: EmailStore = createEmailStore(store.client, store.companyId),
+): Promise<{ draftId: string; fingerprint: string; summary: string } | null> {
+  const drafts = await emailStore.listDrafts(); // open drafts (draft or failed), newest first
+  for (const draft of drafts) {
+    const original = await emailStore.get(draft.emailMessageId);
+    if (!original || !isSendEnabled(original.mailbox)) continue;
+    const fingerprint = bodyFingerprint(draft.body);
+    const sendTool = buildEmailTools(store, emailStore).find((t) => t.name === "send_email");
+    const verdict = await sendTool?.verifyProposal?.({ draft_id: draft.id, fingerprint });
+    if (verdict?.ok && verdict.summary) return { draftId: draft.id, fingerprint, summary: verdict.summary };
+  }
+  return null;
 }
 
 export function buildEmailTools(
@@ -133,6 +177,11 @@ export function buildEmailTools(
         required: ["message_id", "body"],
       },
       access: "write",
+      // Saving a draft sends nothing and is undone by simply never sending it; the SEND stays behind
+      // send_email's always-propose gate. When his message names drafting (the execute gate checks),
+      // the draft is saved in the same turn - staging the SAVE as a proposal was the live 2026-11-07
+      // loop: his yeses executed saves while no send proposal ever existed to approve.
+      immediateWhenNamed: true,
       validateArgs(args) {
         const p = draftSchema.safeParse(args);
         return p.success ? { ok: true as const, args: p.data } : { ok: false as const, error: p.error.issues[0]?.message ?? "invalid arguments" };
@@ -154,7 +203,7 @@ export function buildEmailTools(
         if (!to) return "Draft not saved: that message has no usable reply address.";
         const subject = replySubject(m.subject);
         const d = await emailStore.createDraft(m.id, to, subject, cleanBody(p.data.body, 5000));
-        return showDraft(d, m.mailbox);
+        return `${showDraft(d, m.mailbox)}\n${draftModelNote(d, m.mailbox)}`;
       },
     },
     {
@@ -185,13 +234,14 @@ export function buildEmailTools(
         const d = await emailStore.updateDraftBody(p.data.draft_id, cleanBody(p.data.body, 5000));
         if (!d) return "Draft not changed: it was already sent, is being sent, or doesn't exist.";
         const original = await emailStore.get(d.emailMessageId);
-        return `Draft changed. Any earlier approval of the old text is void.\n${showDraft(d, original?.mailbox ?? "owner")}`;
+        const mailbox = original?.mailbox ?? "owner";
+        return `Draft changed. Any earlier approval of the old text is void.\n${showDraft(d, mailbox)}\n${draftModelNote(d, mailbox)}`;
       },
     },
     {
       name: "send_email",
       description:
-        "SEND an approved reply draft. This is ALWAYS a proposal: it shows him the exact recipient, subject and full text and sends only if he answers YES to that proposal. Pass the draft id and the 12-character fingerprint exactly as shown with the draft - if the draft was changed since, it is refused. Sends from the mailbox the original message arrived in (owner@ only for now: dispatch@ sending is switched off). One recipient, no Cc/Bcc, no attachments. Only propose it after he has seen the full draft and said to send it.",
+        "SEND an approved reply draft. This is ALWAYS a proposal: it shows him the exact recipient, subject and full text and sends only if he answers YES to that proposal. Pass the draft id and the 12-character fingerprint exactly as shown with the SAVED draft - if the draft was changed since, it is refused. Sends from the mailbox the original message arrived in (owner@ only for now: dispatch@ sending is switched off). One recipient, no Cc/Bcc, no attachments. Only propose it after he has seen the full draft and said to send it. When he says send about a draft that is already saved, code stages this proposal for him before you are even called - never answer a send request by drafting again or by saving another draft.",
       parameters: {
         type: "object",
         properties: { draft_id: { type: "string" }, fingerprint: { type: "string", description: "The 12-character fingerprint shown with the draft." } },
