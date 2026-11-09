@@ -770,6 +770,47 @@ export interface ResearchPageData {
 }
 
 /**
+ * Autonomous Research (2026-11-09 design, migration 00084): one
+ * stored knowledge row and one learning-agenda row, as the
+ * watch-picture route returns them. Freshness is computed server-side
+ * per standing topic - the page renders labels, never raw ages.
+ */
+export interface ResearchKnowledge {
+  watch_topic: string;
+  title: string;
+  content: string;
+  source_title: string | null;
+  source_url: string | null;
+  observed_at: string;
+}
+
+export interface LearningTopic {
+  id: string;
+  topic: string;
+  reason: string;
+  watch_topic: string | null;
+  proposed_by: string;
+  status: string;
+  research_run_id: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+/** GET /api/v1/watch-picture response. `available: false` = migration 00084 not applied yet. */
+export interface WatchPictureData {
+  available: boolean;
+  topics: {
+    key: string;
+    label: string;
+    why: string;
+    freshness: string;
+    latest: ResearchKnowledge | null;
+  }[];
+  knowledge: ResearchKnowledge[];
+  learning_topics: LearningTopic[];
+}
+
+/**
  * POST /api/v1/research-briefings/check-wires response (Home News
  * Banner design §4): the light pull's honest states. `available:
  * false` (HTTP 200) means the pull cannot run in this deployment yet

@@ -51,6 +51,9 @@ export interface ResearchConfig {
   deliveryQuietEndHourEt: number;
   /** Max hours a non-urgent briefing's buzz may be held by driving status (D-6). */
   deliveryHoldMaxHours: number;
+  // --- Autonomous Research (2026-11-09 design) ---
+  /** Max NEW learning-agenda proposals the tick files per company per tick. */
+  agendaMaxProposalsPerTick: number;
 }
 
 export function getResearchConfig(env: NodeJS.ProcessEnv = process.env): ResearchConfig {
@@ -83,5 +86,6 @@ export function getResearchConfig(env: NodeJS.ProcessEnv = process.env): Researc
     deliveryQuietStartHourEt: num("RESEARCH_DELIVERY_QUIET_START_HOUR_ET", 21),
     deliveryQuietEndHourEt: num("RESEARCH_DELIVERY_QUIET_END_HOUR_ET", 6),
     deliveryHoldMaxHours: num("RESEARCH_DELIVERY_HOLD_MAX_HOURS", 4),
+    agendaMaxProposalsPerTick: num("RESEARCH_AGENDA_MAX_PROPOSALS_PER_TICK", 2),
   };
 }

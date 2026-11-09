@@ -12,9 +12,11 @@ import type { ServiceStatus } from "@/types/service-status";
 import type {
   CheckWiresResult,
   DetentionStamp,
+  LearningTopic,
   ResearchBriefing,
   ResearchPageData,
   ResearchRun,
+  WatchPictureData,
 } from "@/types/entities";
 import type { DetentionSummary } from "@/lib/detention";
 import type { PaperworkState } from "@/lib/paperwork";
@@ -360,6 +362,13 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ topic }),
     }),
+  // Autonomous Research (2026-11-09 design): the standing watch +
+  // learning agenda panel on the Research page.
+  getWatchPicture: () => request<WatchPictureData>("/api/v1/watch-picture"),
+  approveLearningTopic: (id: string) =>
+    request<LearningTopic>(`/api/v1/learning-topics/${id}/approve`, { method: "POST" }),
+  dismissLearningTopic: (id: string) =>
+    request<LearningTopic>(`/api/v1/learning-topics/${id}/dismiss`, { method: "POST" }),
   // Home News Banner (2026-11-02 design §6.4): one briefing by id,
   // including dismissed - the deep-link fallback for a banner tap.
   getResearchBriefing: (id: string) => request<ResearchBriefing>(`/api/v1/research-briefings/${id}`),

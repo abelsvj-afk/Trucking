@@ -22,6 +22,7 @@ import {
   formatDigestMessage,
   type DeliveryClass,
 } from "./delivery";
+import { settleLearningTopicForRun } from "./learning-agenda";
 import { capHeadroom, evaluateTriggers, type CompanyRunHistory, type RunDecision } from "./triggers";
 import type { PressureSignal, ResearchSourceItem } from "./watchers/types";
 
@@ -299,6 +300,7 @@ export async function executeResearchRun(
         `update research_runs set status = 'insufficient_data', finished_at = now(), error_message = $2 where id = $1`,
         [runId, output.reason],
       );
+      await settleLearningTopicForRun(db, runId);
       return "insufficient_data";
     }
 
@@ -333,6 +335,7 @@ export async function executeResearchRun(
     if (briefingId) {
       await deliverBriefing(db, notifier, companyId, briefingId, decision, output, config, now, corridorStates);
     }
+    await settleLearningTopicForRun(db, runId);
     return "success";
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error during research run.";
@@ -342,6 +345,7 @@ export async function executeResearchRun(
         `update research_runs set status = 'failure', finished_at = now(), error_message = $2 where id = $1`,
         [runId, message],
       );
+      await settleLearningTopicForRun(db, runId);
     }
     return "failure";
   }
@@ -502,6 +506,7 @@ async function logSkippedRun(
       `update research_runs set status = $2, finished_at = now(), error_message = $3 where id = $1`,
       [existingRunId, status, detail],
     );
+    await settleLearningTopicForRun(db, existingRunId);
     return;
   }
   if (status === "skipped_cap") {

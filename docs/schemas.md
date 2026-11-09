@@ -707,6 +707,37 @@ The per-thread entity index (Telegram fix round, fixes 10/11/11A): the records o
 - `created_at` / `updated_at` timestamptz not null default now()
 - `deleted_at` timestamptz — soft delete
 
+### `research_knowledge` — created in 00084
+
+The durable knowledge layer (docs/design/autonomous-research.md): the research tick distills fresh watcher signals and a daily own-business snapshot (from the company's own records) into citable rows — every row carries its source and observed date; freshness is computed in code per standing topic (`src/lib/watch-topics.ts`), never stored as a flag that could rot.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `watch_topic` text not null check in ('own_business', 'industry', 'crypto', 'authority_pathways', 'build_plan')
+- `title` text not null
+- `content` text not null
+- `source_title` / `source_url` text — the cited source (null URL for his own records)
+- `observed_at` timestamptz not null — when the fact was observed, not when the row was written
+- `dedupe_key` text not null — one row per (company, dedupe_key); the business snapshot's key carries the Eastern day and refreshes in place
+- `created_at` timestamptz not null default now()
+- _RLS: owner sessions read their own company's rows; writes are the research job role / service role only_
+
+### `research_learning_topics` — created in 00084
+
+Abel's self-directed learning agenda (docs/design/autonomous-research.md §4): proposed research topics that wait for the owner's yes. Approval queues a normal manual `research_runs` row (recorded in `research_run_id`) which the runner settles to 'done' at any terminal state.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `topic` text not null — the research topic in plain words, as queued on approval
+- `reason` text not null default '' — why Abel wants to learn it, shown with the proposal
+- `watch_topic` text — the standing topic the gap belongs to (nullable for free-form topics)
+- `proposed_by` text not null default 'abel' check in ('abel', 'owner')
+- `status` text not null default 'proposed' check in ('proposed', 'queued', 'done', 'dismissed')
+- `research_run_id` uuid references research_runs (id) — set on approval
+- `created_at` timestamptz not null default now()
+- `decided_at` timestamptz — stamped on approve/dismiss
+- _RLS: owner sessions read their own company's rows, may insert only the exact proposal shape (proposed_by 'owner', status 'proposed'), and may update their own company's rows; the research job role has select/insert/update_
+
 ### `research_runner_heartbeat` — created in 00040
 
 - `id` integer primary key check (id = 1)

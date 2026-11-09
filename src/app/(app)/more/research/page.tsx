@@ -23,7 +23,7 @@ import { cleanResearchError } from "@/lib/research-errors";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatRelativeAge } from "@/lib/news-banner";
 import WordReveal from "@/components/WordReveal";
-import type { ResearchBriefing, ResearchPageData } from "@/types/entities";
+import type { ResearchBriefing, ResearchPageData, WatchPictureData } from "@/types/entities";
 import { formatDateTime } from "@/lib/time";
 
 type PageState =
@@ -43,6 +43,7 @@ const WATCHER_LABELS: Record<string, string> = {
   federal_register: "Federal rules (FMCSA)",
   industry_news: "Industry news feeds",
   fred_market: "Markets (FRED)",
+  coingecko_crypto: "Crypto prices (CoinGecko)",
   stooq_market: "Markets (Stooq - retired)",
   gdelt_geo: "Overseas & geopolitics (GDELT)",
   nws_weather: "Weather alerts (NWS)",
@@ -173,6 +174,114 @@ function BriefingSnapshot({
         </button>
       )}
     </li>
+  );
+}
+
+/**
+ * Autonomous Research panel (2026-11-09 design): the standing watch
+ * made legible - what Abel watches, why, and how fresh each picture
+ * is - plus the learning agenda, where topics Abel proposed wait for
+ * his yes. Self-contained data (its own fetch), so the briefing
+ * archive above/below is untouched when this layer is off or the
+ * migration hasn't landed: available:false renders one honest line.
+ */
+function WatchPanel() {
+  const [picture, setPicture] = useState<WatchPictureData | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const fetchPicture = useCallback(() => {
+    // The panel is an addition to this page, never a dependency of
+    // it: any failure here (route missing, client mock without the
+    // method, network) leaves the panel empty and the page intact.
+    try {
+      void apiClient
+        .getWatchPicture()
+        .then(setPicture)
+        .catch(() => setPicture(null));
+    } catch {
+      setPicture(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPicture();
+  }, [fetchPicture]);
+
+  async function decide(id: string, action: "approve" | "dismiss") {
+    setBusyId(id);
+    try {
+      if (action === "approve") await apiClient.approveLearningTopic(id);
+      else await apiClient.dismissLearningTopic(id);
+      fetchPicture();
+    } catch {
+      // The row stays as it was; a failed decide changes nothing.
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!picture) return null;
+  if (!picture.available) {
+    return (
+      <>
+        <h2>What Abel is watching</h2>
+        <p>
+          Abel&apos;s standing watch - your business, the industry, crypto awareness, your path to
+          your own authority, and your build plan - switches on with the next database update.
+        </p>
+      </>
+    );
+  }
+
+  const proposed = picture.learning_topics.filter((t) => t.status === "proposed");
+  const queued = picture.learning_topics.filter((t) => t.status === "queued");
+
+  return (
+    <>
+      <h2>What Abel is watching</h2>
+      <ul>
+        {picture.topics.map((topic) => (
+          <li key={topic.key}>
+            <strong>{topic.label}</strong> - {topic.freshness}. {topic.why}
+            {topic.latest && (
+              <>
+                <br />
+                Latest: {topic.latest.title} ({formatDateTime(topic.latest.observed_at, "America/New_York")})
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <h3>Learning agenda</h3>
+      {proposed.length === 0 && queued.length === 0 && (
+        <p>Nothing proposed right now - Abel files a topic here when a watched picture goes dark or stale.</p>
+      )}
+      {proposed.length > 0 && (
+        <ul>
+          {proposed.map((topic) => (
+            <li key={topic.id}>
+              <strong>{topic.topic}</strong>
+              {topic.reason && <> - {topic.reason}</>}
+              <br />
+              <button type="button" disabled={busyId === topic.id} onClick={() => void decide(topic.id, "approve")}>
+                {busyId === topic.id ? "Working…" : "Yes - research it"}
+              </button>{" "}
+              <button type="button" disabled={busyId === topic.id} onClick={() => void decide(topic.id, "dismiss")}>
+                No
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {queued.length > 0 && (
+        <ul>
+          {queued.map((topic) => (
+            <li key={topic.id}>Queued: {topic.topic} - the engine runs it on its next check-in.</li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -391,6 +500,7 @@ export default function ResearchPage() {
 
       {state.status === "loaded" && (
         <>
+          <WatchPanel />
           <h2>Engine</h2>
           {state.page.runner?.stale && (
             <p role="alert">

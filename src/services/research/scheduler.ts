@@ -21,6 +21,8 @@ import type { Queryable } from "@/services/ai/run-industry-briefing";
 import { getResearchConfig } from "./config";
 import { refreshCorridors } from "./corridor";
 import { evaluateResearchHealth, reportResearchConfigFailure, type HealthSummary } from "./health";
+import { distillSignalsToKnowledge, refreshBusinessKnowledge } from "./knowledge";
+import { runLearningAgendaPass } from "./learning-agenda";
 import { getEligibleCompanyIds, runResearchJob } from "./run-research";
 import { pollAllWatchers } from "./watchers";
 
@@ -125,6 +127,23 @@ export async function runResearchTick(source: "scheduler" | "endpoint"): Promise
 
       const provider = new OpenAiProvider();
       await runResearchJob(pool, provider, notifier, freshSignals, config);
+
+      // Autonomous Research passes (2026-11-09 design): distill what
+      // the watchers saw into durable per-company knowledge, refresh
+      // each company's own-business snapshot from its records, then
+      // file learning-agenda proposals for whatever went dark or
+      // stale. Each pass is independently guarded - a knowledge
+      // failure never costs a briefing, and pre-00084 databases skip
+      // inside the passes themselves.
+      for (const companyId of eligible) {
+        try {
+          await distillSignalsToKnowledge(pool, companyId, freshSignals);
+          await refreshBusinessKnowledge(pool, companyId);
+          await runLearningAgendaPass(pool, companyId, config.agendaMaxProposalsPerTick);
+        } catch (err) {
+          console.error(`[research] autonomous passes failed for company ${companyId}`, err);
+        }
+      }
 
       await writeHeartbeat(pool, source, { freshSignals: freshSignals.length });
     } finally {

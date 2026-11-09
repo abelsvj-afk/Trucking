@@ -22,6 +22,7 @@ export const SOURCE_WEIGHTS: Record<string, number> = {
   openstates: 0.9,
   stooq_market: 0.8,
   fred_market: 0.8,
+  coingecko_crypto: 0.8,
   gdelt_geo: 0.6,
   gdelt_tech: 0.6,
   industry_news: 0.6,
