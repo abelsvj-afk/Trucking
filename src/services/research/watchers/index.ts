@@ -7,6 +7,7 @@
 // source state stores nothing twice).
 
 import type { Queryable } from "@/services/ai/run-industry-briefing";
+import { cryptoSnapshotWatcher } from "./crypto-snapshot";
 import { eiaDieselWatcher } from "./eia-diesel";
 import { eiaRegionalWatcher } from "./eia-regional";
 import { federalRegisterWatcher } from "./federal-register";
@@ -31,6 +32,7 @@ export const WATCHERS: Watcher[] = [
   gdeltTechWatcher,
   nwsWeatherWatcher,
   openStatesWatcher,
+  cryptoSnapshotWatcher,
 ];
 
 interface WatcherStateRow extends Record<string, unknown> {

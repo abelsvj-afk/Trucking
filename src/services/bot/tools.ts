@@ -38,6 +38,7 @@ import { buildLearningTools } from "./learning-tools";
 import { buildFleetTools } from "./fleet-tools";
 import { buildDriverQuestionTools } from "./driver-question-tools";
 import { buildNewsTools } from "./news-tools";
+import { buildResearchAgendaTools } from "./research-agenda-tools";
 import { buildEmailTools } from "./email-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
@@ -1032,6 +1033,11 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   // work over the registry itself - dump staging and proposal
   // revision.
   tools.push(...buildExtendedReadTools(store), ...buildExtendedWriteTools(store));
+
+  // Autonomous Research (2026-11-09 design): the standing watch,
+  // stored knowledge, and the learning agenda - own module
+  // (research-agenda-tools.ts), same registry.
+  tools.push(...buildResearchAgendaTools(store));
 
   const writeRegistry = new Map(
     tools.filter((t) => t.access === "write").map((t) => [t.name, t] as const),
