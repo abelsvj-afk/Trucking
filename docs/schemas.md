@@ -1140,7 +1140,8 @@ The per-thread entity index (Telegram fix round, fixes 10/11/11A): the records o
 
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)
-- `email_message_id` uuid not null
+- `email_message_id` uuid not null — **00086: nullability dropped** (a standalone draft, e.g. a roadside packet send, has no original message; the composite tenant FK passes on NULL)
+- `mailbox` text constraint email_drafts_mailbox_valid check (mailbox in ('dispatch', 'owner')) — **added in 00086**: the sending mailbox recorded on a STANDALONE draft; NULL on reply drafts, whose mailbox is derived from the original message as before
 - `to_address` text not null check (length(btrim(to_address)) > 0)
 - `subject` text not null
 - `body` text not null check (length(btrim(body)) > 0)
@@ -1174,7 +1175,7 @@ The per-thread entity index (Telegram fix round, fixes 10/11/11A): the records o
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)
 - `mailbox` text not null constraint email_sent_mailbox_valid check (mailbox in ('dispatch', 'owner'))
-- `email_message_id` uuid not null — the inbox message it replies to; composite tenant FK `email_sent_message_tenant_fkey` -> email_messages (company_id, id)
+- `email_message_id` uuid not null — the inbox message it replies to; composite tenant FK `email_sent_message_tenant_fkey` -> email_messages (company_id, id); **00086: nullability dropped** — NULL for a standalone send (roadside packet)
 - `draft_id` uuid
 - `to_address` text not null check (length(btrim(to_address)) > 0)
 - `subject` text not null
@@ -1186,6 +1187,18 @@ The per-thread entity index (Telegram fix round, fixes 10/11/11A): the records o
 - `stored_in_sent_folder` boolean not null default false
 - `created_at` timestamptz not null default now()
 - `deleted_at` timestamptz
+
+### `roadside_packets` — created in 00086 (roadside inspection mode; docs/design/eld-roadside-overlay.md)
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `document_id` uuid — the documents row the packet file was filed as (documents also links back: related_entity_type 'roadside_packet', related_entity_id = this id)
+- `period_start` date not null, `period_end` date not null check (period_end >= period_start) — the roadside look-back the packet covers (Eastern calendar days, inclusive)
+- `body` text not null check (length(btrim(body)) > 0) — the exact packet text assembled from the one HOS read; the audit copy of what an officer was shown/sent
+- `sent_to` text, `email_sent_id` uuid, `sent_at` timestamptz — set when the packet was emailed to an officer
+- `telegram_sent_at` timestamptz — set when the packet file was sent into the owner's Telegram chat
+- `created_at` / `updated_at` timestamptz not null default now(); `deleted_at` timestamptz
+- RLS tenant isolation like the rest of the family; unique (company_id, id)
 
 ### Columns added to already-documented tables since 00032
 

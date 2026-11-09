@@ -27,7 +27,7 @@ import DriverPayHomeCard from "@/components/DriverPayHomeCard";
 import DayWrapCard from "@/components/DayWrapCard";
 import Reveal from "@/components/Reveal";
 import NumberTicker from "@/components/NumberTicker";
-import { Bot, ClipboardCheck, Fuel, PackagePlus } from "lucide-react";
+import { Bot, ClipboardCheck, Fuel, PackagePlus, ShieldCheck } from "lucide-react";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatSinceTime } from "@/lib/time";
@@ -179,6 +179,16 @@ export default function HomePage() {
             </Link>
           </>
         )}
+      </Reveal>
+
+      <Reveal aria-label="Roadside inspection" index={1}>
+        <Link href="/roadside" className="roadside-entry">
+          <ShieldCheck size={22} strokeWidth={1.75} aria-hidden="true" /> Roadside inspection — show an officer your logs
+        </Link>
+        <p className="row-sub">
+          One tap: your hours packet for today + the last 7 days, big and readable. Convenience copy — your
+          carrier&apos;s ELD and your paper log are the legal record.
+        </p>
       </Reveal>
 
       <ActiveLoadCard />

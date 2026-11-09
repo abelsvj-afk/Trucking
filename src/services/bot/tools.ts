@@ -39,6 +39,7 @@ import { buildFleetTools } from "./fleet-tools";
 import { buildDriverQuestionTools } from "./driver-question-tools";
 import { buildNewsTools } from "./news-tools";
 import { buildEmailTools } from "./email-tools";
+import { buildRoadsideTools } from "./roadside-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
 import { propagateMileage } from "@/services/fleet/mileage";
@@ -1016,6 +1017,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push(...buildDriverQuestionTools(store));
   tools.push(...buildNewsTools(store));
   tools.push(...buildEmailTools(store));
+  tools.push(...buildRoadsideTools(store));
 
   // Phase C (threads + people): forward thread records, open
   // loops, and the evidence-based per-person model - own module
