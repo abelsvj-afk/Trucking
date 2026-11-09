@@ -75,6 +75,24 @@ export interface TelegramPhotoAskOption {
 export interface TelegramPhotoReply {
   text: string;
   ask?: { pendingId: string; options: TelegramPhotoAskOption[] };
+  /**
+   * Telegram fix round (brief fixes 7-9): when the reply's photo was
+   * filed as a document, what it became - so a burst flush working a
+   * photo TOGETHER with load text can stage the attach in the same
+   * proposal instead of the photo vanishing into unattached storage.
+   */
+  filed?: FiledPhotoInfo;
+}
+
+/** A photo that intake stored as a document, with the identifiers read from it. */
+export interface FiledPhotoInfo {
+  documentId: string;
+  fileName: string;
+  identifiers: {
+    trailerNumber?: string;
+    pickupNumber?: string;
+    sealNumber?: string;
+  };
 }
 
 export type TelegramPhotoResult = string | TelegramPhotoReply;

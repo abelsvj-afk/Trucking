@@ -21,12 +21,12 @@ import { parseDispatchTrip } from "@/lib/dispatch-trip";
 import { formatReply } from "@/services/telegram/format-reply";
 import { describeIncomingMedia, extractFlair, type Flair } from "@/services/telegram/flair";
 import { formatDispatchSuggestion, type DispatchSuggestion } from "@/services/ai/dispatch";
-import { formatRecordableOutcome, type StageRecordablesResult } from "@/services/bot/stage-recordables";
+import { formatRecordableOutcome, type StageBundleContext, type StageRecordablesResult } from "@/services/bot/stage-recordables";
 import type { BotChatInput, BotChatOutput } from "@/services/ai/bot-chat";
 import { buildDispatchContext, classifyTelegramText, memoryKindFor, stripCapturePrefix } from "./context";
 import { type TelegramBurstCollector, type TelegramBurstItem } from "./burst";
 import type { TelegramStore } from "./store";
-import type { TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
+import type { FiledPhotoInfo, TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
 import type { TelegramVoice, VoiceIntakeResult } from "./voice-intake";
 import { formatExemplarsBlock } from "@/services/bot/voice-corpus";
 import { forwardSourceLabel, formatForwardBundle } from "./forward-format";
@@ -152,6 +152,7 @@ export interface TelegramDeps {
   stageRecordables?: (
     userText: string,
     items: unknown,
+    bundle?: StageBundleContext,
   ) => Promise<StageRecordablesResult>;
   /**
    * Lane 1 (audit B-1): the dispatch_helper kill switch (global AI
@@ -177,6 +178,13 @@ export interface TelegramDeps {
     caption: string | undefined,
     mediaGroupId?: string,
   ) => Promise<TelegramPhotoResult>;
+  /**
+   * Telegram fix round (fix 11A): records a just-filed photo in the
+   * thread's entity index (by file name + the identifiers read from
+   * it), so a later "attach it to load 1874" can find the document
+   * in code. Wired from the brain store by the webhook; best-effort.
+   */
+  indexFiledPhoto?: (chatId: string, filed: FiledPhotoInfo) => Promise<void>;
   /**
    * Phase C: best-effort thread capture for a dispatch message -
    * reconstructs the conversation into a stored thread record
@@ -327,6 +335,14 @@ async function processTextItems(
   items: TelegramBurstItem[],
   chatId: number,
   deps: TelegramDeps,
+  options?: {
+    /** Photos filed at this bundle's flush, forwarded WITH the text (brief fixes 7-9). */
+    documents?: FiledPhotoInfo[];
+    /** The photo intake replies for those photos (used when they don't ride a dispatch bundle). */
+    photoReplies?: string[];
+    /** ChatGPT T-004: the dedup claim failed - this turn is read-only. */
+    writesRefused?: boolean;
+  },
 ): Promise<ProcessedTextTurn> {
   const store = deps.store ?? null;
   const ctx: LoadedContext = store
@@ -365,12 +381,28 @@ async function processTextItems(
     let afterSend: (() => Promise<void>) | undefined;
     let dispatchDisabled = false;
 
+    // --- photos filed with this bundle (fix round) --------------
+    // When they ride a forwarded dispatch bundle, the trip review
+    // carries the attach lines; the segment here just confirms the
+    // filing. Otherwise the intake replies ARE the segment.
+    if (options?.photoReplies && options.photoReplies.length > 0) {
+      if (forwardItems.length > 0 && (options.documents?.length ?? 0) > 0) {
+        segments.push(options.documents!.map((d) => `📎 "${d.fileName}" — filed with this bundle.`).join("\n"));
+      } else {
+        segments.push(options.photoReplies.join("\n\n"));
+      }
+    }
+
     // --- capture dictations (remember: / instruction:) ---------
     for (const item of captureItems) {
       const intent = classifyTelegramText(item.text, false, "telegram");
       const content = stripCapturePrefix(item.text);
       const kind = intent === "instruction" ? "instruction" : memoryKindFor(content);
-      if (store) {
+      if (store && options?.writesRefused) {
+        segments.push(
+          `I couldn't safely save that this turn — a storage hiccup kept me from verifying the message wasn't a duplicate, so nothing was recorded: "${content}". Say it again in a moment.`,
+        );
+      } else if (store) {
         await store.saveMemory(kind, content);
         segments.push(
           kind === "instruction"
@@ -431,13 +463,20 @@ async function processTextItems(
             (suggestion.suggested_reply ? `\n\nSuggested reply:\n${suggestion.suggested_reply}` : "")
           : formatDispatchSuggestion(suggestion);
         // §11: recordables ride the same propose->yes discipline.
-        if (deps.stageRecordables && (suggestion.recordable_items.length > 0 || trip)) {
+        // T-004: never staged on a read-only (claim-failed) turn.
+        if (deps.stageRecordables && !options?.writesRefused && (suggestion.recordable_items.length > 0 || trip)) {
           try {
-            const outcome = await deps.stageRecordables(combinedForward, suggestion.recordable_items);
+            const outcome = await deps.stageRecordables(combinedForward, suggestion.recordable_items, {
+              chatId: String(chatId),
+              documents: options?.documents,
+            });
             reply += formatRecordableOutcome(outcome);
           } catch (err) {
             console.error("[telegram] failed to stage dispatch recordables", err);
           }
+        } else if (options?.writesRefused && (suggestion.recordable_items.length > 0 || trip)) {
+          reply +=
+            "\n\nI worked that over, but I didn't stage anything from it — a storage hiccup kept me from verifying the message wasn't a duplicate. Send it again in a moment and I'll line it all up for your yes.";
         }
         segments.push(reply);
         const bundleText = combinedForward;
@@ -497,6 +536,11 @@ async function processTextItems(
           payPinText: ctx.payPinText,
           lifePhaseText: ctx.lifePhaseText,
           openLoopsText: ctx.openLoopsText,
+          // Fix round: the thread key enables code-side reference
+          // resolution + the entity index; T-004 makes the turn
+          // read-only when the dedup claim failed.
+          chatId: String(chatId),
+          writesRefused: options?.writesRefused,
         };
         if (deps.runAgent && store) {
           const agentOutput = await deps.runAgent(chatInput);
@@ -505,7 +549,9 @@ async function processTextItems(
         }
         const output = await deps.runChat(chatInput);
         let reply = output.reply;
-        if (output.memory && store) {
+        if (output.memory && store && options?.writesRefused) {
+          reply += "\n\n(I'd save that to memory, but this turn was read-only — a storage hiccup. Nothing was saved.)";
+        } else if (output.memory && store) {
           try {
             await store.saveMemory(output.memory.kind, output.memory.content);
             reply += "\n\n(Saved that to memory.)";
@@ -564,6 +610,135 @@ async function persistTextTurn(
   } catch (err) {
     console.error("[telegram] failed to persist conversation turn", err);
   }
+}
+
+/**
+ * Telegram fix round: works ONE flushed bundle - text items and
+ * any photos that joined it - and sends exactly ONE consolidated
+ * reply. Photos are filed FIRST, in arrival order, so a photo
+ * forwarded with dispatch text exists (with its read identifiers)
+ * by the time the text turn stages the load it belongs to; the
+ * attach then rides the same proposal batch (fixes 7-9). A photo
+ * that fails to store says so in the reply - never silently lost.
+ */
+async function flushBundleTurn(
+  chatId: number,
+  deps: TelegramDeps,
+  store: TelegramStore | null,
+  items: TelegramBurstItem[],
+): Promise<void> {
+  const mediaItems = items.filter((i) => i.media);
+  const textItems = items.filter((i) => !i.media);
+  const documents: FiledPhotoInfo[] = [];
+  const photoReplies: string[] = [];
+  for (const item of mediaItems) {
+    const media = item.media!;
+    if (!deps.handlePhoto) {
+      photoReplies.push(
+        "I got a photo with that bundle, but photo filing isn't configured on the server yet, so I couldn't store it. For now, upload it from More → Documents in the app.",
+      );
+      continue;
+    }
+    try {
+      const result = await deps.handlePhoto(media.photo, media.caption ?? (item.text || undefined), media.mediaGroupId);
+      if (typeof result === "string") {
+        photoReplies.push(result);
+      } else {
+        let text = result.text;
+        if (result.ask) {
+          // Inside a bundle the ask rides the consolidated reply as
+          // a numbered list (the solo path's buttons don't fit one
+          // combined message); the pending question itself is the
+          // same, and a number/name answer resolves it as always.
+          text += `\n${result.ask.options.map((o, i) => `${i + 1}. ${o.label}`).join("\n")}\n(Reply with a number — or just tell me what it is.)`;
+        }
+        photoReplies.push(text);
+        if (result.filed) {
+          documents.push(result.filed);
+          if (deps.indexFiledPhoto) {
+            try {
+              await deps.indexFiledPhoto(String(chatId), result.filed);
+            } catch (err) {
+              console.error("[telegram] filed-photo indexing failed", err);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[telegram] bundle photo intake failed", err);
+      photoReplies.push("One photo in that bundle wouldn't store — nothing was saved for it. Send it again on its own and I'll file it.");
+    }
+  }
+
+  if (textItems.length === 0) {
+    const reply = photoReplies.join("\n\n") || "Got it.";
+    await sendPhotoReply(deps, chatId, reply);
+    if (store) {
+      try {
+        for (const item of mediaItems) {
+          await store.saveMessage(chatId, "user", item.media?.caption ? `[photo] ${item.media.caption}` : "[photo]");
+        }
+        await store.saveMessage(chatId, "assistant", reply);
+      } catch (err) {
+        console.error("[telegram] failed to persist photo bundle turn", err);
+      }
+    }
+    return;
+  }
+
+  const outcome = await processTextItems(textItems, chatId, deps, { documents, photoReplies });
+  await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+  const lastItem = textItems[textItems.length - 1] ?? mediaItems[mediaItems.length - 1];
+  if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, lastItem?.messageId);
+  if (outcome.afterSend) await outcome.afterSend();
+  if (outcome.persist) {
+    if (store && mediaItems.length > 0) {
+      try {
+        for (const item of mediaItems) {
+          await store.saveMessage(chatId, "user", item.media?.caption ? `[photo] ${item.media.caption}` : "[photo]");
+        }
+      } catch (err) {
+        console.error("[telegram] failed to persist bundle photo markers", err);
+      }
+    }
+    await persistTextTurn(store, chatId, textItems, outcome.reply);
+  }
+}
+
+/**
+ * The flush/error handler pair for one chat's bundles - shared by
+ * the text enqueue, the photo join, and the T-002 recovery sweep,
+ * so every path works a bundle the same way. The error handler
+ * releases every update claim in the bundle (CD-6 widened), so a
+ * failed flush is redelivered by Telegram instead of swallowed.
+ */
+function makeBundleHandlers(
+  chatId: number,
+  deps: TelegramDeps,
+  store: TelegramStore | null,
+): {
+  flush: (items: TelegramBurstItem[]) => Promise<void>;
+  onError: (items: TelegramBurstItem[]) => Promise<void>;
+} {
+  return {
+    flush: (items) => flushBundleTurn(chatId, deps, store, items),
+    onError: async (items) => {
+      if (store?.releaseTelegramUpdate) {
+        for (const item of items) {
+          if (item.updateId === undefined) continue;
+          try {
+            await store.releaseTelegramUpdate(item.updateId);
+          } catch (err) {
+            console.error(
+              "[telegram] FAILED to release a burst update claim after a failed bundle flush - " +
+                "Telegram's redelivery of that update will be ignored as a duplicate",
+              err,
+            );
+          }
+        }
+      }
+    },
+  };
 }
 
 /**
@@ -766,11 +941,17 @@ async function processTelegramUpdate(
   // Telegram redelivers an update when the reply send fails or the
   // request times out, and writes execute inside a turn - without
   // the claim, a redelivery could log the same fuel purchase twice
-  // or store the same photo twice. A failed claim check (store
-  // trouble) never eats the message: the turn proceeds and the
-  // context load below degrades honestly if the store is down.
+  // or store the same photo twice.
+  //
+  // ChatGPT T-004 (fix round): when the claim call itself FAILS,
+  // dedup is not established for this update - the old code
+  // proceeded at full power, so a redelivery could double-apply a
+  // write. Now the turn runs READ-ONLY: reads proceed (the failure
+  // is logged loudly), and every write path below checks
+  // claimFailed and refuses. No write without established dedup.
+  let claimFailed = false;
   if (store && typeof update.update_id === "number" && store.claimTelegramUpdate) {
-    let claimed = true;
+    let claimed = false;
     try {
       claimed = await store.claimTelegramUpdate(update.update_id);
       // CD-6: remember the claim so the wrapper can release it if
@@ -778,15 +959,38 @@ async function processTelegramUpdate(
       // actually landed (a claim call that threw recorded nothing).
       if (claimed) claim.updateId = update.update_id;
     } catch (err) {
-      console.error("[telegram] update claim failed", err);
+      claimFailed = true;
+      console.error("[telegram] update claim FAILED - this turn runs read-only, writes refused (T-004)", err);
     }
-    if (!claimed) return "duplicate_ignored";
+    if (!claimed && !claimFailed) return "duplicate_ignored";
+  }
+
+  // T-002 recovery sweep: bundles persisted by an earlier process
+  // (or by a flush that died) are claimed and worked here, before
+  // this update - exactly one consolidated response each.
+  if (deps.burstCollector?.recoverDue) {
+    try {
+      await deps.burstCollector.recoverDue((key) => {
+        const recoveredChatId = Number(key);
+        const handlers = makeBundleHandlers(Number.isNaN(recoveredChatId) ? chatId : recoveredChatId, deps, store);
+        return { flush: handlers.flush, onError: handlers.onError };
+      });
+    } catch (err) {
+      console.error("[telegram] burst recovery sweep failed", err);
+    }
   }
 
   // Live Location: a position fix (the first share or an edit of it) is
   // data, not conversation - it never gets a chat reply of its own.
   const locationFix = update.edited_message?.location ?? update.message?.location;
   if (locationFix) {
+    // T-004: recording a position is a write - refused when dedup
+    // could not be established. No reply exists for location, so
+    // the refusal is the log line and the dropped fix.
+    if (claimFailed) {
+      console.error("[telegram] location fix refused - update claim failed (T-004)");
+      return "location_ignored";
+    }
     if (!deps.handleLocation) return "location_ignored";
     const stamp = update.edited_message?.edit_date ?? update.edited_message?.date ?? update.message?.date;
     const atMs = typeof stamp === "number" ? stamp * 1000 : Date.now();
@@ -812,6 +1016,19 @@ async function processTelegramUpdate(
   // A2: a double-tap or a Telegram retry of the tap hits the claim
   // above and never settles twice).
   if (update.callback_query) {
+    // T-004: a tap settles a photo purpose (a write) - refused when
+    // dedup could not be established. The tap is answered so
+    // Telegram stops spinning, and he is told nothing changed.
+    if (claimFailed) {
+      if (update.callback_query.id && deps.answerCallbackQuery) {
+        try {
+          await deps.answerCallbackQuery(update.callback_query.id, "Storage hiccup — nothing was changed. Try again in a moment.");
+        } catch (err) {
+          console.error("[telegram] answerCallbackQuery failed", err);
+        }
+      }
+      return "callback_ignored";
+    }
     return handleCallbackQuery(update.callback_query, chatId, deps, store);
   }
 
@@ -851,6 +1068,51 @@ async function processTelegramUpdate(
   }
   if (photo && photo.length > 0) {
     const caption = update.message?.caption?.trim() || undefined;
+    // T-004: filing a photo is a write - refused when the update's
+    // dedup claim could not be established.
+    if (claimFailed) {
+      const reply =
+        "I got your photo, but I hit a storage hiccup verifying the message, so I didn't store it — filing it now could store it twice if the message gets delivered again. Send it once more in a moment and I'll file it.";
+      await sendPhotoReply(deps, chat.id, reply);
+      if (store) {
+        try {
+          await store.saveMessage(chatId, "user", caption ? `[photo] ${caption}` : "[photo]");
+          await store.saveMessage(chatId, "assistant", reply);
+        } catch (err) {
+          console.error("[telegram] failed to persist refused photo turn", err);
+        }
+      }
+      return "photo_replied";
+    }
+    // Brief fix 7: a photo that arrives while a bundle for this
+    // chat is collecting JOINS the bundle - it is filed at the
+    // flush and worked as one package with the text (the Trip 1874
+    // shape: dispatch forwards, then the trailer photo). No open
+    // bundle = the solo path below, unchanged.
+    if (deps.burstCollector?.collectMedia) {
+      const handlers = makeBundleHandlers(chatId, deps, store);
+      const joined = deps.burstCollector.collectMedia(
+        String(chatId),
+        {
+          updateId: typeof update.update_id === "number" ? update.update_id : undefined,
+          text: caption ?? "",
+          isForwarded: Boolean(
+            update.message?.forward_origin ?? update.message?.forward_from ?? update.message?.forward_date,
+          ),
+          messageId: update.message?.message_id,
+          media: {
+            kind: "photo",
+            photo,
+            caption,
+            mediaGroupId: update.message?.media_group_id,
+            sentAt: update.message?.date,
+          },
+        },
+        handlers.flush,
+        handlers.onError,
+      );
+      if (joined) return "burst_queued";
+    }
     let result: TelegramPhotoResult | null = null;
     let reply: string;
     if (deps.handlePhoto) {
@@ -902,6 +1164,15 @@ async function processTelegramUpdate(
           reply = `${result.text}\n\n${numbered}\n\n(Reply with a number — or just tell me what it is.)`;
         }
         await sendPhotoReply(deps, chat.id, reply);
+      }
+    }
+    // Fix 11A: a solo photo joins the thread index too, so the
+    // NEXT message ("attach it to load 1874") can find it in code.
+    if (result && typeof result !== "string" && result.filed && deps.indexFiledPhoto) {
+      try {
+        await deps.indexFiledPhoto(String(chatId), result.filed);
+      } catch (err) {
+        console.error("[telegram] filed-photo indexing failed", err);
       }
     }
     if (store) {
@@ -984,38 +1255,16 @@ async function processTelegramUpdate(
   // if the flush itself fails, every claim in the bundle is
   // released (CD-6 widened to the bundle) so Telegram's redelivery
   // reprocesses instead of being swallowed as duplicates.
-  if (deps.burstCollector) {
-    deps.burstCollector.enqueue(
-      String(chatId),
-      item,
-      async (bundleItems) => {
-        const outcome = await processTextItems(bundleItems, chatId, deps);
-        await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
-        if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, bundleItems[bundleItems.length - 1]?.messageId);
-        if (outcome.afterSend) await outcome.afterSend();
-        if (outcome.persist) await persistTextTurn(store, chatId, bundleItems, outcome.reply);
-      },
-      async (bundleItems) => {
-        if (store?.releaseTelegramUpdate) {
-          for (const bundleItem of bundleItems) {
-            if (bundleItem.updateId === undefined) continue;
-            try {
-              await store.releaseTelegramUpdate(bundleItem.updateId);
-            } catch (err) {
-              console.error(
-                "[telegram] FAILED to release a burst update claim after a failed bundle flush - " +
-                  "Telegram's redelivery of that update will be ignored as a duplicate",
-                err,
-              );
-            }
-          }
-        }
-      },
-    );
+  if (deps.burstCollector && !claimFailed) {
+    const handlers = makeBundleHandlers(chatId, deps, store);
+    deps.burstCollector.enqueue(String(chatId), item, handlers.flush, handlers.onError);
     return "burst_queued";
   }
 
-  const outcome = await processTextItems([item], chatId, deps);
+  // T-004: on a claim-failed turn the bundle is skipped too (its
+  // flush could outlive the failure and write later) - the turn is
+  // worked immediately, read-only.
+  const outcome = await processTextItems([item], chatId, deps, { writesRefused: claimFailed });
   await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
   if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, item.messageId);
   if (outcome.afterSend) await outcome.afterSend();

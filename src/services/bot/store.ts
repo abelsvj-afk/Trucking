@@ -22,6 +22,7 @@ import { createOutcomesStore } from "./store-outcomes";
 import type { Outcome, OutcomeRow } from "./learning";
 import { createPayStore } from "./store-pay";
 import { createThreadStore } from "./store-threads";
+import { createThreadMemoryStore, type ThreadEntityRow } from "./store-entities";
 import { isMissingColumnError } from "./tool-helpers";
 import { getEmbeddingProvider, toVectorLiteral, tryEmbed } from "./embeddings";
 import { applySupersession } from "./memory-lifecycle";
@@ -190,6 +191,33 @@ export interface BotBrainStore extends TelegramStore {
   isBotChatEnabled(): Promise<boolean>;
   /** The dispatch_helper kill switch, same convention - Lane 1 (audit B-1): the Telegram dispatch path must honor it exactly like the web surfaces do. */
   isDispatchHelperEnabled(): Promise<boolean>;
+  /**
+  // --- Telegram fix round (migration 00083): durable bursts + thread entity index (store-entities.ts) ---
+  /** Persists the chat's pending burst bundle (items verbatim + flush deadline). Best-effort: a missing table degrades to the in-memory collector. */
+  savePendingBurst(chatId: string, items: unknown[], dueAtIso: string): Promise<void>;
+  /** The persisted pending bundle for a chat, or null. */
+  loadPendingBurst(chatId: string): Promise<{ items: unknown[]; dueAt: string } | null>;
+  /** Claims every overdue, unclaimed (or stale-claimed) bundle for this company - the restart-recovery sweep. */
+  claimDuePendingBursts(nowIso: string, staleClaimBeforeIso: string): Promise<{ chatId: string; items: unknown[] }[]>;
+  /** Claims ONE chat's persisted bundle for the in-memory flush about to work it; false = a recovery sweep already owns it (stand down). No row = nothing to coordinate, proceed. */
+  claimPendingBurst(chatId: string): Promise<boolean>;
+  /** Drops the persisted bundle (after a successful flush). */
+  clearPendingBurst(chatId: string): Promise<void>;
+  /** Un-claims a bundle whose flush failed, so the sweep can retry it. */
+  releasePendingBurstClaim(chatId: string): Promise<void>;
+  /** Records (or extends) one record the conversation thread has touched: its keys, its label in words, optionally as the thread's current subject. */
+  upsertThreadEntity(entry: {
+    chatId: string;
+    entityType: ThreadEntityRow["entityType"];
+    entityId: string | null;
+    keys: { kind: string; value: string }[];
+    label: string;
+    isCurrent?: boolean;
+  }): Promise<void>;
+  /** The thread's indexed records, most recently touched first. Empty before migration 00083. */
+  listThreadEntities(chatId: string, limit?: number): Promise<ThreadEntityRow[]>;
+  /** Moves the current-subject pointer to an indexed row. */
+  markThreadEntityCurrent(chatId: string, rowId: string): Promise<void>;
   /**
    * Lane 1 (audit B-2): claims a Telegram update_id for processing.
    * Resolves true when this caller is the FIRST to claim it (proceed)
@@ -611,6 +639,9 @@ export function createBotStore(
 
     // --- Phase C (threads + people): see store-threads.ts ---
     ...createThreadStore(supabase, company),
+
+    // --- Telegram fix round: durable bursts + thread entity index (store-entities.ts) ---
+    ...createThreadMemoryStore(supabase, company, channel),
 
     // --- Phase E (voice + twin) ---
 

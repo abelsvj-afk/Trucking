@@ -107,6 +107,9 @@ function deps(
   };
 }
 
+/** Telegram fix round: settle paths return { text, filed } so the burst linker can attach the photo; the words are unchanged. */
+const textOf = (r: unknown): string => (typeof r === "string" ? r : (r as { text: string }).text);
+
 describe("handleTelegramPhotoIntelligent — the §3 beats", () => {
   it("capability off: the legacy intake runs untouched and no classifier is built (A3)", async () => {
     const world = fakeClient();
@@ -141,8 +144,10 @@ describe("handleTelegramPhotoIntelligent — the §3 beats", () => {
       photo_purpose_source: "caption",
       photo_purpose_confidence: null,
     });
-    expect(reply as string).toContain("marked as a dash photo");
-    expect(reply as string).toContain('Your note on it: "odometer"');
+    expect(textOf(reply)).toContain("marked as a dash photo");
+    expect(textOf(reply)).toContain('Your note on it: "odometer"');
+    // Fix round: the filed metadata rides along for the burst linker.
+    expect((reply as { filed?: { documentId: string } }).filed?.documentId).toBe(DOC_ID);
   });
 
   it("a confident truck read narrates and stamps — never the generic filing reply alone (A1)", async () => {
@@ -159,9 +164,8 @@ describe("handleTelegramPhotoIntelligent — the §3 beats", () => {
       deps(world, { createVisionProvider: vision.create as never }),
       PHOTOS,
     );
-    expect(typeof reply).toBe("string");
-    expect(reply as string).toContain("unit 214");
-    expect(reply as string).toContain("marked as the truck");
+    expect(textOf(reply)).toContain("unit 214");
+    expect(textOf(reply)).toContain("marked as the truck");
     expect(world.docUpdates).toContainEqual({
       photo_purpose: "truck_exterior",
       photo_purpose_source: "vision",
@@ -193,7 +197,7 @@ describe("handleTelegramPhotoIntelligent — the §3 beats", () => {
       PHOTOS,
     );
     expect(processDocument).toHaveBeenCalledTimes(1);
-    expect(reply as string).toContain("I read it as a bol");
+    expect(textOf(reply)).toContain("I read it as a bol");
     expect(world.docUpdates).toContainEqual(
       expect.objectContaining({ photo_purpose: "paperwork", photo_purpose_source: "vision" }),
     );
@@ -255,8 +259,8 @@ describe("handleTelegramPhotoIntelligent — the §3 beats", () => {
       deps(world, { createVisionProvider: create as never }),
       PHOTOS,
     );
-    expect(reply as string).toContain("couldn't tell what it is");
-    expect(reply as string).toContain("just stored it");
+    expect(textOf(reply)).toContain("couldn't tell what it is");
+    expect(textOf(reply)).toContain("just stored it");
     expect(world.docUpdates).toHaveLength(0);
     expect(world.pendingInserts).toHaveLength(0);
   });

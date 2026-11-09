@@ -16,6 +16,8 @@
 
 import { buildBotTools } from "./tools";
 import { parseDispatchTrip, tripToCreateLoadArgs, type ParsedTrip } from "@/lib/dispatch-trip";
+import { loadLabel } from "./reference-resolution";
+import type { FiledPhotoInfo } from "@/services/telegram/photo-intake";
 import { randomUUID } from "node:crypto";
 import {
   formatBatchProposal,
@@ -45,22 +47,45 @@ export function tripReview(trip: ParsedTrip, brokerResolved: boolean): string {
     lines.push(`Broker: ${trip.brokerName ?? "not given"}${brokerResolved ? "" : trip.brokerName ? " (not on file yet — saved without a broker link)" : ""} · Ref: ${trip.brokerReference ?? "not given"}`);
   }
   for (const st of trip.stops) {
+    // An unnumbered leg keeps the header dispatch wrote ("LOT TO") so
+    // he sees the leg as its own stop, never folded into the one above.
+    const headerNote = st.header && !/^STOP\s+\d+/i.test(st.header) ? `${st.header} · ` : "";
     lines.push(
-      `Stop ${st.seq} · ${st.kind === "pickup" ? "PICKUP" : st.kind === "delivery" ? "DELIVERY" : "STOP"}: ${st.name ?? "(no name)"}`,
+      `Stop ${st.seq} · ${headerNote}${st.kind === "pickup" ? "PICKUP" : st.kind === "delivery" ? "DELIVERY" : "STOP"}: ${st.name ?? "(no name)"}`,
       `  ${st.address ?? "(no address)"}`,
       `  Appointment: ${st.appointmentText ?? "not given"}${st.appointmentAt ? "" : st.appointmentText ? " (zone not recognized — saved as text only, no time set)" : ""}`,
     );
   }
   const mi = (n: number | null) => (n === null ? "not given" : `${n.toLocaleString("en-US", { minimumFractionDigits: 2 })} mi`);
   lines.push(`Miles: deadhead ${mi(trip.deadheadMiles)} · loaded ${mi(trip.loadedMiles)} · total ${mi(trip.totalMiles)}`);
+  if (trip.milesMismatch) {
+    lines.push(
+      `Heads up: the miles don't add up in the message itself (deadhead + loaded = ${mi(trip.milesMismatch.partsSum)}, total printed = ${mi(trip.milesMismatch.printedTotal)}). I kept all three figures exactly as dispatch printed them.`,
+    );
+  }
+  if (trip.warnings.length > 0) {
+    lines.push("Check before you say yes:", ...trip.warnings.map((w) => `  ⚠ ${w}`));
+  }
   if (trip.tasks.length > 0) lines.push("Requirements:", ...trip.tasks.map((t) => `  • ${t}`));
   return lines.join("\n");
+}
+
+/**
+ * Telegram fix round (brief fixes 7-9): what arrived WITH the
+ * forwarded text in the same burst - photos filed at flush time.
+ * Things forwarded together are one package: the attach proposals
+ * ride the SAME batch as the load they belong to.
+ */
+export interface StageBundleContext {
+  chatId?: string;
+  documents?: FiledPhotoInfo[];
 }
 
 export async function stageRecordables(
   store: BotBrainStore,
   userText: string,
   rawItems: unknown,
+  bundle?: StageBundleContext,
 ): Promise<StageRecordablesResult> {
   // A structured trip assignment is read by CODE (lib/dispatch-trip), not by
   // the model: the model path missed origin/destination on exactly this
@@ -88,25 +113,73 @@ export async function stageRecordables(
 
   let review: string | undefined;
   if (trip && tripArgs) {
-    const createLoad = writeRegistry.get("create_load");
     const brokerId = trip.brokerName ? await findBrokerId(store, trip.brokerName) : null;
     if (brokerId) tripArgs.broker_id = brokerId;
-    const checked = createLoad?.validateArgs ? createLoad.validateArgs(tripArgs) : { ok: true as const, args: tripArgs };
-    if (createLoad && checked.ok) {
-      proposals.unshift({
-        tool: "create_load",
-        args: checked.args,
-        summary: createLoad.summarize ? createLoad.summarize(checked.args) : "Create load",
-        batchId: randomUUID(),
-        sourceQuote: `NEW TRIP ${trip.tripNumber}`,
-        confidence: "high",
-      });
-      review = tripReview(trip, Boolean(brokerId));
+    // Wisdom rule (brief fix 11B-b): a forward naming a trip that is
+    // ALREADY on file is not a new load. Identical = say so and stage
+    // nothing; different = Abel proposes the correction himself, in
+    // one batch (fields via update_load, stops via set_load_stops).
+    const existing = await findLoadByTripNumber(store, trip.tripNumber);
+    if (existing) {
+      review = await stageTripCorrection(store, trip, tripArgs, existing, writeRegistry, proposals);
     } else {
-      rejected.push({
-        summary: `Trip ${trip.tripNumber}`,
-        reason: checked.ok ? "create_load is unavailable" : `not saved - ${checked.error}`,
-      } as RejectedDumpItem);
+      const createLoad = writeRegistry.get("create_load");
+      // One batch for the whole package (brief fix 8): the load,
+      // the photo attach(es) forwarded with it, one yes. Trailer
+      // linking mutates tripArgs, so it runs BEFORE validation.
+      const batchId = randomUUID();
+      const bundleLines = await linkBundleTrailer(store, trip, tripArgs, bundle);
+      const checked = createLoad?.validateArgs ? createLoad.validateArgs(tripArgs) : { ok: true as const, args: tripArgs };
+      if (createLoad && checked.ok) {
+        proposals.unshift({
+          tool: "create_load",
+          args: checked.args,
+          summary: createLoad.summarize ? createLoad.summarize(checked.args) : "Create load",
+          batchId,
+          sourceQuote: `NEW TRIP ${trip.tripNumber}`,
+          // A parse the cross-check flagged is never staged as
+          // high-confidence (brief fix 3) - the warnings ride the review.
+          confidence: trip.warnings.length > 0 ? "medium" : "high",
+        });
+        review = tripReview(trip, Boolean(brokerId));
+        bundleLines.push(...stageBundleAttaches(trip, tripArgs, bundle, batchId, proposals));
+        if (bundleLines.length > 0) review += `\n${bundleLines.join("\n")}`;
+      } else {
+        rejected.push({
+          summary: `Trip ${trip.tripNumber}`,
+          reason: checked.ok ? "create_load is unavailable" : `not saved - ${checked.error}`,
+        } as RejectedDumpItem);
+      }
+    }
+    // Thread index (fix 11A): this conversation now owns this trip -
+    // by number, by reference, and as its current subject.
+    if (bundle?.chatId) {
+      await store.upsertThreadEntity({
+        chatId: bundle.chatId,
+        entityType: "load",
+        entityId: existing?.id ?? null,
+        keys: [
+          { kind: "trip_number", value: trip.tripNumber },
+          ...(trip.brokerReference ? [{ kind: "broker_reference", value: trip.brokerReference }] : []),
+          { kind: "lane", value: `${String(tripArgs.origin)} → ${String(tripArgs.destination)}` },
+        ],
+        label: `Trip ${trip.tripNumber}, ${String(tripArgs.origin)} → ${String(tripArgs.destination)}${tripArgs.delivery_date ? `, delivery ${String(tripArgs.delivery_date)}` : ""}`,
+        isCurrent: true,
+      });
+      for (const doc of bundle.documents ?? []) {
+        await store.upsertThreadEntity({
+          chatId: bundle.chatId,
+          entityType: "document",
+          entityId: doc.documentId,
+          keys: [
+            { kind: "file_name", value: doc.fileName },
+            ...(doc.identifiers.trailerNumber ? [{ kind: "trailer_number", value: doc.identifiers.trailerNumber }] : []),
+            ...(doc.identifiers.pickupNumber ? [{ kind: "pickup_number", value: doc.identifiers.pickupNumber }] : []),
+            ...(doc.identifiers.sealNumber ? [{ kind: "seal_number", value: doc.identifiers.sealNumber }] : []),
+          ],
+          label: `document "${doc.fileName}"`,
+        });
+      }
     }
   }
 
@@ -138,6 +211,221 @@ async function findBrokerId(store: BotBrainStore, name: string): Promise<string 
   if (error) return null;
   const rows = ((data ?? []) as { id: string; name: string }[]).filter((r) => r.name.trim().toLowerCase() === name.trim().toLowerCase());
   return rows.length === 1 ? rows[0]!.id : null;
+}
+
+// ---------------------------------------------------------------------------
+// Telegram fix round helpers (fixes 8, 11B-b)
+// ---------------------------------------------------------------------------
+
+interface ExistingLoadRow {
+  id: string;
+  origin: string | null;
+  destination: string | null;
+  status: string | null;
+  pickup_date: string | null;
+  delivery_date: string | null;
+  trip_number: string | null;
+  broker_reference: string | null;
+  pickup_window_start?: string | null;
+  pickup_window_end?: string | null;
+  delivery_window_start?: string | null;
+  delivery_window_end?: string | null;
+  miles?: number | null;
+  loaded_miles?: number | null;
+  deadhead_miles?: number | null;
+}
+
+async function findLoadByTripNumber(store: BotBrainStore, tripNumber: string): Promise<ExistingLoadRow | null> {
+  try {
+    const { data } = await store.client
+      .from("loads")
+      .select("*")
+      .eq("company_id", store.companyId)
+      .is("deleted_at", null)
+      .eq("trip_number", tripNumber)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    return ((data ?? [])[0] as ExistingLoadRow | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function findTrailerIdByUnit(store: BotBrainStore, unitNumber: string): Promise<string | null> {
+  try {
+    const { data } = await store.client
+      .from("trailers")
+      .select("id")
+      .eq("company_id", store.companyId)
+      .is("deleted_at", null)
+      .ilike("unit_number", unitNumber)
+      .limit(2);
+    const rows = (data ?? []) as { id: string }[];
+    return rows.length === 1 ? rows[0]!.id : null;
+  } catch {
+    return null;
+  }
+}
+
+type WriteToolLike = {
+  validateArgs?: (args: Record<string, unknown>) => { ok: true; args: Record<string, unknown> } | { ok: false; error: string };
+  summarize?: (args: Record<string, unknown>) => string;
+  verifyProposal?: (args: Record<string, unknown>) => Promise<{ ok: true; summary?: string } | { ok: false; error: string }>;
+};
+
+async function proposalSummary(tool: WriteToolLike, args: Record<string, unknown>, fallback: string): Promise<string> {
+  if (tool.summarize) return tool.summarize(args);
+  if (tool.verifyProposal) {
+    try {
+      const verdict = await tool.verifyProposal(args);
+      if (verdict.ok && verdict.summary) return verdict.summary;
+    } catch {
+      /* fall through to the plain-words fallback */
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Brief fix 11B-b: the forwarded trip is already on file. Identical
+ * forward = say so, stage nothing. Different = ONE correction batch
+ * (update_load for changed fields + set_load_stops for the stops),
+ * rendered in words against what's on file now.
+ */
+async function stageTripCorrection(
+  store: BotBrainStore,
+  trip: ParsedTrip,
+  tripArgs: Record<string, unknown>,
+  existing: ExistingLoadRow,
+  writeRegistry: Map<string, WriteToolLike>,
+  proposals: ProposedWrite[],
+): Promise<string> {
+  const { data: stopRows } = await store.client
+    .from("load_stops")
+    .select("seq, kind, name, appointment_at")
+    .eq("load_id", existing.id)
+    .order("seq", { ascending: true });
+  const existingStops = (stopRows ?? []) as { seq: number; kind: string; name: string; appointment_at: string | null }[];
+  const sig = (kind: string, name: string, at: string | null | undefined) => `${kind}|${name}|${at ?? ""}`;
+  const existingSig = existingStops.map((s) => sig(s.kind, s.name, s.appointment_at)).join(";");
+  const newStops = (tripArgs.stops ?? []) as { kind: string; name: string; appointment_at?: string | null }[];
+  const newSig = newStops.map((s) => sig(s.kind, s.name, s.appointment_at ?? null)).join(";");
+
+  const headlineFields = [
+    "origin", "destination", "pickup_date", "delivery_date",
+    "pickup_window_start", "pickup_window_end", "delivery_window_start", "delivery_window_end",
+    "miles", "loaded_miles", "deadhead_miles", "broker_reference",
+  ] as const;
+  const changedArgs: Record<string, unknown> = { load_id: existing.id };
+  for (const field of headlineFields) {
+    const value = tripArgs[field];
+    if (value === undefined || value === null) continue;
+    if (String(value) !== String(existing[field] ?? "")) changedArgs[field] = value;
+  }
+  const stopsChanged = existingSig !== newSig;
+  const fieldsChanged = Object.keys(changedArgs).length > 1;
+
+  if (!stopsChanged && !fieldsChanged) {
+    return `${tripReview(trip, false)}\n\nGood news: Trip ${trip.tripNumber} is already on file exactly like this — I didn't stage a duplicate.`;
+  }
+
+  const batchId = randomUUID();
+  const updateTool = writeRegistry.get("update_load");
+  if (fieldsChanged && updateTool) {
+    const checked = updateTool.validateArgs ? updateTool.validateArgs(changedArgs) : { ok: true as const, args: changedArgs };
+    if (checked.ok) {
+      proposals.unshift({
+        tool: "update_load",
+        args: checked.args,
+        summary: await proposalSummary(updateTool, checked.args, `Update Trip ${trip.tripNumber}`),
+        batchId,
+        sourceQuote: `CORRECTED TRIP ${trip.tripNumber}`,
+        confidence: "high",
+      });
+    }
+  }
+  const stopsTool = writeRegistry.get("set_load_stops");
+  if (stopsChanged && stopsTool) {
+    const stopsArgs = { load_id: existing.id, stops: newStops };
+    const checked = stopsTool.validateArgs ? stopsTool.validateArgs(stopsArgs) : { ok: true as const, args: stopsArgs };
+    if (checked.ok) {
+      proposals.push({
+        tool: "set_load_stops",
+        args: checked.args,
+        summary: await proposalSummary(stopsTool, checked.args, `Replace the stops on Trip ${trip.tripNumber}`),
+        batchId,
+        sourceQuote: `CORRECTED TRIP ${trip.tripNumber}`,
+        confidence: "high",
+      });
+    }
+  }
+
+  return [
+    `CORRECTED TRIP ${trip.tripNumber} — this dispatch does not match what is on file.`,
+    `On file now: ${loadLabel(existing)} (${existingStops.length} stop${existingStops.length === 1 ? "" : "s"}).`,
+    `This message says: ${String(tripArgs.origin)} → ${String(tripArgs.destination)}, delivery ${String(tripArgs.delivery_date ?? "?")}, with ${newStops.length} stops.`,
+    "I staged ONE correction covering the load and all its stops — nothing changes until your yes. Check the stops below against the dispatch before you approve.",
+    tripReview(trip, false),
+  ].join("\n");
+}
+
+/**
+ * Brief fix 8: a photo forwarded WITH the trip names a trailer that
+ * is on file - it rides on the create itself. Returns review lines.
+ */
+async function linkBundleTrailer(
+  store: BotBrainStore,
+  trip: ParsedTrip,
+  tripArgs: Record<string, unknown>,
+  bundle: StageBundleContext | undefined,
+): Promise<string[]> {
+  const lines: string[] = [];
+  for (const doc of bundle?.documents ?? []) {
+    const trailerNo = doc.identifiers.trailerNumber;
+    if (!trailerNo) continue;
+    const trailerId = await findTrailerIdByUnit(store, trailerNo);
+    if (trailerId) {
+      tripArgs.trailer_id = trailerId;
+      lines.push(`Trailer ${trailerNo} is on file — it rides on this load (Trip ${trip.tripNumber}) in the same yes.`);
+    } else {
+      lines.push(`The photo shows trailer ${trailerNo} — no trailer with that number is on file, so I didn't link one.`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Brief fixes 7-8: every photo forwarded with the trip stages an
+ * attach to the load being created, in the SAME batch. The tool
+ * resolves the trip number to the just-created load at run time.
+ */
+function stageBundleAttaches(
+  trip: ParsedTrip,
+  tripArgs: Record<string, unknown>,
+  bundle: StageBundleContext | undefined,
+  batchId: string,
+  proposals: ProposedWrite[],
+): string[] {
+  const lines: string[] = [];
+  for (const doc of bundle?.documents ?? []) {
+    proposals.push({
+      tool: "attach_document",
+      args: { document_id: doc.documentId, related_entity_type: "load", related_trip_number: trip.tripNumber },
+      summary: `Attach "${doc.fileName}" to Trip ${trip.tripNumber} (${String(tripArgs.origin)} → ${String(tripArgs.destination)})`,
+      batchId,
+      sourceQuote: "forwarded with the trip",
+      confidence: "high",
+    });
+    const readBits = [
+      doc.identifiers.trailerNumber ? `trailer ${doc.identifiers.trailerNumber}` : null,
+      doc.identifiers.pickupNumber ? `pickup #${doc.identifiers.pickupNumber}` : null,
+      doc.identifiers.sealNumber ? `seal ${doc.identifiers.sealNumber}` : null,
+    ].filter(Boolean);
+    lines.push(
+      `"${doc.fileName}" is attached to this load in the same yes${readBits.length > 0 ? ` — I read ${readBits.join(", ")} from it` : ""}.`,
+    );
+  }
+  return lines;
 }
 
 /**

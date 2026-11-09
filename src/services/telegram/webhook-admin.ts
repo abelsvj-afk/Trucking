@@ -106,7 +106,7 @@ export function buildWebhookReport(info: TelegramWebhookInfo | null, secretConfi
   if (registered && !secretConfigured) {
     findings.push("The server has no webhook secret configured, so it accepts any delivery without the secret header.");
   }
-  const healthy = registered && missing.length === 0 && !(pendingCount > 0 && lastErrorMessage);
+  const healthy = registered && missing.length === 0 && secretConfigured && !(pendingCount > 0 && lastErrorMessage);
   if (healthy) findings.unshift("Telegram is delivering your messages, message edits (Live Location) and button taps.");
   return {
     configured: true, registered, host: registered ? hostOf(info.url!) : null, allowedUpdates: list, missing,

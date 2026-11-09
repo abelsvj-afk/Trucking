@@ -56,6 +56,14 @@ describe("webhook report", () => {
     expect(r.healthy).toBe(false);
     expect(r.findings.join(" ")).toMatch(/401 Unauthorized.*3 update/);
   });
+  it("a missing webhook secret makes an otherwise-good report unhealthy (T-001)", () => {
+    const r = buildWebhookReport({ url: URL_ON_FLY }, false);
+    expect(r.secretConfigured).toBe(false);
+    expect(r.healthy).toBe(false);
+    expect(r.findings.join(" ")).toMatch(/no webhook secret/);
+    // The same report WITH a secret is healthy - the secret is the only difference.
+    expect(buildWebhookReport({ url: URL_ON_FLY }, true).healthy).toBe(true);
+  });
   it("only the host of the address is reported, never the path", async () => {
     const t = fakeTelegram({ url: `${URL_ON_FLY}?x=1`, allowed_updates: ["message"] });
     const r = await getWebhookReport(ENV, t.fetchImpl);
