@@ -282,7 +282,9 @@ A plan is a projection, never a promise, and nothing here moves money or execute
 
 Documents differ from the other resources — creating one involves a file, not just JSON:
 
-**`POST /api/v1/documents`** — `multipart/form-data`: the file, plus `related_entity_type`, `related_entity_id`, `file_name`. The server uploads to Supabase Storage and creates the corresponding row from `docs/schemas.md`. For image uploads (JPEG/PNG/WebP) it then produces the enhanced scan rendition (design `driver-mvp.md` §10) and, when the `document_extraction` AI capability is enabled, runs text extraction — both inside the same request, and neither can fail the upload: their outcomes land on the returned row as `scan_storage_path` / `extraction_status` (see the row shape below).
+**`POST /api/v1/documents`** — `multipart/form-data`: the file, plus `related_entity_type`, `related_entity_id`, `file_name`. The server uploads to Supabase Storage and creates the corresponding row from `docs/schemas.md`. For image uploads (JPEG/PNG/WebP) it then produces the enhanced scan rendition (design `driver-mvp.md` §10) and, when the `document_extraction` AI capability is enabled, runs text extraction — both inside the same request, and neither can fail the upload: their outcomes land on the returned row as `scan_storage_path` / `extraction_status` (see the row shape below). `related_entity_type` also accepts `expense` (migration `00085`). Optional form fields `doc_type` (the widened kind list in `docs/schemas.md`) and `situation` (`carrier` \| `own_authority` \| `business_records`) type the document at upload; absent = unclassified, as before.
+
+**`POST /api/v1/documents/generate`** — create a document in the app (expense buckets + documents spec 2026-11-09, `docs/design/expense-buckets-documents.md` §3). JSON body: `kind` (`expense_record` \| `deduction_notice` \| `invoice` \| `statement`) + `situation` (required). Expense kinds take `expense_id` and are built server-side from that expense row (a `deduction_notice` for a `business` expense is refused `400`); invoice/statement take `related_entity_type`, `related_entity_id`, `title`, `party_from`, `party_to`, `lines[]` (`{label, amount_cents|null}` — null renders "not stated"), optional `total_cents`, `notes`. Optional `generator` selects the document backend (default `app_pdf`, the in-app PDF writer; an unregistered generator is refused — the seam a future document backend plugs into, deliberately not wired to any live external account). The generated file is filed through the same storage pipeline as uploads, with `source: "generated"` and the generator named; `201` returns the document row.
 
 **`GET /api/v1/documents?related_entity_type={type}&related_entity_id={id}`** — list response, `data` containing document metadata plus a short-lived signed URL for downloading the file.
 
@@ -488,6 +490,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/documents/cleanup-incidents/[id]/retry` | POST | custom (see section / design doc) |
 | `/api/v1/documents/cleanup-incidents` | GET | custom (see section / design doc) |
 | `/api/v1/documents` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/documents/generate` | POST | custom (see section / design doc) |
 | `/api/v1/drivers/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/drivers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/drivers` | GET,POST | generic CRUD (contract above) |

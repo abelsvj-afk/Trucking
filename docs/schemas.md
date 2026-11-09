@@ -148,6 +148,7 @@ Extends Supabase Auth's built-in user record with app-specific fields. One row p
 | load_id | uuid | yes | references `loads.id` |
 | driver_id | uuid | yes | references `drivers.id` |
 | description | text | yes | |
+| bucket | text | no | Migration `00085` (expense buckets spec 2026-11-09, `docs/design/expense-buckets-documents.md`): `business` (default — his own company's books, never touches pay) \| `pay_deduction` (the company he drives for takes it out of his check; the paycheck picture nets it as its own line with this row's description as the reason). Existing rows default to `business`; a reclassification is a proposal, never a silent edit |
 | created_at / updated_at / deleted_at | timestamptz | see global conventions | |
 
 ## fuel_purchases
@@ -406,7 +407,7 @@ Manual account snapshots — the v1 implementation behind the account-visibility
 |---|---|---|---|
 | id | uuid | no | |
 | company_id | uuid | no | |
-| related_entity_type | text | no | `truck` \| `trailer` \| `driver` \| `load` |
+| related_entity_type | text | no | `truck` \| `trailer` \| `driver` \| `load` \| `expense` (`expense` added by migration `00085`; the `00071` reference trigger validates it with the same identical-error discipline) |
 | related_entity_id | uuid | no | id of the related row |
 | file_name | text | no | |
 | storage_path | text | no | path in Supabase Storage |
@@ -417,7 +418,10 @@ Manual account snapshots — the v1 implementation behind the account-visibility
 | retention_error | text | yes | failure note from a future purge attempt |
 | purged_at | timestamptz | yes | set only by a future purge process — never by deletion |
 | scan_storage_path | text | yes | Document scan (design `driver-mvp.md` §10, migration `00022`): path of the enhanced black-and-white rendition in the same Storage bucket; null when no scan exists (PDFs, HEIC/HEIF, or enhancement failed). The original at `storage_path` is always kept |
-| doc_type | text | yes | AI-classified document kind: `bol` \| `rate_confirmation` \| `scale_ticket` \| `fuel_receipt` \| `settlement` \| `other`; null until extraction succeeds |
+| doc_type | text | yes | AI-classified document kind: `bol` \| `rate_confirmation` \| `scale_ticket` \| `fuel_receipt` \| `settlement` \| `other`; migration `00085` widens the CHECK with the bookkeeping kinds `receipt` \| `agreement` \| `invoice` \| `statement` (set at upload or by document creation); null until extraction succeeds |
+| situation | text | yes | Migration `00085`: the bookkeeping situation the document belongs to — `carrier` \| `own_authority` \| `business_records`; null on legacy rows (claims none) |
+| source | text | no | Migration `00085`: `upload` (default; everything recorded before it) \| `generated` (created in the app by a document generator) |
+| generator | text | yes | Migration `00085`: which generator made a `generated` document (`app_pdf` today — the in-app PDF writer behind the generator seam in `services/documents/generate-document.ts`); null on uploads |
 | extracted_text | text | yes | The document's full text as read by the extraction capability — stored raw, never summarized; this is what the agent quotes from. The bot's document tools (`get_document`, `search_documents`, design §9) read this column — null until extraction runs |
 | extracted_fields | jsonb | yes | Schema-light flat record of key values the model copied off the document (numbers, dates, amounts, parties); values are copied, never computed |
 | extraction_status | text | no | `pending` \| `done` \| `failed` \| `disabled` (capability off at upload) \| `not_applicable` (PDF). Default `pending` — pre-`00022` rows read `pending` |

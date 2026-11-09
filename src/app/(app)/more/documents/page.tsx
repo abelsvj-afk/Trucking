@@ -13,13 +13,15 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, ListEmpty, ListError, TeachingEmpty } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
-import { DocumentPreview, extractionStatusText } from "@/components/DocumentPreview";
+import { DocumentPreview, extractionStatusText, SITUATION_LABELS } from "@/components/DocumentPreview";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import CreateDocumentForm from "@/components/CreateDocumentForm";
 import { usePageTitle } from "@/lib/use-page-title";
 import type {
   CleanupIncident,
   Driver,
   DocumentWithSignedUrl,
+  Expense,
   Load,
   RelatedEntityType,
   Trailer,
@@ -32,6 +34,7 @@ const ENTITY_TYPES: { label: string; value: RelatedEntityType; resource: string 
   { label: "Trailer", value: "trailer", resource: "trailers" },
   { label: "Driver", value: "driver", resource: "drivers" },
   { label: "Load", value: "load", resource: "loads" },
+  { label: "Expense", value: "expense", resource: "expenses" },
 ];
 
 type DocsState =
@@ -52,11 +55,15 @@ function snippet(doc: DocumentWithSignedUrl): string | null {
   return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
 }
 
-function labelFor(entityType: RelatedEntityType, record: Truck | Trailer | Driver | Load) {
+function labelFor(entityType: RelatedEntityType, record: Truck | Trailer | Driver | Load | Expense) {
   if (entityType === "driver") return (record as Driver).name;
   if (entityType === "load") {
     const load = record as Load;
     return `${load.origin} → ${load.destination}`;
+  }
+  if (entityType === "expense") {
+    const expense = record as Expense;
+    return `$${(expense.amount_cents / 100).toFixed(2)} — ${expense.category} — ${expense.expense_date}${expense.description ? ` — ${expense.description}` : ""}`;
   }
   return (record as Truck | Trailer).unit_number;
 }
@@ -77,7 +84,9 @@ function DocumentsInner() {
   const searchParams = useSearchParams();
   const paramType = searchParams.get("related_entity_type");
   const initialType: RelatedEntityType =
-    paramType === "trailer" || paramType === "driver" || paramType === "load" ? paramType : "truck";
+    paramType === "trailer" || paramType === "driver" || paramType === "load" || paramType === "expense"
+      ? paramType
+      : "truck";
   const [entityType, setEntityType] = useState<RelatedEntityType>(initialType);
   const [entityId, setEntityId] = useState(() => searchParams.get("related_entity_id") ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -102,12 +111,16 @@ function DocumentsInner() {
   const trailers = usePickerList<Trailer>("trailers");
   const drivers = usePickerList<Driver>("drivers");
   const loads = usePickerList<Load>("loads");
+  const expenses = usePickerList<Expense>("expenses");
+  const [uploadDocType, setUploadDocType] = useState("");
+  const [uploadSituation, setUploadSituation] = useState("");
 
-  const recordsByType: Record<RelatedEntityType, (Truck | Trailer | Driver | Load)[]> = {
+  const recordsByType: Record<RelatedEntityType, (Truck | Trailer | Driver | Load | Expense)[]> = {
     truck: trucks,
     trailer: trailers,
     driver: drivers,
     load: loads,
+    expense: expenses,
   };
   const records = recordsByType[entityType];
 
@@ -208,6 +221,8 @@ function DocumentsInner() {
         file,
         related_entity_type: entityType,
         related_entity_id: entityId,
+        doc_type: uploadDocType || undefined,
+        situation: uploadSituation || undefined,
       });
       setFile(null);
       fetchDocuments();
@@ -250,7 +265,7 @@ function DocumentsInner() {
     <div>
       <PageHeader
         title="Documents"
-        purpose="Paperwork and photos, filed against the truck, trailer, driver, or load they belong to — BOLs, permits, registrations, receipts. The assistant can read these."
+        purpose="Paperwork and photos, filed against the truck, trailer, driver, load, or expense they belong to — BOLs, permits, registrations, receipts. The assistant can read these — and create documents here too."
       />
 
       {incidents.length > 0 && (
@@ -352,11 +367,41 @@ function DocumentsInner() {
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             required
           />
+          <label htmlFor="upload_doc_type">What kind of document is it? (optional)</label>
+          <select id="upload_doc_type" value={uploadDocType} onChange={(event) => setUploadDocType(event.target.value)}>
+            <option value="">Kind not set</option>
+            <option value="receipt">Receipt</option>
+            <option value="agreement">Agreement</option>
+            <option value="invoice">Invoice</option>
+            <option value="statement">Statement</option>
+            <option value="settlement">Settlement</option>
+            <option value="bol">Bill of lading</option>
+            <option value="rate_confirmation">Rate confirmation</option>
+            <option value="scale_ticket">Scale ticket</option>
+            <option value="fuel_receipt">Fuel receipt</option>
+            <option value="other">Other</option>
+          </select>
+          <label htmlFor="upload_situation">Which books does it belong to? (optional)</label>
+          <select id="upload_situation" value={uploadSituation} onChange={(event) => setUploadSituation(event.target.value)}>
+            <option value="">Situation not set</option>
+            <option value="carrier">Working for a carrier</option>
+            <option value="own_authority">Own authority</option>
+            <option value="business_records">Business records</option>
+          </select>
           {uploadError && <p role="alert">{uploadError}</p>}
           <button type="submit" disabled={uploading || !file}>
             {uploading ? "Uploading…" : "Upload"}
           </button>
         </form>
+      )}
+
+      {entityId && (
+        <CreateDocumentForm
+          key={`${entityType}:${entityId}`}
+          entityType={entityType}
+          entityId={entityId}
+          onCreated={fetchDocuments}
+        />
       )}
 
       {entityId && docsState.status === "loading" && <ListLoading />}
@@ -373,6 +418,12 @@ function DocumentsInner() {
         <ul>
           {docsState.documents.map((doc) => (
             <li key={doc.id}>
+              {doc.signed_url && /\.(jpe?g|png|webp|heic|heif)$/i.test(doc.file_name) && (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- signed Storage URL, not Next-optimizable */}
+                  <img src={doc.signed_url} alt="" style={{ width: "56px", height: "56px", objectFit: "cover", verticalAlign: "middle" }} />{" "}
+                </>
+              )}
               {doc.signed_url ? (
                 <a href={doc.signed_url} target="_blank" rel="noreferrer">
                   {doc.file_name}
@@ -386,7 +437,11 @@ function DocumentsInner() {
               <button type="button" onClick={() => setPendingRemove(doc)}>
                 Remove
               </button>
-              <p>{extractionStatusText(doc)}</p>
+              <p>
+                {extractionStatusText(doc)}
+                {doc.situation ? ` · ${SITUATION_LABELS[doc.situation] ?? doc.situation}` : ""}
+                {doc.source === "generated" ? " · Created in the app" : ""}
+              </p>
             </li>
           ))}
         </ul>

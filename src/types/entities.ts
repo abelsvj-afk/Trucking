@@ -237,6 +237,9 @@ export interface DetentionStamp extends BaseRow {
 
 export type ExpenseCategory = "insurance" | "permits" | "repairs" | "other";
 
+/** Migration 00085 (expense buckets spec 2026-11-09): business = his own books; pay_deduction = comes out of his check. */
+export type ExpenseBucket = "business" | "pay_deduction";
+
 export interface Expense extends BaseRow {
   category: ExpenseCategory;
   amount_cents: number;
@@ -245,6 +248,8 @@ export interface Expense extends BaseRow {
   load_id: string | null;
   driver_id: string | null;
   description: string | null;
+  /** Optional: absent on rows read before 00085 is applied (treated as "business"). */
+  bucket?: ExpenseBucket;
 }
 
 export interface FuelPurchase extends BaseRow {
@@ -369,7 +374,7 @@ export interface DispatchExchange extends BaseRow {
   load_id: string | null;
 }
 
-export type RelatedEntityType = "truck" | "trailer" | "driver" | "load";
+export type RelatedEntityType = "truck" | "trailer" | "driver" | "load" | "expense";
 
 export type DocumentType =
   | "bol"
@@ -377,7 +382,14 @@ export type DocumentType =
   | "scale_ticket"
   | "fuel_receipt"
   | "settlement"
+  | "receipt"
+  | "agreement"
+  | "invoice"
+  | "statement"
   | "other";
+
+/** Migration 00085 (document creation spec 2026-11-09): the bookkeeping situation a document belongs to. */
+export type DocumentSituation = "carrier" | "own_authority" | "business_records";
 
 export type DocumentExtractionStatus =
   | "pending"
@@ -431,6 +443,13 @@ export interface Document {
     | null;
   photo_purpose_source: "vision" | "caption" | "owner" | null;
   photo_purpose_confidence: number | null;
+  // Document creation (migration 00085): the situation the document
+  // belongs to, whether it was uploaded or generated, and the
+  // generator that made it. Optional: absent on rows read before
+  // 00085 is applied (treated as an upload with no situation).
+  situation?: DocumentSituation | null;
+  source?: "upload" | "generated";
+  generator?: string | null;
 }
 
 // The retention lifecycle of a deleted document (design A.7):

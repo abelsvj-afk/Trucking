@@ -12,6 +12,8 @@ import { usePickerList } from "@/lib/use-picker-list";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import ExpenseBucketField from "@/components/ExpenseBucketField";
+import type { ExpenseBucket } from "@/lib/expense-buckets";
 import type { Driver, Expense, ExpenseCategory, Load, Truck } from "@/types/entities";
 
 const CATEGORIES: { label: string; value: ExpenseCategory }[] = [
@@ -25,6 +27,7 @@ export default function NewExpensePage() {
   usePageTitle("Add expense");
   const router = useRouter();
   const [category, setCategory] = useState<ExpenseCategory>("other");
+  const [bucket, setBucket] = useState<ExpenseBucket>("business");
   const [amountDollars, setAmountDollars] = useState("");
   const [expenseDate, setExpenseDate] = useState("");
   const [truckId, setTruckId] = useState("");
@@ -49,6 +52,7 @@ export default function NewExpensePage() {
     const body = {
       submission_id: submissionId,
       category,
+      bucket,
       amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
       expense_date: expenseDate,
       truck_id: truckId || null,
@@ -89,6 +93,8 @@ export default function NewExpensePage() {
             </option>
           ))}
         </select>
+
+        <ExpenseBucketField id="bucket" value={bucket} onChange={setBucket} />
 
         <label htmlFor="amount">Amount ($)</label>
         <input

@@ -22,7 +22,7 @@ import { z } from "zod";
 import { createApiHandler } from "@/services/api/handler";
 import { validationError } from "@/services/api/errors";
 import { createClient } from "@/services/db/server";
-import { relatedEntityTypeSchema } from "@/data/schemas/documents";
+import { documentDocTypeSchema, documentSituationSchema, relatedEntityTypeSchema } from "@/data/schemas/documents";
 import {
   StoreDocumentError,
   storeDocumentFile,
@@ -45,7 +45,21 @@ export const POST = createApiHandler(async (req, ctx) => {
 
   const typeResult = relatedEntityTypeSchema.safeParse(relatedEntityTypeRaw);
   if (!typeResult.success) {
-    throw validationError("related_entity_type must be one of truck, trailer, driver, load.");
+    throw validationError("related_entity_type must be one of truck, trailer, driver, load, expense.");
+  }
+
+  // Document creation spec (00085): optional paperwork kind +
+  // situation on upload. Absent = unclassified, exactly as before.
+  const docTypeRaw = formData.get("doc_type");
+  const docTypeResult = typeof docTypeRaw === "string" && docTypeRaw ? documentDocTypeSchema.safeParse(docTypeRaw) : null;
+  if (docTypeResult && !docTypeResult.success) {
+    throw validationError("doc_type is not a recognised document kind.");
+  }
+  const situationRaw = formData.get("situation");
+  const situationResult =
+    typeof situationRaw === "string" && situationRaw ? documentSituationSchema.safeParse(situationRaw) : null;
+  if (situationResult && !situationResult.success) {
+    throw validationError("situation must be one of carrier, own_authority, business_records.");
   }
 
   const idResult =
@@ -68,6 +82,8 @@ export const POST = createApiHandler(async (req, ctx) => {
       body: file,
       contentType: file.type,
       size: file.size,
+      docType: docTypeResult?.success ? docTypeResult.data : undefined,
+      situation: situationResult?.success ? situationResult.data : undefined,
     });
   } catch (err) {
     if (err instanceof StoreDocumentError) {

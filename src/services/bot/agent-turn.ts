@@ -123,6 +123,11 @@ const PAY_SAFETY_RULES =
   "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again. " +
   "For what he is OWED or when he gets paid (next check, advances taken, what is still coming) call paychecks_by_payday - the same figures his Paychecks page shows - and never state a different number; if it can't load, say the figure is unavailable rather than estimating.";
 
+/** Expense buckets + document creation (owner spec 2026-11-09). */
+const EXPENSE_DOCUMENT_RULES =
+  "EXPENSE BUCKETS: every expense is 'business' (his own company's cost) or a 'pay_deduction' (the company he drives for takes it out of his check - a recovery/tow after an incident, damage, a chargeback). When he says a cost comes out of his check, record it with create_expense bucket 'pay_deduction' and the reason in plain words in the description - that reason shows on his Paychecks page next to the amount, alongside his cash advances, and the check's expected net drops by it. Moving an expense that already exists between buckets is update_expense with the bucket - a proposal like any other change, never silent. When a cost could be either kind and he hasn't said, ask which it is. " +
+  "CREATING DOCUMENTS: when the books need a document that doesn't exist as a photo - the proof page for a pay deduction, a receipt record for an expense, an invoice, a statement - create_document makes a real one in the app and files it on its record. Its content comes only from the record (read the expense first and pass its figures exactly); the proposal shows him the document's whole text before it files. Never invent an amount, a party, or a date to fill a document.";
+
 /** Temporal reasoning (owner 2026-11-07): dates and durations come from code, and old state is labelled as old. */
 const TEMPORAL_RULES =
   "TIME: never work out a weekday, a relative date ('next Friday', 'in 3 weeks', 'the 6th') or a count of days in your head - call when_is / time_between, and say the resolved calendar date back to him when it matters, naming which reading you used if the tool flags one. " +
@@ -891,7 +896,7 @@ export async function runAgentTurn(
   const botTools = gateExecutes(writesRefused ? turnTools.filter((t) => t.access === "read") : turnTools, input.userText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${EXPENSE_DOCUMENT_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,

@@ -71,6 +71,16 @@ export interface StoreDocumentInput {
    * insert retries without it (graceful absence, below).
    */
   caption?: string;
+  /**
+   * Document creation spec (migration 00085): the paperwork kind, the
+   * bookkeeping situation, and generated-document provenance. All
+   * optional; before 00085 lands the insert retries without them
+   * (graceful absence, same pattern as caption).
+   */
+  docType?: string;
+  situation?: string | null;
+  source?: "upload" | "generated";
+  generator?: string | null;
 }
 
 /**
@@ -121,18 +131,28 @@ export async function storeDocumentFile(
   // generated row type predates it, so the payload is widened
   // explicitly here (the runtime fallback below covers databases
   // where the column doesn't exist yet).
-  const insertRow: typeof baseRow & { caption?: string } = input.caption
-    ? { ...baseRow, caption: input.caption }
-    : baseRow;
+  const extras: Record<string, unknown> = {};
+  if (input.caption) extras.caption = input.caption;
+  if (input.docType) extras.doc_type = input.docType;
+  if (input.situation !== undefined) extras.situation = input.situation;
+  if (input.source) extras.source = input.source;
+  if (input.generator !== undefined) extras.generator = input.generator;
+  const insertRow = { ...baseRow, ...extras };
   let insertResult = await client
     .from("documents")
     .insert(insertRow as typeof baseRow)
     .select()
     .single();
-  if (insertResult.error && input.caption && /caption/.test(insertResult.error.message) && /does not exist|could not find/i.test(insertResult.error.message)) {
-    // Graceful absence: migration 00033 (documents.caption) not
-    // applied yet - store the document without the caption rather
-    // than losing the file over a note.
+  if (
+    insertResult.error &&
+    Object.keys(extras).length > 0 &&
+    /caption|doc_type|situation|source|generator/.test(insertResult.error.message) &&
+    /does not exist|could not find/i.test(insertResult.error.message)
+  ) {
+    // Graceful absence: a metadata column (00033 caption / 00085
+    // doc_type-situation-source-generator) is not applied yet - store
+    // the document without the new metadata rather than losing the
+    // file over it.
     insertResult = await client.from("documents").insert(baseRow).select().single();
   }
   const { data: row, error: insertError } = insertResult;
