@@ -50,6 +50,46 @@ export interface TelegramBurstItem {
   voiceNote?: boolean;
   /** Telegram's id of his message, so Abel can react to it. */
   messageId?: number;
+  /**
+   * Telegram fix round (brief fixes 7-9): a photo that arrived as
+   * part of the burst. The photo is NOT filed on arrival - its
+   * filing decision waits for the flush, so a photo forwarded
+   * together with load text is worked as ONE package with it.
+   * `text` on a media item is the caption (or "").
+   */
+  media?: TelegramBurstMedia;
+}
+
+/** A photo held by the burst collector: everything the intake needs at flush time. */
+export interface TelegramBurstMedia {
+  kind: "photo";
+  /** Telegram photo renditions, largest last (photo-intake picks). */
+  photo: { file_id: string; file_size?: number }[];
+  caption?: string;
+  /** Album grouping id, when the photo arrived as part of an album. */
+  mediaGroupId?: string;
+  /** Telegram's message date (unix seconds), for ordering against the text items. */
+  sentAt?: number;
+}
+
+/**
+ * Durable-burst persistence (ChatGPT T-002, migration 00083): the
+ * collector mirrors every pending bundle to the database so a
+ * process restart between Telegram's ack and the flush loses
+ * nothing. All hooks are best-effort - a failing hook degrades to
+ * the in-memory behavior, never to a lost turn.
+ */
+export interface TelegramBurstPersistence {
+  /** Mirror the bundle (items verbatim + when it is due to flush). */
+  save: (key: string, items: TelegramBurstItem[], dueAtIso: string) => Promise<void>;
+  /** Mark the persisted bundle claimed by THIS flush; false = a recovery sweep owns it, skip. */
+  claim: (key: string) => Promise<boolean>;
+  /** Claim every overdue bundle (restart recovery); the caller works each through its flush handler. */
+  claimDue: () => Promise<{ key: string; items: TelegramBurstItem[] }[]>;
+  /** Drop the persisted bundle after a successful flush. */
+  clear: (key: string) => Promise<void>;
+  /** Un-claim after a failed flush so the sweep can retry it. */
+  release: (key: string) => Promise<void>;
 }
 
 export type TelegramBurstFlush = (items: TelegramBurstItem[]) => Promise<void>;
@@ -70,6 +110,8 @@ interface PendingBundle {
   startedAt: number;
   collecting: boolean;
   timer: unknown;
+  /** When the currently scheduled flush will fire (for the persistence mirror). */
+  dueAt: number;
 }
 
 export interface TelegramBurstCollector {
@@ -86,6 +128,28 @@ export interface TelegramBurstCollector {
   ) => number;
   /** True while a bundle is pending for the chat. */
   hasPending: (key: string) => boolean;
+  /**
+   * Telegram fix round (brief fix 7): a photo joins an OPEN bundle
+   * for the chat, so media forwarded with dispatch text is worked
+   * as one package at the flush. Returns false when no bundle is
+   * open - the caller then runs the normal solo photo path, so a
+   * photo on its own never waits and never changes behaviour.
+   */
+  collectMedia: (
+    key: string,
+    item: TelegramBurstItem,
+    flush: TelegramBurstFlush,
+    onError?: TelegramBurstErrorHandler,
+  ) => boolean;
+  /**
+   * T-002 recovery: claim persisted bundles whose flush time passed
+   * while no process was alive (or whose flush died) and work each
+   * through the caller's handlers - exactly one consolidated
+   * response per recovered bundle. Returns how many were worked.
+   */
+  recoverDue: (
+    makeHandlers: (key: string) => { flush: TelegramBurstFlush; onError?: TelegramBurstErrorHandler },
+  ) => Promise<number>;
 }
 
 export function createTelegramBurstCollector(
@@ -97,6 +161,8 @@ export function createTelegramBurstCollector(
     detectionGraceMs?: number;
     maxWaitMs?: number;
     maxItems?: number;
+    /** Durable mirror (migration 00083); absent = memory-only, the pre-fix behavior. */
+    persistence?: TelegramBurstPersistence;
   } = {},
 ): TelegramBurstCollector {
   const scheduler: TelegramBurstScheduler = options.scheduler ?? {
@@ -110,11 +176,22 @@ export function createTelegramBurstCollector(
   const maxItems = options.maxItems ?? TELEGRAM_BURST_MAX_ITEMS;
   const pending = new Map<string, PendingBundle>();
 
+  const persistence = options.persistence;
+
+  const mirror = (key: string, bundle: PendingBundle) => {
+    if (!persistence) return;
+    void persistence
+      .save(key, bundle.items, new Date(bundle.dueAt).toISOString())
+      .catch((err) => console.error("[telegram] burst persistence save failed", err));
+  };
+
   const schedule = (key: string, bundle: PendingBundle, delay: number) => {
     if (bundle.timer !== null && bundle.timer !== undefined) scheduler.clearTimeout(bundle.timer);
+    bundle.dueAt = now() + delay;
     bundle.timer = scheduler.setTimeout(() => {
       void flushBundle(key);
     }, delay);
+    mirror(key, bundle);
   };
 
   const flushBundle = async (key: string): Promise<void> => {
@@ -123,9 +200,21 @@ export function createTelegramBurstCollector(
     // Remove BEFORE flushing: arrivals during the flush open the
     // next bundle instead of joining a turn already being worked.
     pending.delete(key);
+    // Durable mirror: exactly one processor works a bundle. When a
+    // recovery sweep already claimed the persisted copy, this
+    // in-memory flush stands down (the sweep is working the same
+    // items from the database).
+    if (persistence) {
+      const owned = await persistence.claim(key).catch(() => true);
+      if (!owned) return;
+    }
     try {
       await bundle.flush(bundle.items);
+      if (persistence) await persistence.clear(key).catch((err) => console.error("[telegram] burst persistence clear failed", err));
     } catch (err) {
+      // The persisted copy stays (claim released) so the recovery
+      // sweep can retry the bundle instead of it being lost.
+      if (persistence) await persistence.release(key).catch(() => undefined);
       if (bundle.onError) {
         try {
           await bundle.onError(bundle.items, err);
@@ -149,6 +238,7 @@ export function createTelegramBurstCollector(
           startedAt: now(),
           collecting: item.isForwarded,
           timer: null,
+          dueAt: 0,
         };
         pending.set(key, bundle);
         schedule(key, bundle, item.isForwarded ? quietMs : detectionGraceMs);
@@ -179,6 +269,63 @@ export function createTelegramBurstCollector(
     },
     hasPending(key) {
       return pending.has(key);
+    },
+    collectMedia(key, item, flush, onError) {
+      const existing = pending.get(key);
+      if (!existing) return false;
+      if (
+        item.updateId !== undefined &&
+        existing.items.some((i) => i.updateId === item.updateId)
+      ) {
+        return true;
+      }
+      existing.items.push(item);
+      existing.flush = flush;
+      existing.onError = onError;
+      existing.collecting = true;
+      const elapsed = now() - existing.startedAt;
+      const delay =
+        existing.items.length >= maxItems
+          ? 0
+          : Math.max(0, Math.min(quietMs, maxWaitMs - elapsed));
+      schedule(key, existing, delay);
+      return true;
+    },
+    async recoverDue(makeHandlers) {
+      if (!persistence) return 0;
+      const due = await persistence.claimDue().catch((err) => {
+        console.error("[telegram] burst recovery scan failed", err);
+        return [] as { key: string; items: TelegramBurstItem[] }[];
+      });
+      let worked = 0;
+      for (const bundle of due) {
+        // An in-memory bundle for the same chat is the live copy:
+        // hand the claim back so ITS flush claims and works the
+        // items - the sweep must neither double-work them nor
+        // strand them behind its own claim.
+        if (pending.has(bundle.key)) {
+          await persistence.release(bundle.key).catch(() => undefined);
+          continue;
+        }
+        const handlers = makeHandlers(bundle.key);
+        try {
+          await handlers.flush(bundle.items);
+          await persistence.clear(bundle.key).catch((err) => console.error("[telegram] burst persistence clear failed", err));
+          worked += 1;
+        } catch (err) {
+          await persistence.release(bundle.key).catch(() => undefined);
+          if (handlers.onError) {
+            try {
+              await handlers.onError(bundle.items, err);
+            } catch (handlerErr) {
+              console.error("[telegram] burst recovery error handler failed", handlerErr);
+            }
+          } else {
+            console.error("[telegram] recovered burst flush failed", err);
+          }
+        }
+      }
+      return worked;
     },
   };
 }

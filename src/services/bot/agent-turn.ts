@@ -50,6 +50,7 @@ import { STYLE_RULES } from "@/services/telegram/format-reply";
 import { withAge } from "@/lib/staleness";
 import { FLAIR_RULES } from "@/services/telegram/flair";
 import { savedWhere } from "./saved-where";
+import { resolveReferences, type ResolutionOutcome } from "./reference-resolution";
 import { reconcileProposals } from "./reconcile-proposals";
 import { learningBlock, readyLessons, riskNote, signatureOf, summarizeOutcomes, type Outcome, type SignatureStats } from "./learning";
 import { expandMaintenancePairings } from "./maintenance-pairing";
@@ -73,7 +74,7 @@ export const PENDING_EXPIRY_MS = 2 * 60 * 60 * 1000;
 /** A proposal shown this recently is what a bare yes/no means. */
 export const SHOWN_RECENTLY_MS = 10 * 60 * 1000;
 
-const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you Abel). Plain language first, short answers, no corporate filler. CANCEL IS NOT DELETE: when he says no / remove that / drop that about something you just suggested, that only cancels the suggestion - never propose deleting a saved record unless he names that saved record and asks to delete it. FORGETTING: when he asks you to forget or remove something you remember, find it with list_memories and PROPOSE delete_record (entity memory) - never claim it is forgotten until he says yes. Every id you pass to a tool (broker, customer, driver, load) must be a real id from a read tool, never a name; if you cannot find it, say so and ask. COMPLETED LOADS: when he says he delivered / finished / completed a load, find it with list_loads (his one active load, or ask which) and use complete_load with the delivery date - never record_load_decision for a delivery, and never invent a load. CHANGE FIELDS, NOT NOTES: when he corrects a value ("delivery should say the 6th"), change that field with the update tool; a note is not a correction. Never change a load's status unless he asks for that. REPORT ONLY WHAT HAPPENED: say only what the tool results show was changed (their "Now:" lines), and never narrate internal failures or tool names to him - say plainly what was and wasn't done. Don't close threads or log decisions he didn't mention. You know his business only through the context blocks and the tools - both come from his real records.
+const AGENT_SYSTEM_PROMPT = `You are the assistant inside this driver's own trucking app, talking with him directly (he calls you Abel). Plain language first, short answers, no corporate filler. CANCEL IS NOT DELETE: when he says no / remove that / drop that about something you just suggested, that only cancels the suggestion - never propose deleting a saved record unless he names that saved record and asks to delete it. FORGETTING: when he asks you to forget or remove something you remember, find it with list_memories and PROPOSE delete_record (entity memory) - never claim it is forgotten until he says yes. Every id you pass to a tool (broker, customer, driver, load) must be a real id from a read tool, never a name; if you cannot find it, say so and ask. COMPLETED LOADS: when he says he delivered / finished / completed a load, find it with list_loads (his one active load, or ask which) and use complete_load with the delivery date - never record_load_decision for a delivery, and never invent a load. CHANGE FIELDS, NOT NOTES: when he corrects a value ("delivery should say the 6th"), change that field with the update tool; a note is not a correction. Never change a load's status unless he asks for that. REPORT ONLY WHAT HAPPENED: say only what the tool results show was changed (their "Now:" lines), and never narrate internal failures or tool names to him - say plainly what was and wasn't done. Don't close threads or log decisions he didn't mention. You know his business only through the context blocks and the tools - both come from his real records. RESOLVED REFERENCES: when a context block names the record he is referring to (resolved in code from his own words), that IS the record - use its id, state the match in words before any yes ("Attaching it to Trip 1874, Panama City, FL → Seminole, OK"), and never substitute a different record because it looks similar or more complete. If a block says a trip he named could not be found, tell him plainly that you can't find it - do not pick another load in its place and do not stage anything against a different record.
 
 TOOLS: Read tools query his real records - use them whenever a question needs specifics beyond the context blocks (a load, a total, a contact, a past message). Write tools record things in his books. Every figure you state must come from a context block, a tool result, or the owner's own message - never estimate, never fill a gap with a plausible number. If a tool reports an error, tell him that lookup failed instead of covering for it.
 
@@ -87,7 +88,7 @@ DELETES: delete_record always stages a proposal, even when he orders the delete 
 
 DUMPS: When one message carries several recordable facts at once (a forwarded dispatch thread, a pasted rate con or settlement, a brain-dump paragraph), extract ALL of them and call stage_dump_items ONCE with every item - not the individual write tools one by one, and never with confirmation "execute" for dump content. Each item needs a source_quote copied verbatim from his message, and an honest confidence. Leave unknown fields out entirely - never guess a rate, a date, a gate code, or an id; ids for updates come from the read tools, called BEFORE staging when an item touches an existing record. Code rejects any item whose numbers don't appear in his message; the tool result names the rejections - relay them plainly and don't re-stage a rejected value.
 
-CORRECTIONS: When a numbered dump batch is pending (the context block lists it) and he corrects an item ("3 is wrong, it's 4417"), call revise_pending_item with confirmation "execute" - that edits the stored proposal only; it still is not recorded until he approves. Never re-stage a whole dump for a correction, and never execute a batch item yourself - approvals are resolved outside you, in code.
+CORRECTIONS: When a numbered dump batch is pending (the context block lists it) and he corrects an item ("3 is wrong, it's 4417"), call revise_pending_item with confirmation "execute" - that edits the stored proposal only; it still is not recorded until he approves. Never re-stage a whole dump for a correction, and never execute a batch item yourself - approvals are resolved outside you, in code. When he corrects a SAVED load's stops, treat it as ONE correction: set_load_stops for the stops, update_load for the load's other fields, and save_memory with supersedes_id for any memory saved from the wrong values - and after his yes, report only the read-back "Now:" lines.
 
 HOS: The duty-log tool data is the paper-log helper, never the ELD and never legal advice - keep the §6 framing when HOS comes up: helper numbers are a cross-check against the ELD, and the ELD governs.
 
@@ -271,10 +272,69 @@ function proposalSuffix(summaries: string[]): string {
   return `\n\n⏳ I have NOT recorded this yet:\n${lines}\n\n👉 Reply YES to confirm, or NO to drop it.`;
 }
 
+/**
+ * Telegram fix round (fix 11A): after a load write EXECUTES, the
+ * thread index learns the record - by trip number, broker reference
+ * and lane - and it becomes the thread's current subject, so a
+ * later "attach it to load 1874" resolves in code even after the
+ * live context window has scrolled past. Best-effort by design:
+ * indexing must never fail a completed write.
+ */
+async function indexLoadAfterExecution(
+  store: BotBrainStore,
+  chatId: string | undefined,
+  loadId: string | null,
+  fallbackArgs: Record<string, unknown>,
+): Promise<void> {
+  if (!chatId) return;
+  try {
+    type LoadIndexRow = { origin: string | null; destination: string | null; delivery_date: string | null; trip_number: string | null; broker_reference: string | null };
+    let row: LoadIndexRow | null = null;
+    if (loadId) {
+      const { data } = await store.client
+        .from("loads")
+        .select("origin, destination, delivery_date, trip_number, broker_reference")
+        .eq("company_id", store.companyId)
+        .eq("id", loadId)
+        .maybeSingle();
+      row = (data as LoadIndexRow | null) ?? null;
+    }
+    const tripNumber = row?.trip_number ?? (typeof fallbackArgs.trip_number === "string" ? fallbackArgs.trip_number : null);
+    const brokerReference = row?.broker_reference ?? (typeof fallbackArgs.broker_reference === "string" ? fallbackArgs.broker_reference : null);
+    const origin = row?.origin ?? (typeof fallbackArgs.origin === "string" ? fallbackArgs.origin : null);
+    const destination = row?.destination ?? (typeof fallbackArgs.destination === "string" ? fallbackArgs.destination : null);
+    const deliveryDate = row?.delivery_date ?? (typeof fallbackArgs.delivery_date === "string" ? fallbackArgs.delivery_date : null);
+    if (!tripNumber && !loadId) return;
+    await store.upsertThreadEntity({
+      chatId,
+      entityType: "load",
+      entityId: loadId,
+      keys: [
+        ...(tripNumber ? [{ kind: "trip_number", value: tripNumber }] : []),
+        ...(brokerReference ? [{ kind: "broker_reference", value: brokerReference }] : []),
+        ...(origin && destination ? [{ kind: "lane", value: `${origin} → ${destination}` }] : []),
+      ],
+      label: `${tripNumber ? `Trip ${tripNumber}` : "Load"}, ${origin ?? "?"} → ${destination ?? "?"}${deliveryDate ? `, delivery ${deliveryDate}` : ""}`,
+      isCurrent: true,
+    });
+  } catch (err) {
+    console.error("[bot] thread index update after execution failed", err);
+  }
+}
+
+/** The load a just-executed write touched: a create's new id from its result text, else the load_id it named. */
+function executedLoadId(toolName: string, args: Record<string, unknown>, resultText: string): string | null {
+  if (toolName === "create_load") {
+    return resultText.match(/Record id ([0-9a-fA-F-]{36})/)?.[1] ?? null;
+  }
+  return typeof args.load_id === "string" ? args.load_id : null;
+}
+
 async function resolvePending(
   store: BotBrainStore,
   pending: PendingAction,
   kind: ConfirmationKind,
+  chatId?: string,
 ): Promise<BotChatOutput> {
   if (Date.now() - new Date(pending.created_at).getTime() > PENDING_EXPIRY_MS) {
     await store.clearPendingAction(pending.id);
@@ -294,6 +354,7 @@ async function resolvePending(
   try {
     const result = await executeWriteTool(store, pending.tool_name, pending.arguments);
     await logOutcome(store, pending, "approved");
+    await indexLoadAfterExecution(store, chatId, executedLoadId(pending.tool_name, pending.arguments, result), pending.arguments);
     // The result is model-facing grounding text; lines addressed to the model ("Show him...",
     // "then call send_email...") are stripped before it is read back to him (leak 2026-11-07).
     const ownerResult = stripModelOnlyLines(result);
@@ -379,7 +440,7 @@ function batchItemLine(item: PendingAction): string {
 }
 
 /** Executes stored batch items in order after the owner's yes - each result (or failure) is reported per item, never hidden. */
-async function executeBatchItems(store: BotBrainStore, items: PendingAction[]): Promise<string> {
+async function executeBatchItems(store: BotBrainStore, items: PendingAction[], chatId?: string): Promise<string> {
   const lines: string[] = [];
   for (const item of items) {
     // Cleared before executing, exactly like single proposals, so a
@@ -388,6 +449,7 @@ async function executeBatchItems(store: BotBrainStore, items: PendingAction[]): 
     try {
       const result = await executeWriteTool(store, item.tool_name, item.arguments);
       await logOutcome(store, item, "approved");
+      await indexLoadAfterExecution(store, chatId, executedLoadId(item.tool_name, item.arguments, result), item.arguments);
       lines.push(`✅ ${item.item_number ?? ""}. ${result}`);
     } catch (err) {
       await logOutcome(store, item, "failed");
@@ -410,6 +472,7 @@ async function resolveBatch(
   store: BotBrainStore,
   batch: PendingAction[],
   command: Exclude<BatchCommand, { kind: "other" }>,
+  chatId?: string,
 ): Promise<BotChatOutput> {
   if (command.kind === "drop_all" || command.kind === "drop_rest") {
     await store.clearPendingActions(batch.map((i) => i.id));
@@ -421,7 +484,7 @@ async function resolveBatch(
     };
   }
   if (command.kind === "approve_all") {
-    const results = await executeBatchItems(store, batch);
+    const results = await executeBatchItems(store, batch, chatId);
     return { reply: `Done — recorded all ${batch.length}:\n${results}` };
   }
   // approve_some
@@ -435,7 +498,7 @@ async function resolveBatch(
         "Nothing was recorded — the batch is still waiting for your call.",
     };
   }
-  const results = await executeBatchItems(store, chosen);
+  const results = await executeBatchItems(store, chosen, chatId);
   const remaining = batch.filter((i) => !chosen.includes(i));
   let reply = `Done — recorded ${chosen.length}:\n${results}`;
   if (remaining.length > 0) {
@@ -610,6 +673,23 @@ export async function runAgentTurn(
       }
     }
   }
+  // ChatGPT T-004: when the update's dedup claim could not be
+  // established, this turn is read-only - no pending proposal may
+  // resolve, nothing may be staged. A bare yes/no aimed at a waiting
+  // proposal gets the honest answer here, not an execution.
+  const writesRefused = input.writesRefused === true;
+  if (writesRefused) {
+    const waitingNow = await store.loadPendingAction().catch(() => null);
+    const bare =
+      classifyConfirmation(input.userText) !== "other" || isSoftYes(input.userText) || parseBatchCommand(input.userText).kind !== "other";
+    if (waitingNow && bare) {
+      return {
+        reply:
+          "I hit a storage hiccup checking that message, so I can't safely record anything this turn — a duplicate could slip through. " +
+          "Nothing was changed and your proposal is still waiting. Give it a moment and say it again.",
+      };
+    }
+  }
   let pendingBatch: PendingAction[] = [];
   // Image Intelligence (§3.3): the oldest pending row may be a
   // photo-purpose QUESTION, not a write proposal. It resolves in
@@ -622,7 +702,7 @@ export async function runAgentTurn(
   // P0-1: "yes but make it 3100" - the waiting proposal is NOT executed; a corrected proposal replaces it.
   let correctingPending: PendingAction | null = null;
   if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
-    const resolved = await tryResolvePhotoPurposeAsk(store, pending, input.userText);
+    const resolved = writesRefused ? null : await tryResolvePhotoPurposeAsk(store, pending, input.userText);
     if (resolved) return resolved;
     pendingPhotoAsk = pending;
   } else if (pending?.batch_id) {
@@ -639,21 +719,21 @@ export async function runAgentTurn(
         };
       }
       const command = parseBatchCommand(input.userText);
-      if (command.kind !== "other") {
-        return withStillWaiting(store, await resolveBatch(store, pendingBatch, command), pendingBatch[0]?.batch_id);
+      if (command.kind !== "other" && !writesRefused) {
+        return withStillWaiting(store, await resolveBatch(store, pendingBatch, command, input.chatId), pendingBatch[0]?.batch_id);
       }
       // "other" (typically a correction) falls through to the model
       // with the batch in context - see the context block below.
     }
   } else if (pending) {
     const kind = classifyConfirmation(input.userText);
-    if (kind !== "other") {
-      return withStillWaiting(store, await resolvePending(store, pending, kind));
+    if (kind !== "other" && !writesRefused) {
+      return withStillWaiting(store, await resolvePending(store, pending, kind, input.chatId));
     }
     // P1-10: "ok" / "sure" is a yes only for a proposal he saw just now that isn't a delete; otherwise ask.
-    if (isSoftYes(input.userText)) {
+    if (isSoftYes(input.userText) && !writesRefused) {
       const fresh = Date.now() - new Date(pending.created_at).getTime() <= SHOWN_RECENTLY_MS;
-      if (fresh && pending.tool_name !== "delete_record") return withStillWaiting(store, await resolvePending(store, pending, "yes"));
+      if (fresh && pending.tool_name !== "delete_record") return withStillWaiting(store, await resolvePending(store, pending, "yes", input.chatId));
       return {
         reply: `Just to be sure - do you want me to record this? ${pending.summary}\nReply YES to record it, or NO to drop it.`,
       };
@@ -662,7 +742,7 @@ export async function runAgentTurn(
     // "No. Remove that. Add this..." - a leading no answers the waiting
     // proposal (it is cancelled, in code) and the rest of the message is a
     // NEW request. The cancel can never become a delete of a saved record.
-    if (/^no\b[.,!]?\s+\S/i.test(input.userText.trim())) {
+    if (!writesRefused && /^no\b[.,!]?\s+\S/i.test(input.userText.trim())) {
       await store.clearPendingAction(pending.id);
       await logOutcome(store, pending, "dropped");
       cancelledSuggestion = pending.summary;
@@ -684,14 +764,61 @@ export async function runAgentTurn(
   // model sees the turn (stageEmailSendIfAsked) - the model answering a
   // send request was the 2026-11-07 loop. A waiting dump batch or photo
   // question keeps its own grammar and is never pre-empted by this.
-  if (pendingBatch.length === 0 && !pendingPhotoAsk) {
+  if (pendingBatch.length === 0 && !pendingPhotoAsk && !writesRefused) {
     const stagedSend = await stageEmailSendIfAsked(store, input.userText);
     if (stagedSend) return stagedSend;
+  }
+
+  // Telegram fix round (fixes 10/11/11B): resolve his references in
+  // CODE before the model proposes anything. An ambiguous reference
+  // with nothing else waiting ends the turn with ONE question naming
+  // both records - nothing is staged. Resolved and not-found
+  // outcomes ride the context blocks as fact.
+  let resolution: ResolutionOutcome | null = null;
+  if (input.chatId && !writesRefused) {
+    try {
+      resolution = await resolveReferences(store, input.chatId, input.userText);
+    } catch (err) {
+      console.error("[bot] reference resolution failed (turn proceeds un-resolved)", err);
+    }
+  }
+  if (resolution?.kind === "ambiguous" && !pending && pendingBatch.length === 0 && !pendingPhotoAsk) {
+    return { reply: resolution.question };
   }
 
   const contextBlocks: string[] = [];
   // P1-2: the agent had no clock - "an hour ago", "today", "the 6th" were guesses.
   contextBlocks.push(nowBlock(new Date()));
+  if (writesRefused) {
+    contextBlocks.push(
+      "WRITES ARE PAUSED FOR THIS TURN (a storage hiccup kept this message's duplicate-check from being established): answer from his records only. Do not propose, stage, or claim any recording or change - if he asked for one, tell him plainly it needs a re-send in a moment.",
+    );
+  }
+  if (resolution?.kind === "resolved" || resolution?.kind === "not_found") {
+    contextBlocks.push(resolution.block);
+    // The thread's documents ride along so an attach target can be
+    // picked by id without browsing: what this conversation filed.
+    try {
+      const docs = (await store.listThreadEntities(input.chatId!)).filter((e) => e.entityType === "document").slice(0, 3);
+      if (docs.length > 0) {
+        contextBlocks.push(
+          "DOCUMENTS FROM THIS CONVERSATION (attach targets - use these ids with attach_document):\n" +
+            docs
+              .map((d) => {
+                const bits = d.keys.filter((k) => k.kind !== "file_name").map((k) => `${k.kind.replace("_", " ")} ${k.value}`);
+                return `- ${d.label}${d.entityId ? ` [id ${d.entityId}]` : ""}${bits.length > 0 ? ` — ${bits.join(", ")}` : ""}`;
+              })
+              .join("\n"),
+        );
+      }
+    } catch {
+      /* the documents block is an aid, never a blocker */
+    }
+  } else if (resolution?.kind === "ambiguous") {
+    contextBlocks.push(
+      `REFERENCE AMBIGUITY: his words match more than one record. Ask him this, exactly, and stage nothing new this turn: "${resolution.question}"`,
+    );
+  }
   // P1-3: "that's the BOL / that image" - the photos he just sent, by id, so they can be attached.
   const photosBlock = await loadRecentDocumentsBlock(store);
   if (photosBlock) contextBlocks.push(photosBlock);
@@ -758,7 +885,10 @@ export async function runAgentTurn(
   } catch {
     /* no learning this turn */
   }
-  const botTools = gateExecutes(selectToolsForTurn(buildBotTools(store), input.userText), input.userText);
+  // T-004: a read-only turn is offered read tools ONLY - no write
+  // tool is even callable, so nothing can be staged by any path.
+  const turnTools = selectToolsForTurn(buildBotTools(store), input.userText);
+  const botTools = gateExecutes(writesRefused ? turnTools.filter((t) => t.access === "read") : turnTools, input.userText);
   const result = await runAgentLoop({
     provider,
     system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
@@ -780,6 +910,9 @@ export async function runAgentTurn(
   let proposals = cancelledSuggestion && !askedToDelete
     ? result.proposals.filter((p) => p.tool !== "delete_record")
     : result.proposals;
+  // T-004 belt-and-braces: a read-only turn stages NOTHING, even if
+  // a proposal somehow formed (the tools offered were read-only).
+  if (writesRefused) proposals = [];
   if (proposals.some((p) => p.tool === "create_maintenance_event")) {
     try {
       proposals = await expandMaintenancePairings(store, proposals);
@@ -860,6 +993,12 @@ export async function runAgentTurn(
         args: proposal.args,
         summary: proposal.summary,
       });
+      // Fix 11A: the thread index learns the staged load now (id
+      // filled in when the yes executes it), so references resolve
+      // to it from the very next message on.
+      if (proposal.tool === "create_load") {
+        await indexLoadAfterExecution(store, input.chatId, null, proposal.args);
+      }
     }
     for (const [batchId, items] of batches) {
       let itemNumber = 0;
@@ -874,6 +1013,9 @@ export async function runAgentTurn(
           sourceQuote: proposal.sourceQuote,
           confidence: proposal.confidence,
         });
+        if (proposal.tool === "create_load") {
+          await indexLoadAfterExecution(store, input.chatId, null, proposal.args);
+        }
       }
     }
 
@@ -913,6 +1055,9 @@ export async function runAgentTurn(
     if (!waiting) {
       reply = stripConfirmationProse(reply) || "I haven't recorded anything yet - tell me what you'd like and I'll set it up.";
     }
+  }
+  if (writesRefused) {
+    reply += "\n\n(Heads up: I hit a storage hiccup verifying that message, so this turn was read-only — I haven't recorded or changed anything.)";
   }
   return { reply };
 }

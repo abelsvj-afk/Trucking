@@ -34,6 +34,7 @@ import {
   handleTelegramPhoto,
   pickLargestPhoto,
   storeTelegramPhoto,
+  type FiledPhotoInfo,
   type TelegramPhotoIntakeDeps,
   type TelegramPhotoResult,
   type TelegramPhotoSize,
@@ -145,6 +146,17 @@ export async function handleTelegramPhotoIntelligent(
     extractionStatus: deps.extractionStatus,
   };
 
+  // Telegram fix round: what this photo became, for the burst
+  // linker - identifiers only when the classifier actually read them.
+  const filedFor = (classification?: PhotoClassification): FiledPhotoInfo => ({
+    documentId,
+    fileName: stored.fileName,
+    identifiers: {
+      ...(classification?.fields.trailer_unit_number ? { trailerNumber: classification.fields.trailer_unit_number } : {}),
+      ...(classification?.fields.seal_number ? { sealNumber: classification.fields.seal_number } : {}),
+    },
+  });
+
   // Beat 2 - caption first (free, no vision call).
   const captionPurpose = purposeFromCaption(caption);
   if (captionPurpose) {
@@ -155,7 +167,7 @@ export async function handleTelegramPhotoIntelligent(
       confidence: null,
       knownBytes: bytes,
     });
-    return caption ? `${result.reply}\nYour note on it: "${caption}"` : result.reply;
+    return { text: caption ? `${result.reply}\nYour note on it: "${caption}"` : result.reply, filed: filedFor() };
   }
 
   // Beat 3 - classify on the scan rendition when one can be made
@@ -170,9 +182,10 @@ export async function handleTelegramPhotoIntelligent(
     });
   } catch (err) {
     console.error("[telegram] photo classification failed", err);
-    return caption
-      ? `${CLASSIFIER_FAILED_REPLY}\nYour note on it: "${caption}"`
-      : CLASSIFIER_FAILED_REPLY;
+    return {
+      text: caption ? `${CLASSIFIER_FAILED_REPLY}\nYour note on it: "${caption}"` : CLASSIFIER_FAILED_REPLY,
+      filed: filedFor(),
+    };
   }
 
   // Beat 4 - act or ask (§3.2 thresholds).
@@ -188,7 +201,7 @@ export async function handleTelegramPhotoIntelligent(
       fieldConfidences: classification.field_confidences,
       knownBytes: bytes,
     });
-    return caption ? `${result.reply}\nYour note on it: "${caption}"` : result.reply;
+    return { text: caption ? `${result.reply}\nYour note on it: "${caption}"` : result.reply, filed: filedFor(classification) };
   }
 
   const candidates = buildPurposeCandidates(classification);
@@ -214,7 +227,7 @@ export async function handleTelegramPhotoIntelligent(
       "I saved the photo, but I couldn't line up the tap-to-file question for it — tell me what it's for and I'll file it right.",
     ];
     if (caption) lines.push(`Your note on it: "${caption}"`);
-    return lines.join("\n");
+    return { text: lines.join("\n"), filed: filedFor(classification) };
   }
 
   const options = askOptionsFor(candidates);
@@ -222,5 +235,5 @@ export async function handleTelegramPhotoIntelligent(
     classification.confidence >= ask
       ? `${classification.headline}\n\nAm I right about what this photo is? Tap one — nothing is filed under it until you pick.`
       : `I saved that photo, but I'm not sure what it is. What should I file it as?`;
-  return { text: caption ? `${text}\nYour note on it: "${caption}"` : text, ask: { pendingId, options } };
+  return { text: caption ? `${text}\nYour note on it: "${caption}"` : text, ask: { pendingId, options }, filed: filedFor(classification) };
 }

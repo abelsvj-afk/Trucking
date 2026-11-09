@@ -45,6 +45,19 @@ export interface BotChatInput {
   lifePhaseText?: string | null;
   /** Phase C: the open-loops block (unanswered asks from recorded threads) - present only when something is actually hanging. */
   openLoopsText?: string | null;
+  /**
+   * Telegram fix round: the conversation thread's key (the Telegram
+   * chat id as a string) - enables code-side reference resolution
+   * and the durable thread entity index (migration 00083). Absent
+   * on the web surface, where resolution simply doesn't run.
+   */
+  chatId?: string;
+  /**
+   * ChatGPT T-004: the update's dedup claim could not be
+   * established (store failure), so this turn is READ-ONLY - no
+   * proposal may be staged or executed, however the words land.
+   */
+  writesRefused?: boolean;
 }
 
 import { STYLE_RULES } from "@/services/telegram/format-reply";

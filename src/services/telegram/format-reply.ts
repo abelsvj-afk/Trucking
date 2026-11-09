@@ -82,3 +82,60 @@ export function formatReply(text: string): string {
   });
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
+
+/**
+ * Splits text into chunks Telegram will accept (its hard cap is 4096 chars; 4000 leaves headroom).
+ * Breaks on line breaks first, packing whole lines into a chunk while they fit. A single line
+ * longer than the limit is hard-split: at the last space at or before the limit when that space
+ * sits in the back half of the window (that space is consumed - it appears in no chunk), otherwise
+ * exactly at the limit. A cut never lands inside a UTF-16 surrogate pair: if it would, it backs
+ * off one char so an emoji is never torn in half. Joining the chunks of a hard-split line with ""
+ * reproduces the line exactly, except for the spaces consumed at split points.
+ */
+export function splitTelegramMessage(text: string, limit = 4000): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  const flush = () => {
+    if (current) {
+      chunks.push(current);
+      current = "";
+    }
+  };
+
+  // One hard-split piece off the front of an over-limit line, plus what remains.
+  const takePiece = (line: string): { piece: string; rest: string } => {
+    const spaceIdx = line.lastIndexOf(" ", limit);
+    if (spaceIdx > limit / 2) {
+      return { piece: line.slice(0, spaceIdx), rest: line.slice(spaceIdx + 1) };
+    }
+    let cut = limit;
+    const before = line.charCodeAt(cut - 1);
+    const after = line.charCodeAt(cut);
+    if (cut > 1 && before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff) {
+      cut -= 1; // the cut would tear a surrogate pair (e.g. an emoji) in half - end one char earlier
+    }
+    return { piece: line.slice(0, cut), rest: line.slice(cut) };
+  };
+
+  for (const rawLine of String(text ?? "").split("\n")) {
+    let line = rawLine;
+    for (;;) {
+      const needed = current ? current.length + 1 + line.length : line.length;
+      if (needed <= limit) {
+        current = current ? `${current}\n${line}` : line;
+        break;
+      }
+      if (current) {
+        flush();
+        continue;
+      }
+      // Current chunk is empty and this line alone is over the limit: hard-split it.
+      const { piece, rest } = takePiece(line);
+      chunks.push(piece);
+      line = rest;
+      if (!line) break;
+    }
+  }
+  flush();
+  return chunks;
+}

@@ -676,6 +676,37 @@ Generated from `supabase/migrations/*.sql` on `main`; columns shown as written (
 - `processed_at` timestamptz not null default now()
 - _primary key (company_id, update_id)_
 
+### `telegram_pending_bursts` — created in 00083
+
+The durable mirror of the Telegram burst collector (ChatGPT T-002): a forwarded burst collected in memory is persisted here so a process restart between Telegram's ack and the flush loses nothing. One open bundle per (company, chat); a recovery sweep claims overdue rows and works them exactly once.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `chat_id` text not null
+- `items` jsonb not null default '[]'::jsonb — the burst items verbatim (text, forward metadata, media descriptors)
+- `due_at` timestamptz not null — when the bundle is due to flush
+- `claimed_at` timestamptz — set while a flush or the recovery sweep owns the bundle
+- `created_at` / `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz — soft delete, like the rest of the bot tables
+- _unique (company_id, chat_id) among live rows_
+
+### `bot_thread_entities` — created in 00083
+
+The per-thread entity index (Telegram fix round, fixes 10/11/11A): the records one conversation thread has touched, keyed the way the owner names them (trip number, broker reference, unit number, file name, pickup/seal numbers, lane), so references resolve in code instead of the model guessing. `is_current` marks the thread's current subject ("this load").
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `channel` text not null default 'telegram'
+- `chat_id` text not null
+- `entity_type` text not null — load | document | truck | trailer | driver
+- `entity_id` uuid — null while the record is only staged, filled when it exists
+- `keys` jsonb not null default '[]'::jsonb — `[{kind, value}]`, kinds: trip_number, broker_reference, unit_number, file_name, pickup_number, trailer_number, seal_number, lane
+- `label` text not null — the record in words, as summaries must name it
+- `is_current` boolean not null default false — at most one current subject per (company, chat)
+- `last_seen_at` timestamptz not null default now()
+- `created_at` / `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz — soft delete
+
 ### `research_runner_heartbeat` — created in 00040
 
 - `id` integer primary key check (id = 1)

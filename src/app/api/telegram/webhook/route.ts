@@ -2,8 +2,9 @@
 // for the owner's PRIVATE bot. This route is public in src/proxy.ts for
 // the same reason /api/internal is: the caller (Telegram's servers) has
 // no browser session. It enforces its own checks instead, in order:
-// bot token configured (else disabled) -> webhook secret header (if
-// configured) -> the gating rules in services/telegram/dispatch-bot.ts
+// bot token configured (else disabled) -> webhook secret header
+// (fail-closed in production: no secret configured means disabled) ->
+// the gating rules in services/telegram/dispatch-bot.ts
 // (private chats only, chat-id allowlist, bootstrap mode before the
 // allowlist exists). It never joins or reads any group and never sends
 // anything except replies inside the owner's private chat.
@@ -13,7 +14,7 @@
 // caller is authenticated by the webhook secret + allowlist instead.
 
 import { createPersonalitySenders } from "@/services/telegram/personality-send";
-import { formatReply } from "@/services/telegram/format-reply";
+import { formatReply, splitTelegramMessage } from "@/services/telegram/format-reply";
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { OpenAiProvider } from "@/services/ai/providers/openai";
@@ -25,7 +26,8 @@ import {
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
-import { createTelegramBurstCollector } from "@/services/telegram/burst";
+import type { BotBrainStore } from "@/services/bot/store";
+import { createTelegramBurstCollector, type TelegramBurstItem } from "@/services/telegram/burst";
 import { handleTelegramPhotoIntelligent } from "@/services/telegram/photo-intelligence";
 import {
   resolvePhotoPurposeAskById,
@@ -46,8 +48,49 @@ export const runtime = "nodejs";
  * process - forwarded conversations arrive as many separate webhook
  * calls and must land in the same per-chat bundle, so the collector
  * can never be rebuilt per request.
+ *
+ * Telegram fix round (T-002): the collector mirrors every bundle to
+ * the database (migration 00083) through the brain store, so a
+ * restart between Telegram's ack and the flush loses nothing. The
+ * store is resolved lazily from the same env config each request
+ * uses and cached - the collector itself stays process-wide.
  */
-const telegramBurstCollector = createTelegramBurstCollector();
+let cachedBurstBrainStore: BotBrainStore | null | undefined;
+function burstBrainStore(): BotBrainStore | null {
+  if (cachedBurstBrainStore === undefined) {
+    cachedBurstBrainStore = createTelegramBrainStore(getTelegramConfig().companyId);
+  }
+  return cachedBurstBrainStore;
+}
+
+const telegramBurstCollector = createTelegramBurstCollector({
+  persistence: {
+    save: async (key, items, dueAtIso) => {
+      const store = burstBrainStore();
+      if (store) await store.savePendingBurst(key, items as unknown[], dueAtIso);
+    },
+    claim: async (key) => {
+      const store = burstBrainStore();
+      return store ? store.claimPendingBurst(key) : true;
+    },
+    claimDue: async () => {
+      const store = burstBrainStore();
+      if (!store) return [];
+      const now = new Date();
+      const staleBefore = new Date(now.getTime() - 5 * 60_000).toISOString();
+      const claimed = await store.claimDuePendingBursts(now.toISOString(), staleBefore);
+      return claimed.map((c) => ({ key: c.chatId, items: c.items as TelegramBurstItem[] }));
+    },
+    clear: async (key) => {
+      const store = burstBrainStore();
+      if (store) await store.clearPendingBurst(key);
+    },
+    release: async (key) => {
+      const store = burstBrainStore();
+      if (store) await store.releasePendingBurstClaim(key);
+    },
+  },
+});
 
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false;
@@ -59,18 +102,9 @@ function secretMatches(provided: string | null, expected: string): boolean {
 async function sendTelegramMessage(botToken: string, chatId: number, rawText: string): Promise<void> {
   // Backstop: whatever reaches Telegram is clean plain text (idempotent - already-formatted text is unchanged).
   const text = formatReply(rawText);
-  // Telegram caps a message at 4096 characters - split on line breaks.
-  const chunks: string[] = [];
-  let current = "";
-  for (const line of text.split("\n")) {
-    if ((current + "\n" + line).length > 4000 && current) {
-      chunks.push(current);
-      current = line;
-    } else {
-      current = current ? current + "\n" + line : line;
-    }
-  }
-  if (current) chunks.push(current);
+  // Telegram caps a message at 4096 characters - split on line breaks, and
+  // hard-split any single line that is over the limit on its own (T-006).
+  const chunks = splitTelegramMessage(text);
 
   for (const chunk of chunks) {
     const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -167,6 +201,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // T-001 fail-closed: in production the webhook secret is not optional. Without
+  // one, anyone who finds this URL could post fake updates as the owner, so the
+  // route refuses to process anything until the secret is configured. Local dev
+  // (non-production) keeps the lenient behaviour below.
+  if (!config.webhookSecret && process.env.NODE_ENV === "production") {
+    console.error(
+      "[telegram] WEBHOOK SECRET NOT CONFIGURED - refusing to process updates in production. Set TELEGRAM_WEBHOOK_SECRET.",
+    );
+    return NextResponse.json(
+      { error: { code: "DISABLED", message: "Telegram webhook is not fully configured." } },
+      { status: 503 },
+    );
+  }
+
   if (
     config.webhookSecret &&
     !secretMatches(req.headers.get("x-telegram-bot-api-secret-token"), config.webhookSecret)
@@ -192,8 +240,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const chatForLimit =
     update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id;
   const kind = update.edited_message?.location || update.message?.location ? "location" : "message";
-  if (!webhookLimiter.allow(String(chatForLimit ?? "unknown"), kind, Date.now())) {
+  const limitResult = webhookLimiter.allowWithNotice(String(chatForLimit ?? "unknown"), kind, Date.now());
+  if (!limitResult.allowed) {
     console.warn("[telegram] rate limit hit - update dropped", { kind });
+    // T-005: don't drop silently - tell the owner some messages were dropped.
+    // The limiter throttles this notice to at most once per 10 minutes per
+    // chat+kind, so the notice itself can't spam. Best-effort only: a failed
+    // notice must never change the 200 acknowledgement.
+    if (limitResult.notify && typeof chatForLimit === "number" && config.botToken) {
+      try {
+        await sendTelegramMessage(
+          config.botToken,
+          chatForLimit,
+          "⚠️ Heads up: messages were coming in faster than I can take them, so some were dropped. Please wait a moment and send them again.",
+        );
+      } catch (err) {
+        console.error("[telegram] rate-limit drop notice failed", err);
+      }
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -246,7 +310,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // message are staged as a propose->yes batch on the same brain
     // store - his "yes" resolves them through the agent turn.
     stageRecordables: brainStore
-      ? (userText, items) => stageRecordables(brainStore, userText, items)
+      ? (userText, items, bundle) => stageRecordables(brainStore, userText, items, bundle)
+      : undefined,
+    // Fix 11A: filed photos join the thread's entity index (file
+    // name + read identifiers), so later references resolve in code.
+    indexFiledPhoto: brainStore
+      ? async (chatId, filed) => {
+          await brainStore.upsertThreadEntity({
+            chatId,
+            entityType: "document",
+            entityId: filed.documentId,
+            keys: [
+              { kind: "file_name", value: filed.fileName },
+              ...(filed.identifiers.trailerNumber ? [{ kind: "trailer_number", value: filed.identifiers.trailerNumber }] : []),
+              ...(filed.identifiers.pickupNumber ? [{ kind: "pickup_number", value: filed.identifiers.pickupNumber }] : []),
+              ...(filed.identifiers.sealNumber ? [{ kind: "seal_number", value: filed.identifiers.sealNumber }] : []),
+            ],
+            label: `document "${filed.fileName}"`,
+          });
+        }
       : undefined,
     // Phase C: every dispatch workup also reconstructs the
     // conversation into a stored thread record (best-effort, after

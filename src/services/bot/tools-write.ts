@@ -525,35 +525,240 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
 
   pushMaintenanceTools(store, tools);
 
+  // --- Load stops correction (brief fixes 13/16/16A) -----------------
+  // load_stops is written only inside create_load's afterCreate and
+  // update_load strips stops, so a load saved with the WRONG stops
+  // (Trip 1874: a dispatch leg the parser split wrong, a stop lost)
+  // could never be repaired in chat. This tool replaces ALL of a
+  // saved load's stops in one proposal-gated write, and its run()
+  // reads the stops back from the database - the read-back lines are
+  // the verification (fix 16A), not the model's say-so.
+
+  const stopShape = z.object({
+    seq: z.number().int().min(1),
+    kind: z.enum(["pickup", "delivery", "other"]),
+    name: z.string().optional(),
+    address: z.string().optional(),
+    appointment_at: z.string().optional(),
+    appointment_tz: z.string().optional(),
+  });
+  const setLoadStopsBot = z.object({
+    load_id: uuid,
+    stops: z.array(stopShape).min(1).max(40),
+  });
+  type StopArg = z.infer<typeof stopShape>;
+
+  /** An appointment instant in the zone it was written in ("2026-11-10 08:00 America/Chicago"); the raw string when it can't be rendered that way. */
+  const appointmentInWords = (stop: { appointment_at?: unknown; appointment_tz?: unknown }): string | null => {
+    if (typeof stop.appointment_at !== "string" || stop.appointment_at.length === 0) return null;
+    if (typeof stop.appointment_tz === "string" && stop.appointment_tz.length > 0) {
+      try {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: stop.appointment_tz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23",
+        }).formatToParts(new Date(stop.appointment_at));
+        const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+        if (part("year")) {
+          return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")} ${stop.appointment_tz}`;
+        }
+      } catch {
+        // Unknown zone or unparseable instant - fall through to the raw string.
+      }
+    }
+    return stop.appointment_at;
+  };
+  /** One stop in words: "PICKUP Kontoor Panama City, Panama City, FL — appt 2026-11-10 08:00 America/Chicago". Never an id. */
+  const stopInWords = (stop: { seq?: unknown; kind?: unknown; name?: unknown; address?: unknown; appointment_at?: unknown; appointment_tz?: unknown }): string => {
+    const kind = stop.kind === "pickup" ? "PICKUP" : stop.kind === "delivery" ? "DELIVERY" : "OTHER";
+    const place = [stop.name, stop.address].filter((v): v is string => typeof v === "string" && v.length > 0).join(", ");
+    const appt = appointmentInWords(stop);
+    return `${kind}${place ? ` ${place}` : ""}${appt ? ` — appt ${appt}` : ""}`;
+  };
+  const stopsInWords = (stops: { seq?: unknown }[]): string =>
+    [...stops]
+      .sort((a, b) => Number(a.seq ?? 0) - Number(b.seq ?? 0))
+      .map((stop, i) => `${i + 1}. ${stopInWords(stop)}`)
+      .join("; ");
+  /** The load named the way he knows it: "load Trip 1874 (Panama City, FL → Seminole, OK)" when it has a trip number. */
+  const loadInWords = (row: Row): string =>
+    typeof row.trip_number === "string" && row.trip_number.length > 0
+      ? `load Trip ${row.trip_number} (${row.origin ?? "?"} → ${row.destination ?? "?"})`
+      : describeRecord("load", row);
+  const fetchLoadForStops = async (loadId: string): Promise<{ row: Row | null; error: string | null }> => {
+    const { data, error } = await store.client
+      .from("loads")
+      .select("*")
+      .eq("id", loadId)
+      .eq("company_id", store.companyId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { row: null, error: error.message };
+    return { row: (data as Row | null) ?? null, error: null };
+  };
+  const fetchStopsForLoad = async (loadId: string): Promise<{ rows: Row[] | null; error: string | null }> => {
+    const { data, error } = await store.client
+      .from("load_stops")
+      .select("*")
+      .eq("company_id", store.companyId)
+      .eq("load_id", loadId)
+      .is("deleted_at", null)
+      .order("seq", { ascending: true });
+    if (error) return { rows: null, error: error.message };
+    return { rows: (data ?? []) as Row[], error: null };
+  };
+
+  tools.push({
+    name: "set_load_stops",
+    description:
+      "Correct the STOPS of a load already saved in his books - use this when a saved load's stops are wrong (e.g. a dispatch leg the parser split wrong, a stop lost or merged, a wrong appointment). It replaces ALL of the load's stops with the ones you pass, so pass the full corrected list in order. Get load_id from list_loads. This is one part of a correction: use update_load for the load's other fields, and save_memory with supersedes_id for any memory that was saved from the wrong stops.",
+    parameters: {
+      type: "object",
+      properties: {
+        load_id: idParam("load_id", "load"),
+        stops: {
+          type: "array",
+          description: "The load's FULL corrected stop list, in order - this replaces every stop currently saved. appointment_at is an ISO instant; appointment_tz the IANA zone it was written in.",
+          items: {
+            type: "object",
+            properties: {
+              seq: { type: "number" },
+              kind: { type: "string", enum: ["pickup", "delivery", "other"] },
+              name: { type: "string" },
+              address: { type: "string" },
+              appointment_at: { type: "string" },
+              appointment_tz: { type: "string" },
+            },
+            required: ["seq", "kind"],
+          },
+        },
+      },
+      required: ["load_id", "stops"],
+    },
+    access: "write",
+    validateArgs: validateWith(setLoadStopsBot),
+    summarize: (args) => {
+      const stops = Array.isArray(args.stops) ? (args.stops as StopArg[]) : [];
+      return `Replace a load's stops with ${stops.length} stop${stops.length === 1 ? "" : "s"}: ${stopsInWords(stops)}`;
+    },
+    async verifyProposal(args) {
+      const parsed = setLoadStopsBot.safeParse(args);
+      if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
+      const { row: load, error: loadError } = await fetchLoadForStops(parsed.data.load_id);
+      if (loadError) return { ok: false, error: `couldn't check his loads (${loadError})` };
+      if (!load) {
+        return { ok: false, error: "there is no load like that in his records - find the right load with list_loads first, then set its stops" };
+      }
+      const { rows: current, error: stopsError } = await fetchStopsForLoad(parsed.data.load_id);
+      if (stopsError) return { ok: false, error: `couldn't read that load's current stops (${stopsError})` };
+      const currentStops = current ?? [];
+      return {
+        ok: true,
+        summary:
+          `Set stops on ${loadInWords(load)}: now ${currentStops.length} stop${currentStops.length === 1 ? "" : "s"}` +
+          `${currentStops.length > 0 ? ` (${stopsInWords(currentStops)})` : ""}` +
+          `, becomes ${parsed.data.stops.length} stop${parsed.data.stops.length === 1 ? "" : "s"}: ${stopsInWords(parsed.data.stops)}`,
+      };
+    },
+    async run(args) {
+      const parsed = setLoadStopsBot.parse(args);
+      const { client, companyId } = store;
+      const { row: load, error: loadError } = await fetchLoadForStops(parsed.load_id);
+      if (loadError) throw new Error(loadError);
+      if (!load) throw new Error("that load isn't in his records anymore - nothing was changed");
+      const { error: deleteError } = await client
+        .from("load_stops")
+        .delete()
+        .eq("company_id", companyId)
+        .eq("load_id", parsed.load_id);
+      if (deleteError) throw new Error(deleteError.message);
+      // Same columns create_load's afterCreate writes.
+      const { error: insertError } = await client.from("load_stops").insert(
+        parsed.stops.map((st) => ({
+          company_id: companyId, load_id: parsed.load_id, seq: st.seq, kind: st.kind,
+          name: st.name ?? null, address: st.address ?? null,
+          appointment_at: st.appointment_at ?? null, appointment_tz: st.appointment_tz ?? null,
+        })),
+      );
+      if (insertError) throw new Error(insertError.message);
+      // Fix 16A: read the stops back from the database and report THOSE,
+      // so the confirmation is the saved truth, not what was attempted.
+      const { rows: saved, error: readError } = await fetchStopsForLoad(parsed.load_id);
+      if (readError || !saved) {
+        return `Set stops on ${loadInWords(load)}, but I couldn't read them back to check (${readError ?? "no answer"}) - check the load before relying on them.`;
+      }
+      const mismatch =
+        saved.length !== parsed.stops.length
+          ? ` ⚠ I wrote ${parsed.stops.length} stop${parsed.stops.length === 1 ? "" : "s"} but ${saved.length} ${saved.length === 1 ? "is" : "are"} saved - check the load.`
+          : "";
+      return `Set stops on ${loadInWords(load)}. Now the stops are: ${stopsInWords(saved)}.${mismatch}`;
+    },
+  });
+
   // --- Documents -------------------------------------------------------
 
+  const ATTACH_TABLES = { truck: "trucks", trailer: "trailers", driver: "drivers", load: "loads" } as const;
+  // Telegram fix round: an attach may name its load by TRIP NUMBER
+  // instead of id - the burst linker stages it that way (the load is
+  // created by an earlier item in the same approved batch, so its id
+  // doesn't exist at staging time), and resolution blocks hand the
+  // model trip numbers in words. Resolved to the id at verify/run.
+  const attachArgsSchema = z
+    .object({
+      document_id: uuid,
+      related_entity_type: relatedEntityTypeSchema,
+      related_entity_id: uuid.optional(),
+      related_trip_number: z.string().min(1).optional(),
+    })
+    .refine((a) => Boolean(a.related_entity_id) || Boolean(a.related_trip_number), {
+      message: "name the record to attach to - its id, or (for a load) its trip number",
+    });
+  const resolveAttachTargetId = async (
+    parsed: z.infer<typeof attachArgsSchema>,
+  ): Promise<{ id: string } | { error: string }> => {
+    if (parsed.related_entity_id) return { id: parsed.related_entity_id };
+    if (parsed.related_entity_type !== "load" || !parsed.related_trip_number) {
+      return { error: "a trip number only names a load - give the record's id for anything else" };
+    }
+    const { data, error } = await store.client
+      .from("loads")
+      .select("id")
+      .eq("company_id", store.companyId)
+      .is("deleted_at", null)
+      .eq("trip_number", parsed.related_trip_number)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) return { error: `couldn't check his loads (${error.message})` };
+    const row = (data ?? [])[0] as { id: string } | undefined;
+    if (!row) return { error: `there is no load with trip ${parsed.related_trip_number} in his records` };
+    return { id: row.id };
+  };
   tools.push({
     name: "attach_document",
     description:
-      "Attach (or re-attach) a document already in his files to a load, truck, trailer, or driver - e.g. a BOL photo to its load. The file itself is uploaded in the app (More → Documents); this points it at the right record. Get ids from list_documents/search_documents and list_loads.",
+      "Attach (or re-attach) a document already in his files to a load, truck, trailer, or driver - e.g. a BOL photo to its load. The file itself is uploaded in the app (More → Documents); this points it at the right record. Get ids from list_documents/search_documents and list_loads - or, for a load, pass related_trip_number instead of related_entity_id.",
     parameters: {
       type: "object",
       properties: {
         document_id: idParam("document_id", "document"),
         related_entity_type: { type: "string", enum: ["truck", "trailer", "driver", "load"] },
         related_entity_id: { type: "string", description: "The id of the record to attach it to." },
+        related_trip_number: { type: "string", description: "For a load only: its trip number, instead of related_entity_id." },
       },
-      required: ["document_id", "related_entity_type", "related_entity_id"],
+      required: ["document_id", "related_entity_type"],
     },
     access: "write",
-    validateArgs: validateWith(
-      z.object({
-        document_id: uuid,
-        related_entity_type: relatedEntityTypeSchema,
-        related_entity_id: uuid,
-      }),
-    ),
-    summarize: (args) => `Attach document ${args.document_id} to ${args.related_entity_type} ${args.related_entity_id}`,
+    validateArgs: validateWith(attachArgsSchema),
+    // Fix 13: the staging summary names no raw ids - the verified summary
+    // (verifyProposal) replaces it with the document and target in words.
+    summarize: (args) => `Attach document to ${args.related_entity_type} (names checked before recording)`,
     // P0-3: both the document and what it is attached to must exist; the proposal names them in words.
     async verifyProposal(args) {
-      const parsed = z
-        .object({ document_id: uuid, related_entity_type: relatedEntityTypeSchema, related_entity_id: uuid })
-        .safeParse(args);
+      const parsed = attachArgsSchema.safeParse(args);
       if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
       const { client, companyId } = store;
       const { data: doc, error: docError } = await client
@@ -564,25 +769,28 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         .maybeSingle();
       if (docError) return { ok: false, error: `couldn't check his documents (${docError.message})` };
       if (!doc) return { ok: false, error: `there is no document with id ${parsed.data.document_id} - use list_documents (the RECENT PHOTOS block names the latest ones)` };
-      const table = { truck: "trucks", trailer: "trailers", driver: "drivers", load: "loads" }[parsed.data.related_entity_type];
+      const resolved = await resolveAttachTargetId(parsed.data);
+      if ("error" in resolved) return { ok: false, error: resolved.error };
+      const table = ATTACH_TABLES[parsed.data.related_entity_type];
       const { data: target, error: targetError } = await client
         .from(table)
         .select("*")
-        .eq("id", parsed.data.related_entity_id)
+        .eq("id", resolved.id)
         .eq("company_id", companyId)
         .is("deleted_at", null)
         .maybeSingle();
       if (targetError) return { ok: false, error: `couldn't check his records (${targetError.message})` };
-      if (!target) return { ok: false, error: `there is no ${parsed.data.related_entity_type} with id ${parsed.data.related_entity_id} - use list_loads (or the matching list tool)` };
+      if (!target) return { ok: false, error: `there is no ${parsed.data.related_entity_type} like that in his records - use list_loads (or the matching list tool)` };
       return {
         ok: true,
         summary: `Attach "${(doc as { file_name: string }).file_name}" to ${describeRecord(parsed.data.related_entity_type, target as Row)}`,
       };
     },
     async run(args) {
-      const parsed = z
-        .object({ document_id: uuid, related_entity_type: relatedEntityTypeSchema, related_entity_id: uuid })
-        .parse(args);
+      const parsed = attachArgsSchema.parse(args);
+      const resolved = await resolveAttachTargetId(parsed);
+      if ("error" in resolved) throw new Error(resolved.error);
+      const targetId = resolved.id;
       const { client, companyId } = store;
       // documents has no deleted_at (hard-delete table, docs/schemas.md) -
       // never filter on it.
@@ -596,11 +804,23 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       if (!data) throw new Error(`No document with id ${parsed.document_id} in his records.`);
       const { error: updateError } = await client
         .from("documents")
-        .update({ related_entity_type: parsed.related_entity_type, related_entity_id: parsed.related_entity_id })
+        .update({ related_entity_type: parsed.related_entity_type, related_entity_id: targetId })
         .eq("id", parsed.document_id)
         .eq("company_id", companyId);
       if (updateError) throw new Error(updateError.message);
-      return `Attached "${(data as { file_name: string }).file_name}" to ${parsed.related_entity_type} ${parsed.related_entity_id}.`;
+      // Fix 13: name the target in words (fetched like verifyProposal
+      // does), never by echoing its raw id back to him.
+      const { data: target } = await client
+        .from(ATTACH_TABLES[parsed.related_entity_type])
+        .select("*")
+        .eq("id", targetId)
+        .eq("company_id", companyId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      const targetWords = target
+        ? describeRecord(parsed.related_entity_type, target as Row)
+        : `the ${parsed.related_entity_type}`;
+      return `Attached "${(data as { file_name: string }).file_name}" to ${targetWords}.`;
     },
   });
 
