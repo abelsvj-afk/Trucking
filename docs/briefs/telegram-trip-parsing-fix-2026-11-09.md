@@ -158,6 +158,32 @@ raw UUIDs. There is no code that maps the owner's words to a record.
     load", "that trip", "attach it to it" in follow-up messages. A
     completed load from days ago must never outrank the load from this
     conversation.
+11A. **A durable entity index for the conversation thread (owner,
+    2026-11-09: "store the thread of messages … and reference the
+    previous ones").** Raw chat history is not enough — Abel's live
+    context is the last ~20 turns plus keyword-picked memories, so
+    references die as the conversation scrolls. Persist, per thread, an
+    index of every record the conversation has touched: each load by
+    trip number AND broker reference AND lane/dates, each document by
+    file name AND the identifiers read from it (trailer #, pickup #,
+    seal #), each truck/trailer by unit number — each entry pointing at
+    the real record id. Resolution (fix 10) consults this index FIRST,
+    then the wider database. The index survives restarts and long
+    conversations; it is data in the database, not prompt text. When the
+    owner refers to a load by a detail instead of a number ("the Panama
+    City load", "the one with the trailer photo"), the index plus the
+    load records are how he finds it — by matching the detail, in words.
+11B. **Wisdom rules — when NOT to act on a guess (owner, 2026-11-09:
+    "smart and wise … plus more").** (a) If a reference matches TWO
+    records, Abel does not pick one: he asks ONE plain question naming
+    both in words ("Trip 1874 from today, or the Savannah load from last
+    week?") and stages nothing until the owner answers. (b) If a new
+    forward CONTRADICTS a record Abel created earlier (a corrected
+    dispatch, a changed appointment), Abel notices it himself and
+    proposes the correction — he does not wait to be told he made a
+    mistake. (c) Every resolution he acts on is stated in his reply in
+    words ("Attaching it to Trip 1874, Panama City → Seminole") so a
+    wrong match is visible BEFORE the yes, not after.
 12. **One ask, one batch.** A request to attach a photo must stage only the
     attach proposals for it. Unrelated proposals (the "clear the pay
     override" item bundled into the attach answer) must not ride along.
@@ -189,6 +215,18 @@ raw UUIDs. There is no code that maps the owner's words to a record.
     extend update_load) that replaces a load's stops in one proposal, with
     the same propose→yes discipline and a summary that lists every stop in
     words. Without this, no wrong trip can ever be repaired in chat.
+16A. **A correction must fix the mistake EVERYWHERE it lives (owner,
+    2026-11-09: "go back and fix its mistakes and write properly to the
+    app").** One correction proposal covers the whole mistake: the load's
+    fields, its stops, its notes (trip facts parked in notes by the
+    fallback path get cleaned too), AND any memory Abel saved from the
+    wrong parse (a memory written from bad data is superseded by the
+    corrected fact in the same batch). After the owner says yes, Abel
+    READS THE RECORD BACK and shows the corrected summary in words —
+    the correction is not reported done until the read-back matches what
+    was approved. Half-fixed records (right destination, wrong stop still
+    in the list; fixed load, wrong memory still live) are a failed
+    correction.
 17. **Repair Trip 1874's record** as the acceptance run of fix 16 (staged
     for the owner's yes like everything else): load `50dde25b-…` becomes
     origin Panama City, FL → destination Seminole, OK; delivery_date
@@ -225,6 +263,13 @@ raw UUIDs. There is no code that maps the owner's words to a record.
   created this conversation with trip_number 1874), the message "attach it
   to load 1874" resolves to the 1874 load; "attach it to this load" right
   after creating 1874 resolves to the same load.
+- Entity-index test: after a long conversation (beyond the live history
+  window), "attach it to trip 1874" still resolves from the stored index.
+  Ambiguity test: a reference matching two records produces ONE naming
+  question and stages nothing.
+- Correction test: correcting load 50dde25b's stops also supersedes a
+  memory saved from the wrong parse, and the post-yes read-back summary
+  shows all three corrected stops in words.
 
 ## Boundaries (unchanged, do not widen)
 
