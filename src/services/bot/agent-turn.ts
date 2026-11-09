@@ -43,7 +43,7 @@ import { buildLifePhaseText } from "./life-phase";
 import { formatOpenLoopsBlock } from "./threads";
 import { buildBotTools, executeWriteTool } from "./tools";
 import { gateExecutes, NAMED_ACTION_PATTERNS } from "./execute-gate";
-import { selectToolsForTurn } from "./tool-budget";
+import { selectToolsForTurn, TOOL_BUDGET } from "./tool-budget";
 import { stripConfirmationProse, stripModelOnlyLines } from "./reply-prose";
 import { prepareEmailSendProposal } from "./email-tools";
 import { STYLE_RULES } from "@/services/telegram/format-reply";
@@ -115,6 +115,14 @@ VOICE & THE TWIN: Voice notes arrive already transcribed into text (marked [voic
 PEOPLE & BUSINESS LEARNING: You are learning his business and the people in it. When a conversation or a forwarded thread shows something durable about a person he works with (the owner, a dispatcher, a broker, a shipper) or about how his operation runs (how this carrier pays, a facility's rules), propose it with save_memory - kind "person_profile" in the tool's PERSON format, or "business_fact" in its BUSINESS format - with confirmation "propose", so he approves what you learned before it sticks. One current profile per person: when you learn more, propose the whole updated line. Profiles and business facts come back to you in the REMEMBERED FACTS block - use them ("the carrier usually settles Fridays") instead of treating every message like it's from a stranger. Never invent a profile detail to fill a gap.
 
 ${JOB_KNOWLEDGE_BRIEF}`;
+
+/**
+ * Dynamic tool selection (owner requirement, 2026-11-09): the turn's tool list is a selection
+ * from the full registry, sized to the provider cap. A missing tool is a routing gap the loop
+ * can close mid-turn (find_more_tools), never a capability Abel lacks - the prompt must say so,
+ * or the model will present the gap to the owner as "I can't do that."
+ */
+const TOOL_SELECTION_RULES = `TOOL SELECTION: Your tool list this turn is a SELECTION from everything you can do, picked for this message - it is not the limit of your abilities. If a task needs a tool you do not see, call find_more_tools and describe the capability (what it does, not a guessed name); the matches load for the rest of this turn and you call the one you need. NEVER tell him you can't do something just because the tool isn't in front of you - search first. Pulled write tools follow the same propose/yes rules as any other write.`;
 
 /** Pay safety (owner 2026-11-07: telling Abel he doesn't pay for fuel zeroed his pay). */
 const PAY_SAFETY_RULES =
@@ -887,15 +895,28 @@ export async function runAgentTurn(
   }
   // T-004: a read-only turn is offered read tools ONLY - no write
   // tool is even callable, so nothing can be staged by any path.
-  const turnTools = selectToolsForTurn(buildBotTools(store), input.userText);
-  const botTools = gateExecutes(writesRefused ? turnTools.filter((t) => t.access === "read") : turnTools, input.userText);
+  // Dynamic selection (owner requirement, 2026-11-09): the loop also
+  // receives the FULL gated registry as its catalog, so a tool the
+  // router did not select can be pulled into the same turn via
+  // find_more_tools - the cap bounds each request, never a capability.
+  // The catalog carries the same gate and the same read-only filter
+  // as the selection, so a pull can never widen what this turn allows.
+  // Selection is scored on the conversation's actual context, not the
+  // message alone: his words first, then the open loops and the
+  // running summary (the thread subjects the turn is really about).
+  const fullGated = gateExecutes(buildBotTools(store), input.userText);
+  const catalog = writesRefused ? fullGated.filter((t) => t.access === "read") : fullGated;
+  const selectionText = [input.userText, input.openLoopsText ?? "", input.summaryText ?? ""].join("\n");
+  const botTools = selectToolsForTurn(catalog, selectionText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
     tools: botTools,
+    toolCatalog: catalog,
+    toolSpecLimit: TOOL_BUDGET,
     onToolLog: hooks.onToolLog,
   });
 
