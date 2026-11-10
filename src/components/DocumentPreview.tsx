@@ -17,7 +17,18 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   scale_ticket: "Scale ticket",
   fuel_receipt: "Fuel receipt",
   settlement: "Settlement",
+  receipt: "Receipt",
+  agreement: "Agreement",
+  invoice: "Invoice",
+  statement: "Statement",
   other: "Document",
+};
+
+/** The bookkeeping situation a document belongs to (00085), in his words. */
+export const SITUATION_LABELS: Record<string, string> = {
+  carrier: "Working for a carrier",
+  own_authority: "Own authority",
+  business_records: "Business records",
 };
 
 export function extractionStatusText(doc: DocumentWithSignedUrl): string {
@@ -44,6 +55,8 @@ export function DocumentPreview({ doc }: { doc: DocumentWithSignedUrl }) {
     <section aria-label={`Preview of ${doc.file_name}`}>
       <h2>{doc.file_name}</h2>
       {doc.doc_type && <p>{DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}</p>}
+      {doc.situation && <p>Books: {SITUATION_LABELS[doc.situation] ?? doc.situation}</p>}
+      {doc.source === "generated" && <p>Created in the app{doc.generator ? ` (${doc.generator})` : ""} — not an uploaded scan.</p>}
       <p>{extractionStatusText(doc)}</p>
 
       {isImage && shownUrl && (

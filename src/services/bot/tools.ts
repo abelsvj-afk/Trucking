@@ -27,6 +27,7 @@ import { computePaperwork } from "@/lib/paperwork";
 import { validateWith } from "./tool-helpers";
 import { buildExtendedReadTools } from "./tools-read";
 import { buildGameTools } from "./tools-game";
+import { buildDocumentTools } from "./document-tools";
 import { buildExtendedWriteTools } from "./tools-write";
 import { validateDumpItems } from "./dump-intake";
 import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advisor";
@@ -343,7 +344,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
     {
       name: "create_expense",
-      description: "Record an expense in his books (Money). Use when he tells you about money he spent on the business. Link it to a load/truck/driver when he names one (ids from the list tools).",
+      description: "Record an expense in his books (Money). Use when he tells you about money he spent on the business. Link it to a load/truck/driver when he names one (ids from the list tools). BUCKET: every expense is one of two kinds - 'business' (his own company's cost; the default) or 'pay_deduction' (the company he drives for takes it out of his check - a recovery/tow after an incident, damage, a chargeback). When he says a cost comes out of his check, set bucket 'pay_deduction' and make the description say WHY in plain words - the reason shows on his Paychecks page. When it's unclear which kind it is, ask him; the proposal shows the bucket in words either way.",
       parameters: {
         type: "object",
         properties: {
@@ -354,6 +355,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           load_id: { type: "string", description: "Load id (uuid) this expense belongs to, if any." },
           truck_id: { type: "string", description: "Truck id (uuid) this expense belongs to, if any." },
           driver_id: { type: "string", description: "Driver id (uuid) this expense belongs to, if any." },
+          bucket: { type: "string", enum: ["business", "pay_deduction"], description: "business = his own books (default). pay_deduction = comes out of his driver check." },
         },
         required: ["category", "amount_dollars"],
       },
@@ -361,27 +363,45 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       validateArgs: validateWith(createExpenseArgs),
       summarize(args) {
         const parsed = createExpenseArgs.parse(args);
-        return `Expense: ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category})${parsed.description ? ` — ${parsed.description}` : ""} on ${parsed.expense_date ?? "today"}`;
+        const bucketWords =
+          parsed.bucket === "pay_deduction"
+            ? " — PAY DEDUCTION: this comes out of his check"
+            : " — business expense";
+        return `Expense: ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category})${parsed.description ? ` — ${parsed.description}` : ""} on ${parsed.expense_date ?? "today"}${bucketWords}`;
       },
       async run(args) {
         const parsed = createExpenseArgs.parse(args);
         const expenseDate = parsed.expense_date ?? new Date().toISOString().slice(0, 10);
-        const { data, error } = await client
+        const row = {
+          company_id: companyId,
+          category: parsed.category,
+          amount_cents: Math.round(parsed.amount_dollars * 100),
+          expense_date: expenseDate,
+          description: parsed.description ?? null,
+          load_id: parsed.load_id ?? null,
+          truck_id: parsed.truck_id ?? null,
+          driver_id: parsed.driver_id ?? null,
+        };
+        // The bucket column arrives with migration 00085; the
+        // client's generated row type predates it, so the payload is
+        // widened explicitly (the runtime error path below covers
+        // databases where the column doesn't exist yet).
+        const insertRow = (parsed.bucket ? { ...row, bucket: parsed.bucket } : row) as typeof row;
+        let result = await client
           .from("expenses")
-          .insert({
-            company_id: companyId,
-            category: parsed.category,
-            amount_cents: Math.round(parsed.amount_dollars * 100),
-            expense_date: expenseDate,
-            description: parsed.description ?? null,
-            load_id: parsed.load_id ?? null,
-            truck_id: parsed.truck_id ?? null,
-            driver_id: parsed.driver_id ?? null,
-          })
+          .insert(insertRow)
           .select("id")
           .single();
-        if (error) throw new Error(error.message);
-        return `Recorded expense ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category}) on ${expenseDate}. Record id ${(data as { id: string }).id}.`;
+        if (result.error && parsed.bucket && /bucket/i.test(result.error.message)) {
+          // Pre-00085 database: the column doesn't exist yet, so the
+          // bucket cannot be recorded - say so instead of pretending.
+          throw new Error(
+            "The expense buckets update (migration 00085) is not live yet, so the bucket can't be recorded. The expense itself was NOT saved with a bucket - tell him plainly.",
+          );
+        }
+        if (result.error) throw new Error(result.error.message);
+        const data = result.data;
+        return `Recorded expense ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category}) on ${expenseDate}${parsed.bucket === "pay_deduction" ? " as a PAY DEDUCTION - it will come out of his check for that pay week" : ""}. Record id ${(data as { id: string }).id}.`;
       },
     },
     {
@@ -1124,6 +1144,11 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     },
   });
 
+  // Document creation (expense buckets + documents spec 2026-11-09):
+  // create_document, in document-tools.ts - a propose->yes write that
+  // generates a real document and files it on its record.
+  tools.push(...buildDocumentTools(store));
+
   // Gaming System (docs/design/gaming-system.md): the Game Plan's
   // conversational surface, in tools-game.ts. Pushed last, after
   // the write registry is built - game writes are direct commands
@@ -1142,6 +1167,10 @@ const createExpenseArgs = z.object({
   load_id: z.string().uuid().optional(),
   truck_id: z.string().uuid().optional(),
   driver_id: z.string().uuid().optional(),
+  // Expense buckets (spec 2026-11-09): pay_deduction = the company he
+  // drives for takes it out of his check; business = his own books.
+  // Absent = business, the database default.
+  bucket: z.enum(["business", "pay_deduction"]).optional(),
 });
 
 const createFuelArgs = z.object({

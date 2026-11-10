@@ -15,6 +15,9 @@ import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatDollars } from "@/lib/truck-fund";
+import ExpenseBucketField from "@/components/ExpenseBucketField";
+import EntityDocuments from "@/components/EntityDocuments";
+import { bucketOf, type ExpenseBucket } from "@/lib/expense-buckets";
 import type { Driver, Expense, ExpenseCategory, Load, Truck } from "@/types/entities";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
@@ -87,10 +90,18 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
           <dd>{new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}</dd>
           <dt>Description</dt>
           <dd>{expense.description ?? "—"}</dd>
+          <dt>Kind of cost</dt>
+          <dd>
+            {bucketOf(expense) === "pay_deduction"
+              ? "Pay deduction — comes out of the check (it shows on the Paychecks page with this description as the reason)"
+              : "Business expense — the company's own books; it never touches pay"}
+          </dd>
         </dl>
       </section>
 
       <ExpenseEditForm key={expense.id} expense={expense} onSaved={setExpense} />
+
+      <EntityDocuments entityType="expense" entityId={expense.id} />
 
       <p>
         <Link href="/money/expenses">Back to expenses</Link>
@@ -112,6 +123,7 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
 
 function ExpenseEditForm({ expense, onSaved }: { expense: Expense; onSaved: (expense: Expense) => void }) {
   const [category, setCategory] = useState<ExpenseCategory>(expense.category);
+  const [bucket, setBucket] = useState<ExpenseBucket>(bucketOf(expense));
   const [amountDollars, setAmountDollars] = useState((expense.amount_cents / 100).toString());
   const [expenseDate, setExpenseDate] = useState(expense.expense_date);
   const [truckId, setTruckId] = useState(expense.truck_id ?? "");
@@ -136,6 +148,7 @@ function ExpenseEditForm({ expense, onSaved }: { expense: Expense; onSaved: (exp
     try {
       const updated = await apiClient.update<Expense>("expenses", expense.id, {
         category,
+        bucket,
         amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
         expense_date: expenseDate,
         truck_id: truckId || null,
@@ -174,6 +187,8 @@ function ExpenseEditForm({ expense, onSaved }: { expense: Expense; onSaved: (exp
             </option>
           ))}
         </select>
+
+        <ExpenseBucketField id="edit-bucket" value={bucket} onChange={setBucket} />
 
         <label htmlFor="edit-amount">Amount ($)</label>
         <input

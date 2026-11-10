@@ -27,6 +27,7 @@ const RULES: Array<[RegExp, Where]> = [
   [/checklist/, { kind: "record", page: "Trucks → Checklist" }],
   [/duty_status|detention/, { kind: "record", page: "Logs" }],
   [/attach_document/, { kind: "record", page: "Documents" }],
+  [/create_document/, { kind: "record", page: "Documents" }],
   [/mark_thread_answered/, { kind: "record", page: "Threads" }],
   [/settlement/, { kind: "record", page: "Money → Settlements" }],
 ];

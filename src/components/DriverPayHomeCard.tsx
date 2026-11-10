@@ -18,6 +18,7 @@ import { usePaySummary } from "@/lib/use-pay-summary";
 import { usePayProjection } from "@/lib/use-pay-projection";
 import { describeTerms, formatCents, formatDay, formatRange } from "@/lib/pay-projection";
 import { advancesForPeriod, netRange, sumAdvances } from "@/lib/cash-advances";
+import { deductionsForPeriod, sumDeductions } from "@/lib/expense-buckets";
 
 const hm = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60_000));
@@ -56,26 +57,35 @@ export default function DriverPayHomeCard() {
   // fails visibly on its own advances error - see pay-summary - so a
   // ready summary's totals are real and stay as they were.)
   const advancesUnavailable = projection !== null && projection.advancesAvailable === false;
+  // Same honesty rule for pay deductions: a failed deductions read is
+  // "unavailable", never zero - no net from the projection is shown.
+  const deductionsUnavailable = projection !== null && projection.deductionsAvailable === false;
+  const outUnavailable = advancesUnavailable || deductionsUnavailable;
 
   const period = projection?.period ?? null;
   const weekAdvancesCents =
-    projection && period && !advancesUnavailable
+    projection && period && !outUnavailable
       ? sumAdvances(advancesForPeriod(projection.advances, period.start, period.end))
       : 0;
-  const weekNet = period && !advancesUnavailable ? netRange(period.lowCents, period.highCents, weekAdvancesCents) : null;
+  const weekDeductionsCents =
+    projection && period && !outUnavailable
+      ? sumDeductions(deductionsForPeriod(projection.deductions, period.start, period.end))
+      : 0;
+  const weekOutCents = weekAdvancesCents + weekDeductionsCents;
+  const weekNet = period && !outUnavailable ? netRange(period.lowCents, period.highCents, weekOutCents) : null;
   // Advances are netted in exactly one place in this story: against
   // this pay week's projection when this week has any. Advances taken
   // against other weeks' still-unpaid loads are shown netted against
   // those instead - never both, so no dollar reads as counted twice.
-  const showUnpaidAdvances = !advancesUnavailable && weekAdvancesCents === 0 && totals !== null && totals.advancesCents > 0;
+  const showUnpaidAdvances = !outUnavailable && weekOutCents === 0 && totals !== null && totals.advancesCents > 0;
 
-  const hasWeek = period !== null && (period.rows.length > 0 || weekAdvancesCents > 0);
+  const hasWeek = period !== null && (period.rows.length > 0 || weekOutCents > 0);
   const nothing =
     !active &&
     !hasWeek &&
     (totals === null || (totals.unpaidCount === 0 && totals.shortCount === 0 && !showUnpaidAdvances)) &&
     !hos &&
-    !advancesUnavailable;
+    !outUnavailable;
   if (nothing && !period) return null;
 
   return (
@@ -97,10 +107,20 @@ export default function DriverPayHomeCard() {
             <p className="active-load-route">
               This pay week: <strong>{formatRange(period.lowCents, period.highCents)}</strong>
             </p>
-            {weekAdvancesCents > 0 && weekNet && (
+            {weekAdvancesCents > 0 && (
               <p className="row-sub">
                 − {formatCents(weekAdvancesCents)} in <Link href="/money/advances">cash advances</Link> already taken
-                out of this pay{" · "}
+                out of this pay
+              </p>
+            )}
+            {weekDeductionsCents > 0 && (
+              <p className="row-sub">
+                − {formatCents(weekDeductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out
+                of this pay
+              </p>
+            )}
+            {weekOutCents > 0 && weekNet && (
+              <p className="row-sub">
                 <strong>net you should get: {formatRange(weekNet.lowCents, weekNet.highCents)}</strong>
                 {weekNet.highCents < 0 ? " — more taken out than this week is expected to pay so far" : ""}
               </p>
@@ -141,10 +161,13 @@ export default function DriverPayHomeCard() {
             : ""}
         </p>
       )}
-      {advancesUnavailable && (
+      {outUnavailable && (
         <p className="row-sub" role="note">
-          Cash advances couldn&apos;t load, so these pay figures don&apos;t take advances out — they may be
-          incomplete.
+          {advancesUnavailable && deductionsUnavailable
+            ? "Cash advances and pay deductions couldn't load, so these pay figures don't take either out — they may be incomplete."
+            : advancesUnavailable
+              ? "Cash advances couldn't load, so these pay figures don't take advances out — they may be incomplete."
+              : "Pay deductions couldn't load, so these pay figures don't take deductions out — they may be incomplete."}
         </p>
       )}
       {hos && (
@@ -154,7 +177,7 @@ export default function DriverPayHomeCard() {
         </p>
       )}
       <p className="row-sub">
-        Gross at your terms; projection before fuel, taxes and deductions — your settlement is the final number.{" "}
+        Gross at your terms; projection before fuel and taxes — your settlement is the final number.{" "}
         <Link href="/money/pay">Breakdown</Link>
       </p>
     </section>
