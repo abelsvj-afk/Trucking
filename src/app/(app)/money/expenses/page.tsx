@@ -15,6 +15,7 @@ import {
   DeletedListSection,
 } from "@/components/RecordLifecycle";
 import { formatDollars } from "@/lib/truck-fund";
+import { bucketOf } from "@/lib/expense-buckets";
 import type { Expense } from "@/types/entities";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
@@ -65,22 +66,40 @@ export default function ExpensesListPage() {
         />
       )}
       {state.status === "loaded" && state.result.data.length > 0 && (
-        <ul>
-          {/* Newest by the expense's own date, not by when it was typed in - a back-dated entry must not sit above this month's. */}
-          {[...state.result.data].sort((a, b) => b.expense_date.localeCompare(a.expense_date)).map((expense) => (
-            <li key={expense.id}>
-              <Link href={`/money/expenses/${expense.id}`}>
-                <span className="row-title">
-                  ${(expense.amount_cents / 100).toFixed(2)} — {CATEGORY_LABELS[expense.category]}
-                </span>
-                <span className="row-sub">
-                  {new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}
-                  {expense.description ? ` · ${expense.description}` : ""}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          {/* The two buckets, side by side: business costs in the books, pay deductions out of the check. */}
+          <p role="note">
+            Business expenses:{" "}
+            {formatDollars(
+              state.result.data
+                .filter((e) => bucketOf(e) === "business")
+                .reduce((sum, e) => sum + e.amount_cents, 0),
+            )}{" "}
+            · Pay deductions (out of the check):{" "}
+            {formatDollars(
+              state.result.data
+                .filter((e) => bucketOf(e) === "pay_deduction")
+                .reduce((sum, e) => sum + e.amount_cents, 0),
+            )}
+          </p>
+          <ul>
+            {/* Newest by the expense's own date, not by when it was typed in - a back-dated entry must not sit above this month's. */}
+            {[...state.result.data].sort((a, b) => b.expense_date.localeCompare(a.expense_date)).map((expense) => (
+              <li key={expense.id}>
+                <Link href={`/money/expenses/${expense.id}`}>
+                  <span className="row-title">
+                    ${(expense.amount_cents / 100).toFixed(2)} — {CATEGORY_LABELS[expense.category]}
+                  </span>
+                  <span className="row-sub">
+                    {new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}
+                    {expense.description ? ` · ${expense.description}` : ""}
+                    {bucketOf(expense) === "pay_deduction" ? " · Pay deduction — out of the check" : ""}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
         </>
       )}

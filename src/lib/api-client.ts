@@ -143,14 +143,22 @@ export const apiClient = {
     related_entity_type: string;
     related_entity_id: string;
     file_name?: string;
+    /** Document creation spec (00085): paperwork kind + situation, when the surface knows them. */
+    doc_type?: string;
+    situation?: string;
   }) => {
     const formData = new FormData();
     formData.append("file", meta.file);
     formData.append("related_entity_type", meta.related_entity_type);
     formData.append("related_entity_id", meta.related_entity_id);
     if (meta.file_name) formData.append("file_name", meta.file_name);
+    if (meta.doc_type) formData.append("doc_type", meta.doc_type);
+    if (meta.situation) formData.append("situation", meta.situation);
     return request<T>("/api/v1/documents", { method: "POST", body: formData });
   },
+  /** Create a document in the app (POST /api/v1/documents/generate): templates + generator seam server-side. */
+  generateDocument: <T>(body: Record<string, unknown>) =>
+    request<T>("/api/v1/documents/generate", { method: "POST", body: JSON.stringify(body) }),
   listDocuments: <T>(relatedEntityType: string, relatedEntityId: string) => {
     const qs = new URLSearchParams({
       related_entity_type: relatedEntityType,

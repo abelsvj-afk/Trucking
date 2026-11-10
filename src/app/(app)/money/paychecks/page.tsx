@@ -30,7 +30,7 @@ export default function PaychecksPage() {
 
   return (
     <div>
-      <PageHeader title="Paychecks" purpose="Your pay organised by payday: what you should get, what was taken as advances, what landed, and what is still owed — with the loads behind each." />
+      <PageHeader title="Paychecks" purpose="Your pay organised by payday: what you should get, what comes out of it (advances and pay deductions, each with its reason), what landed, and what is still owed — with the loads behind each." />
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message="Couldn't load your paycheck check." onRetry={() => window.location.reload()} />}
       {state.status === "ready" && !state.summary.hasTerms && (
@@ -48,11 +48,23 @@ export default function PaychecksPage() {
               ? `${state.summary.totals.shortCount} paid short by ${formatCents(state.summary.totals.shortfallCents)} in all.`
               : ""}
           </p>
-          {state.summary.totals.advancesCents > 0 && (
+          {(state.summary.totals.advancesCents > 0 || state.summary.totals.deductionsCents > 0) && (
             <p role="status">
-              <Link href="/money/advances">Cash advances</Link> taken out of these pay weeks: {formatCents(state.summary.totals.advancesCents)}.
+              Coming out of these checks:{" "}
+              {state.summary.totals.advancesCents > 0 && (
+                <>
+                  <Link href="/money/advances">cash advances</Link> {formatCents(state.summary.totals.advancesCents)}
+                </>
+              )}
+              {state.summary.totals.advancesCents > 0 && state.summary.totals.deductionsCents > 0 ? " · " : ""}
+              {state.summary.totals.deductionsCents > 0 && (
+                <>
+                  <Link href="/money/expenses">pay deductions</Link> {formatCents(state.summary.totals.deductionsCents)}
+                </>
+              )}
+              .
               {state.summary.totals.unpaidCount > 0
-                ? ` After those advances, the unpaid loads should net ${formatRange(state.summary.totals.unpaidNetLowCents, state.summary.totals.unpaidNetHighCents)}.`
+                ? ` After both, the unpaid loads should net ${formatRange(state.summary.totals.unpaidNetLowCents, state.summary.totals.unpaidNetHighCents)}.`
                 : ""}
             </p>
           )}
@@ -85,6 +97,18 @@ export default function PaychecksPage() {
                       <dt>Advances taken</dt>
                       <dd>{g.advancesCents > 0 ? `− ${formatCents(g.advancesCents)}` : "none"}</dd>
                     </div>
+                    <div>
+                      <dt>Pay deductions</dt>
+                      <dd>{g.deductionsCents > 0 ? `− ${formatCents(g.deductionsCents)}` : "none"}</dd>
+                    </div>
+                    {g.deductionLines.map((d) => (
+                      <div key={`${d.date}-${d.amountCents}-${d.reason}`}>
+                        <dt>Deduction — {d.reason}</dt>
+                        <dd>
+                          − {formatCents(d.amountCents)} · {formatDay(d.date)}
+                        </dd>
+                      </div>
+                    ))}
                     <div>
                       <dt>Net expected</dt>
                       <dd>

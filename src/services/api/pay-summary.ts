@@ -9,6 +9,7 @@ import { pickActiveLoad } from "@/lib/active-load";
 import { checkLoad, termsForDate, type PaycheckLine, type PayTermsRow } from "@/lib/paycheck";
 import { COUNTED_STATUSES, paydayAfter, weekBounds } from "@/lib/pay-projection";
 import { groupAdvancesByWeek, netRange, type AdvanceLike } from "@/lib/cash-advances";
+import { groupDeductionsByWeek, type DeductionLike, type DeductionLine } from "@/lib/expense-buckets";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { loadHosCost, type HosGlance, type LoadHosCost } from "@/lib/hos-cost";
 import { todayEastern } from "@/lib/eastern-date";
@@ -45,7 +46,11 @@ export interface PayWeekGroup {
   loadIds: string[];
   /** Cash advances taken out of this week's pay (exact; section 9 of the pay-profile design). */
   advancesCents: number;
-  /** Expected minus this week's advances, both ends of the range. Can go negative - shown as-is. */
+  /** Pay-deduction expenses taken out of this week's pay (exact; expense buckets spec 2026-11-09). */
+  deductionsCents: number;
+  /** Each deduction in this week, with its reason in words - the visible lines behind deductionsCents. */
+  deductionLines: DeductionLine[];
+  /** Expected minus this week's advances AND pay deductions, both ends of the range. Can go negative - shown as-is. */
   netLowCents: number;
   netHighCents: number;
   /** The unpaid loads' slice of the expected range (the Home card nets advances against it). */
@@ -74,6 +79,8 @@ export interface PaydayGroup {
   expectedLowCents: number;
   expectedHighCents: number;
   advancesCents: number;
+  deductionsCents: number;
+  deductionLines: DeductionLine[];
   netLowCents: number;
   netHighCents: number;
   receivedCents: number;
@@ -105,7 +112,9 @@ export interface PaySummary {
     shortfallCents: number;
     /** All advances recorded against the weeks in this summary (exact). */
     advancesCents: number;
-    /** Unpaid expected minus the advances taken in those same weeks. */
+    /** All pay deductions recorded against the weeks in this summary (exact). */
+    deductionsCents: number;
+    /** Unpaid expected minus the advances and pay deductions taken in those same weeks. */
     unpaidNetLowCents: number;
     unpaidNetHighCents: number;
   };
@@ -154,7 +163,7 @@ export function groupByPayWeek(completed: PaySummaryLoad[], terms: PayTermsRow[]
         payday: paydayAfter(bounds.end, picked?.payday_weekday),
         loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, receivedCents: 0,
         unpaidCount: 0, shortCount: 0, shortfallCents: 0, loadIds: [],
-        advancesCents: 0, netLowCents: 0, netHighCents: 0, unpaidLowCents: 0, unpaidHighCents: 0,
+        advancesCents: 0, deductionsCents: 0, deductionLines: [], netLowCents: 0, netHighCents: 0, unpaidLowCents: 0, unpaidHighCents: 0,
       };
     g.loadCount += 1;
     g.loadIds.push(c.loadId);
@@ -211,12 +220,56 @@ export function mergeAdvanceWeeks(weeks: PayWeekGroup[], advances: readonly Adva
       payday: aw.payday,
       loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, receivedCents: 0,
       unpaidCount: 0, shortCount: 0, shortfallCents: 0, loadIds: [],
-      advancesCents: aw.totalCents, netLowCents: 0, netHighCents: 0, unpaidLowCents: 0, unpaidHighCents: 0,
+      advancesCents: aw.totalCents, deductionsCents: 0, deductionLines: [], netLowCents: 0, netHighCents: 0, unpaidLowCents: 0, unpaidHighCents: 0,
     });
   }
   const merged = [...byStart.values()].sort((a, b) => b.start.localeCompare(a.start));
   for (const w of merged) {
     const net = netRange(w.expectedLowCents, w.expectedHighCents, w.advancesCents);
+    w.netLowCents = net.lowCents;
+    w.netHighCents = net.highCents;
+  }
+  return merged;
+}
+
+/**
+ * Folds pay-deduction expenses (expense buckets spec 2026-11-09) into
+ * the pay weeks, exactly like advances: each deduction lands in the
+ * week containing its expense_date, under the terms in force on that
+ * date - a week with deductions but no finished loads still appears,
+ * because money comes out of that week's check - and every week's net
+ * is recomputed over advances AND deductions together, on both ends of
+ * the range, never clamped (a net can go negative and is shown as-is).
+ */
+export function mergeDeductionWeeks(
+  weeks: PayWeekGroup[],
+  deductions: readonly (DeductionLike & { category?: string | null })[],
+  terms: PayTermsRow[],
+): PayWeekGroup[] {
+  if (deductions.length === 0) return weeks;
+  const byStart = new Map(weeks.map((w) => [w.start, w]));
+  for (const dw of groupDeductionsByWeek(deductions, terms)) {
+    const existing = byStart.get(dw.start);
+    if (existing) {
+      existing.deductionsCents += dw.totalCents;
+      existing.deductionLines = [...existing.deductionLines, ...dw.lines].sort((a, b) => b.date.localeCompare(a.date));
+      continue;
+    }
+    const picked = termsForDate(terms, dw.start)?.terms;
+    byStart.set(dw.start, {
+      start: dw.start,
+      end: dw.end,
+      statement: paydayAfter(dw.end, picked?.statement_weekday),
+      payday: dw.payday,
+      loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, receivedCents: 0,
+      unpaidCount: 0, shortCount: 0, shortfallCents: 0, loadIds: [],
+      advancesCents: 0, deductionsCents: dw.totalCents, deductionLines: dw.lines,
+      netLowCents: 0, netHighCents: 0, unpaidLowCents: 0, unpaidHighCents: 0,
+    });
+  }
+  const merged = [...byStart.values()].sort((a, b) => b.start.localeCompare(a.start));
+  for (const w of merged) {
+    const net = netRange(w.expectedLowCents, w.expectedHighCents, w.advancesCents + w.deductionsCents);
     w.netLowCents = net.lowCents;
     w.netHighCents = net.highCents;
   }
@@ -235,6 +288,7 @@ export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[]
         payday: w.payday, statement: w.statement, periodStart: w.start, periodEnd: w.end, weekStarts: [],
         loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, advancesCents: 0, netLowCents: 0, netHighCents: 0,
         receivedCents: 0, stillOwedLowCents: 0, stillOwedHighCents: 0, shortCount: 0, shortfallCents: 0, unpaidCount: 0, overdue: false, loads: [],
+        deductionsCents: 0, deductionLines: [],
       };
     g.weekStarts.push(w.start);
     if (w.start < g.periodStart) g.periodStart = w.start;
@@ -244,6 +298,8 @@ export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[]
     g.expectedLowCents += w.expectedLowCents;
     g.expectedHighCents += w.expectedHighCents;
     g.advancesCents += w.advancesCents;
+    g.deductionsCents += w.deductionsCents;
+    g.deductionLines.push(...w.deductionLines);
     g.netLowCents += w.netLowCents;
     g.netHighCents += w.netHighCents;
     g.receivedCents += w.receivedCents;
@@ -272,11 +328,14 @@ export function buildPaySummary(input: {
   receivedByLoad: Map<string, number>;
   /** Cash advances taken against these pay weeks (design section 9); absent = none recorded. */
   advances?: readonly AdvanceLike[];
+  /** Pay-deduction expenses taken against these pay weeks (expense buckets spec); absent = none recorded. */
+  deductions?: readonly (DeductionLike & { category?: string | null })[];
   hos: HosGlance | null;
   now: Date;
 }): PaySummary {
   const { loads, terms, receivedByLoad, hos, now } = input;
   const advances = input.advances ?? [];
+  const deductions = input.deductions ?? [];
   const row = (l: Load): PaySummaryLoad => ({
     loadId: l.id,
     origin: l.origin,
@@ -304,7 +363,7 @@ export function buildPaySummary(input: {
 
   const totals = {
     unpaidCount: 0, unpaidLowCents: 0, unpaidHighCents: 0, shortCount: 0, shortfallCents: 0,
-    advancesCents: 0, unpaidNetLowCents: 0, unpaidNetHighCents: 0,
+    advancesCents: 0, deductionsCents: 0, unpaidNetLowCents: 0, unpaidNetHighCents: 0,
   };
   for (const c of completed) {
     const line = c.line;
@@ -326,11 +385,12 @@ export function buildPaySummary(input: {
     .filter((l) => COUNTED_STATUSES.has(l.status))
     .sort((a, b) => (b.delivery_date ?? "").localeCompare(a.delivery_date ?? ""))
     .map(row);
-  const weeks = mergeAdvanceWeeks(groupByPayWeek(counted, terms, live), advances, terms);
+  const weeks = mergeDeductionWeeks(mergeAdvanceWeeks(groupByPayWeek(counted, terms, live), advances, terms), deductions, terms);
   for (const w of weeks) {
     totals.advancesCents += w.advancesCents;
+    totals.deductionsCents += w.deductionsCents;
     if (w.unpaidCount > 0) {
-      const net = netRange(w.unpaidLowCents, w.unpaidHighCents, w.advancesCents);
+      const net = netRange(w.unpaidLowCents, w.unpaidHighCents, w.advancesCents + w.deductionsCents);
       totals.unpaidNetLowCents += net.lowCents;
       totals.unpaidNetHighCents += net.highCents;
     }
@@ -339,14 +399,38 @@ export function buildPaySummary(input: {
   return { hasTerms: terms.length > 0, active, completed, weeks, paydays, totals, hos, asOf: now.toISOString() };
 }
 
+/**
+ * The pay-deduction expenses for the paycheck picture. A read error is
+ * NOT swallowed - expected pay with deductions silently zeroed would
+ * present as final while an input failed - with ONE exception: before
+ * migration 00085 is applied the bucket column does not exist, and
+ * there no deduction CAN exist, so that one error degrades to "none
+ * recorded" and the rest of the picture works.
+ */
+async function loadPayDeductions(
+  client: SupabaseClient,
+  companyId: string,
+): Promise<(DeductionLike & { category?: string | null })[]> {
+  const withBucket = await client
+    .from("expenses")
+    .select("amount_cents, expense_date, description, category, driver_id, bucket")
+    .eq("company_id", companyId)
+    .eq("bucket", "pay_deduction")
+    .is("deleted_at", null);
+  if (!withBucket.error) return (withBucket.data ?? []) as (DeductionLike & { category?: string | null })[];
+  if (/bucket/i.test(withBucket.error.message)) return [];
+  throw new Error("The paycheck picture could not be loaded.");
+}
+
 export async function loadPaySummary(client: SupabaseClient, companyId: string, now: Date = new Date()): Promise<PaySummary> {
-  const [loadsRes, termsRes, linesRes, advancesRes, snapshot] = await Promise.all([
+  const [loadsRes, termsRes, linesRes, advancesRes, deductions, snapshot] = await Promise.all([
     client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "completed"]).order("delivery_date", { ascending: false, nullsFirst: false }).limit(300),
     client.from("employer_pay_profiles").select("employer_name, rate_cents_per_mile, mile_basis, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to").eq("company_id", companyId).is("deleted_at", null),
     client.from("settlement_lines").select("load_id, amount_cents").eq("company_id", companyId).eq("kind", "load_pay").not("load_id", "is", null).is("deleted_at", null),
     // An advances error is NOT swallowed: expected pay with zero advances deducted would present as final while part of its inputs
     // failed to load. It fails visibly like loads, terms and settlement lines (00079 is applied; the old bridge's reason is gone).
     client.from("cash_advances").select("amount_cents, advance_date, driver_id").eq("company_id", companyId).is("deleted_at", null),
+    loadPayDeductions(client, companyId),
     loadHosWindow(client, companyId, now).catch(() => null),
   ]);
   if (loadsRes.error || termsRes.error || linesRes.error || advancesRes.error) throw new Error("The paycheck picture could not be loaded.");
@@ -359,6 +443,7 @@ export async function loadPaySummary(client: SupabaseClient, companyId: string, 
     terms: (termsRes.data ?? []) as PayTermsRow[],
     receivedByLoad,
     advances: (advancesRes.data ?? []) as AdvanceLike[],
+    deductions,
     hos: snapshot ? glanceFromSnapshot(snapshot, now.getTime()) : null,
     now,
   });

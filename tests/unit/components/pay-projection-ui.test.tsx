@@ -99,7 +99,7 @@ describe("advances fail-safe (projection surfaces)", () => {
     expect(screen.getByText(/Cash advances couldn.t load/)).toBeTruthy();
     expect(screen.queryByText(/net you should get/)).toBeNull();
     // Gross labeling not regressed.
-    expect(screen.getByText(/before fuel, taxes and deductions/)).toBeTruthy();
+    expect(screen.getByText(/before fuel and taxes/)).toBeTruthy();
   });
 
   it("Home driver pay: advances loaded - the net line renders exactly as before", async () => {
@@ -119,7 +119,7 @@ describe("advances fail-safe (projection surfaces)", () => {
     render(<ProjectedPayPage />);
     expect(await screen.findByText(/Cash advances couldn.t load/)).toBeTruthy();
     expect(screen.queryByText(/net you should get/)).toBeNull();
-    expect(screen.getByText(/before fuel, taxes and any other deductions/)).toBeTruthy();
+    expect(screen.getByText(/before fuel and taxes/)).toBeTruthy();
   });
 });
 

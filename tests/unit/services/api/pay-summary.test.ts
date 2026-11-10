@@ -221,3 +221,53 @@ describe("loads with a $0.00 rate are valued from miles x pay terms (Summary / T
     expect(total).toMatchObject({ cents: 65000, estimatedCount: 1, estimatedCents: 55000, noValueCount: 0 });
   });
 });
+
+describe("buildPaySummary pay deductions (expense buckets)", () => {
+  const deal = [{ ...terms[0]!, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
+  const mud = { amount_cents: 25000, expense_date: "2026-11-08", description: "Mud recovery — truck stuck, company paid, comes out of the check", category: "other" };
+
+  it("nets a pay deduction out of its week's expected pay, with the reason kept as a line", () => {
+    const s = buildPaySummary({
+      loads: [load({ id: "a", delivery_date: "2026-11-08", pickup_date: "2026-11-07" })],
+      terms: deal,
+      receivedByLoad: new Map(),
+      deductions: [mud],
+      hos: null,
+      now,
+    });
+    const week = s.weeks.find((w) => w.start === "2026-11-08")!;
+    expect(week.expectedLowCents).toBe(60000);
+    expect(week.deductionsCents).toBe(25000);
+    expect(week.netLowCents).toBe(35000);
+    expect(week.deductionLines).toEqual([
+      { amountCents: 25000, date: "2026-11-08", reason: "Mud recovery — truck stuck, company paid, comes out of the check" },
+    ]);
+    const payday = s.paydays.find((g) => g.deductionsCents > 0)!;
+    expect(payday.netLowCents).toBe(35000);
+    expect(s.totals.deductionsCents).toBe(25000);
+  });
+
+  it("a deduction in a week with no loads still lands on that week's payday", () => {
+    const s = buildPaySummary({ loads: [], terms: deal, receivedByLoad: new Map(), deductions: [mud], hos: null, now });
+    expect(s.weeks).toHaveLength(1);
+    expect(s.weeks[0]!.deductionsCents).toBe(25000);
+    expect(s.weeks[0]!.netLowCents).toBe(-25000);
+    expect(s.paydays[0]!.payday).toBe("2026-11-20");
+  });
+
+  it("advances and deductions net together on both range ends", () => {
+    const s = buildPaySummary({
+      loads: [load({ id: "a", delivery_date: "2026-11-08", pickup_date: "2026-11-07" })],
+      terms: deal,
+      receivedByLoad: new Map(),
+      advances: [{ amount_cents: 10000, advance_date: "2026-11-09" }],
+      deductions: [mud],
+      hos: null,
+      now,
+    });
+    const week = s.weeks.find((w) => w.start === "2026-11-08")!;
+    expect(week.advancesCents).toBe(10000);
+    expect(week.netLowCents).toBe(25000);
+    expect(week.netHighCents).toBe(25000);
+  });
+});

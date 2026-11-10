@@ -12,7 +12,8 @@ import { viewerTimeZone } from "@/lib/time";
 import { zonedDate } from "@/lib/zoned-day";
 import { projectPeriod, projectPreviousPeriod, type PayTerms, type PeriodProjection } from "@/lib/pay-projection";
 import { termsForDate, type PayTermsRow } from "@/lib/paycheck";
-import type { CashAdvance, EmployerPayProfile, Load } from "@/types/entities";
+import { bucketOf, type DeductionLike } from "@/lib/expense-buckets";
+import type { CashAdvance, EmployerPayProfile, Expense, Load } from "@/types/entities";
 
 export type PayProjectionState =
   | { status: "loading" }
@@ -30,12 +31,23 @@ export type PayProjectionState =
        * out - never net against it as if zero were recorded.
        */
       advancesAvailable: boolean;
+      /** Pay-deduction expenses (bucket 'pay_deduction') from his expense rows. */
+      deductions: (DeductionLike & { category?: string | null })[];
+      /** Same honesty rule as advancesAvailable, for the deductions read. */
+      deductionsAvailable: boolean;
     };
 
 export function usePayProjection(): PayProjectionState {
   const version = useLiveVersion(["loads"]);
   const nowMs = useNowTick(60_000);
-  const [data, setData] = useState<{ rows: PayTermsRow[]; loads: Load[]; advances: CashAdvance[]; advancesAvailable: boolean } | "error" | null>(null);
+  const [data, setData] = useState<{
+    rows: PayTermsRow[];
+    loads: Load[];
+    advances: CashAdvance[];
+    advancesAvailable: boolean;
+    deductions: (DeductionLike & { category?: string | null })[];
+    deductionsAvailable: boolean;
+  } | "error" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,12 +62,32 @@ export function usePayProjection(): PayProjectionState {
         (r) => ({ data: r.data, available: true }),
         () => ({ data: [] as CashAdvance[], available: false }),
       ),
+      // Pay deductions ride the expenses list: rows whose bucket says
+      // pay_deduction. Pre-00085 rows have no bucket and read as
+      // business - "no deductions" is then the truth, not a failure.
+      apiClient.list<Expense>("expenses", { limit: "200" }).then(
+        (r) => ({
+          data: r.data
+            .filter((e) => bucketOf(e) === "pay_deduction")
+            .map((e) => ({
+              amount_cents: e.amount_cents,
+              expense_date: e.expense_date,
+              description: e.description,
+              category: e.category,
+              driver_id: e.driver_id,
+            })),
+          available: true,
+        }),
+        () => ({ data: [] as (DeductionLike & { category?: string | null })[], available: false }),
+      ),
     ])
-      .then(([profiles, loads, advances]) => {
+      .then(([profiles, loads, advances, deductions]) => {
         if (cancelled) return;
         setData({
           advances: advances.data,
           advancesAvailable: advances.available,
+          deductions: deductions.data,
+          deductionsAvailable: deductions.available,
           rows: profiles.data.map((p) => ({
             employer_name: p.employer_name,
             rate_cents_per_mile: p.rate_cents_per_mile,
@@ -92,5 +124,7 @@ export function usePayProjection(): PayProjectionState {
     previous: projectPreviousPeriod(current, data.loads, today, options),
     advances: data.advances,
     advancesAvailable: data.advancesAvailable,
+    deductions: data.deductions,
+    deductionsAvailable: data.deductionsAvailable,
   };
 }

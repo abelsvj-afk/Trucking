@@ -306,11 +306,15 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     load_id: uuid.nullable().optional(),
     truck_id: uuid.nullable().optional(),
     driver_id: uuid.nullable().optional(),
+    // Expense buckets (spec 2026-11-09): moving an expense between
+    // 'business' and 'pay_deduction' is a RECLASSIFICATION - it goes
+    // through this proposal like every other change, never silently.
+    bucket: z.enum(["business", "pay_deduction"]).optional(),
   });
   tools.push(
     makeUpdateTool(store, {
       name: "update_expense",
-      description: "Correct an expense already in his books (amount, category, date, description, or what it's linked to).",
+      description: "Correct an expense already in his books (amount, category, date, description, what it's linked to, or its BUCKET: business vs pay_deduction - pay_deduction means the company takes it out of his check, and it then shows on his Paychecks page with its reason). Use bucket 'pay_deduction' when he says an existing expense comes out of his check.",
       parameters: {
         type: "object",
         properties: {
@@ -321,6 +325,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
           description: { type: "string" },
           load_id: { type: "string" },
           truck_id: { type: "string" },
+          bucket: { type: "string", enum: ["business", "pay_deduction"], description: "business = his own books. pay_deduction = comes out of his driver check." },
         },
         required: ["expense_id"],
       },
@@ -701,7 +706,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
 
   // --- Documents -------------------------------------------------------
 
-  const ATTACH_TABLES = { truck: "trucks", trailer: "trailers", driver: "drivers", load: "loads" } as const;
+  const ATTACH_TABLES = { truck: "trucks", trailer: "trailers", driver: "drivers", load: "loads", expense: "expenses" } as const;
   // Telegram fix round: an attach may name its load by TRIP NUMBER
   // instead of id - the burst linker stages it that way (the load is
   // created by an earlier item in the same approved batch, so its id
