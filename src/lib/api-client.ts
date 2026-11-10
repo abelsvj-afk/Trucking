@@ -25,6 +25,7 @@ import type { GamePlanPageData } from "@/types/game-plan";
 import type { GamePlan, GameTarget } from "@/types/entities";
 import type { LoadEconomics } from "@/lib/load-economics";
 import type { PaySummary } from "@/services/api/pay-summary";
+import type { BusinessCreditData } from "@/lib/business-credit";
 
 /** One row of the "What Abel remembers" list (Lane 2, Phase B). */
 export interface BotMemoryListItem {
@@ -373,6 +374,8 @@ export const apiClient = {
   // Autonomous Research (2026-11-09 design): the standing watch +
   // learning agenda panel on the Research page.
   getWatchPicture: () => request<WatchPictureData>("/api/v1/watch-picture"),
+  /** Business Credit page (migration 00087) — owner-only; the API refuses non-owners. */
+  getBusinessCredit: () => request<BusinessCreditData>("/api/v1/business-credit"),
   approveLearningTopic: (id: string) =>
     request<LearningTopic>(`/api/v1/learning-topics/${id}/approve`, { method: "POST" }),
   dismissLearningTopic: (id: string) =>

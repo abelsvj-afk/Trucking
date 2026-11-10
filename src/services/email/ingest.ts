@@ -14,6 +14,12 @@ import { parseRaw, type ParsedEmail } from "./parse";
 import type { EmailStore, PollState, StoredEmail } from "./store";
 import { etDate, etHour } from "./time";
 import { dedupeKey, triageEmail, type Candidate, type MailClass } from "./triage";
+import { getTelegramConfig } from "@/services/telegram/dispatch-bot";
+import { createBusinessCreditStore } from "@/services/business-credit/store";
+import {
+  runBusinessCreditWatch,
+  type WatchMessage,
+} from "@/services/business-credit/watch";
 
 export { etDate, etHour, etTime } from "./time";
 export const MAX_TRIAGED_PER_POLL = 15;
@@ -174,7 +180,48 @@ export async function pollOnce(deps: IngestDeps): Promise<PollOutcome> {
   const firstRun = state.uidvalidity === null || state.uidvalidity !== uidvalidity;
   const surfaced = await triageAndSurface(deps, fresh, firstRun);
   await sendDigestIfDue(deps);
+
+  // Business Credit watch (docs/design/business-credit.md §4): vendor
+  // mail in this fresh batch updates the credit file's payment fields
+  // and buzzes through deliveryDecision. Best-effort by design — a
+  // watch failure never fails the poll, and pre-00087 it no-ops.
+  await runWatchQuietly(deps, fresh);
+
   return { ok: true, stored: fresh.length, surfaced };
+}
+
+async function runWatchQuietly(
+  deps: IngestDeps,
+  fresh: { id: string; email: ParsedEmail }[],
+): Promise<void> {
+  try {
+    if (!deps.brain) return;
+    const companyId = getTelegramConfig().companyId;
+    if (!companyId || deps.brain.companyId !== companyId) return;
+    const messages: WatchMessage[] = fresh
+      .filter((f) => f.email.fromAddress)
+      .map((f) => ({
+        rowId: f.id,
+        serverMessageId: f.email.messageId || null,
+        fromAddress: f.email.fromAddress as string,
+        fromName: f.email.fromName,
+        subject: f.email.subject,
+        bodyText: f.email.bodyText,
+      }));
+    await runBusinessCreditWatch(
+      {
+        store: createBusinessCreditStore(deps.brain.client, companyId),
+        notify: deps.notify,
+        now: deps.now,
+      },
+      messages,
+    );
+  } catch (err) {
+    console.error(
+      "[email] business-credit watch failed",
+      err instanceof Error ? err.message : "error",
+    );
+  }
 }
 
 async function triageAndSurface(deps: IngestDeps, fresh: { id: string; email: ParsedEmail }[], firstRun: boolean): Promise<number> {
