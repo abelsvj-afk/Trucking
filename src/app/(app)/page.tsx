@@ -18,6 +18,8 @@ import { useHosWindow } from "@/lib/use-hos-window";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import DutyHud from "@/components/hud/DutyHud";
+import TodaysLogStrip from "@/components/TodaysLogStrip";
+import QuickAction from "@/components/QuickAction";
 import NewsBanner from "@/components/NewsBanner";
 import SetupChecklist from "@/components/SetupChecklist";
 import AskAssistant from "@/components/AskAssistant";
@@ -27,7 +29,7 @@ import DriverPayHomeCard from "@/components/DriverPayHomeCard";
 import DayWrapCard from "@/components/DayWrapCard";
 import Reveal from "@/components/Reveal";
 import NumberTicker from "@/components/NumberTicker";
-import { Bot, ClipboardCheck, Fuel, PackagePlus, ShieldCheck } from "lucide-react";
+import { ClipboardCheck, FileSearch, Fuel, PackagePlus, Receipt, ShieldCheck } from "lucide-react";
 import { summarizeHos } from "@/lib/hos";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatSinceTime } from "@/lib/time";
@@ -134,6 +136,11 @@ export default function HomePage() {
       {/* Pay preview stays visible right under the hours (map-first Home). */}
       <DriverPayHomeCard />
 
+      {/* Today's log strip (Phase 4, spec §2.4): an ADDITION under the
+          pay card — no live block moves or loses its door. Fed by the
+          hosWindow this page already loads. */}
+      <TodaysLogStrip window={hosWindow.state} nowMs={nowMs} />
+
       <NewsBanner />
 
       <SetupChecklist />
@@ -143,8 +150,8 @@ export default function HomePage() {
         {hosWindow.state.status === "loading" && <p>Checking your hours…</p>}
         {hosWindow.state.status === "error" && (
           <p>
-            Couldn&apos;t load your hours just now. <Link href="/fleet/hos">Open Hours of service</Link> to
-            see where you stand.
+            Couldn&apos;t load your hours just now. <Link href="/fleet/hos">Open Day log</Link> to see
+            where you stand.
           </p>
         )}
         {hosWindow.state.status === "loaded" && logs.length === 0 && (
@@ -199,26 +206,43 @@ export default function HomePage() {
 
       <Reveal aria-label="Quick actions" index={1}>
         <h2>Quick actions</h2>
-        <div className="quick-actions">
-          <Link href="/fleet/pretrip-inspections/new">
-            <ClipboardCheck size={20} strokeWidth={1.75} aria-hidden="true" /> Start pre-trip
-          </Link>
-          <Link href="/money/fuel-purchases/new">
-            <Fuel size={20} strokeWidth={1.75} aria-hidden="true" /> Log fuel
-          </Link>
-          <Link href="/loads/new">
-            <PackagePlus size={20} strokeWidth={1.75} aria-hidden="true" /> Add load
-          </Link>
-          <Link href="/more/assistant">
-            <Bot size={20} strokeWidth={1.75} aria-hidden="true" /> Ask Abel
-          </Link>
+        {/* Five tiles (Phase 4, spec §2.4 AS RULED 2026-11-10): Start
+            pre-trip STAYS first — the owner does one daily. Ask Abel
+            leaves the grid; its tab, the floating Abel drop, and the
+            AskAssistant prompt block below all keep working. */}
+        <div className="quick-actions quick-actions-five">
+          <QuickAction
+            href="/fleet/pretrip-inspections/new"
+            icon={<ClipboardCheck size={20} strokeWidth={1.75} aria-hidden="true" />}
+            label="Start pre-trip"
+          />
+          <QuickAction
+            href="/money/expenses/new"
+            icon={<Receipt size={20} strokeWidth={1.75} aria-hidden="true" />}
+            label="Add expense"
+          />
+          <QuickAction
+            href="/money/fuel-purchases/new"
+            icon={<Fuel size={20} strokeWidth={1.75} aria-hidden="true" />}
+            label="Log fuel"
+          />
+          <QuickAction
+            href="/loads/new"
+            icon={<PackagePlus size={20} strokeWidth={1.75} aria-hidden="true" />}
+            label="Add load"
+          />
+          <QuickAction
+            href="/more/documents"
+            icon={<FileSearch size={20} strokeWidth={1.75} aria-hidden="true" />}
+            label="Find a doc"
+          />
         </div>
       </Reveal>
 
       {logs.length > 0 && (
         <p className="row-sub">
           {paperLabel && <>{paperLabel} </>}
-          <Link href="/fleet/hos">Hours of service</Link>
+          <Link href="/fleet/hos">Day log</Link>
         </p>
       )}
 

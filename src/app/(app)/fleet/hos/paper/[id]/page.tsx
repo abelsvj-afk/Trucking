@@ -130,7 +130,7 @@ export default function PaperLogReviewPage({ params }: { params: Promise<{ id: s
           <Link href="/" className="page-action">
             Go to Home
           </Link>{" "}
-          <Link href="/fleet/hos">Hours of service</Link>
+          <Link href="/fleet/hos">Day log</Link>
         </p>
       </div>
     );

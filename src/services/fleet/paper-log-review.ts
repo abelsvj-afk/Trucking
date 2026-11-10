@@ -15,7 +15,8 @@ import {
 } from "@/services/ai/paper-log-extraction";
 import { OpenAiProvider } from "@/services/ai/providers/openai";
 import { paperSheetInstant } from "@/services/fleet/paper-logs";
-import { draftFromRead, toDutyRows, validateDraft, type DraftSegment } from "@/lib/paper-day";
+import { draftFromRead, toDutyRows, validateDraft, PAPER_SAVE_REASON, type DraftSegment } from "@/lib/paper-day";
+import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import type { PaperLogExistingRow, PaperLogReview, PaperLogSaveBody } from "@/types/paper-logs";
 
 export const PAPER_READ_KEY = "paper_log_read";
@@ -215,13 +216,48 @@ export async function savePaperLogDay(
     p_day_end: end.toISOString(),
     p_rows: rows,
     p_replace_ids: body.replace_ids,
-    p_notes: "Recreated from the paper log sheet photo and reviewed in the app.",
+    p_notes: PAPER_SAVE_REASON,
   });
   if (error) {
     if (error.hint === "paper_log_conflict") return { ok: false, kind: "conflict" };
     if (error.code === "P0002") return { ok: false, kind: "not_found" };
     if (error.code === "22023") return { ok: false, kind: "invalid", errors: [error.message] };
     throw new Error(error.message);
+  }
+  // Edit trail (spec §2.2): every row this save just wrote gets a
+  // kind='insert', source='paper' trail row whose reason is the paper
+  // day's own remark (PAPER_SAVE_REASON - the same text the rows carry
+  // as notes). The RPC replaces the day's rows wholesale: the rows it
+  // soft-deleted are part of THIS paper save, so they get NO delete
+  // trail rows - inventing per-row delete reasons for a wholesale
+  // paper replacement would misstate what happened. The just-written
+  // rows are exactly this sheet's live rows inside the day (the RPC
+  // retired the sheet's previous rows in the same call). Trail
+  // failures never fail the save - the rows already landed.
+  try {
+    const { data: savedRows } = await client
+      .from("duty_logs")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("source_document_id", documentId)
+      .is("deleted_at", null)
+      .gte("started_at", start.toISOString())
+      .lt("started_at", end.toISOString())
+      .order("started_at", { ascending: true })
+      .limit(500);
+    for (const saved of (savedRows ?? []) as Record<string, unknown>[]) {
+      await recordDutyLogEdit(client, {
+        companyId,
+        dutyLogId: String(saved.id),
+        kind: "insert",
+        reason: PAPER_SAVE_REASON,
+        before: null,
+        after: saved,
+        source: "paper",
+      });
+    }
+  } catch (err) {
+    console.error("[paper-log save] edit-trail write failed:", err);
   }
   return { ok: true, inserted: typeof data === "number" ? data : rows.length };
 }

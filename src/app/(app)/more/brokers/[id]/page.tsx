@@ -6,19 +6,22 @@
 // form mirroring the Add broker fields (PATCH on save), and the
 // delete control at the bottom.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import {use, useEffect, useState} from "react";
 import Link from "next/link";
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import {apiClient} from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
-import { ListLoading, ListError } from "@/components/ListStates";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import { usePageTitle } from "@/lib/use-page-title";
-import type { Broker } from "@/types/entities";
+import Sheet from "@/components/Sheet";
+import BrokerEditForm from "@/components/edit/BrokerEditForm";
+import {ListLoading, ListError} from "@/components/ListStates";
+import {DeleteRecordButton} from "@/components/RecordLifecycle";
+import {usePageTitle} from "@/lib/use-page-title";
+import type {Broker} from "@/types/entities";
 
 export default function BrokerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Broker");
   const [broker, setBroker] = useState<Broker | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +61,12 @@ export default function BrokerDetailPage({ params }: { params: Promise<{ id: str
       <PageHeader
         title={broker.name}
         purpose="The broker's MC number and contacts — its details, and the record controls, in one place."
+      
+        action={
+          <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
+            Edit
+          </button>
+        }
       />
 
       <section aria-label="Broker facts">
@@ -76,7 +85,11 @@ export default function BrokerDetailPage({ params }: { params: Promise<{ id: str
         </dl>
       </section>
 
-      <BrokerEditForm key={broker.id} broker={broker} onSaved={setBroker} />
+      {editOpen && (
+          <Sheet title="Edit broker" onClose={() => setEditOpen(false)}>
+            <BrokerEditForm key={broker.id} broker={broker} onSaved={(updated) => { setBroker(updated); setEditOpen(false); }} />
+          </Sheet>
+        )}
 
       <p>
         <Link href="/more/brokers">Back to brokers</Link>
@@ -93,71 +106,5 @@ export default function BrokerDetailPage({ params }: { params: Promise<{ id: str
         />
       </section>
     </div>
-  );
-}
-
-function BrokerEditForm({ broker, onSaved }: { broker: Broker; onSaved: (broker: Broker) => void }) {
-  const [name, setName] = useState(broker.name);
-  const [mcNumber, setMcNumber] = useState(broker.mc_number ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setFieldErrors([]);
-    setSaved(false);
-    setSubmitting(true);
-    try {
-      const updated = await apiClient.update<Broker>("brokers", broker.id, {
-        name,
-        mc_number: mcNumber || null,
-      });
-      onSaved(updated);
-      setSaved(true);
-    } catch (err) {
-      if (err instanceof ApiClientError) {
-        setError(err.message);
-        setFieldErrors(err.fields ?? []);
-      } else {
-        setError("Couldn't save. Try again.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <section aria-label="Edit this broker">
-      <h2>Edit this broker</h2>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="edit-name">Name</label>
-        <input id="edit-name" value={name} onChange={(event) => setName(event.target.value)} required />
-
-        <label htmlFor="edit-mc_number">MC number</label>
-        <input
-          id="edit-mc_number"
-          value={mcNumber}
-          onChange={(event) => setMcNumber(event.target.value)}
-        />
-
-        {error && <p role="alert">{error}</p>}
-        {fieldErrors.length > 0 && (
-          <ul role="alert">
-            {fieldErrors.map((field) => (
-              <li key={`${field.path}-${field.message}`}>
-                {field.path}: {field.message}
-              </li>
-            ))}
-          </ul>
-        )}
-        {saved && <p role="status">Saved.</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save changes"}
-        </button>
-      </form>
-    </section>
   );
 }

@@ -565,6 +565,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/pay-profiles` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/pay-summary` | GET | custom (see section / design doc) |
 | `/api/v1/position` | GET | custom (see section / design doc) |
+| `/api/v1/preferences` | GET,PUT | custom: the caller's owner-subject `person_preferences` (migration 00077). GET returns `{ preferences: { key: value } }`, or `{ key, value }` (value `null` when unset) for `?key=`; PUT upserts one `{ key, value }` (key must be a non-empty string, value any JSON) as `subject_type='owner'`, `driver_id` null, `source='stated'` — `400 VALIDATION_ERROR` on a bad body, `500 PREFERENCES_UNAVAILABLE` on storage failure, never a silent no-save |
 | `/api/v1/pretrip-inspections/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/pretrip-inspections/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/pretrip-inspections` | GET,POST | generic CRUD (contract above) |

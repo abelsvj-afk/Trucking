@@ -5,28 +5,29 @@
 // Mirrors the truck detail screen's shape on purpose: one pattern
 // for every fleet record.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import {use, useEffect, useState} from "react";
 import Link from "next/link";
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import {apiClient} from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
-import { ListLoading, ListError } from "@/components/ListStates";
-import { EntityPhoto, PhotoUpload } from "@/components/EntityPhoto";
+import Sheet from "@/components/Sheet";
+import DriverEditForm from "@/components/edit/DriverEditForm";
+import {ListLoading, ListError} from "@/components/ListStates";
+import {EntityPhoto, PhotoUpload} from "@/components/EntityPhoto";
 import DriverProfileFields, {
   driverProfileFromDriver,
   driverProfileToPayload,
   type DriverProfileValues,
 } from "@/components/DriverProfileFields";
-import { usePickerList } from "@/lib/use-picker-list";
-import { usePageTitle } from "@/lib/use-page-title";
-import { useToast } from "@/components/Toast";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import { driverRoleLabel } from "@/lib/fleet-display";
-import type { Driver, Trailer, Truck } from "@/types/entities";
+import {usePageTitle} from "@/lib/use-page-title";
+import {DeleteRecordButton} from "@/components/RecordLifecycle";
+import {driverRoleLabel} from "@/lib/fleet-display";
+import type {Driver} from "@/types/entities";
 
 export default function DriverDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Driver");
   const [driver, setDriver] = useState<Driver | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,6 +69,12 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
       <PageHeader
         title={driver.name}
         purpose={role ? `${role} — contact, license, and assignment in one place.` : "Contact, license, and assignment in one place."}
+      
+        action={
+          <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
+            Edit
+          </button>
+        }
       />
 
       <EntityPhoto
@@ -116,7 +123,11 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
         </ul>
       </section>
 
-      <DriverEditForm key={driver.id} driver={driver} onSaved={setDriver} />
+      {editOpen && (
+          <Sheet title="Edit driver" onClose={() => setEditOpen(false)}>
+            <DriverEditForm key={driver.id} driver={driver} onSaved={(updated) => { setDriver(updated); setEditOpen(false); }} />
+          </Sheet>
+        )}
 
       <section aria-label="Delete this record">
         <h2>Delete this record</h2>
@@ -129,44 +140,5 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
         />
       </section>
     </div>
-  );
-}
-
-function DriverEditForm({ driver, onSaved }: { driver: Driver; onSaved: (driver: Driver) => void }) {
-  const toast = useToast();
-  const [values, setValues] = useState<DriverProfileValues>(() => driverProfileFromDriver(driver));
-  const trucks = usePickerList<Truck>("trucks");
-  const trailers = usePickerList<Trailer>("trailers");
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSaved(false);
-    setSubmitting(true);
-    try {
-      const updated = await apiClient.update<Driver>("drivers", driver.id, driverProfileToPayload(values));
-      onSaved(updated);
-      setSaved(true);
-      toast.success("Saved");
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <DriverProfileFields values={values} onChange={setValues} trucks={trucks} trailers={trailers} />
-
-      {error && <p role="alert">{error}</p>}
-      {saved && <p role="status">Saved.</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? "Saving…" : "Save changes"}
-      </button>
-    </form>
   );
 }

@@ -29,9 +29,11 @@ export interface BannerItem {
   deliveryClass: ResearchDeliveryClass | null;
   magnitude: number | null;
   /**
-   * The story's image, served by OUR endpoint (the browser never loads a
-   * publisher URL): /api/v1/news-image?signal=<id>&i=<n>. Null when there is
-   * no usable image - the banner then shows the topic tile.
+   * The story's image, served by OUR endpoints (the browser never loads a
+   * publisher URL): signals via /api/v1/news-image?signal=<id>&i=<n>,
+   * briefings via /api/v1/briefing-image?briefing=<id>&i=0 (the first
+   * finding's cited article). Null when there is no usable image - the
+   * banner then shows the branded fallback tile.
    */
   imageSrc: string | null;
 }
@@ -68,7 +70,18 @@ function briefingItem(briefing: ResearchBriefing): BannerItem {
     unread: briefing.read_at === null,
     deliveryClass: briefing.delivery_class,
     magnitude: null,
-    imageSrc: null, // briefings carry no image yet (design phase c)
+    // Owner ruling 2026-11-10 (news must show images): a briefing's
+    // image is the preview image of the article its FIRST finding
+    // cites, served by our own endpoint (/api/v1/briefing-image —
+    // the same one the Research page uses). A briefing with no
+    // findings has no citable article, so it honestly gets no image
+    // and the banner renders the branded fallback tile. If the
+    // endpoint 404s for that finding, the card's error path renders
+    // the same tile — never a publisher URL, never a faked image.
+    imageSrc:
+      Array.isArray(briefing.findings) && briefing.findings.length > 0
+        ? `/api/v1/briefing-image?briefing=${encodeURIComponent(briefing.id)}&i=0`
+        : null,
   };
 }
 

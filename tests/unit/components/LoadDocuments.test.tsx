@@ -34,7 +34,7 @@ describe("groupDocuments", () => {
 });
 
 describe("LoadDocuments", () => {
-  it("shows thumbnails by group, tap opens the preview, and says plainly when empty", async () => {
+  it("shows thumbnails by group, each linking to the document page, and says plainly when empty", async () => {
     render(<LoadDocuments loadId="L1" />);
     expect(await screen.findByText(/Nothing filed against this trip yet/)).toBeTruthy();
     cleanup();
@@ -42,8 +42,9 @@ describe("LoadDocuments", () => {
     render(<LoadDocuments loadId="L1" />);
     expect(await screen.findByText("Bill of lading")).toBeTruthy();
     expect(screen.getByText("Trailer photos")).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("View bol.jpg"));
-    expect(await screen.findByRole("region", { name: "Preview of bol.jpg" })).toBeTruthy();
+    // Phase 3: the thumbnail is a link to /more/documents/[id], not an inline preview.
+    const link = screen.getByLabelText("View bol.jpg");
+    expect(link.getAttribute("href")).toBe("/more/documents/1");
   });
 
   it("uploads against THIS load, and lives inside a <form> so the driving lock makes it inert while moving", async () => {

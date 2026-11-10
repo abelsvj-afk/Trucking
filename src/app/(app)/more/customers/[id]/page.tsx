@@ -6,19 +6,22 @@
 // edit form mirroring the Add customer fields (PATCH on save), and
 // the delete control at the bottom.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import {use, useEffect, useState} from "react";
 import Link from "next/link";
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import {apiClient} from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
-import { ListLoading, ListError } from "@/components/ListStates";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import { usePageTitle } from "@/lib/use-page-title";
-import type { Customer } from "@/types/entities";
+import Sheet from "@/components/Sheet";
+import CustomerEditForm from "@/components/edit/CustomerEditForm";
+import {ListLoading, ListError} from "@/components/ListStates";
+import {DeleteRecordButton} from "@/components/RecordLifecycle";
+import {usePageTitle} from "@/lib/use-page-title";
+import type {Customer} from "@/types/entities";
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Customer");
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +61,12 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
       <PageHeader
         title={customer.name}
         purpose="The shipper and how to reach them — its details, and the record controls, in one place."
+      
+        action={
+          <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
+            Edit
+          </button>
+        }
       />
 
       <section aria-label="Customer facts">
@@ -74,7 +83,11 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
         </dl>
       </section>
 
-      <CustomerEditForm key={customer.id} customer={customer} onSaved={setCustomer} />
+      {editOpen && (
+          <Sheet title="Edit customer" onClose={() => setEditOpen(false)}>
+            <CustomerEditForm key={customer.id} customer={customer} onSaved={(updated) => { setCustomer(updated); setEditOpen(false); }} />
+          </Sheet>
+        )}
 
       <p>
         <Link href="/more/customers">Back to customers</Link>
@@ -91,83 +104,5 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
         />
       </section>
     </div>
-  );
-}
-
-function CustomerEditForm({
-  customer,
-  onSaved,
-}: {
-  customer: Customer;
-  onSaved: (customer: Customer) => void;
-}) {
-  const [name, setName] = useState(customer.name);
-  const [email, setEmail] = useState(customer.contact_email ?? "");
-  const [phone, setPhone] = useState(customer.contact_phone ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setFieldErrors([]);
-    setSaved(false);
-    setSubmitting(true);
-    try {
-      const updated = await apiClient.update<Customer>("customers", customer.id, {
-        name,
-        contact_email: email || null,
-        contact_phone: phone || null,
-      });
-      onSaved(updated);
-      setSaved(true);
-    } catch (err) {
-      if (err instanceof ApiClientError) {
-        setError(err.message);
-        setFieldErrors(err.fields ?? []);
-      } else {
-        setError("Couldn't save. Try again.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <section aria-label="Edit this customer">
-      <h2>Edit this customer</h2>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="edit-name">Name</label>
-        <input id="edit-name" value={name} onChange={(event) => setName(event.target.value)} required />
-
-        <label htmlFor="edit-email">Email</label>
-        <input
-          id="edit-email"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-
-        <label htmlFor="edit-phone">Phone</label>
-        <input id="edit-phone" value={phone} onChange={(event) => setPhone(event.target.value)} />
-
-        {error && <p role="alert">{error}</p>}
-        {fieldErrors.length > 0 && (
-          <ul role="alert">
-            {fieldErrors.map((field) => (
-              <li key={`${field.path}-${field.message}`}>
-                {field.path}: {field.message}
-              </li>
-            ))}
-          </ul>
-        )}
-        {saved && <p role="status">Saved.</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save changes"}
-        </button>
-      </form>
-    </section>
   );
 }

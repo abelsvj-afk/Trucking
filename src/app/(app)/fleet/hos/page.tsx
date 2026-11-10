@@ -16,6 +16,7 @@
 // same history.
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useApiList } from "@/lib/use-api-list";
 import { useHosWindow } from "@/lib/use-hos-window";
 import DayLog from "@/components/hud/DayLog";
@@ -45,10 +46,21 @@ function formatMinutes(minutes: number): string {
 }
 
 export default function HosPage() {
-  usePageTitle("Hours of service");
+  usePageTitle("Day log");
   const [showDeleted, setShowDeleted] = useDeletedToggle();
   const { state, retry } = useApiList<DutyLog>("duty-logs", { limit: "200" });
   const hosWindow = useHosWindow();
+  // Deep link (spec §2.2/§2.4): ?entry=<id> opens that entry's editor
+  // in the day view - read from the URL the same deferred way the
+  // Deleted toggle reads ?view= (set-state-in-effect discipline).
+  const [focusEntryId, setFocusEntryId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const entry = new URLSearchParams(window.location.search).get("entry");
+      if (entry) setFocusEntryId(entry);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Short-term summary over the WINDOW rows (complete history), not
   // the display list. hos.ts's own rolling 8-day figure and warning
@@ -78,8 +90,8 @@ export default function HosPage() {
   return (
     <div>
       <PageHeader
-        title="Hours of service"
-        purpose="Track your hours so you never run illegal — every status change you log, turned into what's left today and this week."
+        title="Day log"
+        purpose="Hours of service — track your hours so you never run illegal — every status change you log, turned into what's left today and this week."
         action={
           <Link href="/fleet/hos/new" className="page-action">
             Log duty status
@@ -182,6 +194,7 @@ export default function HosPage() {
           rows={hosWindow.state.data}
           timeZone={hosWindow.state.hos.carrierTimeZone}
           oldestIso={hosWindow.state.hos.windowStart}
+          focusEntryId={focusEntryId}
         />
       )}
 
@@ -200,7 +213,7 @@ export default function HosPage() {
             .sort((a, b) => b.started_at.localeCompare(a.started_at))
             .map((row) => (
               <li key={row.id}>
-                <Link href={`/fleet/hos/${row.id}`}>
+                <Link href={`/fleet/hos?entry=${row.id}`}>
                   {STATUS_LABELS[row.duty_status]} —{" "}
                   {formatDateTime(row.started_at)}
                   {row.location ? ` — ${row.location}` : ""}

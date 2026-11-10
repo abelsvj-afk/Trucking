@@ -30,10 +30,15 @@ const STATUS_LABEL: Record<DutyStatus, string> = {
 };
 
 export interface PacketDutyRow {
+  /** The duty_logs row id, when the caller has it - keys the edit-trail lookup below. */
+  id?: string;
   duty_status: DutyStatus;
   started_at: string;
   location?: string | null;
 }
+
+/** The one line an edited entry carries in the packet (spec §2.2): corrections exist and are annotated - the packet never prints the trail itself. */
+export const EDITED_ENTRY_LINE = "Edited — original retained in the app";
 
 export interface RoadsidePacketInput {
   driverName: string | null;
@@ -43,6 +48,14 @@ export interface RoadsidePacketInput {
   /** The cycle line from services/api/hos-window.ts cycleLine() - stated as-is. */
   cycleLine: string;
   now: Date;
+  /**
+   * Ids of entries in the period that carry at least one edit-trail
+   * row (services/duty-log-edits.ts fetchEditedDutyLogIds, read by the
+   * packet service keyed by the period's entry ids). Each such entry
+   * gets ONE EDITED_ENTRY_LINE in the packet. Absent/empty = no entry
+   * is marked - the pre-trail behavior, byte for byte.
+   */
+  editedEntryIds?: ReadonlySet<string>;
 }
 
 export interface RoadsidePacket {
@@ -103,14 +116,23 @@ interface DaySlice {
   startMs: number;
   endMs: number;
   location: string | null;
+  /** The source entry's own start (before period/midnight clipping) - the identity the edit marker dedupes on. */
+  segStartMs: number;
+  /** The source entry carries at least one edit-trail row. */
+  edited: boolean;
 }
 
 /** Segments clipped to the packet period and split at Eastern midnights, grouped by Eastern day. */
-export function packetDays(rows: PacketDutyRow[], periodStart: string, periodEnd: string, nowMs: number): { date: string; slices: DaySlice[] }[] {
+export function packetDays(rows: PacketDutyRow[], periodStart: string, periodEnd: string, nowMs: number, editedEntryIds?: ReadonlySet<string>): { date: string; slices: DaySlice[] }[] {
   const periodStartMs = easternMidnightMs(periodStart);
   const periodEndMs = easternMidnightMs(nextEasternDate(periodEnd));
   const segments: Segment[] = buildSegments(rows, nowMs).filter((s) => s.endMs > periodStartMs && s.startMs < periodEndMs);
   const locationByStart = new Map(rows.map((r) => [new Date(r.started_at).getTime(), r.location ?? null]));
+  const editedStarts = new Set(
+    rows
+      .filter((r) => r.id !== undefined && editedEntryIds?.has(r.id))
+      .map((r) => new Date(r.started_at).getTime()),
+  );
   const byDay = new Map<string, DaySlice[]>();
   for (const seg of segments) {
     let cursor = Math.max(seg.startMs, periodStartMs);
@@ -119,7 +141,7 @@ export function packetDays(rows: PacketDutyRow[], periodStart: string, periodEnd
       const date = easternDateOf(cursor);
       const dayEnd = Math.min(easternMidnightMs(nextEasternDate(date)), end);
       const list = byDay.get(date) ?? [];
-      list.push({ status: seg.status, startMs: cursor, endMs: dayEnd, location: locationByStart.get(seg.startMs) ?? null });
+      list.push({ status: seg.status, startMs: cursor, endMs: dayEnd, location: locationByStart.get(seg.startMs) ?? null, segStartMs: seg.startMs, edited: editedStarts.has(seg.startMs) });
       byDay.set(date, list);
       cursor = dayEnd;
     }
@@ -149,7 +171,7 @@ function clockLines(clocks: HudClocks): string[] {
 export function buildRoadsidePacket(input: RoadsidePacketInput): RoadsidePacket {
   const nowMs = input.now.getTime();
   const { periodStart, periodEnd } = packetPeriod(input.now);
-  const days = packetDays(input.rows, periodStart, periodEnd, nowMs);
+  const days = packetDays(input.rows, periodStart, periodEnd, nowMs, input.editedEntryIds);
   const driver = input.driverName?.trim() ? input.driverName.trim() : "(driver name not recorded in the app)";
   const company = input.companyName?.trim() ? input.companyName.trim() : "(company name not recorded in the app)";
 
@@ -169,6 +191,7 @@ export function buildRoadsidePacket(input: RoadsidePacketInput): RoadsidePacket 
     "DUTY LOG BY DAY (Eastern)",
   ];
 
+  const announcedEdited = new Set<number>();
   for (const day of days) {
     const label = etDayFmt.format(new Date(easternMidnightMs(day.date) + 12 * 3_600_000));
     if (day.slices.length === 0) {
@@ -185,6 +208,13 @@ export function buildRoadsidePacket(input: RoadsidePacketInput): RoadsidePacket 
       lines.push(
         `  ${etTimeFmt.format(new Date(s.startMs))} - ${etTimeFmt.format(new Date(s.endMs))}  ${STATUS_LABEL[s.status]}${s.location ? `  (${s.location})` : ""}`,
       );
+      // ONE marker line per edited ENTRY, attached to its first
+      // presentation in the packet (an entry split at midnight is
+      // still one entry).
+      if (s.edited && !announcedEdited.has(s.segStartMs)) {
+        announcedEdited.add(s.segStartMs);
+        lines.push(`  ${EDITED_ENTRY_LINE}`);
+      }
     }
     lines.push(`  Day totals: driving ${fmtMinutes(drivingMin)}, on duty ${fmtMinutes(onDutyMin)}.`);
   }

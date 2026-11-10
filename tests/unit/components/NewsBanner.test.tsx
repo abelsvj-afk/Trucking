@@ -160,23 +160,23 @@ describe("NewsBanner", () => {
     expect(screen.getByRole("button", { name: /Check the wires now/ })).toBeTruthy();
   });
 
-  it("each story carries a topic tile that is decoration for screen readers (the headline stays the content)", async () => {
+  it("each story carries the branded tile when it has no image — decoration for screen readers, the headline stays the content (Phase 4: NewsCard + BrandedTile replace the emoji topic tile)", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(
       page({ data: [briefing({ id: "b1", topic: "weather", title: "Storm on I-10", created_at: iso(2 * HOUR) })] }),
     );
     const { container } = render(<NewsBanner />);
     await act(async () => {});
-    const tile = container.querySelector(".news-banner-tile")!;
-    expect(tile.className).toContain("news-tile-weather");
+    const tile = container.querySelector(".branded-tile")!;
+    expect(tile).toBeTruthy();
     expect(tile.getAttribute("aria-hidden")).toBe("true");
-    expect(tile.textContent).toBe("🌩️");
+    expect(tile.textContent).toContain("RL");
     expect(screen.getByText("Storm on I-10")).toBeTruthy();
     // the tag row now reads plain words: topic and age
     expect(container.querySelector(".news-banner-tagrow")!.textContent).toMatch(/WEATHER · 2h ago/);
   });
 
-  it("shows a signal's image from our own endpoint, and falls back to the topic tile if it fails to load", async () => {
+  it("shows a signal's image from our own endpoint, and falls back to the branded tile if it fails to load", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(
       page({
@@ -193,16 +193,15 @@ describe("NewsBanner", () => {
     );
     const { container } = render(<NewsBanner />);
     await act(async () => {});
-    const img = container.querySelector("img.news-banner-img") as HTMLImageElement;
+    const img = container.querySelector(".news-card-media img") as HTMLImageElement;
     expect(img.getAttribute("src")).toBe("/api/v1/news-image?signal=33333333-3333-4333-8333-333333333333&i=0");
-    expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(img.getAttribute("alt")).toBe("");
     expect(container.innerHTML).not.toContain("cdn.x.example");
     act(() => {
       img.dispatchEvent(new Event("error"));
     });
-    expect(container.querySelector("img.news-banner-img")).toBeNull();
-    expect(container.querySelector(".news-banner-tile")!.textContent).toBe("⛽");
+    expect(container.querySelector(".news-card-media img")).toBeNull();
+    expect(container.querySelector(".branded-tile")!.textContent).toContain("RL");
   });
 
   it("rotates items every 6 seconds and links each into the in-app tab", async () => {
