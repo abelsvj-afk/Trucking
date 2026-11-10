@@ -124,7 +124,7 @@ describe("email tools", () => {
   const byName = (n: string) => tools.find((t) => t.name === n)!;
 
   it("exposes read, draft, revise and send - and nothing that deletes, moves or flags mail", () => {
-    expect(tools.map((t) => t.name).sort()).toEqual(["draft_email_reply", "email_inbox", "revise_email_draft", "send_email"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["draft_email_reply", "email_inbox", "read_email_verbatim", "revise_email_draft", "send_email"]);
   });
   it("frames email content as untrusted", async () => {
     const out = await byName("email_inbox").run({ message_id: msg().id });
