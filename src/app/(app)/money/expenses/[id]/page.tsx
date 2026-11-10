@@ -6,19 +6,20 @@
 // edit form mirroring the Add expense fields (PATCH on save), and the
 // delete control at the bottom.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import {use, useEffect, useState} from "react";
 import Link from "next/link";
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import {apiClient} from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
-import { ListLoading, ListError } from "@/components/ListStates";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import { usePickerList } from "@/lib/use-picker-list";
-import { usePageTitle } from "@/lib/use-page-title";
-import { formatDollars } from "@/lib/truck-fund";
+import Sheet from "@/components/Sheet";
+import ExpenseEditForm from "@/components/edit/ExpenseEditForm";
+import {ListLoading, ListError} from "@/components/ListStates";
+import {DeleteRecordButton} from "@/components/RecordLifecycle";
+import {usePageTitle} from "@/lib/use-page-title";
+import {formatDollars} from "@/lib/truck-fund";
 import ExpenseBucketField from "@/components/ExpenseBucketField";
 import EntityDocuments from "@/components/EntityDocuments";
-import { bucketOf, type ExpenseBucket } from "@/lib/expense-buckets";
-import type { Driver, Expense, ExpenseCategory, Load, Truck } from "@/types/entities";
+import {bucketOf} from "@/lib/expense-buckets";
+import type {Expense} from "@/types/entities";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
   insurance: "Insurance",
@@ -27,17 +28,11 @@ const CATEGORY_LABELS: Record<Expense["category"], string> = {
   other: "Other",
 };
 
-const CATEGORIES: { label: string; value: ExpenseCategory }[] = [
-  { label: "Insurance", value: "insurance" },
-  { label: "Permits", value: "permits" },
-  { label: "Repairs", value: "repairs" },
-  { label: "Other", value: "other" },
-];
-
 export default function ExpenseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Expense");
   const [expense, setExpense] = useState<Expense | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,6 +72,12 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
       <PageHeader
         title={`${CATEGORY_LABELS[expense.category]} expense`}
         purpose={`${formatDollars(expense.amount_cents)} — its details, and the record controls, in one place.`}
+      
+        action={
+          <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
+            Edit
+          </button>
+        }
       />
 
       <section aria-label="Expense facts">
@@ -99,7 +100,11 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
         </dl>
       </section>
 
-      <ExpenseEditForm key={expense.id} expense={expense} onSaved={setExpense} />
+      {editOpen && (
+          <Sheet title="Edit expense" onClose={() => setEditOpen(false)}>
+            <ExpenseEditForm key={expense.id} expense={expense} onSaved={(updated) => { setExpense(updated); setEditOpen(false); }} />
+          </Sheet>
+        )}
 
       <EntityDocuments entityType="expense" entityId={expense.id} />
 
@@ -118,150 +123,5 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
         />
       </section>
     </div>
-  );
-}
-
-function ExpenseEditForm({ expense, onSaved }: { expense: Expense; onSaved: (expense: Expense) => void }) {
-  const [category, setCategory] = useState<ExpenseCategory>(expense.category);
-  const [bucket, setBucket] = useState<ExpenseBucket>(bucketOf(expense));
-  const [amountDollars, setAmountDollars] = useState((expense.amount_cents / 100).toString());
-  const [expenseDate, setExpenseDate] = useState(expense.expense_date);
-  const [truckId, setTruckId] = useState(expense.truck_id ?? "");
-  const [loadId, setLoadId] = useState(expense.load_id ?? "");
-  const [driverId, setDriverId] = useState(expense.driver_id ?? "");
-  const [description, setDescription] = useState(expense.description ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const trucks = usePickerList<Truck>("trucks");
-  const loads = usePickerList<Load>("loads");
-  const drivers = usePickerList<Driver>("drivers");
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setFieldErrors([]);
-    setSaved(false);
-    setSubmitting(true);
-    try {
-      const updated = await apiClient.update<Expense>("expenses", expense.id, {
-        category,
-        bucket,
-        amount_cents: Math.round(parseFloat(amountDollars || "0") * 100),
-        expense_date: expenseDate,
-        truck_id: truckId || null,
-        load_id: loadId || null,
-        driver_id: driverId || null,
-        description: description || null,
-      });
-      onSaved(updated);
-      setSaved(true);
-    } catch (err) {
-      if (err instanceof ApiClientError) {
-        setError(err.message);
-        setFieldErrors(err.fields ?? []);
-      } else {
-        setError("Couldn't save. Try again.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <section aria-label="Edit this expense">
-      <h2>Edit this expense</h2>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="edit-category">Category</label>
-        <select
-          id="edit-category"
-          value={category}
-          onChange={(event) => setCategory(event.target.value as ExpenseCategory)}
-          required
-        >
-          {CATEGORIES.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        <ExpenseBucketField id="edit-bucket" value={bucket} onChange={setBucket} />
-
-        <label htmlFor="edit-amount">Amount ($)</label>
-        <input
-          id="edit-amount"
-          type="number"
-          step="0.01"
-          min="0"
-          value={amountDollars}
-          onChange={(event) => setAmountDollars(event.target.value)}
-          required
-        />
-
-        <label htmlFor="edit-expense_date">Date</label>
-        <input
-          id="edit-expense_date"
-          type="date"
-          value={expenseDate}
-          onChange={(event) => setExpenseDate(event.target.value)}
-          required
-        />
-
-        <label htmlFor="edit-truck_id">Truck</label>
-        <select id="edit-truck_id" value={truckId} onChange={(event) => setTruckId(event.target.value)}>
-          <option value="">Unassigned</option>
-          {trucks.map((truck) => (
-            <option key={truck.id} value={truck.id}>
-              {truck.unit_number}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="edit-load_id">Load</label>
-        <select id="edit-load_id" value={loadId} onChange={(event) => setLoadId(event.target.value)}>
-          <option value="">Unassigned</option>
-          {loads.map((load) => (
-            <option key={load.id} value={load.id}>
-              {load.origin} → {load.destination}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="edit-driver_id">Driver</label>
-        <select id="edit-driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
-          <option value="">Unassigned</option>
-          {drivers.map((driver) => (
-            <option key={driver.id} value={driver.id}>
-              {driver.name}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="edit-description">Description</label>
-        <input
-          id="edit-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-
-        {error && <p role="alert">{error}</p>}
-        {fieldErrors.length > 0 && (
-          <ul role="alert">
-            {fieldErrors.map((field) => (
-              <li key={`${field.path}-${field.message}`}>
-                {field.path}: {field.message}
-              </li>
-            ))}
-          </ul>
-        )}
-        {saved && <p role="status">Saved.</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save changes"}
-        </button>
-      </form>
-    </section>
   );
 }

@@ -9,10 +9,9 @@
 // A Server Component (no "use client"), so it uses Next's own `metadata`
 // export for a distinct <title> (WCAG 2.4.2) rather than the
 // usePageTitle() client hook every data-fetching screen uses instead.
-import Link from "next/link";
 import type { Metadata } from "next";
-import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import HubRow from "@/components/HubRow";
 import Reveal from "@/components/Reveal";
 
 export const metadata: Metadata = { title: "More — Road to Legacy" };
@@ -45,13 +44,7 @@ export default function MorePage() {
       <ul>
         {SECTIONS.map((section, i) => (
           <Reveal as="li" key={section.href} index={i}>
-            <Link href={section.href} className="hub-row-link">
-              <span className="hub-link">
-                {section.label}
-                <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" className="hub-chevron" />
-              </span>
-              <span className="hub-desc">{section.desc}</span>
-            </Link>
+            <HubRow href={section.href} label={section.label} desc={section.desc} />
           </Reveal>
         ))}
       </ul>

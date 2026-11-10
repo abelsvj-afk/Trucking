@@ -81,6 +81,8 @@ export interface StoreDocumentInput {
   situation?: string | null;
   source?: "upload" | "generated";
   generator?: string | null;
+  /** Stored DocumentModel (migration 00088): only generated documents carry one. Graceful absence like the 00085 fields. */
+  model?: import("@/lib/document-templates").DocumentModel | null;
 }
 
 /**
@@ -137,6 +139,7 @@ export async function storeDocumentFile(
   if (input.situation !== undefined) extras.situation = input.situation;
   if (input.source) extras.source = input.source;
   if (input.generator !== undefined) extras.generator = input.generator;
+  if (input.model !== undefined && input.model !== null) extras.model = input.model;
   const insertRow = { ...baseRow, ...extras };
   let insertResult = await client
     .from("documents")
@@ -146,7 +149,7 @@ export async function storeDocumentFile(
   if (
     insertResult.error &&
     Object.keys(extras).length > 0 &&
-    /caption|doc_type|situation|source|generator/.test(insertResult.error.message) &&
+    /caption|doc_type|situation|source|generator|model/.test(insertResult.error.message) &&
     /does not exist|could not find/i.test(insertResult.error.message)
   ) {
     // Graceful absence: a metadata column (00033 caption / 00085

@@ -357,6 +357,28 @@ export interface DutyLog extends BaseRow {
   source_document_id?: string | null;
 }
 
+export type DutyLogEditKind = "update" | "insert" | "delete" | "restore";
+export type DutyLogEditSource = "app" | "conversation" | "paper";
+
+/**
+ * One correction in a duty entry's edit trail (migration 00088, spec
+ * §2.2): why it happened, the full row before and after (null on the
+ * side that doesn't exist - insert has no before, delete no after),
+ * and which surface made the fix. Live logging writes no trail row.
+ */
+export interface DutyLogEdit {
+  id: string;
+  company_id: string;
+  duty_log_id: string;
+  kind: DutyLogEditKind;
+  reason: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  source: DutyLogEditSource;
+  edited_at: string;
+  created_at: string;
+}
+
 export type DispatchExchangeSource = "web" | "telegram";
 
 // Driver MVP (docs/design/driver-mvp.md §5): one helped dispatch
@@ -450,6 +472,11 @@ export interface Document {
   situation?: DocumentSituation | null;
   source?: "upload" | "generated";
   generator?: string | null;
+  // Stored document model (migration 00088, UI/UX §2.3): the one source
+  // the Page face and the PDF both render from, for app-created docs.
+  // Optional + nullable: absent before 00088 is applied, null on uploads
+  // and on every pre-00088 generated row (those fall back to the PDF face).
+  model?: import("@/lib/document-templates").DocumentModel | null;
 }
 
 // The retention lifecycle of a deleted document (design A.7):

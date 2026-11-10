@@ -9,10 +9,9 @@
 // A Server Component (no "use client"), so it uses Next's own `metadata`
 // export for a distinct <title> (WCAG 2.4.2) rather than the
 // usePageTitle() client hook every data-fetching screen uses instead.
-import Link from "next/link";
 import type { Metadata } from "next";
-import { ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import HubRow from "@/components/HubRow";
 import Reveal from "@/components/Reveal";
 
 export const metadata: Metadata = { title: "Fleet — Road to Legacy" };
@@ -21,7 +20,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/fleet/trucks", label: "Trucks", desc: "Your trucks — type, photo, size, and status." },
   { href: "/fleet/trailers", label: "Trailers", desc: "The trailers you pull, and what kind each is." },
   { href: "/fleet/drivers", label: "Drivers", desc: "Driver profiles — contact, CDL, assigned truck." },
-  { href: "/fleet/hos", label: "Hours of service", desc: "Your duty clocks. Track your hours so you never run illegal." },
+  { href: "/fleet/hos", label: "Day log", desc: "Your duty clocks — hours of service. Track your hours so you never run illegal." },
   { href: "/fleet/pretrip-inspections", label: "Pre-trip inspections", desc: "The walk-around before you roll — defects logged, not remembered." },
   { href: "/fleet/checklists", label: "Checklists", desc: "Coupling, docking, and paperwork, step by step." },
   { href: "/fleet/maintenance-events", label: "Maintenance", desc: "Every repair and service, and what it cost." },
@@ -37,13 +36,7 @@ export default function FleetPage() {
       <ul>
         {SECTIONS.map((section, i) => (
           <Reveal as="li" key={section.href} index={i}>
-            <Link href={section.href} className="hub-row-link">
-              <span className="hub-link">
-                {section.label}
-                <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" className="hub-chevron" />
-              </span>
-              <span className="hub-desc">{section.desc}</span>
-            </Link>
+            <HubRow href={section.href} label={section.label} desc={section.desc} />
           </Reveal>
         ))}
       </ul>

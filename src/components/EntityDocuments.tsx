@@ -9,9 +9,9 @@
 // is typed by the bookkeeping situation it belongs to.
 
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { useLiveVersion } from "@/lib/use-live";
-import { DocumentPreview } from "@/components/DocumentPreview";
 import type { DocumentWithSignedUrl } from "@/types/entities";
 
 const IMAGE = /\.(jpe?g|png|webp|heic|heif)$/i;
@@ -49,7 +49,6 @@ export default function EntityDocuments({
   const version = useLiveVersion(["documents"]);
   const [docs, setDocs] = useState<DocumentWithSignedUrl[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [docType, setDocType] = useState("");
@@ -92,7 +91,6 @@ export default function EntityDocuments({
   }
 
   const visible = (docs ?? []).filter((d) => !d.deleted_at);
-  const selected = visible.find((d) => d.id === selectedId) ?? null;
 
   return (
     <section aria-label={heading}>
@@ -115,12 +113,10 @@ export default function EntityDocuments({
         <ul className="doc-thumbs" style={{ display: "flex", flexWrap: "wrap", gap: "8px", listStyle: "none", padding: 0 }}>
           {visible.map((doc) => (
             <li key={doc.id}>
-              <button
-                type="button"
+              <Link
+                href={`/more/documents/${doc.id}`}
                 aria-label={`View ${doc.file_name}`}
-                aria-pressed={selectedId === doc.id}
-                onClick={() => setSelectedId(selectedId === doc.id ? null : doc.id)}
-                style={{ width: "88px", minHeight: "88px", padding: 0, overflow: "hidden" }}
+                style={{ display: "block", width: "88px", minHeight: "88px", overflow: "hidden" }}
               >
                 {IMAGE.test(doc.file_name) && doc.signed_url ? (
                   // eslint-disable-next-line @next/next/no-img-element -- signed Storage URL, not Next-optimizable
@@ -128,12 +124,11 @@ export default function EntityDocuments({
                 ) : (
                   <span className="row-sub">{doc.file_name}</span>
                 )}
-              </button>
+              </Link>
             </li>
           ))}
         </ul>
       )}
-      {selected && <DocumentPreview key={selected.id} doc={selected} />}
       {/* A <form> on purpose: the app-wide driving lock makes forms inert while moving. */}
       <form aria-label="Add a document to this record" onSubmit={(e) => e.preventDefault()}>
         <label htmlFor={`doc-kind-${entityId}`}>What kind of document is it?</label>

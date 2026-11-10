@@ -8,12 +8,14 @@
 // manage that record's documents.
 
 import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { usePickerList } from "@/lib/use-picker-list";
 import { ListLoading, ListEmpty, ListError, TeachingEmpty } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
-import { DocumentPreview, extractionStatusText, SITUATION_LABELS } from "@/components/DocumentPreview";
+import ListRow from "@/components/ListRow";
+import { DOC_TYPE_LABELS, extractionStatusText, SITUATION_LABELS } from "@/lib/document-labels";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import CreateDocumentForm from "@/components/CreateDocumentForm";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -50,8 +52,9 @@ type SearchState =
 
 /** A short excerpt of what the assistant read, for search results. */
 function snippet(doc: DocumentWithSignedUrl): string | null {
-  if (!doc.extracted_text) return null;
-  const flat = doc.extracted_text.replace(/\s+/g, " ").trim();
+  const text = doc.extracted_text ?? (doc.model ? `${doc.model.title} ${doc.model.sections.flatMap((s) => s.lines).join(" ")}` : null);
+  if (!text) return null;
+  const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
 }
 
@@ -93,7 +96,7 @@ function DocumentsInner() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [docsState, setDocsState] = useState<DocsState>({ status: "loaded", documents: [] });
-  const [previewDoc, setPreviewDoc] = useState<DocumentWithSignedUrl | null>(null);
+  const [recentDocs, setRecentDocs] = useState<DocumentWithSignedUrl[]>([]);
   const [pendingRemove, setPendingRemove] = useState<DocumentWithSignedUrl | null>(null);
   const [searchText, setSearchText] = useState("");
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
@@ -144,6 +147,16 @@ function DocumentsInner() {
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  // Recent list (Phase 3): latest ~25 across all records, above the picker.
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .listRecentDocuments<DocumentWithSignedUrl>(25)
+      .then((result) => { if (!cancelled) setRecentDocs(result.data); })
+      .catch(() => { if (!cancelled) setRecentDocs([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const fetchIncidents = useCallback(() => {
     apiClient
@@ -236,7 +249,6 @@ function DocumentsInner() {
   async function handleRemove(id: string) {
     try {
       await apiClient.removeDocument(id);
-      setPreviewDoc((current) => (current?.id === id ? null : current));
       fetchDocuments();
     } catch {
       setUploadError("Couldn't remove that document. Try again.");
@@ -319,14 +331,28 @@ function DocumentsInner() {
           {searchState.documents.map((doc) => (
             <li key={doc.id}>
               {doc.file_name} ({doc.related_entity_type}){" "}
-              <button type="button" onClick={() => setPreviewDoc(doc)}>
-                View
-              </button>
+              <Link href={`/more/documents/${doc.id}`}>View</Link>
               {snippet(doc) && <p>{snippet(doc)}</p>}
             </li>
           ))}
         </ul>
       )}
+
+      <section aria-label="Recent documents">
+        <h2>Recent</h2>
+        {recentDocs.length === 0 && <p className="row-sub">No documents filed yet.</p>}
+        <div>
+          {recentDocs.map((doc) => (
+            <Link key={doc.id} href={`/more/documents/${doc.id}`} style={{ textDecoration: "none", color: "inherit", display: "block", marginBottom: "8px" }}>
+              <ListRow
+                title={doc.doc_type ? (DOC_TYPE_LABELS[doc.doc_type] ?? doc.file_name) : doc.file_name}
+                sub={`${doc.file_name} · ${doc.related_entity_type} · ${formatDate(doc.uploaded_at, "America/New_York")}`}
+                action={<span aria-hidden="true">›</span>}
+              />
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <label htmlFor="entity_type">Type</label>
       <select
@@ -424,16 +450,8 @@ function DocumentsInner() {
                   <img src={doc.signed_url} alt="" style={{ width: "56px", height: "56px", objectFit: "cover", verticalAlign: "middle" }} />{" "}
                 </>
               )}
-              {doc.signed_url ? (
-                <a href={doc.signed_url} target="_blank" rel="noreferrer">
-                  {doc.file_name}
-                </a>
-              ) : (
-                doc.file_name
-              )}{" "}
-              <button type="button" onClick={() => setPreviewDoc(doc)}>
-                View
-              </button>{" "}
+              <Link href={`/more/documents/${doc.id}`}>{doc.file_name}</Link>{" "}
+              <Link href={`/more/documents/${doc.id}`}>View</Link>{" "}
               <button type="button" onClick={() => setPendingRemove(doc)}>
                 Remove
               </button>
@@ -506,8 +524,6 @@ function DocumentsInner() {
           void handleRemove(id);
         }}
       />
-
-      {previewDoc && <DocumentPreview key={previewDoc.id} doc={previewDoc} />}
     </div>
   );
 }

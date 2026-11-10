@@ -29,6 +29,7 @@ import { updateFuelPurchaseSchema } from "@/data/schemas/fuel-purchases";
 import { createLoadSchema, loadStatusSchema, updateLoadSchema } from "@/data/schemas/loads";
 import { researchNowSchema } from "@/data/schemas/research";
 import { PRETRIP_PHOTO_DEFAULT_ITEMS, dismissResearchRequest, requestPretripPhotos } from "@/services/research/requests";
+import { recordDutyLogEdit } from "@/services/duty-log-edits";
 
 export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
   const tools: AgentTool[] = [];
@@ -1008,6 +1009,26 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       await patchLiveRow(client, target.table, companyId, parsed.record_id, {
         deleted_at: new Date().toISOString(),
       });
+      // Edit trail (spec §2.2, Abel parity): deleting a DUTY entry is
+      // a correction, so it lands in the same duty_log_edits trail as
+      // an app delete - kind 'delete', source 'conversation', reason =
+      // the proposal explanation he approved (verifyProposal's summary
+      // text). This duty_log-specific seam is where the generic delete
+      // learns the entity is a duty log; every other entity's delete
+      // is untouched. (There is no generic duty UPDATE tool - duty
+      // corrections via Abel are this delete and log_duty_status
+      // backfills in tools.ts.)
+      if (parsed.entity === "duty_log") {
+        await recordDutyLogEdit(client, {
+          companyId,
+          dutyLogId: parsed.record_id,
+          kind: "delete",
+          reason: `DELETE ${target.label(row)} (soft delete - it can be restored)`,
+          before: row,
+          after: null,
+          source: "conversation",
+        });
+      }
       return `Deleted ${target.label(row)}.`;
     },
   });

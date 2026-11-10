@@ -4,7 +4,7 @@
 // math must hold on DST days.
 
 import { describe, expect, it } from "vitest";
-import { buildRoadsidePacket, easternMidnightMs, packetDays, packetPeriod, PACKET_FRAMING, type PacketDutyRow } from "@/lib/roadside-packet";
+import { buildRoadsidePacket, easternMidnightMs, packetDays, packetPeriod, EDITED_ENTRY_LINE, PACKET_FRAMING, type PacketDutyRow } from "@/lib/roadside-packet";
 import { computeHudClocks, type HudDutyRow } from "@/lib/hud-clocks";
 import type { DutyLogWindowSummary } from "@/types/hos-settings";
 
@@ -105,6 +105,52 @@ describe("buildRoadsidePacket", () => {
     });
     expect(p.text).toContain("no duty logs recorded in this app");
     expect(p.text).toContain("(driver name not recorded in the app)");
+  });
+
+  it("marks an edited entry ONCE with 'Edited — original retained in the app' (spec §2.2)", () => {
+    const editedRows: PacketDutyRow[] = [
+      { id: "r1", duty_status: "off_duty", started_at: at(NOW - 30 * H) },
+      { id: "r2", duty_status: "on_duty", started_at: at(NOW - 4 * H) },
+      { id: "r3", duty_status: "driving", started_at: at(NOW - 3 * H), location: "Panama City, FL" },
+    ];
+    const hudRows: HudDutyRow[] = editedRows.map((r) => ({ duty_status: r.duty_status, started_at: r.started_at }));
+    const p = buildRoadsidePacket({
+      driverName: "Test Driver",
+      companyName: "Test Trucking LLC",
+      rows: editedRows,
+      clocks: computeHudClocks(hudRows, summary(NOW), NOW),
+      cycleLine: "Cycle (70 hr / 8 days): 10h 00m used.",
+      now: new Date(NOW),
+      editedEntryIds: new Set(["r3"]),
+    });
+    // Exactly one marker line, and it follows the driving entry's line.
+    expect(p.text.split(EDITED_ENTRY_LINE).length - 1).toBe(1);
+    const lines = p.text.split("\n");
+    const driveIdx = lines.findIndex((l) => l.includes("Driving") && l.includes("Panama City"));
+    expect(driveIdx).toBeGreaterThan(-1);
+    expect(lines[driveIdx + 1]).toContain(EDITED_ENTRY_LINE);
+    // The honest framing is untouched - still at top AND bottom.
+    expect(p.text.split(PACKET_FRAMING).length - 1).toBe(2);
+  });
+
+  it("an edited entry split at Eastern midnight still gets exactly ONE marker line", () => {
+    const start = Date.parse("2026-11-09T04:00:00Z"); // 11 PM EST Nov 8
+    const splitRows: PacketDutyRow[] = [
+      { id: "s1", duty_status: "off_duty", started_at: at(start - 20 * H) },
+      { id: "s2", duty_status: "driving", started_at: at(start) },
+      { id: "s3", duty_status: "off_duty", started_at: at(start + 2 * H) },
+    ];
+    const hudRows: HudDutyRow[] = splitRows.map((r) => ({ duty_status: r.duty_status, started_at: r.started_at }));
+    const p = buildRoadsidePacket({
+      driverName: "Test Driver",
+      companyName: "Test Trucking LLC",
+      rows: splitRows,
+      clocks: computeHudClocks(hudRows, summary(start + 3 * H), start + 3 * H),
+      cycleLine: "Cycle (70 hr / 8 days): 10h 00m used.",
+      now: new Date(start + 3 * H),
+      editedEntryIds: new Set(["s2"]),
+    });
+    expect(p.text.split(EDITED_ENTRY_LINE).length - 1).toBe(1);
   });
 
   it("splits a segment at Eastern midnight for the per-day view", () => {

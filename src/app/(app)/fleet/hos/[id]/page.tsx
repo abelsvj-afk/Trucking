@@ -1,19 +1,26 @@
 "use client";
 
-// Reliability Unit A: the duty log's own screen - read-only summary,
-// an edit form mirroring fleet/hos/new, and the delete section.
-// Mirrors the truck detail screen's shape on purpose.
+// RETIRED as an editor (UI/UX spec 2026-11-10 §2.2/§2.8 step 3): the
+// day view's unified sheet is the ONE duty-log editor now, so this
+// route no longer carries its own 7-field form. The route itself
+// stays (coverage rule - no route dies):
+//   - a LIVE entry redirects to the Day log with that entry's editor
+//     open (/fleet/hos?entry=<id>, resolved by id, never by position);
+//   - a SOFT-DELETED entry keeps ONLY its restore UI here - the
+//     deleted-restore path (RecordLifecycle on the Day log page does
+//     the same job in list form) must not break, and restoring from
+//     this page lands back on the entry's editor.
+// Paper-log helper, not an ELD - the legal record is unchanged.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
-import { formatDate, formatDateTime, localDateTimeInputValue } from "@/lib/time";
-import type { DutyLog, DutyStatus, Driver, Load } from "@/types/entities";
+import { formatDateTime } from "@/lib/time";
+import type { DutyLog } from "@/types/entities";
 
 const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
   off_duty: "Off duty",
@@ -22,205 +29,123 @@ const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
   on_duty: "On duty (not driving)",
 };
 
+type Phase =
+  | { kind: "loading" }
+  | { kind: "deleted"; row: DutyLog }
+  | { kind: "missing" }
+  | { kind: "error" };
+
 export default function DutyLogDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Duty log");
-  const [record, setRecord] = useState<DutyLog | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiClient
-      .get<DutyLog>("duty-logs", id)
-      .then((row) => {
-        if (!cancelled) setRecord(row);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Couldn't load this duty log. Check the connection and try again.");
-      });
+    (async () => {
+      try {
+        // Live entry: hand over to the one editor.
+        await apiClient.get<DutyLog>("duty-logs", id);
+        if (!cancelled) router.replace(`/fleet/hos?entry=${id}`);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiClientError && err.status === 404) {
+          // Not live - it may be soft-deleted, in which case ONLY the
+          // restore UI belongs here.
+          try {
+            const result = await apiClient.list<DutyLog>("duty-logs", { deleted: "only", limit: "200" });
+            const found = result.data.find((row) => row.id === id);
+            if (!cancelled) setPhase(found ? { kind: "deleted", row: found } : { kind: "missing" });
+          } catch {
+            if (!cancelled) setPhase({ kind: "error" });
+          }
+        } else {
+          setPhase({ kind: "error" });
+        }
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, router]);
 
-  if (error) {
-    return (
-      <div>
-        <PageHeader title="Duty log" purpose="One duty status, in full." />
-        <ListError message={error} onRetry={() => window.location.reload()} />
-      </div>
-    );
-  }
-  if (!record) {
-    return (
-      <div>
-        <PageHeader title="Duty log" purpose="One duty status, in full." />
-        <ListLoading />
-      </div>
-    );
-  }
-
-  const recordName = `${STATUS_LABELS[record.duty_status]} — ${formatDate(record.started_at)}`;
-
-  return (
-    <div>
-      <PageHeader title={recordName} purpose="One duty status, in full. Paper-log helper, not an ELD." />
-
-      <section aria-label="Summary">
-        <h2>Summary</h2>
-        <dl>
-          <dt>Duty status</dt>
-          <dd>{STATUS_LABELS[record.duty_status]}</dd>
-          <dt>Started at</dt>
-          <dd>{formatDateTime(record.started_at)}</dd>
-          <dt>Location</dt>
-          <dd>{record.location ?? "Not recorded"}</dd>
-          <dt>Odometer</dt>
-          <dd>{record.odometer != null ? record.odometer.toLocaleString("en-US") : "Not recorded"}</dd>
-          <dt>Notes</dt>
-          <dd>{record.notes ?? "None"}</dd>
-        </dl>
-      </section>
-
-      <DutyLogEditForm key={record.id} record={record} onSaved={setRecord} />
-
-      <p>
-        <Link href="/fleet/hos">Back to duty logs</Link>
-      </p>
-
-      <section aria-label="Delete this record">
-        <h2>Delete this record</h2>
-        <DeleteRecordButton
-          resource="duty-logs"
-          id={record.id}
-          recordName={recordName}
-          listHref="/fleet/hos"
-          listLabel="duty logs"
-        />
-      </section>
-    </div>
-  );
-}
-
-function DutyLogEditForm({ record, onSaved }: { record: DutyLog; onSaved: (row: DutyLog) => void }) {
-  const [driverId, setDriverId] = useState(record.driver_id ?? "");
-  const [loadId, setLoadId] = useState(record.load_id ?? "");
-  const [dutyStatus, setDutyStatus] = useState<DutyStatus>(record.duty_status);
-  const [startedAt, setStartedAt] = useState(() => localDateTimeInputValue(new Date(record.started_at)));
-  const [location, setLocation] = useState(record.location ?? "");
-  const [odometer, setOdometer] = useState(record.odometer != null ? String(record.odometer) : "");
-  const [notes, setNotes] = useState(record.notes ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const drivers = usePickerList<Driver>("drivers");
-  const loads = usePickerList<Load>("loads");
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setFieldErrors([]);
-    setSaved(false);
-    setSubmitting(true);
+  async function restore(row: DutyLog) {
+    setRestoring(true);
+    setRestoreError(null);
     try {
-      const updated = await apiClient.update<DutyLog>("duty-logs", record.id, {
-        driver_id: driverId || null,
-        load_id: loadId || null,
-        duty_status: dutyStatus,
-        started_at: new Date(startedAt).toISOString(),
-        location: location || null,
-        odometer: odometer ? Number(odometer) : null,
-        notes: notes || null,
-      });
-      onSaved(updated);
-      setSaved(true);
+      await apiClient.restore<DutyLog>("duty-logs", row.id);
+      router.replace(`/fleet/hos?entry=${row.id}`);
     } catch (err) {
-      if (err instanceof ApiClientError) {
-        setError(err.message);
-        setFieldErrors(err.fields ?? []);
-      } else {
-        setError("Couldn't save. Try again.");
-      }
-    } finally {
-      setSubmitting(false);
+      // A 422 refusal names its reason (a deleted parent, a record
+      // that no longer validates) - show it as-is.
+      setRestoreError(err instanceof ApiClientError ? err.message : "Couldn't restore. Try again.");
+      setRestoring(false);
     }
   }
 
-  return (
-    <form onSubmit={handleSubmit}>
-      <label htmlFor="driver_id">Driver</label>
-      <select id="driver_id" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
-        <option value="">Unassigned</option>
-        {drivers.map((driver) => (
-          <option key={driver.id} value={driver.id}>
-            {driver.name}
-          </option>
-        ))}
-      </select>
+  if (phase.kind === "loading") {
+    return (
+      <div>
+        <PageHeader title="Duty log" purpose="One duty status, in full. Paper-log helper, not an ELD." />
+        <ListLoading />
+        <p className="row-sub">Opening this entry in the day log…</p>
+      </div>
+    );
+  }
 
-      <label htmlFor="load_id">Load</label>
-      <select id="load_id" value={loadId} onChange={(event) => setLoadId(event.target.value)}>
-        <option value="">No load</option>
-        {loads.map((load) => (
-          <option key={load.id} value={load.id}>
-            {load.origin} → {load.destination}
-          </option>
-        ))}
-      </select>
+  if (phase.kind === "error") {
+    return (
+      <div>
+        <PageHeader title="Duty log" purpose="One duty status, in full. Paper-log helper, not an ELD." />
+        <ListError message="Couldn't load this duty log. Check the connection and try again." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
 
-      <label htmlFor="duty_status">Duty status</label>
-      <select
-        id="duty_status"
-        value={dutyStatus}
-        onChange={(event) => setDutyStatus(event.target.value as DutyStatus)}
-      >
-        <option value="off_duty">Off duty</option>
-        <option value="sleeper">Sleeper berth</option>
-        <option value="driving">Driving</option>
-        <option value="on_duty">On duty (not driving)</option>
-      </select>
-
-      <label htmlFor="started_at">Started at</label>
-      <input
-        id="started_at"
-        type="datetime-local"
-        value={startedAt}
-        onChange={(event) => setStartedAt(event.target.value)}
-        required
-      />
-
-      <label htmlFor="location">Location</label>
-      <input
-        id="location"
-        value={location}
-        onChange={(event) => setLocation(event.target.value)}
-        placeholder="e.g. Melbourne, FL"
-      />
-
-      <label htmlFor="odometer">Odometer</label>
-      <input
-        id="odometer"
-        type="number"
-        min="0"
-        value={odometer}
-        onChange={(event) => setOdometer(event.target.value)}
-      />
-
-      <label htmlFor="notes">Notes</label>
-      <input id="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
-
-      {error && <p role="alert">{error}</p>}
-      {fieldErrors.map((field) => (
-        <p key={`${field.path}-${field.message}`} role="alert">
-          {field.path}: {field.message}
+  if (phase.kind === "missing") {
+    return (
+      <div>
+        <PageHeader title="Duty log" purpose="One duty status, in full. Paper-log helper, not an ELD." />
+        <p>That duty entry isn&apos;t in your records.</p>
+        <p>
+          <Link href="/fleet/hos">Back to the day log</Link>
         </p>
-      ))}
-      {saved && <p role="status">Saved.</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? "Saving…" : "Save changes"}
-      </button>
-    </form>
+      </div>
+    );
+  }
+
+  const row = phase.row;
+  const recordName = `${STATUS_LABELS[row.duty_status]} — ${formatDateTime(row.started_at)}`;
+  return (
+    <div>
+      <PageHeader title={recordName} purpose="One duty status, in full. Paper-log helper, not an ELD." />
+      <section aria-label="Deleted entry">
+        <h2>This entry was deleted</h2>
+        <dl>
+          <dt>Duty status</dt>
+          <dd>{STATUS_LABELS[row.duty_status]}</dd>
+          <dt>Started at</dt>
+          <dd>{formatDateTime(row.started_at)}</dd>
+          <dt>Location</dt>
+          <dd>{row.location ?? "Not recorded"}</dd>
+          <dt>Notes</dt>
+          <dd>{row.notes ?? "None"}</dd>
+        </dl>
+        <p>
+          Deleted entries are kept, not erased. Restoring brings this entry back exactly as it was — unless
+          something it depends on was also deleted, in which case the reason is shown here.
+        </p>
+        {restoreError && <p role="alert">{restoreError}</p>}
+        <button type="button" onClick={() => void restore(row)} disabled={restoring}>
+          {restoring ? "Restoring…" : "Restore this entry"}
+        </button>
+      </section>
+      <p>
+        <Link href="/fleet/hos">Back to the day log</Link>
+      </p>
+    </div>
   );
 }

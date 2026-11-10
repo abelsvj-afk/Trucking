@@ -3,26 +3,28 @@
 // UI/UX upgrade: the trailer's own screen - photo, edit form, and its
 // documents. Same shape as the truck and driver detail screens.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import {use, useEffect, useState} from "react";
 import Link from "next/link";
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import {apiClient} from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
-import { ListLoading, ListError } from "@/components/ListStates";
-import { EntityPhoto, PhotoUpload } from "@/components/EntityPhoto";
+import Sheet from "@/components/Sheet";
+import TrailerEditForm from "@/components/edit/TrailerEditForm";
+import {ListLoading, ListError} from "@/components/ListStates";
+import {EntityPhoto, PhotoUpload} from "@/components/EntityPhoto";
 import TrailerFields, {
   trailerFromTrailer,
   trailerToPayload,
   type TrailerValues,
 } from "@/components/TrailerFields";
-import { usePageTitle } from "@/lib/use-page-title";
-import { useToast } from "@/components/Toast";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import type { Trailer } from "@/types/entities";
+import {usePageTitle} from "@/lib/use-page-title";
+import {DeleteRecordButton} from "@/components/RecordLifecycle";
+import type {Trailer} from "@/types/entities";
 
 export default function TrailerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Trailer");
   const [trailer, setTrailer] = useState<Trailer | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,6 +68,12 @@ export default function TrailerDetailPage({ params }: { params: Promise<{ id: st
             ? `A ${trailer.trailer_type.toLowerCase()} — its photo, details, and records in one place.`
             : "Its photo, details, and records in one place."
         }
+      
+        action={
+          <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
+            Edit
+          </button>
+        }
       />
 
       <EntityPhoto
@@ -100,7 +108,11 @@ export default function TrailerDetailPage({ params }: { params: Promise<{ id: st
         </ul>
       </section>
 
-      <TrailerEditForm key={trailer.id} trailer={trailer} onSaved={setTrailer} />
+      {editOpen && (
+          <Sheet title="Edit trailer" onClose={() => setEditOpen(false)}>
+            <TrailerEditForm key={trailer.id} trailer={trailer} onSaved={(updated) => { setTrailer(updated); setEditOpen(false); }} />
+          </Sheet>
+        )}
 
       <section aria-label="Delete this record">
         <h2>Delete this record</h2>
@@ -113,42 +125,5 @@ export default function TrailerDetailPage({ params }: { params: Promise<{ id: st
         />
       </section>
     </div>
-  );
-}
-
-function TrailerEditForm({ trailer, onSaved }: { trailer: Trailer; onSaved: (trailer: Trailer) => void }) {
-  const toast = useToast();
-  const [values, setValues] = useState<TrailerValues>(() => trailerFromTrailer(trailer));
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSaved(false);
-    setSubmitting(true);
-    try {
-      const updated = await apiClient.update<Trailer>("trailers", trailer.id, trailerToPayload(values));
-      onSaved(updated);
-      setSaved(true);
-      toast.success("Saved");
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <TrailerFields values={values} onChange={setValues} />
-
-      {error && <p role="alert">{error}</p>}
-      {saved && <p role="status">Saved.</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? "Saving…" : "Save changes"}
-      </button>
-    </form>
   );
 }

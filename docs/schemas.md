@@ -250,6 +250,25 @@ Added by the Driver MVP (`docs/design/driver-mvp.md` §3). A manual, warn-only p
 
 Derived, never stored: the HOS warnings (driving in the current 14-hour window, driving since the last 30-minute break, on-duty in 8 days vs 70) are computed in `src/lib/hos.ts` from these rows.
 
+## duty_log_edits
+
+Added by migration `00088` (UI/UX redesign spec 2026-11-10 §2.2). The day log's edit trail: one row per CORRECTION of a duty entry — an update, a backfilled insert, a delete, a restore — carrying why it happened and the full row before/after. Live logging (a new entry for the status starting now) is not a correction and writes no row. The trail is additive storage only: HOS math never reads this table, and existing duty rows have no trail (their history starts at "Original entry created" from `duty_logs.created_at`; nothing is backfilled). Tenant-isolated via RLS (`private.current_company_id()`), like every table.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | references `companies.id` |
+| duty_log_id | uuid | no | references `duty_logs.id` |
+| kind | text | no | `update` \| `insert` \| `delete` \| `restore` (check constraint) |
+| reason | text | no | why the correction was made — required, never null |
+| before | jsonb | yes | full duty_logs row before the correction; null for `insert` |
+| after | jsonb | yes | full duty_logs row after the correction; null for `delete` |
+| source | text | no | `app` \| `conversation` \| `paper` (check constraint), default `app` — which surface made the fix |
+| edited_at | timestamptz | no | when the fix was made (distinct from the entry's own times) |
+| created_at | timestamptz | no | |
+
+Index: `(company_id, duty_log_id, edited_at)`. Also in 00088: `documents.model` jsonb (nullable) — the stored DocumentModel for app-created documents (spec §2.3; written by a later phase, uploads and existing rows stay null).
+
 ## dispatch_exchanges
 
 Added by the Driver MVP (`docs/design/driver-mvp.md` §5). One helped dispatch exchange — what came in, what the AI produced, and what the owner actually sent — captured as the raw material for learning how the owner writes. Written only on the owner's explicit save (web) or by his own private bot (telegram); the suggest endpoint itself stores nothing.
