@@ -16,6 +16,14 @@
 //   to the grounding corpus (context blocks, the owner's own
 //   message, or this turn's tool results). An untraceable figure
 //   replaces the reply with an honest refusal to quote it.
+// - Dynamic tool selection (owner requirement, 2026-11-09): the
+//   per-turn tool list is a SELECTION from the full registry, never
+//   the whole of what Abel can do. When the caller passes the full
+//   registry as `toolCatalog`, the loop offers a find_more_tools
+//   search over it: a capability the router did not pick can be
+//   pulled into the SAME turn, and a call naming a real-but-unoffered
+//   tool loads it instead of erroring. A routing absence must never
+//   surface to the owner as "I can't do that."
 
 import {
   isAgentCapableProvider,
@@ -24,6 +32,10 @@ import {
   type AiToolSpec,
 } from "./provider";
 import type { BotChatTurn } from "./bot-chat";
+import { searchToolCatalog } from "@/services/bot/tool-budget";
+
+/** The loop-provided search tool that pulls unoffered registry tools into the current turn. */
+export const FIND_MORE_TOOLS_NAME = "find_more_tools";
 
 export const BOT_CHAT_CAPABILITY = "bot_chat";
 
@@ -128,6 +140,16 @@ export interface AgentLoopInput {
   history: BotChatTurn[];
   userText: string;
   tools: AgentTool[];
+  /**
+   * Dynamic selection: the FULL registry the turn's `tools` were selected from. When it contains
+   * tools beyond the selection, the loop offers find_more_tools over it and auto-loads a tool the
+   * model names but was not offered. Callers must pass the catalog in the same gated/filtered
+   * shape as the selection (e.g. read-only turns pass a read-only catalog, so a pull can never
+   * surface a write the turn refused).
+   */
+  toolCatalog?: AgentTool[];
+  /** Hard cap on offered tool specs at any moment, the finder included (provider limit headroom). */
+  toolSpecLimit?: number;
   maxSteps?: number;
   onToolLog?: (entry: AgentToolLogEntry) => void;
 }
@@ -195,8 +217,104 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
   }
   const provider = input.provider;
   const maxSteps = input.maxSteps ?? MAX_AGENT_STEPS;
-  const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
-  const specs = input.tools.map(specFor);
+
+  // --- Dynamic tool selection -------------------------------------
+  // `offered` is what the model can call right now; it starts as the
+  // caller's selection and can GROW mid-turn from the catalog. The
+  // spec limit is never exceeded: making room evicts an offered READ
+  // tool that has not been called yet this turn (never a write, never
+  // the finder, never a tool already used) - and an evicted tool is
+  // one find_more_tools call away from coming back.
+  const catalog = input.toolCatalog ?? input.tools;
+  const catalogByName = new Map(catalog.map((tool) => [tool.name, tool]));
+  const specLimit = input.toolSpecLimit ?? 120;
+  const pendingExpansions: AgentTool[] = [];
+  const calledNames = new Set<string>();
+
+  const finder: AgentTool | null =
+    catalog.length > input.tools.length
+      ? {
+          name: FIND_MORE_TOOLS_NAME,
+          description:
+            "Search your FULL toolset for a capability this turn's tool list does not include, and load the matches for the rest of this turn. " +
+            "Your list each turn is only a selection - if a task needs a tool you do not see, search here (by what the tool DOES, e.g. \"replace load stops\", \"send email\", \"research\") before ever concluding you cannot do something.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Words describing the capability you need." },
+            },
+            required: ["query"],
+          },
+          access: "read",
+          run: async (args) => {
+            const query = typeof args.query === "string" ? args.query : "";
+            const offeredNames = new Set(offered.map((t) => t.name));
+            const matches = searchToolCatalog(
+              catalog.filter((t) => !offeredNames.has(t.name)),
+              query,
+              10,
+            );
+            if (matches.length === 0) {
+              return (
+                `No tool in your full toolset matches "${query}". Try different words for the same capability ` +
+                "(the action or the record it touches). If it truly is not there, tell the owner plainly what is missing - do not invent a result."
+              );
+            }
+            for (const match of matches) pendingExpansions.push(match);
+            return (
+              "Loaded for the rest of this turn - call the one you need directly:\n" +
+              matches
+                .map((m) => `- ${m.name}: ${m.description.split(/(?<=[.])\s/)[0]?.slice(0, 180) ?? ""}`)
+                .join("\n")
+            );
+          },
+        }
+      : null;
+
+  const offered: AgentTool[] = finder ? [finder, ...input.tools] : [...input.tools];
+  const toolsByName = new Map(offered.map((tool) => [tool.name, tool]));
+
+  // Tools pulled in this turn are eviction-protected (they sit at the tail, so without this a
+  // batch pull would evict its own earlier matches to make room for its later ones).
+  const expandedNames = new Set<string>();
+  /** Index of the last evictable offered tool: an uncalled, unpulled READ that is not the finder. */
+  const evictableIndex = (): number => {
+    for (let i = offered.length - 1; i >= 0; i--) {
+      const t = offered[i]!;
+      if (
+        t.access === "read" &&
+        t.name !== FIND_MORE_TOOLS_NAME &&
+        !calledNames.has(t.name) &&
+        !expandedNames.has(t.name)
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  };
+  const applyExpansions = () => {
+    while (pendingExpansions.length > 0) {
+      const tool = pendingExpansions.shift()!;
+      if (toolsByName.has(tool.name)) continue;
+      if (offered.length >= specLimit) {
+        const evictAt = evictableIndex();
+        if (evictAt < 0) break; // nothing safe to evict; leave the rest pending for a later step
+        const [evicted] = offered.splice(evictAt, 1);
+        if (evicted) toolsByName.delete(evicted.name);
+      }
+      offered.push(tool);
+      toolsByName.set(tool.name, tool);
+      expandedNames.add(tool.name);
+    }
+  };
+  // The finder itself takes a spec slot: if the selection already filled the limit, trim
+  // tail filler reads BEFORE the first provider call so no request ever exceeds the limit.
+  while (offered.length > specLimit) {
+    const evictAt = evictableIndex();
+    if (evictAt < 0) break;
+    const [evicted] = offered.splice(evictAt, 1);
+    if (evicted) toolsByName.delete(evicted.name);
+  }
 
   const messages: AiAgentMessage[] = [
     { role: "system", content: input.system },
@@ -222,6 +340,8 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
   let stepsUsed = 0;
   while (stepsUsed < maxSteps) {
     stepsUsed += 1;
+    applyExpansions();
+    const specs = offered.map(specFor);
     const turn = await provider.runToolTurn(messages, specs);
 
     if (turn.toolCalls.length === 0) {
@@ -250,14 +370,35 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
     for (const call of turn.toolCalls) {
       const tool = toolsByName.get(call.name);
       if (!tool) {
-        log({ tool: call.name, access: "read", outcome: "error", detail: "unknown tool" });
-        messages.push({
-          role: "tool",
-          toolCallId: call.id,
-          content: `Error: there is no tool named "${call.name}". Use only the tools provided.`,
-        });
+        // A real registry tool that simply was not in this turn's selection is NOT an error and
+        // must never become "I can't do that": load it and have the model call it again.
+        const fromCatalog = catalogByName.get(call.name);
+        if (fromCatalog) {
+          pendingExpansions.push(fromCatalog);
+          applyExpansions();
+          log({ tool: call.name, access: fromCatalog.access, outcome: "error", detail: "not in this turn's selection - loaded now" });
+          messages.push({
+            role: "tool",
+            toolCallId: call.id,
+            content:
+              `"${call.name}" is in your full toolset but was not in this turn's selection. It is loaded now - ` +
+              "call it again with the same arguments. Do not tell the owner you cannot do this.",
+          });
+        } else {
+          log({ tool: call.name, access: "read", outcome: "error", detail: "unknown tool" });
+          messages.push({
+            role: "tool",
+            toolCallId: call.id,
+            content:
+              `Error: there is no tool named "${call.name}". Use only the tools provided.` +
+              (finder
+                ? ` If the capability you need exists under another name, call ${FIND_MORE_TOOLS_NAME} to search your full toolset for it.`
+                : ""),
+          });
+        }
         continue;
       }
+      calledNames.add(tool.name);
 
       let args: Record<string, unknown>;
       try {
