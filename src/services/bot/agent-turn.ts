@@ -43,7 +43,7 @@ import { buildLifePhaseText } from "./life-phase";
 import { formatOpenLoopsBlock } from "./threads";
 import { buildBotTools, executeWriteTool } from "./tools";
 import { gateExecutes, NAMED_ACTION_PATTERNS } from "./execute-gate";
-import { selectToolsForTurn } from "./tool-budget";
+import { selectToolsForTurn, TOOL_BUDGET } from "./tool-budget";
 import { stripConfirmationProse, stripModelOnlyLines } from "./reply-prose";
 import { prepareEmailSendProposal } from "./email-tools";
 import { STYLE_RULES } from "@/services/telegram/format-reply";
@@ -116,17 +116,20 @@ PEOPLE & BUSINESS LEARNING: You are learning his business and the people in it. 
 
 ${JOB_KNOWLEDGE_BRIEF}`;
 
+/**
+ * Dynamic tool selection (owner requirement, 2026-11-09): the turn's tool list is a selection
+ * from the full registry, sized to the provider cap. A missing tool is a routing gap the loop
+ * can close mid-turn (find_more_tools), never a capability Abel lacks - the prompt must say so,
+ * or the model will present the gap to the owner as "I can't do that."
+ */
+const TOOL_SELECTION_RULES = `TOOL SELECTION: Your tool list this turn is a SELECTION from everything you can do, picked for this message - it is not the limit of your abilities. If a task needs a tool you do not see, call find_more_tools and describe the capability (what it does, not a guessed name); the matches load for the rest of this turn and you call the one you need. NEVER tell him you can't do something just because the tool isn't in front of you - search first. Pulled write tools follow the same propose/yes rules as any other write.`;
+
 /** Pay safety (owner 2026-11-07: telling Abel he doesn't pay for fuel zeroed his pay). */
 const PAY_SAFETY_RULES =
   "PAY SAFETY: telling you WHO PAYS for fuel or tolls changes ONLY that one field (fuel_paid_by / tolls_paid_by) - never send a rate, a percent, miles or any money value with it, and never set a rate, miles or pay to 0 unless he says that number in so many words. " +
   "set_pay_pin and set_pay_terms keep every field you do not name. Before proposing a pay change, read his current terms (get_pay_status / projected_pay) and say what CHANGES, before and after. " +
   "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again. " +
   "For what he is OWED or when he gets paid (next check, advances taken, what is still coming) call paychecks_by_payday - the same figures his Paychecks page shows - and never state a different number; if it can't load, say the figure is unavailable rather than estimating.";
-
-/** Expense buckets + document creation (owner spec 2026-11-09). */
-const EXPENSE_DOCUMENT_RULES =
-  "EXPENSE BUCKETS: every expense is 'business' (his own company's cost) or a 'pay_deduction' (the company he drives for takes it out of his check - a recovery/tow after an incident, damage, a chargeback). When he says a cost comes out of his check, record it with create_expense bucket 'pay_deduction' and the reason in plain words in the description - that reason shows on his Paychecks page next to the amount, alongside his cash advances, and the check's expected net drops by it. Moving an expense that already exists between buckets is update_expense with the bucket - a proposal like any other change, never silent. When a cost could be either kind and he hasn't said, ask which it is. " +
-  "CREATING DOCUMENTS: when the books need a document that doesn't exist as a photo - the proof page for a pay deduction, a receipt record for an expense, an invoice, a statement - create_document makes a real one in the app and files it on its record. Its content comes only from the record (read the expense first and pass its figures exactly); the proposal shows him the document's whole text before it files. Never invent an amount, a party, or a date to fill a document.";
 
 /** Temporal reasoning (owner 2026-11-07): dates and durations come from code, and old state is labelled as old. */
 const TEMPORAL_RULES =
@@ -892,15 +895,28 @@ export async function runAgentTurn(
   }
   // T-004: a read-only turn is offered read tools ONLY - no write
   // tool is even callable, so nothing can be staged by any path.
-  const turnTools = selectToolsForTurn(buildBotTools(store), input.userText);
-  const botTools = gateExecutes(writesRefused ? turnTools.filter((t) => t.access === "read") : turnTools, input.userText);
+  // Dynamic selection (owner requirement, 2026-11-09): the loop also
+  // receives the FULL gated registry as its catalog, so a tool the
+  // router did not select can be pulled into the same turn via
+  // find_more_tools - the cap bounds each request, never a capability.
+  // The catalog carries the same gate and the same read-only filter
+  // as the selection, so a pull can never widen what this turn allows.
+  // Selection is scored on the conversation's actual context, not the
+  // message alone: his words first, then the open loops and the
+  // running summary (the thread subjects the turn is really about).
+  const fullGated = gateExecutes(buildBotTools(store), input.userText);
+  const catalog = writesRefused ? fullGated.filter((t) => t.access === "read") : fullGated;
+  const selectionText = [input.userText, input.openLoopsText ?? "", input.summaryText ?? ""].join("\n");
+  const botTools = selectToolsForTurn(catalog, selectionText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${EXPENSE_DOCUMENT_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
     tools: botTools,
+    toolCatalog: catalog,
+    toolSpecLimit: TOOL_BUDGET,
     onToolLog: hooks.onToolLog,
   });
 
