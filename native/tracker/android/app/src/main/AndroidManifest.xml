@@ -24,6 +24,13 @@
 
         </activity>
 
+        <!-- The floating HOS clock card (docs/design/eld-roadside-overlay.md):
+             a plain Service that draws one overlay window while it runs.
+             Not exported - only this app starts and stops it. -->
+        <service
+            android:name=".HosOverlayService"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -38,4 +45,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The floating HOS overlay (user-granted at runtime via the system
+         "display over other apps" screen; the Tracker settings explain it). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 </manifest>

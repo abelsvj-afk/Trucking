@@ -187,7 +187,14 @@ describe("the send path is narrow: one module sends, one tool reaches it, nothin
   it("only the send_email tool module imports the send service, and nothing else under src does", () => {
     const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
     const out = walk("src").filter((f) => /from "(@\/services\/email\/send|\.\/send)"/.test(readFileSync(f, "utf8")));
-    expect(out).toEqual(["src/services/bot/email-tools.ts"]);
+    // The sanctioned importers: the send_email tool module, plus - since the
+    // roadside build (docs/design/eld-roadside-overlay.md, migration 00086) -
+    // the roadside tools and the /roadside send route. Both are owner-confirmed
+    // surfaces (always-propose tool; a page that shows the full packet +
+    // recipient before its Send button) calling the SAME one send function,
+    // which re-checks the approval fingerprint itself. Nothing else may join
+    // this list without the same discipline.
+    expect(out.sort()).toEqual(["src/app/api/v1/roadside/send/route.ts", "src/services/bot/email-tools.ts", "src/services/bot/roadside-tools.ts"].sort());
   });
 
   it("the poller, the ingest pipeline, the scheduler, the status and the web route cannot send", () => {

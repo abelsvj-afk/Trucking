@@ -39,7 +39,12 @@ export function memStore(): EmailStore & { messages: Map<string, StoredEmail & {
     async setCandidateStatus(id, s) { candidates.get(id)!.status = s; },
     async listCandidates() { return []; },
     async createDraft(emailMessageId, to, subject, body) {
-      const d: DraftRow = { id: `00000000-0000-4000-8000-d${String(++draftSeq).padStart(11, "0")}`, emailMessageId, toAddress: to, subject, body, status: "draft", createdAt: "now", sendError: null, sentAt: null };
+      const d: DraftRow = { id: `00000000-0000-4000-8000-d${String(++draftSeq).padStart(11, "0")}`, emailMessageId, mailbox: null, toAddress: to, subject, body, status: "draft", createdAt: "now", sendError: null, sentAt: null };
+      drafts.push(d);
+      return d;
+    },
+    async createStandaloneDraft(to, subject, body, mailbox) {
+      const d: DraftRow = { id: `00000000-0000-4000-8000-d${String(++draftSeq).padStart(11, "0")}`, emailMessageId: null, mailbox, toAddress: to, subject, body, status: "draft", createdAt: "now", sendError: null, sentAt: null };
       drafts.push(d);
       return d;
     },
@@ -61,7 +66,7 @@ export function memStore(): EmailStore & { messages: Map<string, StoredEmail & {
     async markDraftFailed(id, reason) { const d = drafts.find((x) => x.id === id)!; d.status = "failed"; d.sendError = reason; },
     async insertSent(row) { const r: SentRow = { id: `s${sent.length + 1}`, ...row }; sent.push(r); return r; },
     async listSent(o) { return sent.filter((x) => !o?.emailMessageId || x.emailMessageId === o.emailMessageId); },
-    async listSendFailures() { return drafts.filter((d) => d.status === "failed").map((d) => ({ ...d, mailbox: messages.get(d.emailMessageId)?.mailbox ?? "dispatch" })); },
+    async listSendFailures() { return drafts.filter((d) => d.status === "failed").map((d) => ({ ...d, mailbox: (d.emailMessageId ? messages.get(d.emailMessageId)?.mailbox : undefined) ?? d.mailbox ?? "dispatch" })); },
   };
 }
 

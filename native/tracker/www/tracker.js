@@ -5,6 +5,7 @@
 
 import { enqueue, flush, toFix, backoffMs, scrubKey, FLUSH_EVERY_MS } from "./feed-queue.js";
 import { validateSettings, isConfigured, describeSaved } from "./settings.js";
+import { createOverlay } from "./overlay.js";
 
 const Cap = window.Capacitor;
 // registerPlugin comes from Capacitor's JS core (capacitor-core.js, loaded first by index.html) - the native bridge
@@ -16,6 +17,7 @@ const registerPlugin =
 const native = Boolean(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
 const BG = native && registerPlugin ? registerPlugin("BackgroundGeolocation") : null;
 const Prefs = native && registerPlugin ? registerPlugin("Preferences") : null;
+const HosOverlay = native && registerPlugin ? registerPlugin("HosOverlay") : null;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
@@ -78,6 +80,51 @@ function logEvent(level, message) {
   (level === "ERROR" ? console.error : console.log)("[tracker] " + line);
   renderLog();
   void save("log", JSON.stringify(logLines));
+}
+
+// ---- floating HOS overlay -----------------------------------------------------------------------------
+
+let overlayOn = false;
+const overlay = createOverlay({
+  plugin: HosOverlay,
+  getSaved: () => saved,
+  fetchFn: (...a) => fetch(...a),
+  log: (level, message) => logEvent(level, message),
+});
+
+function renderOverlay() {
+  $("overlay-toggle").textContent = "Floating HOS clocks: " + (overlayOn ? "On" : "Off");
+  if (!HosOverlay) $("overlay-status").textContent = "This Tracker build doesn't include the floating clocks yet.";
+}
+
+async function toggleOverlay() {
+  if (!HosOverlay) {
+    $("overlay-status").textContent = "This Tracker build doesn't include the floating clocks yet - it arrives with the next Tracker update.";
+    return;
+  }
+  if (overlayOn) {
+    overlayOn = false;
+    await save("overlay", "0");
+    overlay.stop();
+    $("overlay-status").textContent = "Floating clocks off.";
+    renderOverlay();
+    return;
+  }
+  if (!isConfigured(saved)) {
+    $("overlay-status").textContent = "Save the server URL and your device key above first, then switch this on.";
+    return;
+  }
+  const { granted } = await HosOverlay.canDraw();
+  if (!granted) {
+    await HosOverlay.requestPermission();
+    $("overlay-status").textContent = "Android opened the permission screen - allow \"display over other apps\" for Trucking OS Tracker, then come back and tap this again.";
+    return;
+  }
+  overlayOn = true;
+  await save("overlay", "1");
+  overlay.start();
+  $("overlay-status").textContent = "Floating clocks on - they'll stay on screen over your other apps until you tap the x on the card or switch this off.";
+  renderOverlay();
 }
 
 // ---- screens ------------------------------------------------------------------------------------------
@@ -302,6 +349,7 @@ $("clear-log").addEventListener("click", () => {
   renderLog();
   void save("log", "[]");
 });
+$("overlay-toggle").addEventListener("click", guarded(toggleOverlay));
 
 (async () => {
   saved = { server: await load("server"), key: await load("key") };
@@ -317,6 +365,17 @@ $("clear-log").addEventListener("click", () => {
   }
   renderLog();
   renderSaved();
+  overlayOn = (await load("overlay")) === "1";
+  renderOverlay();
+  if (overlayOn && isConfigured(saved) && HosOverlay) {
+    // Resume the floating clocks too - but only if the permission is still granted.
+    HosOverlay.canDraw()
+      .then(({ granted }) => {
+        if (granted) overlay.start();
+        else $("overlay-status").textContent = "Floating clocks are on, but the \"display over other apps\" permission is off - open Settings to fix it.";
+      })
+      .catch(() => undefined);
+  }
   if (!isConfigured(saved)) {
     show("Not set up yet. Open Settings and save the server URL and your device key.");
     return;

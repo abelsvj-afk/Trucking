@@ -1,5 +1,6 @@
 // Sending (owner decision 2026-11-07; docs/design/abel-email-access.md addendum). ONE function sends: sendApprovedDraft. It is reached only from
-// the send_email tool, which is always a PROPOSAL the owner approves, and it re-checks everything itself so a bug upstream cannot send:
+// always-PROPOSE surfaces the owner approves (the send_email tool; the roadside inspection tools / page, docs/design/eld-roadside-overlay.md),
+// and it re-checks everything itself so a bug upstream cannot send:
 //   - the draft exists and is still open (never sent twice; never a discarded draft);
 //   - the body hash he approved equals the CURRENT body (an edit after approval blocks the send);
 //   - the mailbox is allowed to send (dispatch@ is dormant unless EMAIL_SEND_DISPATCH_ENABLED is on) and has a login;
@@ -23,6 +24,13 @@ export const bodyFingerprint = (body: string): string => bodyHash(body).slice(0,
 /** One plain address: no list, no display-name tricks, no whitespace/control characters (header injection). */
 export const SINGLE_ADDRESS = /^[^\s@<>,;:"()\[\]\\]+@[^\s@<>,;:"()\[\]\\]+\.[^\s@<>,;:"()\[\]\\]+$/;
 
+export interface OutgoingAttachment {
+  fileName: string;
+  contentType: string;
+  /** The attachment content as text (the roadside packet is a plain-text file). */
+  text: string;
+}
+
 export interface Outgoing {
   from: string;
   to: string;
@@ -32,12 +40,14 @@ export interface Outgoing {
   inReplyTo: string | null;
   references: string | null;
   date: Date;
+  /** Optional attachments (standalone sends). Absent = the message composes exactly as before. */
+  attachments?: OutgoingAttachment[];
 }
 
 /** A Message-ID the original server gave is a usable thread anchor; one WE generated for a message that had none is not. */
 export const isThreadable = (id: string | null | undefined): id is string => Boolean(id) && /^<[^<>\s]+@[^<>\s]+>$/.test(id as string) && !/^<generated-[0-9a-f]+@local>$/.test(id as string);
 
-export function buildOutgoing(args: { from: string; to: string; subject: string; body: string; originalMessageId: string | null; now: Date }): Outgoing {
+export function buildOutgoing(args: { from: string; to: string; subject: string; body: string; originalMessageId: string | null; now: Date; attachments?: OutgoingAttachment[] }): Outgoing {
   const domain = args.from.split("@")[1] ?? "localhost";
   const anchor = isThreadable(args.originalMessageId) ? args.originalMessageId : null;
   return {
@@ -49,6 +59,7 @@ export function buildOutgoing(args: { from: string; to: string; subject: string;
     inReplyTo: anchor,
     references: anchor,
     date: args.now,
+    ...(args.attachments && args.attachments.length > 0 ? { attachments: args.attachments } : {}),
   };
 }
 
@@ -61,6 +72,9 @@ export function composeRaw(out: Outgoing): Promise<Buffer> {
     messageId: out.messageId,
     date: out.date,
     ...(out.inReplyTo ? { inReplyTo: out.inReplyTo, references: out.references ?? out.inReplyTo } : {}),
+    ...(out.attachments && out.attachments.length > 0
+      ? { attachments: out.attachments.map((a) => ({ filename: a.fileName, content: a.text, contentType: a.contentType })) }
+      : {}),
   });
   return new Promise((resolve, reject) => composer.compile().build((err, message) => (err ? reject(err) : resolve(message))));
 }
@@ -105,7 +119,7 @@ export async function deliverViaSmtp(config: EmailConfig, smtp: SmtpSettings, en
   }
 }
 
-export async function sendApprovedDraft(deps: SendDeps, input: { draftId: string; approvedFingerprint: string }): Promise<SendResult> {
+export async function sendApprovedDraft(deps: SendDeps, input: { draftId: string; approvedFingerprint: string; attachments?: OutgoingAttachment[] }): Promise<SendResult> {
   const { emailStore } = deps;
   const env = deps.env ?? process.env;
 
@@ -120,9 +134,27 @@ export async function sendApprovedDraft(deps: SendDeps, input: { draftId: string
     return refuse("The draft was changed after you approved it, so I did NOT send it. Look at the new text and approve it again.");
   }
 
-  const original = await emailStore.get(draft.emailMessageId);
-  if (!original) return refuse("The message this replies to is no longer in the inbox. Nothing was sent.");
-  const mailbox = original.mailbox;
+  // Two shapes of draft (migration 00086): a REPLY draft anchors to an inbox
+  // message and derives its mailbox from it; a STANDALONE draft (roadside
+  // inspection packet) has no original and carries its mailbox on the draft.
+  // Standalone sends are owner@-only in this build, and any attachment's
+  // text must equal the approved body byte-for-byte, so what he approved is
+  // exactly what the officer receives - as the body AND as the attached file.
+  const standalone = draft.emailMessageId === null;
+  let mailbox: Mailbox;
+  let original: Awaited<ReturnType<EmailStore["get"]>> = null;
+  if (standalone) {
+    if (draft.mailbox !== "owner") return refuse("That standalone draft isn't addressed from the owner mailbox, so nothing was sent.");
+    mailbox = "owner";
+    for (const a of input.attachments ?? []) {
+      if (a.text !== draft.body) return refuse("The attachment doesn't match the approved text, so I did NOT send it.");
+    }
+  } else {
+    if (input.attachments && input.attachments.length > 0) return refuse("Reply sends don't take attachments in this build. Nothing was sent.");
+    original = await emailStore.get(draft.emailMessageId as string);
+    if (!original) return refuse("The message this replies to is no longer in the inbox. Nothing was sent.");
+    mailbox = original.mailbox;
+  }
   if (!isSendEnabled(mailbox, env)) return refuse(DISPATCH_SEND_OFF_REASON);
   const configResult = (deps.getConfig ?? ((m: Mailbox) => getEmailConfig(m, env)))(mailbox);
   if (!configResult.ok) return refuse(`${configResult.reason} Nothing was sent.`);
@@ -136,7 +168,15 @@ export async function sendApprovedDraft(deps: SendDeps, input: { draftId: string
     return refuse("The draft changed or was already being sent, so I did not send it. Nothing was sent.");
   }
 
-  const outgoing = buildOutgoing({ from: config.user, to: draft.toAddress, subject: draft.subject, body: draft.body, originalMessageId: original.messageId, now: deps.now() });
+  const outgoing = buildOutgoing({
+    from: config.user,
+    to: draft.toAddress,
+    subject: draft.subject,
+    body: draft.body,
+    originalMessageId: original?.messageId ?? null,
+    now: deps.now(),
+    ...(standalone && input.attachments ? { attachments: input.attachments } : {}),
+  });
   const smtp = getSmtpSettings(env);
   const deliver = deps.deliver ?? deliverViaSmtp;
   let raw: Buffer;
@@ -174,7 +214,7 @@ export async function sendApprovedDraft(deps: SendDeps, input: { draftId: string
   try {
     sent = await emailStore.insertSent({
       mailbox,
-      emailMessageId: original.id,
+      emailMessageId: original?.id ?? null,
       toAddress: draft.toAddress,
       subject: outgoing.subject,
       body: draft.body,
@@ -191,7 +231,7 @@ export async function sendApprovedDraft(deps: SendDeps, input: { draftId: string
       ok: true,
       storedInSentFolder,
       warning: "The message WAS sent, but I couldn't save the record of it. Don't send it again.",
-      sent: { id: "", mailbox, emailMessageId: original.id, toAddress: draft.toAddress, subject: outgoing.subject, body: draft.body, messageId: outgoing.messageId, inReplyTo: outgoing.inReplyTo, approvedBodyHash: bodyHash(draft.body), sentAt, storedInSentFolder },
+      sent: { id: "", mailbox, emailMessageId: original?.id ?? null, toAddress: draft.toAddress, subject: outgoing.subject, body: draft.body, messageId: outgoing.messageId, inReplyTo: outgoing.inReplyTo, approvedBodyHash: bodyHash(draft.body), sentAt, storedInSentFolder },
     };
   }
   return {

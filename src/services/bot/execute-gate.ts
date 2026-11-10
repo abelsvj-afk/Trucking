@@ -18,6 +18,10 @@ export const NAMED_ACTION_PATTERNS: Record<string, RegExp> = {
   send_email: /^\s*(please\s+)?send\b|\bsend\s+(it|that|this|the\s+(e-?mail|reply|draft|message))\b|\bgo\s+ahead\s+and\s+send\b/i,
   revise_email_draft: /\b(change|edit|revise|rewrite|reword|update|tweak|shorten|lengthen|add|remove|replace|make it|instead|softer|firmer|friendlier)\b/i,
   record_forward_thread: /\b(record|save|log|keep) (this|that|the) (thread|conversation|chat)\b/i,
+  // Roadside packet (eld-roadside-overlay): prepare only STAGES (files the packet + saves an unsent
+  // draft; the send is a separate always-propose tool), like draft_email_reply - so it executes when
+  // his message names the inspection, and becomes a proposal when the model raises it unasked.
+  prepare_inspection_packet: /\b(inspection|officer|dot|roadside)\b|\b(send|email|give|show|prepare|build|make|get|pull)\b.{0,30}\b(logs?|packet)\b/i,
 };
 
 /** The turn's tools, with an execute turned into a proposal for any gated tool his message does not name. */
