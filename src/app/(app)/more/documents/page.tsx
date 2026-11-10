@@ -17,6 +17,7 @@ import PageHeader from "@/components/PageHeader";
 import ListRow from "@/components/ListRow";
 import { DOC_TYPE_LABELS, extractionStatusText, SITUATION_LABELS } from "@/lib/document-labels";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import Field from "@/components/Field";
 import CreateDocumentForm from "@/components/CreateDocumentForm";
 import { usePageTitle } from "@/lib/use-page-title";
 import type {
@@ -354,35 +355,44 @@ function DocumentsInner() {
         </div>
       </section>
 
-      <label htmlFor="entity_type">Type</label>
-      <select
-        id="entity_type"
-        value={entityType}
-        onChange={(event) => {
-          setEntityType(event.target.value as RelatedEntityType);
-          handleEntityChange("");
-        }}
-      >
-        {ENTITY_TYPES.map((type) => (
-          <option key={type.value} value={type.value}>
-            {type.label}
-          </option>
-        ))}
-      </select>
+      {/* Type / Record filters (conformance fix D6): these were bare
+          label+select children of the page root — the global label and
+          select top margins stacked in the flex column and the labels
+          overlapped the control above. The design-system Field wrapper
+          (spec §2.6) owns the label/control rhythm instead. */}
+      <div className="documents-filters">
+        <Field label="Type" htmlFor="entity_type">
+          <select
+            id="entity_type"
+            value={entityType}
+            onChange={(event) => {
+              setEntityType(event.target.value as RelatedEntityType);
+              handleEntityChange("");
+            }}
+          >
+            {ENTITY_TYPES.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-      <label htmlFor="entity_id">Record</label>
-      <select
-        id="entity_id"
-        value={entityId}
-        onChange={(event) => handleEntityChange(event.target.value)}
-      >
-        <option value="">Select a record</option>
-        {records.map((record) => (
-          <option key={record.id} value={record.id}>
-            {labelFor(entityType, record)}
-          </option>
-        ))}
-      </select>
+        <Field label="Record" htmlFor="entity_id">
+          <select
+            id="entity_id"
+            value={entityId}
+            onChange={(event) => handleEntityChange(event.target.value)}
+          >
+            <option value="">Select a record</option>
+            {records.map((record) => (
+              <option key={record.id} value={record.id}>
+                {labelFor(entityType, record)}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
 
       {entityId && (
         <form onSubmit={handleUpload}>

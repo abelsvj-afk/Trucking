@@ -44,3 +44,21 @@ describe("SW-STAMP: the Dockerfile stamps the service-worker build version", () 
     expect(read("public/sw.js")).not.toContain("2026-11-02-fix1");
   });
 });
+
+describe("SW D4 (2026-11-10): HTML documents are never cache-first", () => {
+  const sw = read("public/sw.js");
+
+  it("documents route through the network-first branch", () => {
+    expect(sw).toContain('url.pathname.endsWith(".html")');
+    expect(sw).toContain('event.request.mode === "navigate" || url.pathname.endsWith(".html")');
+  });
+
+  it("the cache-first branch excludes .html outright", () => {
+    expect(sw).toContain('!url.pathname.endsWith(".html")');
+  });
+
+  it("the unstamped fallback constant was bumped so stuck clients rotate once", () => {
+    expect(sw).toContain("2026-11-10-conformance1");
+    expect(sw).not.toContain("2026-11-04-swstamp1");
+  });
+});

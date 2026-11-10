@@ -1,6 +1,8 @@
-// Theme choice helpers (parked decision (d)): the pure resolution
-// logic behind src/lib/theme.ts - the shipped default is "auto" and
-// anything unrecognized falls back to it.
+// Theme choice helpers: the pure resolution logic behind
+// src/lib/theme.ts. The shipped default was "auto" under parked
+// decision (d); the owner settled it DARK on 2026-11-10 (the approved
+// mockup is dark-only — conformance fix D1), so anything unrecognized
+// now falls back to "dark".
 
 import { describe, expect, it } from "vitest";
 import {
@@ -11,20 +13,20 @@ import {
   themeAttributeFor,
 } from "@/lib/theme";
 
-describe("theme choice (parked decision (d))", () => {
-  it("ships Auto as the default", () => {
-    expect(THEME_DEFAULT).toBe("auto");
+describe("theme choice (default settled dark 2026-11-10)", () => {
+  it("ships Dark as the default — the approved mockup's scheme", () => {
+    expect(THEME_DEFAULT).toBe("dark");
     expect(THEME_STORAGE_KEY).toBe("trucking-theme");
   });
 
-  it("resolves stored values, defaulting missing/garbage to auto", () => {
+  it("resolves stored values, defaulting missing/garbage to the dark default", () => {
     expect(resolveThemeChoice("light")).toBe("light");
     expect(resolveThemeChoice("dark")).toBe("dark");
     expect(resolveThemeChoice("auto")).toBe("auto");
-    expect(resolveThemeChoice(null)).toBe("auto");
-    expect(resolveThemeChoice(undefined)).toBe("auto");
-    expect(resolveThemeChoice("sepia")).toBe("auto");
-    expect(resolveThemeChoice("")).toBe("auto");
+    expect(resolveThemeChoice(null)).toBe("dark");
+    expect(resolveThemeChoice(undefined)).toBe("dark");
+    expect(resolveThemeChoice("sepia")).toBe("dark");
+    expect(resolveThemeChoice("")).toBe("dark");
   });
 
   it("auto follows the OS; explicit picks win over the OS", () => {
@@ -34,7 +36,8 @@ describe("theme choice (parked decision (d))", () => {
     expect(resolveEffectiveTheme("light", true)).toBe("light");
   });
 
-  it("auto means no data-theme attribute; explicit picks set it", () => {
+  it("auto means no data-theme attribute; explicit picks and the dark default set it", () => {
+    expect(themeAttributeFor(THEME_DEFAULT)).toBe("dark");
     expect(themeAttributeFor("auto")).toBeNull();
     expect(themeAttributeFor("dark")).toBe("dark");
     expect(themeAttributeFor("light")).toBe("light");
