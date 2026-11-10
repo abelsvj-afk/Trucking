@@ -113,6 +113,17 @@ export interface AgentTool {
     proposals: ProposedWrite[];
     rejected: { summary: string; reason: string }[];
   };
+  /**
+   * Verbatim relay (brief 2026-11-10): this READ tool's result IS the
+   * owner's answer, word for word - the thing itself, not material for
+   * the model to restate (an email read out exactly, code included).
+   * The loop collects these results and, when any exist, they BECOME
+   * the reply: the model's own prose is discarded, so a paraphrase or
+   * a refusal can never stand in for the content the owner asked for.
+   * Only for tools whose whole purpose is delivering exact stored
+   * text to the owner on his request.
+   */
+  verbatimRelay?: boolean;
 }
 
 export interface ProposedWrite {
@@ -160,6 +171,8 @@ export interface AgentLoopOutput {
   toolLog: AgentToolLogEntry[];
   stepsUsed: number;
   ranOutOfSteps: boolean;
+  /** Results of verbatimRelay tools this turn, in call order - when non-empty, they are the reply. */
+  verbatimRelays: string[];
 }
 
 function specFor(tool: AgentTool): AiToolSpec {
@@ -331,6 +344,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
 
   const groundingParts: string[] = [input.contextText, input.userText];
   const proposals: ProposedWrite[] = [];
+  const verbatimRelays: string[] = [];
   const toolLog: AgentToolLogEntry[] = [];
   const log = (entry: AgentToolLogEntry) => {
     toolLog.push(entry);
@@ -345,6 +359,20 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
     const turn = await provider.runToolTurn(messages, specs);
 
     if (turn.toolCalls.length === 0) {
+      // A verbatim relay this turn IS the answer, exactly as stored - it
+      // replaces whatever prose (or refusal, or paraphrase) the model
+      // wrapped around the tool call. Grounded by construction: it is a
+      // tool result, never model text.
+      if (verbatimRelays.length > 0) {
+        return {
+          reply: verbatimRelays.join("\n\n"),
+          proposals,
+          toolLog,
+          stepsUsed,
+          ranOutOfSteps: false,
+          verbatimRelays,
+        };
+      }
       const text = turn.text?.trim();
       if (!text) {
         return {
@@ -353,6 +381,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
           toolLog,
           stepsUsed,
           ranOutOfSteps: false,
+          verbatimRelays,
         };
       }
       const bad = ungroundedAmounts(text, groundingParts.join("\n"));
@@ -362,6 +391,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
         toolLog,
         stepsUsed,
         ranOutOfSteps: false,
+        verbatimRelays,
       };
     }
 
@@ -501,6 +531,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
       try {
         const result = await tool.run(runArgs);
         groundingParts.push(result);
+        if (tool.verbatimRelay) verbatimRelays.push(result);
         log({ tool: tool.name, access: tool.access, outcome: "executed" });
         messages.push({ role: "tool", toolCallId: call.id, content: result });
       } catch (err) {
@@ -517,11 +548,15 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
     }
   }
 
+  // Step exhaustion normally means an honest "I ran out of steps" - but a
+  // completed verbatim relay is a finished answer, not a guess, so it is
+  // delivered as-is rather than buried under the exhaustion line.
   return {
-    reply: RAN_OUT_OF_STEPS_REPLY,
+    reply: verbatimRelays.length > 0 ? verbatimRelays.join("\n\n") : RAN_OUT_OF_STEPS_REPLY,
     proposals,
     toolLog,
     stepsUsed,
-    ranOutOfSteps: true,
+    ranOutOfSteps: verbatimRelays.length === 0,
+    verbatimRelays,
   };
 }
