@@ -393,3 +393,63 @@ button[data-motion-locked="true"] {
 .home-position-hero.home-position-empty p {
   padding: 0;
 }
+
+/* Roadside inspection mode (docs/design/eld-roadside-overlay.md): the
+   officer-facing screen. Big, high-contrast, readable at arm's length;
+   the framing banner (convenience copy - the carrier ELD / paper log is
+   the legal record) is impossible to miss. */
+.roadside-framing {
+  border: 2px solid var(--color-accent, #c9a227);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.roadside-packet {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.roadside-send {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border, #ddd);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 32rem;
+}
+.roadside-send input[type="email"] {
+  min-height: 48px;
+  font-size: 1.0625rem;
+  padding: 0 0.75rem;
+}
+.roadside-send button[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 1.25rem;
+  border-radius: 0.625rem;
+  background-color: var(--color-primary-button);
+  color: var(--color-on-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+a.roadside-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 56px;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 2px solid var(--color-accent, #c9a227);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  color: inherit;
+}

@@ -107,6 +107,9 @@ export async function prepareEmailSendProposal(
 ): Promise<{ draftId: string; fingerprint: string; summary: string } | null> {
   const drafts = await emailStore.listDrafts(); // open drafts (draft or failed), newest first
   for (const draft of drafts) {
+    // Standalone drafts (roadside packets) have no original message; they go
+    // through their own propose->yes path, never offered as email replies.
+    if (!draft.emailMessageId) continue;
     const original = await emailStore.get(draft.emailMessageId);
     if (!original || !isSendEnabled(original.mailbox)) continue;
     const fingerprint = bodyFingerprint(draft.body);
@@ -233,8 +236,8 @@ export function buildEmailTools(
         if (!p.success) return `Draft not changed: ${p.error.issues[0]?.message ?? "invalid arguments"}`;
         const d = await emailStore.updateDraftBody(p.data.draft_id, cleanBody(p.data.body, 5000));
         if (!d) return "Draft not changed: it was already sent, is being sent, or doesn't exist.";
-        const original = await emailStore.get(d.emailMessageId);
-        const mailbox = original?.mailbox ?? "owner";
+        const original = d.emailMessageId ? await emailStore.get(d.emailMessageId) : null;
+        const mailbox = original?.mailbox ?? d.mailbox ?? "owner";
         return `Draft changed. Any earlier approval of the old text is void.\n${showDraft(d, mailbox)}\n${draftModelNote(d, mailbox)}`;
       },
     },
@@ -262,6 +265,7 @@ export function buildEmailTools(
         if (d.status === "sent") return { ok: false as const, error: "That draft was already sent" };
         if (d.status !== "draft" && d.status !== "failed") return { ok: false as const, error: `That draft is ${d.status}` };
         if (bodyFingerprint(d.body) !== p.data.fingerprint) return { ok: false as const, error: "The draft text is not what that fingerprint covers (it was changed). Show him the CURRENT draft and use its fingerprint" };
+        if (!d.emailMessageId) return { ok: false as const, error: "That draft is a standalone send (a roadside packet), not an email reply - it goes out through send_inspection_packet" };
         const original = await emailStore.get(d.emailMessageId);
         if (!original) return { ok: false as const, error: "The message it replies to is gone" };
         if (!isSendEnabled(original.mailbox)) return { ok: false as const, error: DISPATCH_SEND_OFF_REASON };

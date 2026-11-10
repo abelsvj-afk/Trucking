@@ -31,6 +31,9 @@ import { NextResponse, type NextRequest } from "next/server";
 // /api/v1/position/feed (the native background-tracking shell, docs/design/background-tracking.md):
 // no browser session exists in native background code; the route enforces its own device-token
 // check (Bearer tdv_..., hashed in device_tokens) and fails closed. Only this one path is public.
+// /api/v1/position/clocks (the Tracker's floating HOS overlay, docs/design/eld-roadside-overlay.md):
+// the same device token, the same fail-closed route-level check; it only READS the server's HOS
+// clocks for the token's own company. Public here for exactly the same reason as the feed.
 // /api/telegram (the owner's private-bot webhook, docs/design/driver-mvp.md
 // §4) is public here for the same reason as /api/internal: Telegram's
 // servers have no user session; the route enforces its own webhook
@@ -44,7 +47,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // below already exempts from this proxy entirely). ONLY these two
 // exact asset paths are added; no page, API route, or data path is
 // widened.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed", "/sw.js", "/manifest.webmanifest"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed", "/api/v1/position/clocks", "/sw.js", "/manifest.webmanifest"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

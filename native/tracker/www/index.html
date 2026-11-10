@@ -52,6 +52,10 @@
     <label for="key">API key (device key from Trucking OS &rarr; Settings &rarr; Background tracking)</label>
     <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="tdv_..." />
     <p class="error" id="settings-error" role="alert"></p>
+    <label>Floating HOS clocks</label>
+    <p class="small">A small window with your four HOS clocks (drive, 14-hour window, break, 70-hour) that stays on top of other apps after you close this one, until you close it. The numbers come from Trucking OS - the same hours your log shows. Android will ask for the &ldquo;display over other apps&rdquo; permission. Paper-log helper, not an ELD.</p>
+    <button id="overlay-toggle" type="button" class="secondary">Floating HOS clocks: Off</button>
+    <p class="small" id="overlay-status"></p>
     <button id="save-settings" type="button">Save</button>
     <button id="close-settings" type="button" class="secondary">Back</button>
   </section>

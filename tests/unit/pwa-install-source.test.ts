@@ -23,7 +23,13 @@ describe("PWA install: the proxy lets signed-out Chrome see the install assets",
 
   it("PUBLIC_PATHS does not widen to any page, the root, or a catch-all prefix", () => {
     expect(publicPathsLine).not.toContain('"/",');
-    expect(publicPathsLine).not.toMatch(/"\/money|\/loads|\/fleet|\/more|\/api\/v1\/(?!health|position\/feed)/);
+    // The sanctioned /api/v1 exemptions after the prefix: health (no data),
+    // position/feed and position/clocks (the Tracker's device-token routes -
+    // no browser session exists in native code; each route enforces its own
+    // fail-closed Bearer-token check and is scoped to the token's company;
+    // clocks added by the ELD overlay build, docs/design/eld-roadside-overlay.md).
+    // Any OTHER /api/v1 path going public must extend this list deliberately.
+    expect(publicPathsLine).not.toMatch(/"\/money|\/loads|\/fleet|\/more|\/api\/v1\/(?!health|position\/feed|position\/clocks)/);
   });
 
   it("the signed-out redirect to /login still guards everything non-public", () => {

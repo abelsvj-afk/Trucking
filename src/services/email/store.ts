@@ -66,7 +66,10 @@ export type DraftStatus = "draft" | "discarded" | "sending" | "sent" | "failed";
 
 export interface DraftRow {
   id: string;
-  emailMessageId: string;
+  /** The inbox message this draft replies to; NULL for a standalone draft (migration 00086, roadside sends). */
+  emailMessageId: string | null;
+  /** The mailbox a STANDALONE draft sends from, recorded on the draft itself (00086). NULL on reply drafts: their mailbox is derived from the original message, as before. */
+  mailbox: Mailbox | null;
   toAddress: string;
   subject: string;
   body: string;
@@ -79,7 +82,8 @@ export interface DraftRow {
 export interface SentRow {
   id: string;
   mailbox: Mailbox;
-  emailMessageId: string;
+  /** The inbox message this replies to; NULL for a standalone send (00086). */
+  emailMessageId: string | null;
   toAddress: string;
   subject: string;
   body: string;
@@ -108,6 +112,8 @@ export interface EmailStore {
   setCandidateStatus(id: string, status: "new" | "proposed" | "taken" | "passed" | "expired"): Promise<void>;
   listCandidates(limit: number): Promise<{ id: string; status: string; data: Candidate; firstSeenAt: string }[]>;
   createDraft(emailMessageId: string, toAddress: string, subject: string, body: string): Promise<DraftRow>;
+  /** A draft that is NOT a reply (roadside inspection send, 00086): no original message; the sending mailbox is recorded on the draft. Throws until migration 00086 is applied - callers translate that into plain words. */
+  createStandaloneDraft(toAddress: string, subject: string, body: string, mailbox: Mailbox): Promise<DraftRow>;
   /** Open drafts (draft or failed), newest first. */
   listDrafts(emailMessageId?: string): Promise<DraftRow[]>;
   getDraft(id: string): Promise<DraftRow | null>;
@@ -295,10 +301,33 @@ export function createEmailStore(client: SupabaseClient, company: string): Email
       return toDraft(data as Record<string, unknown>);
     },
 
+    async createStandaloneDraft(toAddress, subject, body, mailbox) {
+      const { data, error } = await client
+        .from("email_drafts")
+        .insert({ company_id: company, email_message_id: null, mailbox, to_address: toAddress, subject, body })
+        .select(DRAFT_COLUMNS)
+        .single();
+      throwIf(error);
+      return { ...toDraft(data as Record<string, unknown>), mailbox };
+    },
+
     async getDraft(id) {
       const { data, error } = await client.from("email_drafts").select(DRAFT_COLUMNS).eq("company_id", company).eq("id", id).is("deleted_at", null).maybeSingle();
       throwIf(error);
-      return data ? toDraft(data as Record<string, unknown>) : null;
+      if (!data) return null;
+      const draft = toDraft(data as Record<string, unknown>);
+      // The standalone-mailbox column arrives with migration 00086. Read it
+      // tolerantly and separately so reply drafts keep working on a database
+      // where 00086 has not landed yet (mailbox stays null = "derive it").
+      try {
+        const { data: mb, error: mbError } = await client.from("email_drafts").select("mailbox").eq("company_id", company).eq("id", id).maybeSingle();
+        if (!mbError && mb && ((mb as { mailbox?: unknown }).mailbox === "owner" || (mb as { mailbox?: unknown }).mailbox === "dispatch")) {
+          draft.mailbox = (mb as { mailbox: Mailbox }).mailbox;
+        }
+      } catch {
+        /* pre-00086 database: no mailbox column yet - reply behaviour is unaffected */
+      }
+      return draft;
     },
 
     async updateDraftBody(id, body) {
@@ -404,7 +433,8 @@ const DRAFT_STATUSES: readonly DraftStatus[] = ["draft", "discarded", "sending",
 function toDraft(r: Record<string, unknown>): DraftRow {
   return {
     id: String(r.id),
-    emailMessageId: String(r.email_message_id),
+    emailMessageId: (r.email_message_id as string | null) ?? null,
+    mailbox: r.mailbox === "owner" ? "owner" : r.mailbox === "dispatch" ? "dispatch" : null,
     toAddress: String(r.to_address),
     subject: String(r.subject),
     body: String(r.body),
@@ -419,7 +449,7 @@ function toSent(r: Record<string, unknown>): SentRow {
   return {
     id: String(r.id),
     mailbox: r.mailbox === "owner" ? "owner" : "dispatch",
-    emailMessageId: String(r.email_message_id),
+    emailMessageId: (r.email_message_id as string | null) ?? null,
     toAddress: String(r.to_address),
     subject: String(r.subject),
     body: String(r.body),
