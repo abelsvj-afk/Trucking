@@ -41,6 +41,7 @@ import { buildDriverQuestionTools } from "./driver-question-tools";
 import { buildNewsTools } from "./news-tools";
 import { buildResearchAgendaTools } from "./research-agenda-tools";
 import { buildEmailTools } from "./email-tools";
+import { buildNavigationTools } from "./navigation-tools";
 import { buildRoadsideTools } from "./roadside-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
@@ -1038,6 +1039,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push(...buildDriverQuestionTools(store));
   tools.push(...buildNewsTools(store));
   tools.push(...buildEmailTools(store));
+  tools.push(...buildNavigationTools(store));
   tools.push(...buildRoadsideTools(store));
 
   // Phase C (threads + people): forward thread records, open

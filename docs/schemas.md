@@ -1235,6 +1235,17 @@ Abel's self-directed learning agenda (docs/design/autonomous-research.md §4): p
 - `created_at` / `updated_at` timestamptz not null default now(); `deleted_at` timestamptz
 - RLS tenant isolation like the rest of the family; unique (company_id, id)
 
+### `geocode_cache` — created in 00089
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `query` text not null check (length(btrim(query)) > 0 and length(query) <= 500) — the address text as normalised by the app; unique per company
+- `lat` double precision — null with `lng` = a recorded "not found"
+- `lng` double precision
+- `provider` text not null
+- `geocoded_at` timestamptz not null default now()
+- `created_at` timestamptz not null default now()
+
 ### Columns added to already-documented tables since 00032
 
 - 00081 `cash_advances.driver_id` becomes a composite tenant FK `(company_id, driver_id) -> drivers (company_id, id)` (constraint `cash_advances_driver_id_tenant_fkey`; replaces the simple FK from 00079; stays nullable)
