@@ -193,14 +193,16 @@ function WatchPanel() {
     // The panel is an addition to this page, never a dependency of
     // it: any failure here (route missing, client mock without the
     // method, network) leaves the panel empty and the page intact.
-    try {
-      void apiClient
-        .getWatchPicture()
-        .then(setPicture)
-        .catch(() => setPicture(null));
-    } catch {
-      setPicture(null);
-    }
+    // Async body: every setPicture lands after an await, never
+    // synchronously inside the effect that calls this.
+    void (async () => {
+      try {
+        const data = await apiClient.getWatchPicture();
+        setPicture(data);
+      } catch {
+        setPicture(null);
+      }
+    })();
   }, []);
 
   useEffect(() => {
