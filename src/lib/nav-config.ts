@@ -9,8 +9,9 @@
 // Assistant become permanent bottom tabs, and Fleet drops out of the
 // bottom bar (it stays reachable via a "Fleet" row at the top of the
 // More hub and via Home quick actions such as "Start pre-trip").
-// The owner has NOT ruled on this yet — it ships as the recommended
-// default only, pending his decision.
+// OWNER RULED 2026-11-10 — OPTION A: these six tabs, this order,
+// these labels and routes are final; only the iconography changes
+// (see the HOME MOCKUP-TRUE note at the icon import below).
 //
 // HOW TO REVERT to the Home-pinned (pre-pass) variant: replace the
 // BOTTOM_TABS array below with the old five tabs —
@@ -20,44 +21,38 @@
 // shell hard-codes the tab set; the layout, the icons, and the active
 // resolver all read from this file.
 
+// ICONOGRAPHY — HOME MOCKUP-TRUE (owner order 2026-11-10): the
+// tabs carry the approved mockup's glyph set, reproduced as
+// inline SVGs (src/lib/tab-glyphs.ts) so they render identically
+// on every platform: Home ⌂ · Loads 📦 · Smart Path 🛣 ·
+// Money ▤ · Abel ✦ (the sparkle — never a robot) · More •••.
 import {
-  Bot,
-  Home,
-  MoreHorizontal,
-  Package,
-  Route,
-  Wallet,
-  type LucideIcon,
-} from "lucide-react";
+  HomeGlyph,
+  MoneyGlyph,
+  MoreGlyph,
+  PackageGlyph,
+  RoadGlyph,
+  SparkleGlyph,
+  type TabGlyph,
+} from "@/lib/tab-glyphs";
 
 export interface BottomTab {
   href: string;
   label: string;
   /**
-   * Lucide icon component for the tab. Semantic picks:
-   * - Home → Home: the house, same read as the hand-rolled glyph it
-   *   replaces.
-   * - Loads → Package: freight in a box. The old hand-rolled Loads
-   *   glyph was a map-pin, which reads as "place", not "freight" —
-   *   Package (ClipboardList was the runner-up) says cargo.
-   * - Smart Path → Route: a route with waypoints — the map/route
-   *   surface itself, not a generic pin.
-   * - Money → Wallet: the money hub (spend/fund/summary), broader
-   *   than a coin.
-   * - Assistant → Bot: Abel the assistant, unmistakably the AI door.
-   * - More → MoreHorizontal: the conventional "everything else" dots.
-   * Rendered at 22px, strokeWidth 1.75 by the shell layout.
+   * The tab's glyph — the approved mockup's set (see above),
+   * rendered filled at 19px by the shell layout.
    */
-  Icon: LucideIcon;
+  Icon: TabGlyph;
 }
 
 export const BOTTOM_TABS: BottomTab[] = [
-  { href: "/", label: "Home", Icon: Home },
-  { href: "/loads", label: "Loads", Icon: Package },
-  { href: "/smart-path", label: "Smart Path", Icon: Route },
-  { href: "/money", label: "Money", Icon: Wallet },
-  { href: "/more/assistant", label: "Abel", Icon: Bot },
-  { href: "/more", label: "More", Icon: MoreHorizontal },
+  { href: "/", label: "Home", Icon: HomeGlyph },
+  { href: "/loads", label: "Loads", Icon: PackageGlyph },
+  { href: "/smart-path", label: "Smart Path", Icon: RoadGlyph },
+  { href: "/money", label: "Money", Icon: MoneyGlyph },
+  { href: "/more/assistant", label: "Abel", Icon: SparkleGlyph },
+  { href: "/more", label: "More", Icon: MoreGlyph },
 ];
 
 /**

@@ -45,10 +45,10 @@ h1 {
    The caps/letterspacing stay, so the look is kept while the hierarchy
    works. */
 h2 {
-  font-size: 0.875rem;
+  font-size: var(--text-section);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--color-text);
   margin: 0 0 0.75rem;
 }
@@ -304,8 +304,8 @@ main:not(#main-content) form button[type="submit"] {
    card surface instead of running directly into the page background. */
 section {
   background-color: var(--color-surface);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
   padding: 1.25rem;
   margin-top: 1.25rem;
 }

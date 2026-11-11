@@ -31,7 +31,7 @@ export default function DriverPayHomeCard() {
 
   if (projectionState.status === "no-terms") {
     return (
-      <section aria-label="Driver pay" className="active-load">
+      <section aria-label="Driver pay" className="active-load home-pay-card">
         <h2>Driver pay</h2>
         <p className="row-sub">
           Add your pay terms and this shows what the week is worth as loads come in.{" "}
@@ -89,7 +89,7 @@ export default function DriverPayHomeCard() {
   if (nothing && !period) return null;
 
   return (
-    <section aria-label="Driver pay" className="active-load">
+    <section aria-label="Driver pay" className="active-load home-pay-card">
       <h2>Driver pay</h2>
       {active && (
         <p>

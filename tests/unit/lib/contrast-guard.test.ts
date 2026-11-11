@@ -83,7 +83,11 @@ describe("contrast guard - light scheme", () => {
   it("h2 headings use the full text color", () => {
     const h2 = css.match(/h2 \{([^}]*)\}/);
     expect(h2?.[1]).toContain("color: var(--color-text)");
-    expect(h2?.[1]).toContain("font-size: 0.875rem");
+    // HOME MOCKUP-TRUE (2026-11-10): section heads are the mockup's
+    // 16px sentence-case headings (--text-section: 1rem), not the old
+    // 0.875rem uppercase labels. The color guard above is unchanged.
+    expect(h2?.[1]).toContain("font-size: var(--text-section)");
+    expect(h2?.[1]).toContain("text-transform: none");
   });
 });
 

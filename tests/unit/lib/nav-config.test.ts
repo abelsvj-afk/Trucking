@@ -13,9 +13,9 @@ describe("BOTTOM_TABS (parked decision (a) default)", () => {
     ]);
   });
 
-  it("gives every tab a Lucide icon component", () => {
+  it("gives every tab a mockup glyph component (HOME MOCKUP-TRUE)", () => {
     for (const tab of BOTTOM_TABS) {
-      expect(typeof tab.Icon).toBe("object");
+      expect(typeof tab.Icon).toBe("function");
     }
   });
 });
