@@ -19,6 +19,8 @@ import { useActiveRoute } from "@/lib/use-active-route";
 import { useSpeedLimit } from "@/lib/use-speed-limit";
 import { useServerPosition } from "@/lib/use-server-position";
 import { routeProgress } from "@/lib/route-progress";
+import { useActiveNavigation } from "@/lib/use-active-navigation";
+import { etaAgainstClocks, formatMiles, liveGuidance } from "@/lib/active-navigation";
 import type { MotionState } from "@/lib/vehicle-motion";
 import type { VehiclePosition } from "@/lib/use-vehicle-motion";
 import SpeedLimitBadge from "./SpeedLimitBadge";
@@ -46,6 +48,8 @@ export default function HomePositionCard({
   onToggleCollapsed,
   fullscreen = false,
   onToggleFullscreen,
+  driveLeftMs = null,
+  windowLeftMs = null,
 }: {
   position: VehiclePosition | null;
   headingDeg?: number | null;
@@ -64,6 +68,9 @@ export default function HomePositionCard({
   onToggleCollapsed?: () => void;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  /** Active-load navigation: his real remaining clocks from the one HOS read (display only) - the ETA line compares against them. */
+  driveLeftMs?: number | null;
+  windowLeftMs?: number | null;
 }) {
   const [floatOpen, setFloatOpen] = useState(false);
   const handle = hero ? (
@@ -124,7 +131,18 @@ export default function HomePositionCard({
   const speedMph = fromServer ? server.speedMph : deviceSpeed;
   // Motion from a server fix is judged from its own speed, never assumed: unknown speed = unknown.
   const motion: MotionState = fromServer ? (server.speedMph === null ? "unknown" : server.speedMph >= 5 ? "moving" : "stopped") : deviceMotion;
-  const route = useActiveRoute();
+  // ACTIVE-LOAD NAVIGATION: the automatic route to the active load's next stop (no Smart Path run needed). It feeds the SAME route-line
+  // mechanism a Smart Path run uses (DriveMap's geometry / traveledGeometry); a saved Smart Path run is the fallback when there is none.
+  const nav = useActiveNavigation(position ? { lat: position.lat, lng: position.lng, accuracyM: position.accuracyM } : null, headingDeg, speedMph);
+  const smartPathRoute = useActiveRoute();
+  const route = useMemo(
+    () => (nav.route ? { geometry: nav.route.geometry, destinationLabel: nav.stopLabel ?? "your next stop" } : smartPathRoute),
+    [nav.route, nav.stopLabel, smartPathRoute],
+  );
+  const guidance = useMemo(
+    () => (nav.route && position ? liveGuidance(nav.route, { lat: position.lat, lng: position.lng }, nowMs, nav.guide) : null),
+    [nav.route, nav.guide, position, nowMs],
+  );
   const limit = useSpeedLimit(position, headingDeg, motion === "moving");
   const progress = useMemo(
     () => (position && route ? routeProgress({ lat: position.lat, lng: position.lng }, route.geometry) : null),
@@ -177,7 +195,7 @@ export default function HomePositionCard({
           followZoom={FOLLOW_ZOOM}
           interactive={false}
           frameRoute={false}
-          traveledGeometry={progress?.onRoute ? progress.traveled : []}
+          traveledGeometry={guidance?.onRoute ? guidance.traveled : progress?.onRoute ? progress.traveled : []}
           onUserPan={() => {}}
           night={false}
           height={hero ? (fullscreen ? "min(62vh, 720px)" : "clamp(220px, 50vh, 600px)") : "min(40vh, 340px)"}
@@ -191,8 +209,49 @@ export default function HomePositionCard({
           </div>
         </div>
       </div>
+      {/* --- Active-load navigation: guidance lines. Plain elements only - no layout or styling of the Home surface is changed. --- */}
+      {nav.route && !nav.route.truckLegal && (
+        <p role="alert" data-testid="not-truck-legal">
+          <strong>NOT TRUCK-LEGAL.</strong> Only a car route could be reached, so it ignores height, weight and truck restrictions. It is drawn for
+          reference only — turn-by-turn is off. Use the truck&apos;s own navigation.
+        </p>
+      )}
+      {nav.route && guidance?.onRoute && guidance.next && (
+        <p role="status" data-testid="nav-next">
+          <strong>In {formatMiles(guidance.next.inMiles)}:</strong> {guidance.next.instruction}
+        </p>
+      )}
+      {nav.route && guidance?.onRoute && guidance.etaAt !== null && guidance.milesLeft !== null && guidance.minutesLeft !== null && (() => {
+        const line = etaAgainstClocks(guidance.etaAt, guidance.minutesLeft, { driveLeftMs, windowLeftMs });
+        return (
+          <p role={line.past ? "alert" : "status"} data-testid="nav-eta">
+            {formatMiles(guidance.milesLeft)} to {nav.stopLabel ?? "your next stop"} · {line.text}
+          </p>
+        );
+      })()}
+      {/* One notice line. A not-truck-legal route's notice is the stamp above, so it is not repeated here. */}
+      {nav.notice && (!nav.route || nav.route.truckLegal) && <p role="status" data-testid="nav-notice">{nav.notice}</p>}
+      {!route && nav.unavailableReason && <p className="row-sub" role="note">{nav.unavailableReason}</p>}
+      {nav.route && nav.guide && guidance?.onRoute && guidance.ahead.length > 1 && (
+        <details>
+          <summary>Turns ahead ({guidance.ahead.length})</summary>
+          <ol>
+            {guidance.ahead.slice(0, 40).map((m, i) => (
+              <li key={`${i}-${m.instruction}`}>
+                {formatMiles(m.inMiles)} — {m.instruction}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+      {nav.route && (
+        <p className="row-sub">
+          {nav.trailering ? "Trailer on this load — no U-turns; a reroute goes around the block." : "No trailer on this load (bobtail)."} Routed by{" "}
+          {nav.route.providerName}.{nav.basis ? ` ${nav.basis}` : ""}
+        </p>
+      )}
       <p className="row-sub">
-        {route ? (
+        {nav.route ? null : route ? (
           progress?.onRoute ? (
             <>
               On your route to {route.destinationLabel} · {Math.round(progress.milesLeft ?? 0)} mi to go ·{" "}

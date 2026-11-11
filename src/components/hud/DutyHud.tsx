@@ -92,6 +92,9 @@ export default function DutyHud() {
         onToggleCollapsed={() => mapPref.setCollapsed(!mapCollapsed)}
         fullscreen={mapFullscreen}
         onToggleFullscreen={() => setMapFullscreen((v) => !v)}
+        // Active-load navigation, display only: the map's ETA line compares against the clocks already computed here. No hours math is changed.
+        driveLeftMs={clocks?.state === "ready" ? (clocks.clocks.find((c) => c.key === "drive")?.remainingMs ?? null) : null}
+        windowLeftMs={clocks?.state === "ready" ? (clocks.clocks.find((c) => c.key === "window")?.remainingMs ?? null) : null}
       />
 
     <section aria-label="Duty status and clocks" className="hud">
