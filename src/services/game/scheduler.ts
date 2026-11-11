@@ -19,6 +19,7 @@ import { getTelegramConfig } from "@/services/telegram/dispatch-bot";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 import { closeMonthlyCheckpoint } from "./checkpoint";
 import { evaluateDataTriggers, runGamePlan } from "./run-game-plan";
+import { startOfTodayEasternIso } from "@/lib/eastern-date";
 
 const CHECK_IN_MS = 60 * 60 * 1000;
 
@@ -63,7 +64,7 @@ async function tick(): Promise<void> {
       .select("id")
       .eq("company_id", companyId)
       .in("trigger", ["settlement", "fund_milestone", "research_briefing", "maintenance_event"])
-      .gte("created_at", `${new Date().toISOString().slice(0, 10)}T00:00:00Z`)
+      .gte("created_at", startOfTodayEasternIso())
       .limit(1);
     if (error) throw new Error(error.message);
     if ((data ?? []).length > 0) return; // already re-gamed on data today

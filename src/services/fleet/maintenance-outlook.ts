@@ -13,6 +13,7 @@ import { MILEAGE_SOURCE_LABELS, type MileageSource } from "@/services/fleet/mile
 import { listActiveDefects } from "@/services/fleet/defects";
 import { templateByKey } from "@/lib/maintenance-templates";
 import type { MaintenanceSchedule, VehicleDefect } from "@/types/entities";
+import { todayEastern } from "@/lib/eastern-date";
 
 export interface ScheduleOutlook {
   schedule: MaintenanceSchedule;
@@ -64,7 +65,7 @@ export async function computeMaintenanceOutlook(
   companyId: string,
   now: Date = new Date(),
 ): Promise<MaintenanceOutlook> {
-  const today = now.toISOString().slice(0, 10);
+  const today = todayEastern(now);
 
   const trucksResult = await client
     .from("trucks")

@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GameSnapshot, SideIncomeCandidate } from "@/lib/game-plan";
+import { todayEastern } from "@/lib/eastern-date";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -32,7 +33,7 @@ function effectiveDate(load: LoadRow): string | null {
 export async function buildGameSnapshot(
   client: SupabaseClient,
   companyId: string,
-  asOf: string = new Date().toISOString().slice(0, 10),
+  asOf: string = todayEastern(),
 ): Promise<GameSnapshot> {
   const since12w = daysAgo(asOf, 84);
   const since90d = daysAgo(asOf, 90);

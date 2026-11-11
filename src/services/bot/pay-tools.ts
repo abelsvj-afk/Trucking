@@ -87,6 +87,7 @@ const setPayPinArgs = z.object({
 });
 
 import { addDays, mondayOf } from "./pay-report";
+import { todayEastern } from "@/lib/eastern-date";
 
 /** Models that are meaningless without a rate. */
 const PIN_NEEDS_RATE = new Set(["percentage_gross", "percentage_net", "cpm_loaded", "cpm_all_miles", "flat_per_load", "flat_per_day"]);
@@ -115,7 +116,7 @@ export function nextPin(parsed: z.infer<typeof setPayPinArgs>, current: PayPin):
       settlementDay: parsed.settlement_day ?? current.settlementDay,
       taxSetasidePercent: parsed.tax_setaside_percent ?? current.taxSetasidePercent,
       source: parsed.source,
-      pinnedAt: new Date().toISOString().slice(0, 10),
+      pinnedAt: todayEastern(),
     },
   };
 }

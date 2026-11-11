@@ -20,6 +20,7 @@ import {
   TEMPLATE_HONESTY_LABEL,
   type MaintenanceTemplate,
 } from "@/lib/maintenance-templates";
+import { todayEastern } from "@/lib/eastern-date";
 
 const PACK_MARKER = "maintenance pack proposed for truck";
 
@@ -117,7 +118,7 @@ export async function stageMaintenancePack(
   // "proposed once" means proposed once.
   await store.saveMemory(
     "fact",
-    `${marker}(unit ${truck.unit_number}, id ${truckId}) on ${new Date().toISOString().slice(0, 10)}: ${views.length} schedules proposed from the standard library.`,
+    `${marker}(unit ${truck.unit_number}, id ${truckId}) on ${todayEastern()}: ${views.length} schedules proposed from the standard library.`,
   );
 
   const text =
