@@ -132,6 +132,19 @@ export default function DriverPayHomeCard() {
               {period.payday ? ` · payday ${formatDay(period.payday)}` : ""}
               {period.unavailableCount > 0 ? ` · ${period.unavailableCount} can't be projected yet` : ""}
             </p>
+            {projection && (
+              <p className="row-sub">
+                Your pay terms: {describeTerms(projection.terms)},{" "}
+                {projection.terms.mile_basis === "all"
+                  ? "all miles"
+                  : projection.terms.mile_basis === "loaded"
+                    ? "loaded miles only"
+                    : projection.terms.mile_basis === "practical"
+                      ? "practical miles"
+                      : "miles basis not set"}{" "}
+                — <Link href="/money/pay">see or change terms</Link>
+              </p>
+            )}
             {period.basisAssumed && (
               <p className="row-sub" role="note">
                 Your miles basis isn&apos;t set, so this is a range (loaded miles only to all miles).{" "}

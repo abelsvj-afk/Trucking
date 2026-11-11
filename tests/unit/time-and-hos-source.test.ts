@@ -27,10 +27,14 @@ describe("B.2.2 audit rule: no UTC-slice datetime-local initializers remain", ()
     expect(offenders).toEqual([]);
   });
 
-  it("all four audited forms use the shared local helper", () => {
+  it("all audited forms use the shared local helper", () => {
+    // fleet/hos/[id] is no longer a form (UI/UX spec 2026-11-10 §2.2:
+    // its edit form retired into a redirect to the day view's one
+    // editor; the route keeps only the deleted-entry restore UI), so
+    // it leaves this list - the no-UTC-slice audit above still covers
+    // every file under src/app, including it.
     for (const rel of [
       "src/app/(app)/fleet/hos/new/page.tsx",
-      "src/app/(app)/fleet/hos/[id]/page.tsx",
       "src/app/(app)/fleet/pretrip-inspections/new/page.tsx",
       "src/app/(app)/fleet/pretrip-inspections/[id]/page.tsx",
     ]) {

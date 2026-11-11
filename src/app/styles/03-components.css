@@ -1,0 +1,2569 @@
+/*
+ * 03-components.css — component classes (Phase 1 consolidation):
+ * nav + motion, lists/pages, research/polish, HUD + day-log, sheets,
+ * document/roadside surfaces, and the shared design-system components
+ * at the end. Former files 02-07, merged mechanically in original
+ * cascade order — every class name and the cascade outcome preserved.
+ * Duplicate definitions kept in order (the later one still wins where
+ * they conflict): dl (also in 02-base), .hud-buttons, .news-banner-tile,
+ * .day-log .day-totals li, .empty-state a.
+ */
+/* Bottom tab nav (docs/design/ui-ux.md's Navigation section) - fixed,
+   elevated glass-style surface, icon + label per tab, active tab as a
+   filled pill rather than just an underline. */
+nav[aria-label="Primary"] {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background-color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+nav[aria-label="Primary"] ul {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0.5rem 0.5rem;
+  display: flex;
+  max-width: 40rem;
+  gap: 0.25rem;
+}
+
+nav[aria-label="Primary"] li {
+  flex: 1;
+}
+
+nav[aria-label="Primary"] a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1875rem;
+  min-height: 52px;
+  border-radius: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+nav[aria-label="Primary"] a:hover {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+nav[aria-label="Primary"] a[aria-current="page"] {
+  color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+/* --- Motion: the site actually moves now, per explicit owner request -
+   not just static color/elevation. Two kinds: the random truck crossing
+   (src/components/TruckCrossing.tsx) and small entrance/feedback motion
+   on real content (cards, list rows, the active nav tab). Every rule
+   here is neutralized by the prefers-reduced-motion block at the very
+   end of this file - that block must stay last so its !important-free
+   `animation: none` still wins by source order against everything above. */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Entrance animations OFF (audit F-2): sections and list rows no
+   longer fade/rise on every navigation, and the active tab no longer
+   plays a scale bounce - content must sit still while a thumb is
+   reaching for it. Motion is reserved for feedback (toasts/dialogs).
+   fadeInUp stays defined only because .truck-scene still uses it. */
+
+/* --- Random truck crossing (TruckCrossing.tsx): a whole small roadside
+   scene, not a truck floating in empty space - a terrain silhouette
+   (varies per crossing) plus a road line the truck actually drives
+   along, fixed above the bottom nav (z-index 50), decorative only. */
+.truck-scene {
+  position: fixed;
+  bottom: 64px;
+  left: 0;
+  right: 0;
+  height: 56px;
+  z-index: 40;
+  pointer-events: none;
+  overflow: hidden;
+  animation: fadeInUp 0.4s ease both;
+}
+
+.truck-terrain {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+}
+
+.truck-road {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  height: 2px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-border) 0,
+    var(--color-border) 12px,
+    transparent 12px,
+    transparent 22px
+  );
+}
+
+.truck-crossing {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+}
+
+.truck-crossing-ltr {
+  animation: driveLtr 7s linear forwards;
+}
+
+.truck-crossing-rtl {
+  animation: driveRtl 7s linear forwards;
+}
+
+@keyframes driveLtr {
+  from { transform: translateX(-15vw); }
+  to { transform: translateX(115vw); }
+}
+
+@keyframes driveRtl {
+  from { transform: translateX(115vw); }
+  to { transform: translateX(-15vw); }
+}
+
+.truck-flip {
+  transform: scaleX(-1);
+}
+
+/* Duration varies per crossing (set inline as --truck-bob-duration by
+   TruckCrossing.tsx) so consecutive crossings don't move identically -
+   a real road isn't perfectly smooth every time. Combines a vertical
+   bounce with a slight rock, reading as suspension over uneven terrain
+   rather than a flat slide. */
+.truck-crossing svg {
+  display: block;
+  animation: truckBob var(--truck-bob-duration, 0.5s) ease-in-out infinite;
+  filter: drop-shadow(0 4px 4px rgba(15, 23, 42, 0.15));
+}
+
+@keyframes truckBob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-2.5px) rotate(-0.6deg); }
+}
+
+.truck-wheel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wheelSpin 0.4s linear infinite;
+}
+
+@keyframes wheelSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Random bird (or small flock) crossing (BirdCrossing.tsx). Higher
+   up and rarer than the truck so the two never compete for attention. */
+.bird-crossing {
+  position: fixed;
+  left: 0;
+  z-index: 35;
+  pointer-events: none;
+}
+
+.bird-crossing-ltr {
+  animation: driveLtr 9s linear forwards;
+}
+
+.bird-crossing-rtl {
+  animation: driveRtl 9s linear forwards;
+}
+
+.bird-flock {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bird-flap {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  height: 12px;
+  animation: birdBob 0.9s ease-in-out infinite;
+}
+
+@keyframes birdBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.bird-frame {
+  position: absolute;
+  inset: 0;
+}
+
+.bird-frame-up {
+  animation: birdFlapUp 0.5s steps(1, end) infinite;
+}
+
+.bird-frame-down {
+  animation: birdFlapDown 0.5s steps(1, end) infinite;
+}
+
+@keyframes birdFlapUp {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes birdFlapDown {
+  0%, 49% { opacity: 0; }
+  50%, 100% { opacity: 1; }
+}
+/* Page header: title, the one-line purpose statement under it, and the
+   screen's primary action as a real button (PageHeader.tsx). */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+/* Visual audit: beside a button the title used to be squeezed into a
+   narrow column. The text block keeps a readable minimum width and the
+   action wraps below it on a phone. */
+.page-header-text {
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+
+.page-header h1 {
+  margin-bottom: 0.375rem;
+}
+
+.page-purpose {
+  /* Sits on the primary-light page gradient at the top of every
+     screen: muted was 4.37:1 there; muted-strong is 8.71:1 on
+     the gold tint #fdf6df and 10.25:1 on the dark tint (audit Section D; black-and-gold palette). */
+  color: var(--color-text-muted-strong);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  margin: 0 0 0.5rem;
+  max-width: 32rem;
+}
+
+/* Button treatment for the primary action link (Add truck, Add load,
+   ...) wherever it appears: page headers and teaching empty states.
+   Same surface as a real <button> so the main action on a screen
+   never reads as a stray text link. */
+a.page-action,
+.empty-state a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border-radius: 0.625rem;
+  background-color: var(--color-primary-button);
+  color: var(--color-on-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+
+a.page-action:hover,
+.empty-state a:hover {
+  background-color: var(--color-primary-button-hover);
+  color: var(--color-on-primary);
+  text-decoration: none;
+}
+
+/* Teaching empty state (TeachingEmpty in ListStates.tsx): a dashed
+   "nothing here yet" card that explains what belongs on the screen
+   and offers the one button that starts it. */
+.empty-state {
+  border: 1.5px dashed var(--color-border);
+  border-radius: 1rem;
+  padding: 1.5rem 1.25rem;
+  margin-top: 1.25rem;
+  text-align: center;
+  background-color: var(--color-surface);
+}
+
+.empty-state-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.empty-state p {
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0 auto 1rem;
+  max-width: 26rem;
+}
+
+.empty-state .empty-state-title {
+  color: var(--color-text);
+}
+
+.empty-state a {
+  margin-top: 0.25rem;
+}
+
+/* List rows with a real hierarchy (UI/UX upgrade): a bold title line
+   and a muted summary line, instead of one run-on string. Used inside
+   the existing main li card. */
+.row-title {
+  display: block;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.row-sub {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.row-with-photo {
+  display: flex;
+  gap: 0.875rem;
+  align-items: center;
+}
+
+.row-with-photo .row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Entity photos (EntityPhoto.tsx). Thumb sits in list rows; hero tops
+   a detail screen. The empty variant is a quiet placeholder silhouette
+   so a missing photo never looks like a broken image. */
+.entity-photo {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.entity-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entity-photo-thumb {
+  width: 64px;
+  height: 64px;
+}
+
+.entity-photo-hero {
+  width: 100%;
+  height: 220px;
+  margin-top: 1rem;
+}
+
+.entity-photo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.photo-upload {
+  margin-top: 1rem;
+}
+
+.photo-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+}
+
+.photo-upload-input {
+  display: none;
+}
+
+/* Quick actions (Home dashboard): a 2-column grid of big, thumb-sized
+   shortcuts to the four things a driver does most. */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.quick-actions a:not(.quick-action) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0.5rem;
+  border-radius: 0.875rem;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 700;
+  text-align: center;
+  margin-top: 0;
+}
+
+.quick-actions a:not(.quick-action):hover {
+  text-decoration: none;
+  color: var(--color-primary-hover);
+}
+
+/* The single next step on Home: the one card that answers "what do I
+   do now?" before anything else on the screen. */
+.next-step {
+  border: 1.5px solid var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.next-step p {
+  line-height: 1.5;
+  margin: 0 0 0.5rem;
+}
+
+/* Assistant discoverability (AskAssistant.tsx + the Assistant page):
+   tappable example questions instead of a blank box. */
+.prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.375rem 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-top: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.prompt-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.ask-assistant-open {
+  font-weight: 600;
+}
+
+/* What-the-assistant-can-do list (Assistant page): one capability per
+   line, each mapped to tools that actually exist in the agent. */
+.capability-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.capability-list li {
+  padding: 0.25rem 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  animation: none;
+  line-height: 1.5;
+}
+
+/* Chat turns as bubbles instead of "You: / King:" paragraphs, so the
+   conversation reads like the messaging apps the owner lives in. */
+.chat-turn {
+  max-width: 85%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  margin: 0 0 0.625rem;
+}
+
+.chat-turn-user {
+  background-color: var(--color-primary-button);
+  color: var(--color-on-primary);
+  margin-left: auto;
+  border-bottom-right-radius: 0.25rem;
+}
+
+.chat-turn-assistant {
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  margin-right: auto;
+  border-bottom-left-radius: 0.25rem;
+}
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1rem;
+}
+
+/* Assistant tab window (owner 2026-11-07): the page is a fixed-height
+   column - header and capabilities on top, then a window that owns
+   the rest of the screen. Messages scroll INSIDE .chat-scroll only;
+   the composer dock below it never moves, so the reply box is
+   visible the moment the tab opens, newest message in view.
+   Height math: main gives 1.5rem top padding and 6rem bottom
+   padding (the fixed bottom nav's clearance) - the column takes
+   everything between. dvh keeps it honest on phone browsers. */
+.assistant-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 7.5rem);
+}
+
+.assistant-capabilities {
+  margin-bottom: 0.75rem;
+}
+
+.assistant-capabilities summary {
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+.chat-window {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background-color: var(--color-surface);
+  overflow: hidden;
+}
+
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 1rem 1rem;
+}
+
+.chat-dock {
+  flex: none;
+  border-top: 1px solid var(--color-border);
+  padding: 0.75rem 1rem 1rem;
+  background-color: var(--color-surface);
+}
+
+.chat-dock .prompt-chips {
+  margin-top: 0;
+}
+
+/* Index hubs (Fleet / Money / More): each entry gets its one-line
+   "what is this for" under the link, so the hub teaches too. */
+.hub-desc {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.hub-link {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+/* Hub rows: the whole row is the link (audit A-2) - the Link wraps
+   label + description and is a full-row, 56px-minimum tap target
+   instead of only the label word being tappable. */
+.hub-row-link {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 56px;
+}
+
+.hub-row-link:hover {
+  text-decoration: none;
+}
+
+.hub-row-link:hover .hub-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+/* --- Home news banner (src/components/NewsBanner.tsx; 2026-11-02
+   design): a slim strip under the Home header rotating the research
+   engine's briefings and Watching signals. The strip is a FIXED
+   height in every state (loading, item, quiet, stale, setup) so
+   Home never layout-shifts under his hours. Rotation itself is a JS
+   timer - the component checks prefers-reduced-motion itself and
+   never starts the timer; bannerFade below is the crossfade each
+   item enters with, neutralized by the reduced-motion block like
+   every other animation here. */
+@keyframes bannerFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.news-banner {
+  height: 13.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  overflow: hidden;
+}
+
+.news-banner-item-zone {
+  height: 5.5rem;
+  overflow: hidden;
+}
+
+.news-banner-item {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+  color: inherit;
+  animation: bannerFade 0.45s ease both;
+}
+
+.news-banner-item:hover {
+  text-decoration: none;
+}
+
+.news-banner-tagrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.news-banner-watching {
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  border-radius: 999px;
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.news-banner-new {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.news-banner-headline {
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-banner-sub {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.news-banner-line {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.news-banner-warning {
+  margin: 0;
+  color: var(--color-warning);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.news-banner-dots {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.news-banner-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  background-color: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  /* The dot stays small to look at, but its tap area is the 44px platform minimum (audit rank 7): an invisible pseudo-element extends it. */
+  position: relative;
+}
+
+.news-banner-dot::after {
+  content: "";
+  position: absolute;
+  inset: -17px;
+}
+
+.news-banner-dot.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.news-banner-actions {
+  margin: auto 0 0;
+}
+
+.news-banner-result {
+  margin-top: 0.75rem;
+  line-height: 1.5;
+}
+/* Deep-link spotlight (Research tab, 2026-11-02 design §6): the
+   banner's tapped item gets a brief outline so his eye lands on it;
+   the page clears it after ~4s or on first interaction. */
+.spotlight {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: 0.5rem;
+}
+
+/* Briefing finding imagery (owner 2026-11-07): the cited article's
+   own preview image under its finding. A short, capped banner so it
+   anchors the section without pushing the finding's own lines (or
+   the briefing headline above the findings) off the first
+   screenful; a finding with no servable image renders with none. */
+.briefing-finding-img {
+  display: block;
+  width: 100%;
+  max-width: 26rem;
+  height: 8.5rem;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+/* The closing "Original sources" block of a briefing read: in-app
+   content first, exits last and visibly secondary. */
+.original-sources {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* --- Toast feedback (Toast.tsx, audit F-3): the app's one success /
+   failure voice. The viewport is a polite live region; success and
+   error differ by icon and shape, not color alone. The entrance uses
+   the motion tokens and is neutralized by the reduced-motion block
+   at the end of this file, like every other animation here. */
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-viewport {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: calc(var(--bottom-clear) + 1rem);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--color-text);
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-left: 4px solid var(--color-success);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  box-shadow: var(--shadow-md);
+  animation: toastIn var(--motion-base) var(--ease-out) both;
+}
+
+.toast-error {
+  border-left-color: var(--color-danger);
+}
+
+.toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  font-weight: 800;
+  font-size: 0.875rem;
+}
+
+.toast-icon-success {
+  border-radius: 999px;
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.toast-icon-error {
+  border-radius: 0.375rem;
+  background-color: var(--color-danger-light);
+  color: var(--color-danger);
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-dismiss {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.5rem;
+  background-color: transparent;
+  color: var(--color-text-muted-strong);
+  box-shadow: none;
+  font-size: 1.125rem;
+}
+
+.toast-dismiss:hover {
+  background-color: var(--color-surface-alt);
+  box-shadow: none;
+}
+
+/* --- Confirm dialog (ConfirmDialog.tsx): destructive actions ask
+   first. Backdrop + centered card, token-styled. */
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background-color: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.confirm-dialog {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-lg);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 26rem;
+  animation: toastIn var(--motion-fast) var(--ease-out) both;
+}
+
+.confirm-dialog-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.confirm-dialog p {
+  line-height: 1.5;
+  margin: 0;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+}
+
+.confirm-dialog-cancel {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+}
+
+.confirm-dialog-cancel:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.confirm-dialog-confirm {
+  background-color: var(--color-danger-button);
+}
+
+.confirm-dialog-confirm:hover {
+  background-color: var(--color-danger-button);
+}
+
+/* --- Research queue feedback (audit F-3): success and error must
+   read differently at a glance, not just in wording. */
+.queue-message {
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  margin-top: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.queue-message-success {
+  color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+.queue-message-error {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+/* Motion sensitivity (WCAG 2.3.3, part of this project's WCAG 2.1 AA
+   commitment in docs/design/ui-ux.md) - must stay the LAST rule in this
+   file. TruckCrossing.tsx also independently checks this preference in
+   JS and skips scheduling entirely, so a user who asked for less motion
+   never gets a truck even if this CSS were somehow not loaded - this is
+   the second, CSS-level layer of that same guarantee, and it also
+   covers every other animation in this file (fadeInUp, hover/
+   active transitions) in one place instead of repeating a guard on each
+   rule above. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .truck-scene,
+  .bird-crossing {
+    display: none;
+  }
+}
+
+/* Home News Banner: off / unavailable strips are quiet but never
+   hidden, and the retry control is a real thumb-sized target. */
+.news-banner-muted {
+  color: var(--color-text-muted);
+}
+
+.news-banner-muted button {
+  min-height: 44px;
+  padding: 0 0.75rem;
+}
+
+/* --- UI/UX pass: motion + nav fit (Crew B) --- */
+/* Everything below this line is Crew B's single appended section
+   (motion + icons + navigation crew). It only ADDS rules; no existing
+   rule above is edited. Motion tokens are Crew A's (@theme motion
+   and ease tokens); every reference here carries the mini-spec
+   value as a fallback so these rules are correct with or without
+   A's tokens. All animation below is transform/opacity only. */
+/* Page transitions (mini-spec rule 1): IF Next's experimental View
+   Transitions are ever enabled (next.config experimental.viewTransition),
+   the browser-native root transition is this exact crossfade + 4px
+   rise — 240ms on the spec ease-out. Inert until then (the shipped
+   shell transition is Motion-driven; see components/PageTransition.tsx
+   for the investigation). Tabs crossfade — nothing slides sideways. */
+@keyframes crewb-vt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+::view-transition-old(root) {
+  animation: crewb-vt-fade-out var(--motion-base, 240ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+::view-transition-new(root) {
+  animation:
+    crewb-vt-fade-in var(--motion-base, 240ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both,
+    crewb-vt-rise var(--motion-base, 240ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+@keyframes crewb-vt-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes crewb-vt-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Micro-motion (mini-spec rule 2): press feedback — primary buttons
+   and bottom-tab links scale to 0.97 over 90ms while pressed.
+   :active is user-initiated feedback, not decorative motion. This
+   overrides the older translateY(1px) button press by source order. */
+button,
+a[role="button"],
+nav[aria-label="Primary"] a {
+  transition-property: background-color, box-shadow, color, transform;
+  transition-duration: var(--motion-instant, 90ms);
+  transition-timing-function: var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+button:active,
+a[role="button"]:active,
+nav[aria-label="Primary"] a:active {
+  transform: scale(0.97);
+}
+
+button:disabled:active {
+  transform: none;
+}
+
+/* Nav fit (six bottom tabs): with six tabs in the same 40rem bar the
+   labels need tighter padding and a step smaller type so "Smart Path"
+   and "Assistant" never wrap or crowd. Scoped to the primary nav only. */
+nav[aria-label="Primary"] ul {
+  padding: 0.5rem 0.25rem;
+  gap: 0.125rem;
+}
+
+nav[aria-label="Primary"] a {
+  font-size: 0.625rem;
+  padding: 0.25rem 0.125rem;
+  letter-spacing: -0.01em;
+}
+
+nav[aria-label="Primary"] a span {
+  white-space: nowrap;
+}
+
+/* Hub-row affordance + inline action icons (Lucide, Crew B): the
+   chevron trailing hub labels and the arrow trailing key action
+   links, sized by their components (18px / 16px) and quieted here. */
+.hub-chevron {
+  vertical-align: -0.2em;
+  margin-left: 0.375rem;
+  opacity: 0.55;
+}
+
+.inline-action-icon {
+  vertical-align: -0.15em;
+}
+
+/* Word-split reveals (components/WordReveal.tsx): word spans must be
+   inline-block for Motion's transform (fade + rise) to apply; the
+   trailing space between words is inside each span, so wrapping
+   still breaks at word boundaries. */
+.word-reveal-word {
+  display: inline-block;
+}
+
+/* Reduced motion for THIS section (the global block above predates
+   it): no view-transition animation, no press scaling. Motion-driven
+   pieces (PageTransition, WordReveal, NumberTicker, Reveal) honor
+   the same preference in JS via useReducedMotion. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+
+  button:active,
+  a[role="button"]:active,
+  nav[aria-label="Primary"] a:active {
+    transform: none;
+  }
+}
+
+/* --- Driver HUD (docs/design/driver-hud.md): live clock rings and the
+   four big duty-status buttons. Phone-first: rings 2x2, buttons >=56px.
+   Tone is also written in words (ClockRing), colour is never alone. */
+.hud {
+  margin-bottom: 1rem;
+}
+
+.hud-status {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.hud-rings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (min-width: 40rem) {
+  .hud-rings {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.hud-ring {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  --hud-tone: var(--color-success);
+}
+
+.hud-tone-warn {
+  --hud-tone: var(--color-warning);
+}
+
+.hud-tone-critical,
+.hud-tone-expired {
+  --hud-tone: var(--color-danger);
+}
+
+/* A tappable ring is a button: keep the ring look, add the affordance (Block B explainers). */
+button.hud-ring {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  min-height: 9.5rem;
+  width: 100%;
+}
+.hud-ring-info {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.4rem;
+  font-size: 1rem;
+  color: var(--color-text-muted-strong);
+}
+
+/* Escalation you cannot miss at a glance (Block B): red edge when critical, and an unmistakable
+   EXPIRED treatment - heavy red border, tinted face, bold text - that does not rely on colour alone. */
+.hud-tone-critical {
+  border-color: var(--color-danger);
+  border-width: 2px;
+}
+.hud-tone-expired {
+  border: 4px solid var(--color-danger);
+  background: var(--color-danger-light);
+}
+.hud-tone-expired .hud-ring-tone {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.hud-ring-svg {
+  width: 7rem;
+  height: 7rem;
+}
+
+.hud-ring-track {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 8;
+}
+
+.hud-ring-arc {
+  fill: none;
+  stroke: var(--hud-tone);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear, stroke 0.4s ease;
+}
+
+.hud-ring-time {
+  position: absolute;
+  top: 2.9rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-tone);
+}
+
+.hud-ring-label {
+  font-size: 0.875rem;
+  color: var(--color-text-muted-strong);
+  text-align: center;
+}
+
+.hud-ring-tone {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--hud-tone);
+}
+
+.hud-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.hud-buttons {
+  padding: 0;
+  background: none;
+}
+
+.hud-buttons .hud-status-btn {
+  min-height: 56px;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border-strong);
+  border-left-width: 8px;
+  border-radius: 0.75rem;
+}
+
+.hud-buttons .hud-btn-driving {
+  border-left-color: var(--color-danger);
+}
+
+.hud-buttons .hud-btn-on_duty {
+  border-left-color: var(--color-warning);
+}
+
+.hud-buttons .hud-btn-off_duty {
+  border-left-color: var(--color-success);
+}
+
+.hud-buttons .hud-btn-sleeper {
+  border-left-color: var(--color-primary);
+}
+
+.hud-buttons .hud-status-btn[aria-pressed="true"] {
+  background: var(--color-primary-light);
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.hud-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+  background: var(--color-surface-alt);
+}
+
+.hud-sheet .hud-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hud-sheet .hud-sheet-actions button {
+  min-height: 48px;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.hud-note,
+.hud-empty,
+.hud-sheet-note,
+.hud-disclaimer {
+  margin: 0.5rem 0;
+  color: var(--color-text-muted-strong);
+  line-height: 1.4;
+}
+
+.hud-disclaimer {
+  font-size: 0.875rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-ring-arc {
+    transition: none;
+  }
+}
+
+/* One-handed, moving: the quick status button is the biggest thing on the sheet. */
+.hud-sheet .hud-sheet-actions .hud-quick-btn {
+  min-height: 76px;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.hud-sheet .hud-sheet-actions button[type="button"] {
+  color: var(--color-text);
+  background: transparent;
+  border: 2px solid var(--color-border-strong);
+}
+
+/* Block C: the Home mini map's overlays - speed and the posted-limit badge sit over the map's
+   lower corner, big enough for a ten-second glance in glare. */
+.home-map-wrap {
+  position: relative;
+}
+.home-map-overlay {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.home-speed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 4.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.88);
+  color: #fff;
+}
+.home-speed-num {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.home-speed-unit {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+}
+.speed-limit-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 3.9rem;
+  padding: 0.2rem 0.25rem 0.3rem;
+  border: 3px solid #111;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.speed-limit-badge-top {
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.05;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+.speed-limit-badge-num {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Day log: an entry list under the graph so a wrong time can be fixed or removed with a big tap, not a thin graph slice. */
+.day-entries {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+}
+.day-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.day-entry-selected {
+  background: var(--color-surface-alt);
+}
+.day-entry-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.day-entry-actions button {
+  min-height: 48px;
+  min-width: 64px;
+  font-weight: 700;
+}
+
+/* An expired clock locks driving: say so in red, with the reset counting down (owner 2026-11-06). */
+.hud-locked {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border: 4px solid var(--color-danger);
+  border-radius: 0.75rem;
+  background: var(--color-danger-light);
+  color: var(--color-text);
+}
+.hud-locked h3 {
+  margin: 0 0 0.5rem;
+  color: var(--color-danger);
+}
+.hud-locked ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.hud-locked-reset {
+  margin-top: 0.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-danger);
+}
+.hud-btn-lock {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--color-danger);
+}
+/* Live indicator (docs/design/driver-hud.md §4): shown only while the
+   Realtime channel is connected. The dot pulses; reduced motion keeps
+   it still. */
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  color: var(--color-success);
+  background: var(--color-success-light);
+  border-radius: 999px;
+}
+
+.live-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-success);
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
+
+/* --- Paper-log review (docs/design/driver-hud.md §6) --- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.paper-camera {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  cursor: pointer;
+}
+
+.paper-photo img {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-alt);
+}
+
+.paper-notice {
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-left: 4px solid var(--color-warning);
+  background: var(--color-warning-light);
+  border-radius: 0.5rem;
+}
+
+.paper-ack {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  min-height: 44px;
+}
+
+.paper-totals {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.paper-totals th,
+.paper-totals td {
+  padding: 0.35rem 0.25rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.paper-mismatch td,
+.paper-mismatch th {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.paper-save {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 1rem;
+  font-size: 1.05rem;
+}
+
+.paper-list a {
+  display: flex;
+  flex-direction: column;
+  min-height: 56px;
+  justify-content: center;
+}
+
+.day-graph {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.day-graph svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.dg-hour {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.dg-quarter {
+  stroke: var(--color-border-strong);
+  stroke-width: 0.5;
+}
+
+.dg-row-line {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+}
+
+.dg-hour-label,
+.dg-row-label {
+  fill: var(--color-text-muted-strong);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.dg-line line {
+  stroke: var(--color-primary);
+  stroke-width: 6;
+  stroke-linecap: square;
+}
+
+.dg-flagged line {
+  stroke: var(--color-warning);
+  stroke-width: 6;
+  stroke-dasharray: 10 5;
+}
+
+.dg-stripe {
+  fill: var(--color-danger);
+  opacity: 0.35;
+}
+
+.dg-selected {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  stroke-dasharray: 4 2;
+}
+
+.dg-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.seg-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.seg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-left: 6px solid var(--color-success);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.seg-warn {
+  border-left-color: var(--color-warning);
+}
+
+.seg-danger {
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+.seg-selected {
+  outline: 2px solid var(--color-primary);
+}
+
+.seg-head {
+  margin: 0;
+}
+
+.seg-origin {
+  font-size: 0.875rem;
+  color: var(--color-text-muted-strong);
+}
+
+.seg select,
+.seg input,
+.seg button {
+  min-height: 44px;
+}
+
+.seg-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.seg .seg-actions button {
+  flex: 1;
+  color: var(--color-text);
+  background: transparent;
+  border: 2px solid var(--color-border-strong);
+  box-shadow: none;
+}
+
+/* --- Day view on Hours (docs/design/driver-hud.md §3) --- */
+.day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.day-nav h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  text-align: center;
+}
+
+.day-nav button {
+  min-width: 56px;
+  min-height: 48px;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.day-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 1rem;
+  padding: 0;
+  margin: 0.5rem 0;
+  list-style: none;
+}
+
+.day-totals li {
+  display: flex;
+  justify-content: space-between;
+}
+
+.day-edit button {
+  min-height: 48px;
+}
+
+.day-insert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+.day-edit .day-delete {
+  color: var(--color-danger);
+  background: transparent;
+  border: 2px solid var(--color-danger);
+}
+
+.day-delete-confirm {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--color-danger-light);
+}
+
+/* --- Unified day-log editor sheet (spec §2.2, Phase 2) --- */
+.day-title-button {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--color-text);
+}
+
+.day-entry-edited {
+  display: block;
+  min-height: 44px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--color-gold-bright);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.day-add-change {
+  width: 100%;
+  min-height: 50px;
+  margin-top: var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--color-gold-bright);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.sheet-original {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.sheet-original b {
+  color: var(--color-text-muted-strong);
+}
+
+.day-edit-modes {
+  margin-bottom: var(--space-3);
+}
+
+.day-edit-field {
+  margin-top: var(--space-3);
+}
+
+.sheet-save {
+  width: 100%;
+  min-height: 54px;
+  margin-top: var(--space-4);
+  border: none;
+  border-radius: 12px;
+  background: var(--color-gold-button);
+  color: var(--color-on-gold);
+  font-size: 1.03rem;
+  font-weight: 700;
+}
+
+.sheet-save:disabled {
+  opacity: 0.45;
+}
+
+.day-edit-delrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.day-edit-delrow button {
+  min-height: 48px;
+}
+
+.day-edit-history {
+  margin-top: var(--space-4);
+}
+
+.edit-history-row {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-2) 0;
+  font-size: 0.845rem;
+  line-height: 1.55;
+}
+
+.edit-history-row:first-of-type {
+  border-top: none;
+}
+
+.edit-history-when {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.day-log .day-totals li {
+  padding: 0.3rem 0;
+  margin: 0;
+  min-height: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.day-log .day-totals strong {
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: none;
+  text-transform: none;
+}
+
+.day-log .day-totals li {
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.day-log .day-totals strong {
+  font-size: 1rem;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+/* The Deleted toggle (RecordLifecycle) is a quiet utility on every list
+   screen: the page's real action must be the obvious button (visual
+   audit F3, 2026-11-04). It stays a full-size tap target. */
+.deleted-toggle button {
+  min-height: 44px;
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted-strong);
+  background: transparent;
+  border: 1.5px solid var(--color-border-strong);
+  box-shadow: none;
+}
+
+.deleted-toggle button:hover {
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+}
+
+.deleted-toggle button[aria-pressed="true"] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* --- Bottom sheet (components/Sheet.tsx): in-place actions on Home --- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.sheet-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 40rem;
+  max-height: 92vh;
+  background: var(--color-surface);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: var(--shadow-lg);
+  animation: sheetUp 0.22s ease-out;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.sheet-head .sheet-close {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  font-size: 1.25rem;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.sheet-body {
+  padding: 0.75rem 1rem 1.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    animation: none;
+  }
+}
+
+.hud-status-timer {
+  margin-left: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.hud-links button,
+.hud-links a.hud-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+  background: transparent;
+  border: 2px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+  box-shadow: none;
+  text-decoration: none;
+}
+
+.hud-links .hud-link-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud-gate {
+  padding: 0.75rem;
+  border: 2px solid var(--color-warning);
+  border-radius: 0.75rem;
+  background: var(--color-warning-light);
+}
+
+.hud-gate button {
+  width: 100%;
+  min-height: 56px;
+  font-weight: 700;
+}
+
+/* --- Home owner-operator cards (docs/design/driver-usability.md §2) --- */
+.active-load-route {
+  margin: 0.25rem 0;
+  font-size: 1.15rem;
+  line-height: 1.35;
+}
+
+.active-load .page-action {
+  margin-top: 0.5rem;
+}
+
+.home-position {
+  margin: 0.75rem 0;
+}
+
+.home-position .row-sub {
+  margin-top: 0.35rem;
+}
+
+.drive-status-prompt {
+  margin: 0.75rem 0;
+}
+
+.drive-status-prompt button {
+  min-height: 56px;
+}
+
+/* App-wide driving lock (components/MotionLock.tsx): the banner stays in
+   view while forms are inert. */
+.motion-lock-banner {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-warning-light);
+  border-bottom: 3px solid var(--color-warning);
+}
+
+.motion-lock-banner button {
+  min-height: 48px;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+form[data-motion-locked="true"],
+input[data-motion-locked="true"],
+select[data-motion-locked="true"],
+textarea[data-motion-locked="true"] {
+  opacity: 0.55;
+}
+
+/* News banner topic tile (phase (a) of docs/design/news-banner-images.md):
+   a visual anchor per story with no image fetched from anywhere. */
+.news-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.news-banner-tile {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  font-size: 1.75rem;
+  border-radius: 0.75rem;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-border);
+}
+
+.news-tile-fuel {
+  background: var(--color-warning-light);
+}
+
+.news-tile-weather {
+  background: var(--color-primary-light);
+}
+
+.news-tile-regulation {
+  background: var(--color-danger-light);
+}
+
+.news-tile-rates,
+.news-tile-market {
+  background: var(--color-success-light);
+}
+
+/* News banner image (served by /api/v1/news-image, re-encoded server-side). */
+.news-banner-tile {
+  overflow: hidden;
+}
+
+.news-banner-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* First-run location prompt (components/LocationPrompt.tsx). */
+.location-prompt {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: calc(var(--bottom-clear) + 0.5rem);
+  z-index: 80;
+  padding: 1rem;
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+/* --- Fieldsets (live audit 2026-11-07): the Truck detail and Truck profile forms put their labels and inputs inside a <fieldset>,
+   which was never styled - so it stayed block flow and the (inline) labels ran into the (inline-block) inputs on one line, labels
+   and fields did not line up. A fieldset is now the same vertical flex column as a form: label above its field, every field
+   full width. min-width: 0 stops a fieldset growing past the phone width (its browser default is min-content). */
+fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem 1rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+}
+
+fieldset > legend {
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+fieldset fieldset {
+  border-style: dashed;
+}
+
+fieldset input,
+fieldset select,
+fieldset textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* A checkbox/radio row inside a fieldset keeps its own row layout, not the full-width text-field sizing. */
+fieldset input[type="checkbox"],
+fieldset input[type="radio"] {
+  width: auto;
+  min-height: 0;
+}
+
+/* --- Label/value lists that carry a SENTENCE (live audit 2026-11-07: the Truck Fund Emergency fund amount overlapped its
+   explanation). The default <dl> is a two-column label | big-number grid, right for a figure and wrong for prose. dl.stack puts the
+   label above its value at the left, at normal reading size, so a long value wraps under its label instead of colliding. */
+/* Root cause of the overlap: the label column was minmax(0, 1fr) next to an auto-sized value column, so a long value took all the
+   room and squeezed the label to ~0 width - the label then printed underneath the value. The label column now keeps a floor. */
+dl {
+  grid-template-columns: minmax(6.5rem, 1fr) minmax(0, auto);
+}
+dl.stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem 0;
+}
+
+dl.stack > dd {
+  text-align: left;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin-bottom: 0.75rem;
+}
+
+dl.stack > dd:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Settings grouped by driver task (audit rank 11): a jump bar and a heading per task. */
+.settings-jump ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  box-shadow: none;
+  background: transparent;
+  border: 0;
+}
+.settings-jump li {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+}
+.settings-jump a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+h2.settings-group {
+  margin: 2rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 2px solid var(--color-border-strong);
+  scroll-margin-top: 1rem;
+}
+
+/* A button blocked by the driving lock reads as unavailable (it is aria-disabled, and tapping it explains why in the lock banner). */
+button[data-motion-locked="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Map-first Home (owner ruling 2026-11-07): the map is the main screen - edge to edge, no card padding around it. */
+.home-position-hero {
+  margin: 0 -1rem;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.home-position-hero .row-sub {
+  padding: 0 1rem;
+}
+.home-position-hero.home-position-empty {
+  position: relative;
+  margin: 0.75rem 0;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.home-position-hero.home-position-empty p {
+  padding: 0;
+}
+/* Off state keeps the map-surface controls (D3): they overlay the card
+   exactly as they overlay the map (spec §2.4) — space is reserved by
+   the full-screen min-height / natural card flow. */
+.home-position-hero.home-position-empty .home-map-ctl {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* Roadside inspection mode (docs/design/eld-roadside-overlay.md): the
+   officer-facing screen. Big, high-contrast, readable at arm's length;
+   the framing banner (convenience copy - the carrier ELD / paper log is
+   the legal record) is impossible to miss. */
+.roadside-framing {
+  border: 2px solid var(--color-gold);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.roadside-packet {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.roadside-send {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 32rem;
+}
+.roadside-send input[type="email"] {
+  min-height: 48px;
+  font-size: 1.0625rem;
+  padding: 0 0.75rem;
+}
+.roadside-send button[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 1.25rem;
+  border-radius: 0.625rem;
+  background-color: var(--color-primary-button);
+  color: var(--color-on-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+a.roadside-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 56px;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 2px solid var(--color-gold);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  color: inherit;
+}
+/* --- Shared design-system components (spec §2.6, Phase 1): the classes
+   behind src/components/{Card,ListRow,HubRow,Field,SegmentedStatus,
+   QuickAction,ReasonField,NewsCard}. Built once here; adopted by
+   screens in later phases. Nothing under 12px. */
+.ds-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+.list-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  min-height: 52px; padding: var(--space-3) var(--space-4);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+.list-row-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--color-gold); flex: none; }
+.list-row-dot-bright { background: var(--color-gold-bright); }
+.list-row-dot-muted { background: var(--color-text-muted); }
+.list-row-dot-good { background: var(--color-success); }
+.list-row-dot-danger { background: var(--color-danger); }
+.list-row-main { flex: 1; min-width: 0; }
+.list-row-title { display: block; font-size: var(--text-body); font-weight: 600; line-height: 1.4; }
+.list-row-sub { display: block; font-size: 0.8125rem; color: var(--color-text-muted); line-height: 1.45; }
+.list-row-sub-edited { color: var(--color-gold-bright); }
+.list-row-action { flex: none; }
+.ds-hub-row {
+  display: block; padding: var(--space-3) var(--space-4);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); color: var(--color-text); text-decoration: none;
+}
+.ds-field { display: flex; flex-direction: column; }
+.ds-field-label {
+  font-size: var(--text-caption); font-weight: 600; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-top: var(--space-3);
+}
+.ds-field input, .ds-field select, .ds-field textarea { min-height: 50px; }
+.ds-field-error { color: var(--color-danger); font-size: 0.8125rem; font-weight: 500; margin-top: var(--space-1); }
+.ds-field-hint { color: var(--color-text-muted); font-size: 0.8125rem; margin-top: var(--space-1); }
+/* (role="group" base styles in 02-base are reset here: this control is
+   a grid of full buttons, not the pill track.) */
+.segmented-status { display: grid; gap: var(--space-2); background: transparent; padding: 0; border-radius: 0; }
+.segmented-status button {
+  min-height: 48px; border-radius: var(--radius-button); padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface);
+  color: var(--color-text); font-size: var(--text-small); font-weight: 600; box-shadow: none;
+}
+.segmented-status button[aria-pressed="true"] {
+  background: var(--color-gold-button); color: var(--color-on-gold); border-color: var(--color-gold-button);
+}
+.quick-action {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); padding: var(--space-3) var(--space-1) var(--space-2);
+  text-align: center; color: var(--color-text); text-decoration: none;
+  font-size: var(--text-caption); font-weight: 600; line-height: 1.3; min-height: 44px;
+}
+.quick-action-icon { font-size: 1.3125rem; color: var(--color-gold-bright); line-height: 1; }
+.reason-field-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+.reason-chip {
+  border: 1px solid var(--color-border-strong); background: var(--color-surface);
+  color: var(--color-text-muted-strong); border-radius: var(--radius-chip);
+  padding: var(--space-2) var(--space-3); font-size: 0.8125rem; min-height: 44px; box-shadow: none;
+}
+.reason-chip[aria-pressed="true"] { border-color: var(--color-gold); color: var(--color-gold-bright); }
+.news-card {
+  display: flex; gap: var(--space-3); align-items: center;
+  padding: var(--space-3) var(--space-4);
+}
+.news-card-media { flex: none; width: 84px; height: 64px; border-radius: 10px; overflow: hidden; border: 1px solid var(--color-border-strong); }
+.news-card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.news-card-headline { font-size: 0.90625rem; font-weight: 600; line-height: 1.4; color: var(--color-text); }
+.news-card-meta { font-size: var(--text-caption); color: var(--color-text-muted); margin-top: 2px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.branded-tile {
+  flex: none; width: 84px; height: 64px; border-radius: 10px;
+  background: #0a0a0a; border: 1px solid var(--color-gold);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+}
+.branded-tile-mono { color: var(--color-gold); font-weight: 800; letter-spacing: 0.12em; font-size: var(--text-body); line-height: 1; }
+.branded-tile-word { color: var(--color-text-muted); font-size: var(--text-caption); letter-spacing: 0.14em; line-height: 1; }
+.branded-tile-topic { color: var(--color-gold-bright); font-size: var(--text-caption); line-height: 1.2; }
+
+/* --- Document viewer (UI/UX Phase 3, spec §2.3; mockup
+   UIUX-Mockup-DocumentViewer.html, locked). Paper is WHITE by design —
+   dark chrome, readable page, same rule as a printed sheet. The paper
+   values below are the mockup's own tokens, not new brand colors. --- */
+:root {
+  --paper: #ffffff; --paper-text: #141414; --paper-muted: #5b564a; --paper-rule: #e3ddca;
+}
+.doc-viewer { display: flex; flex-direction: column; gap: var(--space-3); }
+.doc-chrome { display: flex; align-items: flex-start; gap: var(--space-3); }
+.doc-back { color: var(--color-gold-bright); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.doc-chrome-title { flex: 1; min-width: 0; }
+.doc-chrome-title b { display: block; font-size: var(--text-section); }
+.doc-chrome-title span { display: block; font-size: 0.8125rem; color: var(--color-text-muted); }
+.doc-share { min-height: 44px; }
+.doc-page {
+  background: var(--paper); color: var(--paper-text); border-radius: 6px;
+  padding: 26px 22px 30px; box-shadow: 0 10px 34px rgba(0,0,0,.55);
+}
+.doc-firm { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--color-gold); padding-bottom: 12px; }
+.doc-firm-name { font-size: 17px; letter-spacing: .02em; }
+.doc-firm small { display: block; color: var(--paper-muted); font-size: 12px; margin-top: 2px; line-height: 1.5; }
+.doc-doctype { text-align: right; }
+.doc-doctype b { font-size: 15px; text-transform: uppercase; letter-spacing: .1em; }
+.doc-title { color: var(--paper-text); margin-top: 14px; }
+.doc-section-heading { color: var(--paper-text); margin-top: 16px; }
+.doc-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 16px 0 4px; font-size: 13px; }
+.doc-meta dt { color: var(--paper-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+.doc-meta dd { font-weight: 600; margin-top: 1px; text-align: left; font-size: 13px; }
+.doc-route { margin: 14px 0; padding: 12px 14px; background: #faf7ec; border: 1px solid var(--paper-rule); border-radius: 8px; font-size: 14px; line-height: 1.6; }
+.doc-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13.5px; }
+.doc-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--paper-muted); border-bottom: 2px solid var(--paper-rule); padding: 6px 4px; }
+.doc-table td { padding: 8px 4px; border-bottom: 1px solid var(--paper-rule); font-variant-numeric: tabular-nums; }
+.doc-table td.r, .doc-table th.r { text-align: right; }
+.doc-table tr.total td { border-bottom: none; font-weight: 800; font-size: 15px; padding-top: 10px; }
+.doc-line { font-size: 14px; line-height: 1.6; margin-top: 6px; }
+.doc-sign { margin-top: 22px; font-size: 12.5px; color: var(--paper-muted); line-height: 1.6; }
+.doc-sign-line { border-bottom: 1px solid var(--paper-text); height: 26px; margin-bottom: 4px; }
+.doc-photo { display: block; max-width: 100%; border-radius: 6px; }
+.doc-pdf-frame { width: 100%; min-height: 70vh; border: 1px solid var(--color-border); border-radius: 6px; background: var(--paper); }
+.doc-fallback-note { font-weight: 600; margin-bottom: var(--space-2); }
+.doc-reads { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4); }
+.doc-reads-ok { color: var(--color-success); font-weight: 600; }
+.doc-reads-text { white-space: pre-wrap; font-size: 0.84375rem; line-height: 1.6; margin-top: var(--space-2); }
+.doc-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.doc-actions a, .doc-actions button { flex: 1; text-align: center; min-height: 50px; line-height: 50px; border-radius: 12px; font-size: 15px; font-weight: 700; text-decoration: none; }
+.doc-action-open { background: var(--color-gold-button); color: var(--color-on-gold); }
+.doc-action-pdf, .doc-action-print { background: var(--color-surface); color: var(--color-gold-bright); border: 1px solid var(--color-border-strong); }
+
+/* Print (owner rule 2026-11-10): ONLY the document prints — white paper
+   face (or the photo rendition), no app chrome, no tab bar, no dark
+   background. The embedded-PDF face never reaches this stylesheet:
+   its Print button opens the PDF itself instead. */
+@media print {
+  body { background: #ffffff !important; }
+  body * { visibility: hidden; }
+  .doc-print-area, .doc-print-area * { visibility: visible; }
+  .doc-print-area { position: absolute; inset: 0; background: #ffffff; }
+  .doc-page { box-shadow: none; border-radius: 0; }
+  .doc-pdf-frame { display: none; }
+}
+
+/* --- Phase 4 (spec §2.4): Home map controls, Today's log strip, pay
+   terms card, settings cards. Tokens only — no new hues. --- */
+.home-map-handle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  background: var(--color-surface); border: 0; border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-4); color: var(--color-text-muted-strong);
+  font-size: var(--text-small); font-weight: 600; cursor: pointer; min-height: 44px;
+  box-shadow: none; border-radius: 0; text-align: left;
+}
+.home-map-handle-chev { color: var(--color-gold-bright); }
+.home-map-ctl {
+  position: absolute; top: var(--space-2); right: var(--space-2);
+  display: flex; gap: var(--space-2); z-index: 5;
+}
+.home-map-ctl button {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(10, 10, 10, 0.88); border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-chip); padding: var(--space-2) var(--space-3);
+  color: var(--color-text); font-size: var(--text-caption); font-weight: 600;
+  min-height: 44px; box-shadow: none;
+}
+.home-map-ctl button span[aria-hidden] { color: var(--color-gold-bright); }
+.home-hud-fullscreen {
+  position: fixed; inset: 0; z-index: 60; overflow-y: auto;
+  background: var(--color-surface-alt); padding-bottom: var(--space-5);
+}
+.todays-log { margin-top: var(--space-4); }
+.todays-log-head { display: flex; justify-content: space-between; align-items: baseline; }
+.todays-log-rows { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.todays-log-rows li + li { margin-top: var(--space-2); }
+.todays-log-row { text-decoration: none; color: inherit; display: block; }
+.todays-log-fix { color: var(--color-gold-bright); font-size: var(--text-small); font-weight: 600; padding: var(--space-2); }
+.quick-actions-five { grid-template-columns: repeat(5, 1fr); }
+.pay-terms-card { margin-top: var(--space-4); }
+.settings-card { margin-top: var(--space-4); }
+section.ds-card { margin-top: var(--space-4); }
+.news-banner-item .news-card { padding: 0; width: 100%; }
+
+/* Documents Type / Record filters (conformance fix D6): the two Field
+   wrappers sit side by side on wide viewports, stacked on a phone —
+   either way each label owns its control with no margin overlap. */
+.documents-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.documents-filters .ds-field {
+  flex: 1 1 12rem;
+  margin: 0;
+}

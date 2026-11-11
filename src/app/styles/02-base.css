@@ -1,0 +1,441 @@
+/*
+ * 02-base.css — element styles + typography (Phase 1 consolidation).
+ * Base-element styles apply the visual design system from
+ * docs/design/ui-ux.md's "Visual design system" section across every
+ * screen automatically, since every screen uses the same plain
+ * semantic HTML rather than a shared component library. A screen's
+ * look comes from the element it already uses. Tokens: 01-tokens.css.
+ * Component classes: 03-components.css.
+ */
+body {
+  background: linear-gradient(180deg, var(--color-primary-light) 0%, var(--color-surface-alt) 260px);
+  background-attachment: local;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Minimum 44px touch target on every tappable control, per
+   docs/design/ui-ux.md's spacing/density note - platform guidance for a
+   thumb, not a mouse. */
+button,
+a[role="button"] {
+  min-height: 44px;
+}
+
+/*
+ * Base-element styles below apply the visual design system from
+ * docs/design/ui-ux.md's "Visual design system" section across every
+ * screen automatically, since every screen already uses the same plain
+ * semantic HTML (task 3.12's accessibility work) rather than a shared
+ * component library. A screen's look comes from the element it already
+ * uses, not from hand-tuned classes scattered per file.
+ */
+
+h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.25rem;
+}
+
+/* h2 is a real heading, not a whisper: full text color at 14px (audit
+   D-1 - 12px muted caps failed to read as headings on long screens).
+   The caps/letterspacing stay, so the look is kept while the hierarchy
+   works. */
+h2 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  margin: 0 0 0.75rem;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+/* Every screen's top-level wrapper is a bare <main> (the app shell's
+   #main-content, or /login's own standalone <main> - it sits outside
+   the (app) route group and has no bottom nav to clear) - give it
+   consistent page padding instead of repeating it per screen. */
+body main {
+  display: block;
+  padding: 1.5rem 1rem;
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+/* Only the app shell's main needs room above the fixed bottom nav. The nav is its own height (52px tab + 2 x 0.5rem padding + 1px
+   border = ~69px) PLUS the device's bottom safe area (the home-indicator strip, ~34px on a modern phone, which the old fixed 6rem
+   ignored - so the last button/field sat under the bar). --bottom-nav-h carries the nav's real height; the content clears it, the
+   safe area, and a comfortable gap. scroll-padding makes a focused field or a "scroll into view" stop ABOVE the bar, not behind it. */
+html {
+  scroll-padding-bottom: calc(var(--bottom-clear) + 1rem);
+}
+#main-content {
+  padding-bottom: calc(var(--bottom-clear) + 2rem);
+}
+
+/* --- Login: the one screen outside the app shell (see the #main-content
+   comment above) gets its own full-viewport, centered card treatment
+   instead of the shared padded-page layout, purely via CSS - no markup
+   change to login/page.tsx needed since it's the only <main> lacking the
+   #main-content id. */
+body:has(main:not(#main-content)) {
+  min-height: 100dvh;
+  display: flex;
+}
+
+main:not(#main-content) {
+  margin: auto;
+  width: 100%;
+  max-width: 24rem;
+  background-color: var(--color-surface);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-lg);
+  padding: 2.5rem 2rem;
+}
+
+main:not(#main-content) h1 {
+  text-align: center;
+}
+
+/* Buttons and button-styled links: the primary interactive surface. */
+button,
+a[role="button"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.25rem;
+  border: 1px solid transparent;
+  border-radius: 0.625rem;
+  background-color: var(--color-primary-button);
+  color: var(--color-on-primary);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+button:hover,
+a[role="button"]:hover {
+  background-color: var(--color-primary-button-hover);
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+}
+
+button:active,
+a[role="button"]:active {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-xs);
+}
+
+button:disabled {
+  background-color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
+}
+
+/* Filter/toggle button groups (role="group" > button[aria-pressed]) read
+   as a real segmented control - one seamless pill-shaped track with an
+   inner "thumb" on the pressed option - rather than a row of separately
+   bordered buttons. */
+[role="group"] {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background-color: var(--color-border);
+  border-radius: 0.75rem;
+}
+
+[role="group"] button {
+  background-color: transparent;
+  /* Unpressed options sit on the border-colored track: muted was
+     3.86:1 there, muted-strong is 6.15:1 (audit Section D). */
+  color: var(--color-text-muted-strong);
+  border-color: transparent;
+  font-weight: 600;
+  font-size: 0.875rem;
+  min-height: 38px;
+  padding: 0 0.875rem;
+  box-shadow: none;
+}
+
+[role="group"] button:hover {
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--color-text);
+}
+
+[role="group"] button[aria-pressed="true"] {
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-xs);
+}
+
+/* Forms */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 1rem;
+}
+
+label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-top: 1rem;
+}
+
+/* A label wrapping a checkbox/radio is itself the tap target - give
+   the whole row a 44px minimum height and a flex row layout so the
+   thumb hits the label, not just the native small box (audit E-7). */
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+label:has(input[type="checkbox"]) input,
+label:has(input[type="radio"]) input {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0.5rem 0.875rem;
+  margin-top: 0.375rem;
+  /* Resting border uses border-strong (3.47:1 on white, 5.12:1 on the
+     dark surface) - the old border token was 1.23:1 / 1.21:1, so
+     fields were effectively un-outlined (audit Section D). */
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.625rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Focus must be visible: the old 3px glow in primary-light was 1.09:1
+   on white. A 2px outline in primary is 5.17:1 on white (4.82:1 on the
+   dark surface) - well over the 3:1 bar for focus indicators. */
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+form button[type="submit"] {
+  margin-top: 1.5rem;
+  align-self: stretch;
+}
+
+main:not(#main-content) form button[type="submit"] {
+  width: 100%;
+}
+
+/* Field-level and banner errors (docs/design/ui-ux.md's Errors section) -
+   role="alert" is used for both the small inline validation message and
+   ListError's retry banner, so this covers both without extra markup. */
+[role="alert"] {
+  color: var(--color-danger);
+  font-weight: 500;
+  background-color: var(--color-danger-light);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  margin-top: 0.75rem;
+}
+
+/* Loading/status text (ListStates' role="status") and empty-state text
+   read as secondary, not full-strength body text. */
+[role="status"] {
+  color: var(--color-text-muted);
+  padding: 1rem 0;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* --- Cards: every <section> is a grouped unit of content (financial
+   summary, AI authorization settings, etc.) - give it a real elevated
+   card surface instead of running directly into the page background. */
+section {
+  background-color: var(--color-surface);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+section:first-of-type {
+  margin-top: 1.5rem;
+}
+
+/* --- Stat grids: <dl> is used for the financial-summary numbers (Home,
+   Money > Summary) - a real stat grid (label + big number) instead of
+   default browser dl indentation. */
+/* Visual audit F1 (2026-11-04): the old auto-fit grid wrapped labels and
+   numbers into separate cells, so on a phone a label could sit over a
+   different row's number (Home's "DRIVING LEFT" over 14h). A two-column
+   label | value layout keeps every pair on its own row at any width. */
+dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  gap: 0.75rem 1rem;
+  align-items: baseline;
+  margin: 0;
+}
+
+dt {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted-strong);
+  margin: 0;
+}
+
+dd {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+section a {
+  display: inline-block;
+  margin-top: 1rem;
+  font-weight: 600;
+}
+
+/* Record lists (Loads, Fleet, Money, etc.) - not the primary nav, which
+   is scoped separately below so the two don't collide despite both
+   being <nav>/<ul>/<li>. */
+main ul {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+main li {
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+main li:has(a:hover) {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+main li strong {
+  display: inline-block;
+  color: var(--color-warning);
+  background-color: var(--color-warning-light);
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.125rem 0.4375rem;
+  border-radius: 0.375rem;
+  margin-right: 0.5rem;
+}
+
+/* Multi-state status badges (maintenance-schedule due status: on
+   track/due soon/overdue/paused - task 3.13) - a data attribute rather
+   than a class, matching how aria-pressed/aria-current already drive
+   styling elsewhere in this file, so the badge stays plain semantic
+   markup rather than introducing per-instance utility classes. */
+main li strong[data-status="overdue"] {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+main li strong[data-status="ok"] {
+  color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+main li strong[data-status="paused"],
+main li strong[data-status="unknown"] {
+  /* Muted on the border background was 3.86:1; muted-strong (#475569
+     in light) is 6.15:1 on it. Scoped here only - the global muted
+     token passes on white and stays. */
+  color: var(--color-text-muted-strong);
+  background-color: var(--color-border);
+}
+
+/* Skip link (WCAG 2.4.1, task 3.12) - present in the DOM for screen
+   readers/keyboard users at all times, but only visible once focused so
+   it doesn't sit as stray text above the nav for everyone else. */
+a[href="#main-content"] {
+  position: absolute;
+  top: -3rem;
+  left: 0.5rem;
+  z-index: 100;
+  background-color: var(--color-primary-button);
+  color: var(--color-on-primary);
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 0.5rem 0.5rem;
+  min-height: auto;
+  box-shadow: var(--shadow-md);
+}
+
+a[href="#main-content"]:focus {
+  top: 0;
+}
+
+/* --- Type-scale utilities (spec §2.6): the named steps as classes for
+   components; nothing under 12px. Element styles above keep their
+   long-standing sizes — these are additive, for new/shared components
+   and later phases. */
+.type-display { font-size: var(--text-display); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
+.type-title { font-size: var(--text-title); font-weight: 700; line-height: 1.25; }
+.type-heading { font-size: var(--text-heading); font-weight: 700; line-height: 1.3; }
+.type-section { font-size: var(--text-section); font-weight: 700; line-height: 1.4; }
+.type-body { font-size: var(--text-body); font-weight: 400; line-height: 1.5; }
+.type-small { font-size: var(--text-small); font-weight: 400; line-height: 1.45; }
+.type-caption { font-size: var(--text-caption); font-weight: 600; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.06em; }
+/* Tabular numerals for every figure (clocks, miles, dollars). */
+.tabular { font-variant-numeric: tabular-nums; }

@@ -98,6 +98,27 @@ export interface CrudRouteOptions {
     merged: Record<string, unknown>,
     patch: Record<string, unknown>,
   ) => Record<string, unknown>;
+  // Optional post-write hook (UI/UX spec §2.2, duty-log edit trail):
+  // fired AFTER a successful create or update with the before/after
+  // rows, so an entity can record what just happened (e.g. a
+  // duty_log_edits trail row). NEVER fired on an idempotency dedup
+  // replay (no write happened) and undefined for every entity that
+  // doesn't opt in - all other entities behave exactly as before.
+  // A hook failure is logged, never allowed to fail the write that
+  // already landed: reporting failure for a saved record would invite
+  // a duplicate retry.
+  afterWrite?: (ctx: {
+    supabase: Awaited<ReturnType<typeof createClient>>;
+    companyId: string;
+    kind: "create" | "update";
+    id: string;
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown>;
+    /** Create only: the raw request body (incl. submission_id + meta fields). */
+    rawBody?: Record<string, unknown>;
+    /** Update only: the validated patch (incl. any meta fields). */
+    rawPatch?: Record<string, unknown>;
+  }) => Promise<void>;
 }
 
 export function createCrudRoutes<Row extends { id: string }>(
@@ -165,10 +186,30 @@ export function createCrudRoutes<Row extends { id: string }>(
     }
     const body = options.prepareCreate ? options.prepareCreate(parsed.data) : parsed.data;
 
+    // Fires the entity's afterWrite hook for a REAL create (never for
+    // the dedup replay below - no write happens there).
+    const fireAfterWrite = async (row: Row) => {
+      if (!options.afterWrite) return;
+      try {
+        await options.afterWrite({
+          supabase,
+          companyId: ctx.auth.companyId,
+          kind: "create",
+          id: row.id,
+          before: null,
+          after: row as Record<string, unknown>,
+          rawBody,
+        });
+      } catch (hookErr) {
+        console.error(`[crud-routes] afterWrite failed for ${table}:`, hookErr);
+      }
+    };
+
     // No token: the original create path, unchanged. Bot/API writes
     // that don't send a token get no dedup guarantee (design A.6).
     if (!submissionId) {
       const row = await crud.create(supabase, ctx.auth.companyId, body);
+      await fireAfterWrite(row);
       return NextResponse.json(row, { status: 201 });
     }
 
@@ -179,6 +220,7 @@ export function createCrudRoutes<Row extends { id: string }>(
         submission_id: submissionId,
         submission_payload_hash: fingerprint,
       });
+      await fireAfterWrite(row);
       return NextResponse.json(row, { status: 201 });
     } catch (err) {
       // Only a violation of THIS table's named idempotency index enters
@@ -250,6 +292,21 @@ export function createCrudRoutes<Row extends { id: string }>(
     const writePatch = options.prepareUpdate ? options.prepareUpdate(merged, patch) : patch;
     const row = await crud.update(supabase, id, writePatch);
     if (!row) throw notFound();
+    if (options.afterWrite) {
+      try {
+        await options.afterWrite({
+          supabase,
+          companyId: ctx.auth.companyId,
+          kind: "update",
+          id,
+          before: existing as Record<string, unknown>,
+          after: row as Record<string, unknown>,
+          rawPatch: patch as Record<string, unknown>,
+        });
+      } catch (hookErr) {
+        console.error(`[crud-routes] afterWrite failed for ${table}:`, hookErr);
+      }
+    }
     return NextResponse.json(row);
   });
 

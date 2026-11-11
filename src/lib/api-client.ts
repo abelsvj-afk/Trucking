@@ -179,6 +179,9 @@ export const apiClient = {
     const qs = new URLSearchParams(params);
     return request<{ data: T[] }>(`/api/v1/documents?${qs.toString()}`);
   },
+  getDocument: <T>(id: string) => request<T>(`/api/v1/documents/${id}`),
+  listRecentDocuments: <T>(limit = 25) =>
+    request<{ data: T[] }>(`/api/v1/documents?recent=${limit}`),
   removeDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
   // Retention-delete lifecycle (Unit A / F-007): the Deleted view of a
   // record's documents (tombstones carry retention status and no signed

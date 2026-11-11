@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cycleLine, loadHosWindow, toWindowSummary } from "@/services/api/hos-window";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { buildRoadsidePacket, type RoadsidePacket } from "@/lib/roadside-packet";
+import { fetchEditedDutyLogIds } from "@/services/duty-log-edits";
 
 const BUCKET = "documents";
 
@@ -44,6 +45,16 @@ export async function buildLivePacket(client: SupabaseClient, companyId: string,
     driverName = (list.find((d) => d.role === "owner_operator") ?? list[0])?.name ?? null;
   } catch { /* same graceful absence */ }
 
+  // Edit trail (spec §2.2): ONE extra read keyed by the window's entry
+  // ids - which entries carry a trail row - so the packet can mark
+  // each edited entry "Edited - original retained in the app". The
+  // HOS read itself is untouched; on a database without the trail
+  // table this reads as "no edits" and the packet is unchanged.
+  const editedEntryIds = await fetchEditedDutyLogIds(
+    client,
+    snapshot.rows.map((row) => row.id),
+  );
+
   return buildRoadsidePacket({
     driverName,
     companyName,
@@ -51,6 +62,7 @@ export async function buildLivePacket(client: SupabaseClient, companyId: string,
     clocks,
     cycleLine: cycleLine(snapshot),
     now,
+    editedEntryIds,
   });
 }
 

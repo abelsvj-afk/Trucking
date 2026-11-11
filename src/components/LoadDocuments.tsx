@@ -8,9 +8,10 @@
 // no new storage and no new endpoints.
 
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { useLiveVersion } from "@/lib/use-live";
-import { DOC_TYPE_LABELS, DocumentPreview } from "@/components/DocumentPreview";
+import { DOC_TYPE_LABELS } from "@/lib/document-labels";
 import type { DocumentWithSignedUrl } from "@/types/entities";
 
 const IMAGE = /\.(jpe?g|png|webp|heic|heif)$/i;
@@ -44,7 +45,6 @@ export default function LoadDocuments({ loadId }: { loadId: string }) {
   const version = useLiveVersion(["documents"]);
   const [docs, setDocs] = useState<DocumentWithSignedUrl[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +79,6 @@ export default function LoadDocuments({ loadId }: { loadId: string }) {
   }
 
   const groups = docs ? groupDocuments(docs) : [];
-  const selected = docs?.find((d) => d.id === selectedId) ?? null;
 
   return (
     <section aria-label="Trip documents">
@@ -92,12 +91,10 @@ export default function LoadDocuments({ loadId }: { loadId: string }) {
           <ul className="doc-thumbs" style={{ display: "flex", flexWrap: "wrap", gap: "8px", listStyle: "none", padding: 0 }}>
             {group.docs.map((doc) => (
               <li key={doc.id}>
-                <button
-                  type="button"
+                <Link
+                  href={`/more/documents/${doc.id}`}
                   aria-label={`View ${doc.file_name}`}
-                  aria-pressed={selectedId === doc.id}
-                  onClick={() => setSelectedId(selectedId === doc.id ? null : doc.id)}
-                  style={{ width: "88px", minHeight: "88px", padding: 0, overflow: "hidden" }}
+                  style={{ display: "block", width: "88px", minHeight: "88px", overflow: "hidden" }}
                 >
                   {IMAGE.test(doc.file_name) && doc.signed_url ? (
                     // eslint-disable-next-line @next/next/no-img-element -- signed Storage URL, not Next-optimizable
@@ -105,13 +102,12 @@ export default function LoadDocuments({ loadId }: { loadId: string }) {
                   ) : (
                     <span className="row-sub">{doc.file_name}</span>
                   )}
-                </button>
+                </Link>
               </li>
             ))}
           </ul>
         </div>
       ))}
-      {selected && <DocumentPreview key={selected.id} doc={selected} />}
       {/* A <form> on purpose: the app-wide driving lock makes forms inert while moving. */}
       <form aria-label="Add a document to this trip" onSubmit={(e) => e.preventDefault()}>
         <label htmlFor={`load-doc-${loadId}`}>Add a photo or file to this trip</label>

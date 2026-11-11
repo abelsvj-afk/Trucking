@@ -1,13 +1,10 @@
 /*
- * Global styles, split into ordered parts under ./styles (file decomposition,
- * 2026-11-06). Order is the cascade order - do not reorder.
+ * Global styles, consolidated into three ordered parts under ./styles
+ * (UI/UX Phase 1, spec 2026-11-10 §2.6 — formerly seven lane files).
+ * Order is the cascade order - do not reorder.
  */
 @import "tailwindcss";
 
-@import "./styles/01-base.css";
-@import "./styles/02-nav-and-motion.css";
-@import "./styles/03-lists-and-pages.css";
-@import "./styles/04-research-and-polish.css";
-@import "./styles/05-motion-pass.css";
-@import "./styles/06-hud.css";
-@import "./styles/07-late.css";
+@import "./styles/01-tokens.css";
+@import "./styles/02-base.css";
+@import "./styles/03-components.css";

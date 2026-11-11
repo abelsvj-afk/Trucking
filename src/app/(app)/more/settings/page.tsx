@@ -22,6 +22,7 @@ import { createClient } from "@/services/db/client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
+import Card from "@/components/Card";
 import HosCarrierSettings from "@/components/settings/HosCarrierSettings";
 import BackgroundTrackingSettings from "@/components/settings/BackgroundTrackingSettings";
 import TelegramConnectionSettings from "@/components/settings/TelegramConnectionSettings";
@@ -205,21 +206,27 @@ export default function AccountSettingsPage() {
         </ul>
       </nav>
 
-      <h2 id="settings-pay" className="settings-group">My pay</h2>
-      <PayTermsSettings />
+      <Card className="settings-card">
+        <h2 id="settings-pay" className="settings-group">My pay</h2>
+        <PayTermsSettings />
+      </Card>
 
-      <h2 id="settings-hours" className="settings-group">My hours and truck</h2>
-      <HosCarrierSettings />
+      <Card className="settings-card">
+        <h2 id="settings-hours" className="settings-group">My hours and truck</h2>
+        <HosCarrierSettings />
 
-      <BackgroundTrackingSettings />
+        <BackgroundTrackingSettings />
+      </Card>
 
-      <h2 id="settings-connections" className="settings-group">Connections</h2>
-      <TelegramConnectionSettings />
+      <Card className="settings-card">
+        <h2 id="settings-connections" className="settings-group">Connections</h2>
+        <TelegramConnectionSettings />
 
-      <EmailInboxSettings />
+        <EmailInboxSettings />
+      </Card>
 
       <h2 id="settings-look" className="settings-group">Appearance and Home</h2>
-      <section aria-label="Appearance">
+      <section aria-label="Appearance" className="ds-card">
         <h2>Appearance</h2>
         <p>
           Light, dark, or Auto — Auto follows your phone&apos;s own setting, like it does today.
@@ -239,7 +246,7 @@ export default function AccountSettingsPage() {
         </div>
       </section>
 
-      <section aria-label="Home screen">
+      <section aria-label="Home screen" className="ds-card">
         <h2>Home screen</h2>
         <p>
           The &ldquo;This month&rdquo; block on Home is your future company view — revenue, expenses
@@ -259,7 +266,7 @@ export default function AccountSettingsPage() {
       </section>
 
       <h2 id="settings-ai" className="settings-group">Abel and AI</h2>
-      <section aria-label="AI authorization" data-motion-exempt>
+      <section aria-label="AI authorization" data-motion-exempt className="ds-card">
         <h2>AI authorization</h2>
         <p>
           These control what the AI is allowed to run automatically. Turning a switch off takes
@@ -307,7 +314,7 @@ export default function AccountSettingsPage() {
       </section>
 
       <h2 id="settings-account" className="settings-group">Account</h2>
-      <section aria-label="Sign out">
+      <section aria-label="Sign out" className="ds-card">
         <button type="button" onClick={handleSignOut} disabled={signingOut}>
           {signingOut ? "Signing out…" : "Sign out"}
         </button>

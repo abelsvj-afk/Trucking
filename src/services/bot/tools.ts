@@ -46,6 +46,7 @@ import { buildRoadsideTools } from "./roadside-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
 import { propagateMileage } from "@/services/fleet/mileage";
+import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
 
@@ -529,6 +530,21 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         if (parsed.source_document_id !== undefined) {
           baseRow.source_document_id = parsed.source_document_id;
         }
+        // Edit trail (spec §2.2, Abel parity): a BACKFILL through
+        // conversation - a start time well in the past (>15 min, the
+        // API's own threshold), or an entry he dictated to fill a gap
+        // (source 'conversation') - is a CORRECTION: it writes a
+        // duty_log_edits row (kind 'insert', source 'conversation')
+        // whose reason is this tool's own proposal explanation (the
+        // summarize() text he approved). LIVE logging - a new entry
+        // starting ~now - is not a correction: no reason, no trail
+        // row. The id is generated here only when a trail row needs
+        // to point at the entry.
+        const startedMs = Date.parse(String(baseRow.started_at));
+        const isBackfill =
+          parsed.source === "conversation" ||
+          (Number.isFinite(startedMs) && Date.now() - startedMs > 15 * 60_000);
+        if (isBackfill) baseRow.id = crypto.randomUUID();
         let { error } = await client.from("duty_logs").insert(baseRow);
         if (error && parsed.source !== undefined && isMissingColumnError(error)) {
           // Pre-00047 database: the entry still lands; provenance
@@ -540,6 +556,17 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           ({ error } = await client.from("duty_logs").insert(baseRow));
         }
         if (error) throw new Error(error.message);
+        if (isBackfill) {
+          await recordDutyLogEdit(client, {
+            companyId,
+            dutyLogId: String(baseRow.id),
+            kind: "insert",
+            reason: `Duty status: ${parsed.duty_status} starting ${parsed.started_at ? `at ${parsed.started_at}` : "now"}${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`,
+            before: null,
+            after: { ...baseRow },
+            source: "conversation",
+          });
+        }
         // §5.3: a duty-log odometer is an observation of the
         // truck's mileage - through the load's truck, via the one
         // propagation door. Without a load there's no truck to

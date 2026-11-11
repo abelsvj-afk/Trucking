@@ -156,12 +156,16 @@ export const GET = createApiHandler(async (req) => {
   // deleted document is not readable through the list). The default
   // list and text search exclude tombstones entirely.
   const deletedOnly = url.searchParams.get("deleted") === "only";
+  // Recent mode (UI/UX Phase 3): ?recent=25 — latest across all records,
+  // for the Documents landing's Recent list. No entity filter needed.
+  const recentRaw = url.searchParams.get("recent");
+  const recent = recentRaw ? Math.min(Math.max(parseInt(recentRaw, 10) || 25, 1), 100) : null;
 
   // Search mode (docs/api-contracts.md): q alone is enough - it
   // searches every document's extracted text. Without q, the entity
   // filter stays required together, exactly as the contract has
-  // always said.
-  if (!query && (!relatedEntityType || !relatedEntityId)) {
+  // always said — recent mode is the one named exception.
+  if (!query && !recent && (!relatedEntityType || !relatedEntityId)) {
     throw validationError("related_entity_type and related_entity_id are required.");
   }
 
@@ -174,7 +178,9 @@ export const GET = createApiHandler(async (req) => {
   if (query) {
     builder = builder.textSearch("extracted_tsv", query, { type: "websearch" });
   }
-  const { data, error } = await builder.order("uploaded_at", { ascending: false });
+  let queryBuilder = builder.order("uploaded_at", { ascending: false });
+  if (recent) queryBuilder = queryBuilder.limit(recent);
+  const { data, error } = await queryBuilder;
 
   if (error) throw new Error(error.message);
 
