@@ -13,6 +13,9 @@ import type { Metadata } from "next";
 import PageHeader from "@/components/PageHeader";
 import HubRow from "@/components/HubRow";
 import Reveal from "@/components/Reveal";
+import { getAuthContext } from "@/services/auth";
+import { createClient } from "@/services/db/server";
+import { canAccessRoute, loadPageAccessRules } from "@/lib/page-access";
 
 export const metadata: Metadata = { title: "More — Road to Legacy" };
 
@@ -31,18 +34,30 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/more/facilities", label: "Facilities", desc: "The places you run to — check-in, parking, and detention, remembered per place." },
   { href: "/more/industry-intelligence", label: "Industry intelligence", desc: "Briefings on fuel, rules, and the market that affect your lanes." },
   { href: "/more/research", label: "Research", desc: "Deep research engine — watches fuel, rules & news; briefs you when pressure hits." },
+  { href: "/more/business-credit", label: "Business Credit", desc: "The company's credit file — vendor accounts, who they report to, and what builds the score. Owner-only." },
   { href: "/more/game-plan", label: "Game Plan", desc: "Your target, gamed: the path from your real numbers to the truck, the authority, the company — projections, not promises." },
   { href: "/more/inbox", label: "Company inbox", desc: "Mail to dispatch@ that Abel has read — load offers, payments, shipper notes. Read-only; he cannot send or change anything." },
   { href: "/more/memories", label: "What Abel remembers", desc: "Everything the assistant has stored about you and your business — see it, correct it, delete it." },
   { href: "/more/settings", label: "Account & settings", desc: "Your account, and the switches for what the AI may do." },
 ];
 
-export default function MorePage() {
+export default async function MorePage() {
+  // Owner-only sections (src/lib/page-access.ts — the flag is data in
+  // page_access_rules) are filtered out for non-owners right here, and
+  // their API routes refuse non-owners again server-side: hiding the
+  // link is presentation, the 403 is the enforcement.
+  const auth = await getAuthContext();
+  const rules = auth
+    ? await loadPageAccessRules(await createClient())
+    : [];
+  const sections = SECTIONS.filter((s) =>
+    canAccessRoute(rules, auth?.role, s.href),
+  );
   return (
     <div>
       <PageHeader title="More" purpose="The assistant, your paperwork, your contacts, and your settings." />
       <ul>
-        {SECTIONS.map((section, i) => (
+        {sections.map((section, i) => (
           <Reveal as="li" key={section.href} index={i}>
             <HubRow href={section.href} label={section.label} desc={section.desc} />
           </Reveal>
