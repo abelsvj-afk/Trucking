@@ -320,6 +320,7 @@ The `deep_research` capability — the third entry in `KNOWN_CAPABILITIES`, kill
 | GET | `/api/v1/research-briefings/{id}` | One briefing by id (Home News Banner deep-link fallback): returns the briefing INCLUDING dismissed ones through the owner's session; `404` when missing or another company's (RLS makes them indistinguishable) |
 | POST | `/api/v1/research-briefings/check-wires` | The banner's light pull: polls every watcher once (free sources only, no AI call, no run-cap spend). Refuses plainly when `deep_research` is off; 30-minute cooldown from the newest watcher poll; takes the research tick's advisory lock non-blocking (a tick mid-run answers busy, never a double poll). Every outcome is an honest state in the body, including `unavailable` (HTTP 200) when the job database URL is unset. Response: `CheckWiresResult` |
 | GET | `/api/v1/watch-picture` | Autonomous Research (docs/design/autonomous-research.md): the standing watch for the Research page - per-topic freshness (computed server-side per standing topic), the newest stored knowledge, and the learning agenda's open rows. Answers `available: false` (HTTP 200, empty lists) when migration `00084` hasn't landed yet instead of erroring. Response: `WatchPictureData` |
+| GET | `/api/v1/business-credit` | Business Credit (docs/design/business-credit.md): OWNER-ONLY — the server re-checks through the central page-access helper (`src/lib/page-access.ts`, flag = data in `page_access_rules`) and answers 403 for a non-owner. The Business Credit page's one read: identity profile, tracked accounts, newest audit events. Answers `available: false` (HTTP 200, empty lists) when migration `00087` hasn't landed yet instead of erroring. Response: `BusinessCreditData` |
 | POST | `/api/v1/learning-topics/{id}/approve` | Approves one PROPOSED learning topic: queues a manual `research_runs` row (the fenced `00019` shape, `trigger_detail` carrying `learning_topic_id`) and marks the topic `queued` with that run's id; the runner settles it to `done` when the run finishes. `404` when the topic isn't the caller's or isn't proposed |
 | POST | `/api/v1/learning-topics/{id}/dismiss` | Dismisses one PROPOSED learning topic (`status='dismissed'`, `decided_at` stamped; the row is kept as the honest record). `404` when it isn't the caller's or isn't proposed |
 
@@ -580,6 +581,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/learning-topics/[id]/approve` | POST | custom (see section / design doc) |
 | `/api/v1/learning-topics/[id]/dismiss` | POST | custom (see section / design doc) |
 | `/api/v1/watch-picture` | GET | custom (see section / design doc) |
+| `/api/v1/business-credit` | GET | custom (see section / design doc) |
 | `/api/v1/smart-path/route-check` | POST | custom (see section / design doc) |
 | `/api/v1/tax-packet` | GET | custom (see section / design doc) |
 | `/api/v1/trailers/[id]/restore` | POST | generic CRUD (contract above) |

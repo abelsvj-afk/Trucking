@@ -40,6 +40,7 @@ import { buildFleetTools } from "./fleet-tools";
 import { buildDriverQuestionTools } from "./driver-question-tools";
 import { buildNewsTools } from "./news-tools";
 import { buildResearchAgendaTools } from "./research-agenda-tools";
+import { buildBusinessCreditTools } from "./business-credit-tools";
 import { buildEmailTools } from "./email-tools";
 import { buildRoadsideTools } from "./roadside-tools";
 import { buildThreadTools } from "./thread-tools";
@@ -1087,6 +1088,10 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   // stored knowledge, and the learning agenda - own module
   // (research-agenda-tools.ts), same registry.
   tools.push(...buildResearchAgendaTools(store));
+
+  // Business Credit (2026-11-10 design): the company credit file -
+  // list + update, own module (business-credit-tools.ts), same registry.
+  tools.push(...buildBusinessCreditTools(store));
 
   const writeRegistry = new Map(
     tools.filter((t) => t.access === "write").map((t) => [t.name, t] as const),

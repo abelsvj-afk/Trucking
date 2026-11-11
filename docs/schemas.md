@@ -1381,3 +1381,9 @@ Abel's self-directed learning agenda (docs/design/autonomous-research.md §4): p
 ### Table and constraint added by 00073 (background tracking)
 - `device_tokens` — `id`, `company_id`, `label`, `token_hash` (unique SHA-256; the secret is never stored), `created_at`, `last_used_at`, `revoked_at`; RLS tenant isolation.
 - 00073 `driver_positions.source` check now allows `device` (beside `telegram`).
+
+### Tables added by 00087 (Business Credit — docs/design/business-credit.md)
+- `page_access_rules` — the owner-only page mechanism as data: `route_prefix` (primary key), `owner_only`, `note`. Deployment configuration, not tenant data: RLS on, no client policies. Seeded with `/more/business-credit` owner-only; the central check is `src/lib/page-access.ts`.
+- `business_credit_profiles` — one row per company: the identity header as data (`legal_name`, `filed_name`, `duns`, `sunbiz_doc`, `sunbiz_status`, `registered_address`, `business_email`). Deliberately NO EIN column. RLS tenant isolation; unique live row per company.
+- `business_credit_accounts` — one row per tracked vendor: `vendor`, `vendor_key` (unique per company), `status` (phase in words), `reports_to` text[], `next_action`, `payment_state` check in (none, invoice_open, due_soon, paid, missed), `next_due_date` (nullable — null = nothing expected), `amount_due_cents` (nullable), `match_senders` text[] (the email watch's vendor match, as data), `notes`, `sort_order`. RLS tenant isolation.
+- `business_credit_events` — the audit trail: `account_id` (composite tenant FK), `source` (email_watch, abel_tool, owner), `signal` (invoice, due_date, payment_made, missed, update), `email_message_id` (composite tenant FK to email_messages) + `email_server_message_id`, `summary`, `detail` jsonb (before/after), `buzz_state` (none, held, sent) + `buzz_text` + `buzz_sent_at`. Unique (company, account, email) for watch events — a message is never re-buzzed. RLS tenant isolation.
