@@ -2292,6 +2292,7 @@ button[data-motion-locked="true"] {
   padding: 0 1rem;
 }
 .home-position-hero.home-position-empty {
+  position: relative;
   margin: 0.75rem 0;
   padding: 1rem;
   border-radius: 1rem;
@@ -2300,6 +2301,16 @@ button[data-motion-locked="true"] {
 }
 .home-position-hero.home-position-empty p {
   padding: 0;
+}
+/* Off state keeps the map-surface controls (D3): they overlay the card
+   exactly as they overlay the map (spec §2.4) — space is reserved by
+   the full-screen min-height / natural card flow. */
+.home-position-hero.home-position-empty .home-map-ctl {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
 }
 
 /* Roadside inspection mode (docs/design/eld-roadside-overlay.md): the
@@ -2543,3 +2554,16 @@ a.roadside-entry {
 .settings-card { margin-top: var(--space-4); }
 section.ds-card { margin-top: var(--space-4); }
 .news-banner-item .news-card { padding: 0; width: 100%; }
+
+/* Documents Type / Record filters (conformance fix D6): the two Field
+   wrappers sit side by side on wide viewports, stacked on a phone —
+   either way each label owns its control with no margin overlap. */
+.documents-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.documents-filters .ds-field {
+  flex: 1 1 12rem;
+  margin: 0;
+}

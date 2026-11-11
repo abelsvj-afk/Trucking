@@ -92,6 +92,27 @@ export default function HomePositionCard({
     </Sheet>
   ) : null;
 
+  // The map-surface controls (spec §2.4: ⤢ full-screen + Float sit ON
+  // the map surface). They render in EVERY hero state — live map and
+  // the no-fix off state alike (conformance fix D3: the off state used
+  // to drop them, leaving only the handle + a route link). In the off
+  // state full-screen enlarges the off-state card itself; Float opens
+  // the same honest Tracker-handoff sheet as the live state.
+  const mapControls = hero ? (
+    <div className="home-map-ctl">
+      <button
+        type="button"
+        aria-pressed={fullscreen}
+        onClick={onToggleFullscreen}
+      >
+        <span aria-hidden="true">⤢</span> {fullscreen ? "Exit full screen" : "Full screen"}
+      </button>
+      <button type="button" onClick={() => setFloatOpen(true)}>
+        <span aria-hidden="true">▣</span> Float
+      </button>
+    </div>
+  ) : null;
+
   const nowMs = useNowTick(5_000);
   // This device's own fix wins. Without one (just reopened, GPS warming up, permission off) fall back to
   // the position Telegram Live Location last reported - labelled as Telegram's, with its age.
@@ -123,7 +144,7 @@ export default function HomePositionCard({
     return hero ? (
       <>
         {handle}
-        <NoFixCard />
+        <NoFixCard controls={mapControls} fullscreen={fullscreen} />
         {floatSheet}
       </>
     ) : null;
@@ -132,7 +153,7 @@ export default function HomePositionCard({
     return hero ? (
       <>
         {handle}
-        <NoFixCard />
+        <NoFixCard controls={mapControls} fullscreen={fullscreen} />
         {floatSheet}
       </>
     ) : null;
@@ -142,20 +163,7 @@ export default function HomePositionCard({
     <section aria-label="Where you are" className={hero ? "home-position home-position-hero" : "home-position"}>
       {handle}
       <div className="home-map-wrap">
-        {hero && (
-          <div className="home-map-ctl">
-            <button
-              type="button"
-              aria-pressed={fullscreen}
-              onClick={onToggleFullscreen}
-            >
-              <span aria-hidden="true">⤢</span> {fullscreen ? "Exit full screen" : "Full screen"}
-            </button>
-            <button type="button" onClick={() => setFloatOpen(true)}>
-              <span aria-hidden="true">▣</span> Float
-            </button>
-          </div>
-        )}
+        {mapControls}
         <DriveMap
           geometry={route?.geometry ?? []}
           deadheadGeometry={[]}
@@ -207,9 +215,23 @@ export default function HomePositionCard({
  * The map is Home's main screen, so when there is no fresh location it says WHY and how to fix it, instead of leaving a hole
  * (live audit 2026-11-07: the card simply was not there). Never a blank map or a guessed position.
  */
-function NoFixCard() {
+function NoFixCard({
+  controls,
+  fullscreen = false,
+}: {
+  /** The map-surface controls (⤢ + Float) — the off state keeps them
+   *  (spec §2.4; conformance fix D3). */
+  controls?: React.ReactNode;
+  /** Full-screen enlarges this card, same as it enlarges the map. */
+  fullscreen?: boolean;
+}) {
   return (
-    <section aria-label="Where you are" className="home-position home-position-hero home-position-empty">
+    <section
+      aria-label="Where you are"
+      className="home-position home-position-hero home-position-empty"
+      style={fullscreen ? { minHeight: "min(62vh, 720px)" } : undefined}
+    >
+      {controls}
       <p role="status">
         <strong>Map off — no fresh location.</strong> Allow location for this site in your browser, or share Telegram Live Location with
         Abel, and your truck appears here. Your hours and pay below are not affected.

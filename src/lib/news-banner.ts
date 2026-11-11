@@ -93,12 +93,24 @@ function signalImageSrc(signal: ResearchSignal): string | null {
 }
 
 function signalItem(signal: ResearchSignal): BannerItem {
+  // Conformance fix D2 (owner ruling: news is image-first story cards,
+  // never a bare aggregate row): a multi-story cluster signal (the
+  // GDELT watchers build one signal per burst, summary = "N … items on
+  // "…" inside 48h (GDELT)") headlines its FIRST real story and keeps
+  // the aggregate as the sub-line for context. The image already
+  // resolves independently through signalImageSrc. A signal with no
+  // story items (single-source watchers — EIA diesel, Federal
+  // Register) keeps its own summary as the headline.
+  const storyTitle = Array.isArray(signal.items)
+    ? signal.items.find((item) => typeof item?.title === "string" && item.title.length > 0)?.title
+    : undefined;
+  const isCluster = Array.isArray(signal.items) && signal.items.length > 1 && typeof storyTitle === "string";
   return {
     kind: "signal",
     id: signal.id,
     topic: signal.topic,
-    headline: signal.summary,
-    sub: null,
+    headline: isCluster ? storyTitle : signal.summary,
+    sub: isCluster ? signal.summary : null,
     at: signal.observed_at,
     unread: false,
     deliveryClass: null,

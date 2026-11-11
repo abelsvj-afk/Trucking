@@ -223,3 +223,37 @@ describe("one instance per story", () => {
     expect(items.map((i) => i.id)).toEqual(["b1", "s2"]);
   });
 });
+
+describe("signal story presentation (conformance fix D2)", () => {
+  it("a cluster signal headlines its first real story; the aggregate count becomes the sub", () => {
+    const item = buildBannerItems(
+      {
+        data: [],
+        signals: [
+          signal({
+            id: "sig-cluster",
+            topic: "technology",
+            summary: '19 technology news items on "ai chips" inside 48h (GDELT)',
+            items: [
+              { title: "Chip makers rally on new orders", url: "https://example.com/a", publishedAt: "2026-11-02T00:00:00Z", summary: "example.com", imageUrl: "https://img.example.com/a.jpg" },
+              { title: "Second story", url: "https://example.com/b", publishedAt: "2026-11-02T00:00:00Z", summary: "example.com" },
+            ],
+          }),
+        ],
+      },
+      NOW,
+    )[0]!;
+    expect(item.headline).toBe("Chip makers rally on new orders");
+    expect(item.sub).toContain("19 technology news items");
+    expect(item.imageSrc).toBe("/api/v1/news-image?signal=sig-cluster&i=0");
+  });
+
+  it("a single-source signal keeps its own summary as the headline", () => {
+    const item = buildBannerItems(
+      { data: [], signals: [signal({ id: "sig-fuel", summary: "Diesel $3.89 national average" })] },
+      NOW,
+    )[0]!;
+    expect(item.headline).toBe("Diesel $3.89 national average");
+    expect(item.sub).toBeNull();
+  });
+});
