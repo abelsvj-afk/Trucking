@@ -146,9 +146,18 @@ export interface RouteResult {
   providerNotes: string[];
 }
 
+/**
+ * Optional hints for one route request (active-load navigation). `headingDeg` is the truck's current direction of travel: an engine
+ * that can use it starts the route in that direction instead of asking for an immediate reversal. Engines that cannot use it ignore
+ * it - the U-turn check on the RESULT (lib/active-navigation.ts) is what actually protects a truck pulling a trailer.
+ */
+export interface RouteOptions {
+  headingDeg?: number | null;
+}
+
 export interface RoutingProvider {
   readonly name: string;
-  getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null): Promise<RouteResult>;
+  getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null, options?: RouteOptions): Promise<RouteResult>;
 }
 
 export class RoutingUnavailableError extends Error {}
@@ -169,12 +178,12 @@ export class ChainedRoutingProvider implements RoutingProvider {
     readonly skipNotes: string[] = [],
   ) {}
 
-  async getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null): Promise<RouteResult> {
+  async getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null, options?: RouteOptions): Promise<RouteResult> {
     const notes: string[] = [...this.skipNotes];
     const failures: string[] = [];
     for (const provider of this.providers) {
       try {
-        const result = await provider.getRoute(from, to, vehicle);
+        const result = await provider.getRoute(from, to, vehicle, options);
         return { ...result, providerNotes: [...notes, ...result.providerNotes] };
       } catch (err) {
         if (!(err instanceof RoutingUnavailableError)) throw err;
