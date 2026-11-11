@@ -40,12 +40,16 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <script
-          // Theme init (parked decision (d), src/lib/theme.ts): runs
-          // before paint so a stored Light/Dark pick never flashes the
-          // wrong scheme. Missing or "auto" removes data-theme, which
-          // leaves the OS media query in charge of globals.css.
+          // Theme init (src/lib/theme.ts; default SETTLED dark
+          // 2026-11-10, conformance fix D1): runs before paint so the
+          // scheme never flashes wrong. A stored explicit pick wins
+          // ("dark"/"light" set data-theme; "auto" removes it and the
+          // OS media query decides). Missing or garbage means NO pick
+          // was ever made, so the shipped default applies: dark, the
+          // approved black-and-gold scheme — set data-theme="dark"
+          // rather than leaving the light base tokens in charge.
           dangerouslySetInnerHTML={{
-            __html: `try{var t=window.localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});if(t==="dark"||t==="light"){document.documentElement.dataset.theme=t;}else{delete document.documentElement.dataset.theme;}}catch(e){}`,
+            __html: `try{var t=window.localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});if(t==="dark"||t==="light"){document.documentElement.dataset.theme=t;}else if(t==="auto"){delete document.documentElement.dataset.theme;}else{document.documentElement.dataset.theme="dark";}}catch(e){document.documentElement.dataset.theme="dark";}`,
           }}
         />
         <script
