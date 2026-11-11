@@ -13,6 +13,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pickActiveLoad } from "@/lib/active-load";
 import { todayEastern } from "@/lib/eastern-date";
+import { checkUTurn } from "@/lib/active-navigation";
 import { isTrailering, pickNextStop, type NextStop } from "@/lib/next-stop";
 import type { LatLng } from "@/lib/smart-path";
 import { GeocodingUnavailableError, NominatimGeocodingProvider, type GeocodingProvider } from "@/services/integrations/geocoding";
@@ -49,6 +50,10 @@ export interface ActiveRouteSummary {
   providerNotes: string[];
   geometry: LatLng[];
   maneuvers: RouteManeuver[];
+  /** The route needs a reversal (labelled by the engine, or it starts back the way the truck is travelling). */
+  needsUTurn: boolean;
+  /** needsUTurn AND a trailer is on the load: this route must not be driven or guided on (owner rule). */
+  uTurnBlocked: boolean;
 }
 
 export interface ActiveLoadState {
@@ -82,9 +87,10 @@ export interface ActiveLoadDeps {
   devicePosition?: { lat: number; lng: number; headingDeg?: number | null; speedMph?: number | null } | null;
 }
 
+type RouteBase = Omit<ActiveRouteSummary, "etaAt" | "needsUTurn" | "uTurnBlocked">;
 interface CachedRoute {
   atMs: number;
-  route: Omit<ActiveRouteSummary, "etaAt">;
+  route: RouteBase;
 }
 const routeCache = new Map<string, CachedRoute>();
 /** Test seam. */
@@ -121,7 +127,7 @@ export async function buildActiveLoadState(client: SupabaseClient, companyId: st
   const stopsRes = await client.from("load_stops").select("*").eq("company_id", companyId).eq("load_id", load.id).is("deleted_at", null).order("seq", { ascending: true });
   // Stop records are optional (and the table may predate a deployment): an unreadable list falls back to the load's own text.
   const stops = stopsRes.error ? [] : ((stopsRes.data ?? []) as LoadStop[]);
-  const next = pickNextStop(load, stops, todayEastern(now));
+  const next = pickNextStop(load, stops, now, todayEastern(now));
 
   const position: StartPosition | null = deps.devicePosition
     ? { lat: deps.devicePosition.lat, lng: deps.devicePosition.lng, headingDeg: deps.devicePosition.headingDeg ?? null, speedMph: deps.devicePosition.speedMph ?? null, source: "device", recordedAt: asOf, ageSeconds: 0 }
@@ -175,14 +181,17 @@ export async function buildActiveLoadState(client: SupabaseClient, companyId: st
     if (truck) vehicle = { heightIn: truck.height_in, lengthIn: truck.length_in, weightLbs: truck.weight_lbs };
   }
 
-  const key = `${companyId}|${cell(position.lat)},${cell(position.lng)}|${point.lat.toFixed(5)},${point.lng.toFixed(5)}|${load.truck_id ?? "-"}`;
+  const headingBucket = position.speedMph !== null && position.speedMph >= 8 && position.headingDeg !== null ? Math.round(position.headingDeg / 45) % 8 : "-";
+  const key = `${companyId}|${cell(position.lat)},${cell(position.lng)}|${headingBucket}|${point.lat.toFixed(5)},${point.lng.toFixed(5)}|${load.truck_id ?? "-"}`;
   const hit = routeCache.get(key);
-  let base: Omit<ActiveRouteSummary, "etaAt">;
+  let base: RouteBase;
   if (hit && now.getTime() - hit.atMs < ROUTE_CACHE_MS) {
     base = hit.route;
   } else {
     try {
-      const r = await (deps.routing ?? defaultRoutingProvider()).getRoute({ lat: position.lat, lng: position.lng }, point, vehicle);
+      // The truck's direction of travel goes to the engine (those that can use it start the route that way instead of reversing).
+      const moving = position.speedMph !== null && position.speedMph >= 8 && position.headingDeg !== null;
+      const r = await (deps.routing ?? defaultRoutingProvider()).getRoute({ lat: position.lat, lng: position.lng }, point, vehicle, { headingDeg: moving ? position.headingDeg : null });
       base = {
         distanceMiles: Math.round(r.distanceMiles * 10) / 10,
         durationMinutes: Math.round(r.durationMinutes),
@@ -201,7 +210,15 @@ export async function buildActiveLoadState(client: SupabaseClient, companyId: st
       return state;
     }
   }
-  state.route = { ...base, etaAt: new Date(now.getTime() + base.durationMinutes * 60_000).toISOString() };
+  // U-turn rule (owner 2026-11-10): no U-turns while the load has a trailer on it. Checked on the RESULT, whatever engine served it.
+  // (A car-profile route carries no turn list, so for it only the starts-back-the-way-he-came check applies; it is never guided on anyway.)
+  const uTurn = checkUTurn(base, position.headingDeg, position.speedMph);
+  state.route = {
+    ...base,
+    etaAt: new Date(now.getTime() + base.durationMinutes * 60_000).toISOString(),
+    needsUTurn: uTurn.needsUTurn,
+    uTurnBlocked: uTurn.needsUTurn && state.load!.trailering,
+  };
   return state;
 }
 
@@ -226,6 +243,7 @@ export function describeActiveLoadState(s: ActiveLoadState): string {
       `ROUTE from the truck's ${s.position?.source === "device" ? "current position (this device)" : `last known position (${Math.round((s.position?.ageSeconds ?? 0) / 60)} min old)`}: ${s.route.distanceMiles.toLocaleString("en-US")} miles, about ${hours > 0 ? `${hours} h ` : ""}${mins} min of driving, ETA ${etTime(s.route.etaAt)} if he drives straight through (no breaks counted). Routed by ${s.route.providerName}.`,
     );
     if (!s.route.truckLegal) lines.push(s.route.notTruckLegalNotice ?? NOT_TRUCK_LEGAL_NOTICE);
+    if (s.route.uTurnBlocked) lines.push("This route starts with (or contains) a U-turn, which is NOT allowed with a trailer on. Do not tell him to take it - he should keep going and it will route again from further on.");
   } else if (s.routeUnavailableReason) {
     lines.push(`ROUTE: none - ${s.routeUnavailableReason}`);
   }

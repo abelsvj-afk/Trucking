@@ -26,6 +26,7 @@ import {
   metricRestrictions,
   normalizeManeuvers,
   RoutingUnavailableError,
+  type RouteOptions,
   type RouteResult,
   type RoutingProvider,
   type VehicleProfile,
@@ -108,7 +109,7 @@ export class ValhallaRoutingProvider implements RoutingProvider {
 
   constructor(private readonly url: string = DEFAULT_VALHALLA_URL) {}
 
-  async getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null): Promise<RouteResult> {
+  async getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null, options?: RouteOptions): Promise<RouteResult> {
     const metric = metricRestrictions(vehicle);
     const truck: ValhallaTruckOptions = {};
     if (metric.heightMeters !== undefined) truck.height = metric.heightMeters;
@@ -117,7 +118,10 @@ export class ValhallaRoutingProvider implements RoutingProvider {
 
     const body: Record<string, unknown> = {
       locations: [
-        { lat: from.lat, lon: from.lng },
+        // Valhalla's documented `heading` / `heading_tolerance` on a location: start the route in the truck's direction of travel.
+        typeof options?.headingDeg === "number" && Number.isFinite(options.headingDeg)
+          ? { lat: from.lat, lon: from.lng, heading: Math.round(((options.headingDeg % 360) + 360) % 360), heading_tolerance: 60 }
+          : { lat: from.lat, lon: from.lng },
         { lat: to.lat, lon: to.lng },
       ],
       costing: "truck",

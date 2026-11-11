@@ -8,7 +8,7 @@ import { RoutingUnavailableError, type RouteResult } from "@/services/integratio
 import type { Load, LoadStop } from "@/types/entities";
 
 const NOW = new Date("2026-11-10T18:00:00Z"); // 1:00 PM Eastern
-const load = (o: Partial<Load> = {}): Load => ({ id: "L1", status: "confirmed", origin: "Joplin, MO", destination: "Tampa, FL", pickup_date: "2026-11-10", delivery_date: "2026-11-12", truck_id: "T1", trailer_id: "TR1", trip_number: "1234", deleted_at: null, ...o }) as Load;
+const load = (o: Partial<Load> = {}): Load => ({ pickup_window_end: null, id: "L1", status: "confirmed", origin: "Joplin, MO", destination: "Tampa, FL", pickup_date: "2026-11-10", delivery_date: "2026-11-12", truck_id: "T1", trailer_id: "TR1", trip_number: "1234", deleted_at: null, ...o }) as Load;
 const stop = (o: Partial<LoadStop>): LoadStop => ({ id: "S1", load_id: "L1", seq: 1, kind: "pickup", name: "Acme DC", address: "100 Dock Rd, Joplin, MO", appointment_at: null, appointment_tz: null, arrived_at: null, departed_at: null, approved_at: null, notes: null, deleted_at: null, ...o }) as LoadStop;
 
 /** A tiny in-memory stand-in for the tables the builder reads, plus the geocode_cache upsert. */
@@ -45,16 +45,34 @@ beforeEach(() => { clearActiveRouteCache(); geocoding.geocode.mockClear(); });
 describe("pickNextStop", () => {
   it("is the first stop he has not left; an arrived-not-left stop is still current", () => {
     const stops = [stop({ id: "a", seq: 1, departed_at: "2026-11-10T15:00:00Z" }), stop({ id: "b", seq: 2, kind: "delivery", arrived_at: "2026-11-10T17:00:00Z" }), stop({ id: "c", seq: 3, kind: "delivery" })];
-    expect(pickNextStop(load(), stops, "2026-11-10")).toMatchObject({ source: "stop", stopId: "b", arrived: true, kind: "delivery" });
+    expect(pickNextStop(load(), stops, NOW, "2026-11-10")).toMatchObject({ source: "stop", stopId: "b", arrived: true, kind: "delivery" });
+  });
+  it("a pickup marked left wins over every date rule", () => {
+    const stops = [stop({ id: "a", seq: 1, departed_at: "2026-11-10T15:00:00Z" }), stop({ id: "b", seq: 2, kind: "delivery" })];
+    expect(pickNextStop(load({ pickup_window_end: "2026-11-12T00:00:00Z" }), stops, NOW, "2026-11-10")).toMatchObject({ stopId: "b", kind: "delivery" });
   });
   it("every stop left = no next stop", () => {
-    expect(pickNextStop(load(), [stop({ departed_at: "x" })], "2026-11-10")).toBeNull();
+    expect(pickNextStop(load(), [stop({ departed_at: "x" })], NOW, "2026-11-10")).toBeNull();
   });
-  it("without stop records it uses the load's text by date, and says so", () => {
-    expect(pickNextStop(load(), [], "2026-11-10")).toMatchObject({ source: "load_text", kind: "pickup", address: "Joplin, MO" });
-    const after = pickNextStop(load(), [], "2026-11-11")!;
+  it("without stop records it stays on the origin until the pickup WINDOW ENDS, then flips - and says the basis", () => {
+    const l = load({ pickup_window_end: "2026-11-10T19:00:00Z" }); // window ends 2:00 PM Eastern; NOW is 1:00 PM
+    const before = pickNextStop(l, [], NOW, "2026-11-10")!;
+    expect(before).toMatchObject({ source: "load_text", kind: "pickup", address: "Joplin, MO" });
+    expect(before.basis).toMatch(/until the pickup appointment window ends/);
+    const after = pickNextStop(l, [], new Date("2026-11-10T19:00:01Z"), "2026-11-10")!;
     expect(after).toMatchObject({ kind: "delivery", address: "Tampa, FL" });
-    expect(after.basis).toMatch(/no stop records/);
+    expect(after.basis).toMatch(/window has ended/);
+  });
+  it("on the pickup day with a window still open it does NOT point at the delivery (freight still on the dock)", () => {
+    const l = load({ pickup_date: "2026-11-09", pickup_window_end: "2026-11-10T23:00:00Z" });
+    expect(pickNextStop(l, [], NOW, "2026-11-10")).toMatchObject({ kind: "pickup" });
+  });
+  it("with no window it uses the end of the pickup date; with nothing it stays on the origin", () => {
+    expect(pickNextStop(load(), [], NOW, "2026-11-10")).toMatchObject({ kind: "pickup" });
+    expect(pickNextStop(load(), [], NOW, "2026-11-11")).toMatchObject({ kind: "delivery" });
+    const none = pickNextStop(load({ pickup_date: null }), [], NOW, "2026-12-01")!;
+    expect(none.kind).toBe("pickup");
+    expect(none.basis).toMatch(/no stop records, pickup window or pickup date/);
   });
   it("trailering = the active load has a trailer", () => {
     expect(isTrailering(load())).toBe(true);
@@ -77,7 +95,7 @@ describe("buildActiveLoadState: one source of truth", () => {
     expect(s.route).toMatchObject({ distanceMiles: 412.3, durationMinutes: 400, truckLegal: true, guidanceAllowed: true, notTruckLegalNotice: null });
     expect(s.route!.etaAt).toBe(new Date(NOW.getTime() + 400 * 60_000).toISOString());
     expect(s.route!.maneuvers).toHaveLength(1);
-    expect(d.routing.getRoute).toHaveBeenCalledWith({ lat: 37.08, lng: -94.51 }, { lat: 37.1, lng: -94.5 }, { heightIn: 162, lengthIn: 840, weightLbs: 78000 });
+    expect(d.routing.getRoute).toHaveBeenCalledWith({ lat: 37.08, lng: -94.51 }, { lat: 37.1, lng: -94.5 }, { heightIn: 162, lengthIn: 840, weightLbs: 78000 }, { headingDeg: null }); // parked: no heading sent
     const text = describeActiveLoadState(s);
     expect(text).toContain("412.3 miles");
     expect(text).toMatch(/ETA Tue 7:40 PM ET/); // Eastern, never UTC
@@ -178,5 +196,24 @@ describe("Abel's read path: active_load_status", () => {
     const broken = { from: () => { throw new Error("db down"); } };
     const out = await buildNavigationTools({ client: broken, companyId: "c" } as never, deps())[0]!.run({});
     expect(out).toMatch(/couldn't be read/);
+  });
+});
+
+describe("U-turn rule on the server state (no U-turns while the load has a trailer)", () => {
+  const moving = { company_id: "c", lat: 37.08, lng: -94.51, heading_deg: 90, speed_mph: 55, recorded_at: new Date(NOW.getTime() - 60_000).toISOString() };
+  const uturnRoute = route({ maneuvers: [{ instruction: "Make a U-turn onto I-44", distanceMiles: 1, atFraction: 0 }] });
+  it("trailering + a labelled U-turn = blocked, and Abel is told not to send him that way", async () => {
+    const s = await buildActiveLoadState(fakeClient({ loads: [load()], driver_positions: [moving] }).client, "c", deps({ routing: { name: "r", getRoute: vi.fn(async () => uturnRoute) } }));
+    expect(s.route).toMatchObject({ needsUTurn: true, uTurnBlocked: true });
+    expect(describeActiveLoadState(s)).toMatch(/NOT allowed with a trailer on/);
+  });
+  it("bobtail + the same route = allowed", async () => {
+    const s = await buildActiveLoadState(fakeClient({ loads: [load({ trailer_id: null })], driver_positions: [moving] }).client, "c", deps({ routing: { name: "r", getRoute: vi.fn(async () => uturnRoute) } }));
+    expect(s.route).toMatchObject({ needsUTurn: true, uTurnBlocked: false });
+  });
+  it("a moving truck's heading is sent to the engine", async () => {
+    const d = deps();
+    await buildActiveLoadState(fakeClient({ loads: [load()], driver_positions: [moving] }).client, "c", d);
+    expect((d.routing.getRoute as ReturnType<typeof vi.fn>).mock.calls[0]![3]).toEqual({ headingDeg: 90 });
   });
 });

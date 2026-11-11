@@ -1,8 +1,11 @@
 // The active load's NEXT STOP and whether the truck is pulling a trailer (active-load navigation, point 1). Pure.
 //  - With stop records (load_stops): the next stop is the first, in sequence, that he has not LEFT (departed_at is null). A stop he
 //    has arrived at but not left is still the current stop. Every stop left = no next stop (the load is waiting to be completed).
-//  - Without stop records: the load only has its origin and destination text. Nothing records the pickup, so the rule is by date and
-//    is labelled as such: before or on the pickup date -> the origin (pickup); after it -> the destination. No pickup date -> origin.
+//  - Without stop records (owner rule 2026-11-10): a pickup marked done always wins - and the only place a pickup is marked done is a
+//    stop record, so with none the route stays aimed at the ORIGIN until the pickup appointment window has ENDED, then flips to the
+//    destination (flipping at the start of the pickup day could point him at the delivery while the freight is still on the dock).
+//    The window end is the load's pickup_window_end; with no window recorded it is the end of the pickup date on the Eastern
+//    calendar; with neither it stays on the origin. The state always says which basis it used.
 //  - Trailering (owner decision 2026-11-10): the active load has a trailer on it. No trailer on the load = bobtail.
 
 import type { Load, LoadStop } from "@/types/entities";
@@ -26,7 +29,12 @@ export interface NextStop {
 
 const day = (value: string | null | undefined): string | null => (value ? value.slice(0, 10) : null);
 
-export function pickNextStop(load: Pick<Load, "origin" | "destination" | "pickup_date">, stops: LoadStop[], todayIso: string): NextStop | null {
+export function pickNextStop(
+  load: Pick<Load, "origin" | "destination" | "pickup_date" | "pickup_window_end">,
+  stops: LoadStop[],
+  now: Date,
+  todayIso: string,
+): NextStop | null {
   const live = stops.filter((s) => !s.deleted_at).sort((a, b) => a.seq - b.seq);
   if (live.length > 0) {
     const next = live.find((s) => !s.departed_at);
@@ -38,16 +46,29 @@ export function pickNextStop(load: Pick<Load, "origin" | "destination" | "pickup
       appointmentAt: next.appointment_at, appointmentTz: next.appointment_tz, arrived: Boolean(next.arrived_at), basis: null,
     };
   }
+  const windowEndMs = load.pickup_window_end ? Date.parse(load.pickup_window_end) : NaN;
   const pickup = day(load.pickup_date);
-  const toDestination = pickup !== null && todayIso > pickup;
+  let toDestination: boolean;
+  let basis: string;
+  if (Number.isFinite(windowEndMs)) {
+    toDestination = now.getTime() > windowEndMs;
+    basis = toDestination
+      ? "This load has no stop records, so I'm aiming at its destination: the pickup appointment window has ended. Add stops and mark the pickup left to control this yourself."
+      : "This load has no stop records, so I'm aiming at its origin until the pickup appointment window ends.";
+  } else if (pickup !== null) {
+    toDestination = todayIso > pickup;
+    basis = toDestination
+      ? "This load has no stop records or pickup window, so I'm aiming at its destination: the pickup date has passed."
+      : "This load has no stop records or pickup window, so I'm aiming at its origin through the end of the pickup date.";
+  } else {
+    toDestination = false;
+    basis = "This load has no stop records, pickup window or pickup date, so I'm aiming at its origin.";
+  }
   const address = (toDestination ? load.destination : load.origin).trim();
   if (!address) return null;
   return {
     source: "load_text", stopId: null, seq: null, kind: toDestination ? "delivery" : "pickup", name: null, address,
-    appointmentAt: null, appointmentTz: null, arrived: false,
-    basis: toDestination
-      ? "This load has no stop records, so I'm using its destination (the pickup date has passed)."
-      : "This load has no stop records, so I'm using its origin (the pickup date hasn't passed).",
+    appointmentAt: toDestination ? null : (load.pickup_window_end ?? null), appointmentTz: null, arrived: false, basis,
   };
 }
 

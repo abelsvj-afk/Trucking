@@ -65,7 +65,16 @@ export default function DutyHud() {
     <>
       {/* MAP-FIRST HOME (owner ruling 2026-11-07): the map is the hero of Home; the duty status and the clocks sit directly under it,
           and the pay preview follows them (page.tsx), so hours and pay stay in view without scrolling past the map. */}
-      <HomePositionCard position={position} headingDeg={headingDeg ?? null} speedMph={speedMph ?? null} motion={motion} hero />
+      <HomePositionCard
+        position={position}
+        headingDeg={headingDeg ?? null}
+        speedMph={speedMph ?? null}
+        motion={motion}
+        hero
+        // Display only: the map's ETA line compares against the clocks already computed here. No hours math is changed.
+        driveLeftMs={clocks?.state === "ready" ? (clocks.clocks.find((c) => c.key === "drive")?.remainingMs ?? null) : null}
+        windowLeftMs={clocks?.state === "ready" ? (clocks.clocks.find((c) => c.key === "window")?.remainingMs ?? null) : null}
+      />
 
     <section aria-label="Duty status and clocks" className="hud">
       {motion === "moving" && (
