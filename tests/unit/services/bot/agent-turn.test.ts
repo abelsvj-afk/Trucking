@@ -1541,3 +1541,174 @@ describe("news_digest (owner 2026-11-07)", () => {
     expect(asked).toMatch(/NPR Politics|BBC US & Canada|The Hill|Fox News Politics/);
   });
 });
+
+describe("reasoning layer: contextual (owner GO 2026-11-10)", () => {
+  it("the prompt carries the contextual rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/CONTEXT: hold the whole thread/);
+    expect(sent).toMatch(/never ask him for a fact he already gave/i);
+    expect(sent).toMatch(/name both and ask which/);
+  });
+});
+
+describe("reasoning layer: causal (owner GO 2026-11-10)", () => {
+  it("the prompt carries the causal rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/CAUSE BEFORE CONCLUSION/);
+    expect(sent).toMatch(/check the likeliest cause with a tool/i);
+    expect(sent).toMatch(/never invent a cause/i);
+  });
+});
+
+describe("reasoning layer: practical (owner GO 2026-11-10)", () => {
+  it("the prompt extends tool selection with practical rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/PRACTICAL: fit the action to the moment/);
+    expect(sent).toMatch(/never run a write when a read answers/i);
+    expect(sent).toMatch(/fewest tool calls/i);
+  });
+});
+
+describe("reasoning layer: self-correction (owner GO 2026-11-10)", () => {
+  const LOAD1874 = "50dde25b-6aed-42e5-b63f-fffa64fd7b56";
+  const livePending = (db: Record<string, Row[]>) => (db.bot_pending_actions ?? []).filter((r) => !r.deleted_at);
+
+  it("the prompt carries the self-correction rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/OWN YOUR MISTAKES/);
+    expect(sent).toMatch(/name the error plainly/i);
+    expect(sent).toMatch(/never defend/i);
+  });
+
+  it("Trip-1874 shape: the wrong parse is fixed as a staged proposal - named, not silently rewritten", async () => {
+    const seed = baseSeed(true);
+    seed.loads = [{ id: LOAD1874, company_id: COMPANY, trip_number: "1874", deleted_at: null }];
+    seed.load_stops = [
+      { id: "s1", company_id: COMPANY, load_id: LOAD1874, seq: 1, kind: "pickup", name: "Kontoor Panama City", deleted_at: null },
+      { id: "s2", company_id: COMPANY, load_id: LOAD1874, seq: 2, kind: "delivery", name: "Kontoor Panama City", deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          {
+            id: "fix",
+            name: "set_load_stops",
+            arguments: JSON.stringify({
+              load_id: LOAD1874,
+              confirmation: "propose",
+              stops: [
+                { seq: 1, kind: "pickup", name: "Kontoor Panama City" },
+                { seq: 2, kind: "delivery", name: "Kontoor Seminole" },
+              ],
+            }),
+          },
+        ],
+      },
+      { text: "I had that wrong - the delivery is Seminole, not Panama City.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("no - that delivery is Seminole, Oklahoma, not Panama City"));
+    const waiting = livePending(db).filter((r) => r.tool_name === "set_load_stops");
+    expect(waiting).toHaveLength(1);
+    // nothing executed yet: the wrong stops stay saved until his yes lands
+    expect((db.load_stops ?? []).filter((s) => !s.deleted_at)).toHaveLength(2);
+    expect(out.reply).toContain("Seminole");
+  });
+});
+
+describe("reasoning layer: episodic (owner GO 2026-11-10)", () => {
+  it("the prompt carries the episodic rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/EPISODES, NOT JUST FACTS/);
+    expect(sent).toMatch(/surface the connection ONCE/i);
+    expect(sent).toMatch(/never present a memory's .* as a current fact/i);
+  });
+});
+
+describe("reasoning layer: theory of mind, first-order (owner GO 2026-11-10)", () => {
+  it("the prompt carries the theory-of-mind rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/WHAT HE KNOWS/);
+    expect(sent).toMatch(/NOT a message he has seen/);
+    expect(sent).toMatch(/never claim to know what a broker/i);
+  });
+});
+
+describe("reasoning layer: value learning (owner GO 2026-11-10)", () => {
+  it("the prompt carries the value-learning rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/LEARN WHAT HE VALUES FROM WHAT HE DOES/);
+    expect(sent).toMatch(/corrections and choices outrank/i);
+    expect(sent).toMatch(/never updated silently/i);
+  });
+});
+
+describe("reasoning layer: consolidation, usage side (owner GO 2026-11-10)", () => {
+  it("the prompt carries the consolidation-usage rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/USE WHAT YOU ALREADY LEARNED/);
+    expect(sent).toMatch(/the fresh result wins for today/i);
+    expect(sent).toMatch(/flag the conflict/i);
+  });
+});
+
+describe("reasoning layer: knowing when to shut up, conversation side (owner GO 2026-11-10)", () => {
+  it("the prompt carries the restraint rules", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toMatch(/KNOW WHEN TO STOP/);
+    expect(sent).toMatch(/answer the question he asked/i);
+    expect(sent).toMatch(/offer it for when he's parked/i);
+  });
+
+  it("every reasoning block is assembled exactly once, and the tool registry is unchanged", async () => {
+    const { buildBotTools } = await import("@/services/bot/tools");
+    const { client } = fakeClient(baseSeed(true));
+    const store = telegramStore(client);
+    // Measured on main da5bcea before this branch: 146 tools. Instruction-layer only - no new tools.
+    expect(buildBotTools(store)).toHaveLength(146);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, store, input("hello"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    for (const marker of [
+      "CONTEXT: hold the whole thread",
+      "CAUSE BEFORE CONCLUSION",
+      "PRACTICAL: fit the action to the moment",
+      "OWN YOUR MISTAKES",
+      "EPISODES, NOT JUST FACTS",
+      "WHAT HE KNOWS",
+      "LEARN WHAT HE VALUES FROM WHAT HE DOES",
+      "USE WHAT YOU ALREADY LEARNED",
+      "KNOW WHEN TO STOP",
+    ]) {
+      expect(sent.split(marker).length - 1, marker).toBe(1);
+    }
+  });
+});
