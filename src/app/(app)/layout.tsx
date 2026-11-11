@@ -49,7 +49,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     href={tab.href}
                     aria-current={isActive ? "page" : undefined}
                   >
-                    <Icon size={22} strokeWidth={1.75} aria-hidden="true" />
+                    <Icon size={19} aria-hidden="true" />
                     <span>{tab.label}</span>
                   </Link>
                 </li>

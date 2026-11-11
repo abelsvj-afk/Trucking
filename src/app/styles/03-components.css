@@ -17,7 +17,7 @@ nav[aria-label="Primary"] {
   left: 0;
   right: 0;
   z-index: 50;
-  background-color: rgba(255, 255, 255, 0.92);
+  background-color: color-mix(in srgb, var(--color-surface) 97%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--color-border);
@@ -28,10 +28,10 @@ nav[aria-label="Primary"] {
 nav[aria-label="Primary"] ul {
   list-style: none;
   margin: 0 auto;
-  padding: 0.5rem 0.5rem;
+  padding: 0.5rem 0.375rem;
   display: flex;
   max-width: 40rem;
-  gap: 0.25rem;
+  gap: 0.125rem;
 }
 
 nav[aria-label="Primary"] li {
@@ -47,7 +47,7 @@ nav[aria-label="Primary"] a {
   min-height: 52px;
   border-radius: 0.75rem;
   color: var(--color-text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.65625rem;
   font-weight: 600;
   text-decoration: none;
   transition: background-color 0.15s ease, color 0.15s ease;
@@ -649,7 +649,6 @@ a.page-action:hover,
 }
 
 .news-banner {
-  height: 13.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -657,7 +656,6 @@ a.page-action:hover,
 }
 
 .news-banner-item-zone {
-  height: 5.5rem;
   overflow: hidden;
 }
 
@@ -1147,19 +1145,20 @@ nav[aria-label="Primary"] a span {
 
 .hud-status {
   margin: 0 0 0.5rem;
-  font-size: 1.125rem;
+  font-size: var(--text-heading);
+  font-weight: 700;
 }
 
 .hud-rings {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
 
-@media (min-width: 40rem) {
+@media (max-width: 22rem) {
   .hud-rings {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1169,9 +1168,9 @@ nav[aria-label="Primary"] a span {
   flex-direction: column;
   align-items: center;
   padding: 0.5rem 0.25rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-  background: var(--color-surface);
+  border: none;
+  border-radius: 0.625rem;
+  background: var(--color-surface-raised);
   --hud-tone: var(--color-success);
 }
 
@@ -1184,12 +1183,12 @@ nav[aria-label="Primary"] a span {
   --hud-tone: var(--color-danger);
 }
 
-/* A tappable ring is a button: keep the ring look, add the affordance (Block B explainers). */
+/* A tappable clock is a button: keep the flat tile look, add the affordance (Block B explainers). */
 button.hud-ring {
   font: inherit;
   color: inherit;
   cursor: pointer;
-  min-height: 9.5rem;
+  min-height: 3.5rem;
   width: 100%;
 }
 .hud-ring-info {
@@ -1217,8 +1216,7 @@ button.hud-ring {
 }
 
 .hud-ring-svg {
-  width: 7rem;
-  height: 7rem;
+  display: none;
 }
 
 .hud-ring-track {
@@ -1236,17 +1234,25 @@ button.hud-ring {
 }
 
 .hud-ring-time {
-  position: absolute;
-  top: 2.9rem;
-  font-size: 1.125rem;
+  order: -1;
+  font-size: 1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--hud-tone);
+  color: var(--color-text);
+}
+
+.hud-tone-warn .hud-ring-time,
+.hud-tone-critical .hud-ring-time,
+.hud-tone-expired .hud-ring-time {
+  color: var(--color-primary);
 }
 
 .hud-ring-label {
-  font-size: 0.875rem;
-  color: var(--color-text-muted-strong);
+  font-size: 0.65625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
   text-align: center;
 }
 
@@ -1258,8 +1264,8 @@ button.hud-ring {
 
 .hud-buttons {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
   margin: 0.75rem 0;
 }
 
@@ -1269,38 +1275,28 @@ button.hud-ring {
 }
 
 .hud-buttons .hud-status-btn {
-  min-height: 56px;
-  padding: 0.5rem 0.75rem;
-  font-size: 1rem;
-  font-weight: 700;
+  min-height: 48px;
+  padding: 0.5rem 0.25rem;
+  font-size: 0.84375rem;
+  font-weight: 600;
   line-height: 1.2;
   color: var(--color-text);
-  background: var(--color-surface);
-  border: 2px solid var(--color-border-strong);
-  border-left-width: 8px;
-  border-radius: 0.75rem;
-}
-
-.hud-buttons .hud-btn-driving {
-  border-left-color: var(--color-danger);
-}
-
-.hud-buttons .hud-btn-on_duty {
-  border-left-color: var(--color-warning);
-}
-
-.hud-buttons .hud-btn-off_duty {
-  border-left-color: var(--color-success);
-}
-
-.hud-buttons .hud-btn-sleeper {
-  border-left-color: var(--color-primary);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.625rem;
 }
 
 .hud-buttons .hud-status-btn[aria-pressed="true"] {
-  background: var(--color-primary-light);
-  outline: 3px solid var(--color-primary);
-  outline-offset: 2px;
+  background: var(--color-primary-button);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary-button);
+  outline: none;
+}
+
+@media (max-width: 22rem) {
+  .hud-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .hud-sheet {
@@ -2287,8 +2283,8 @@ button[data-motion-locked="true"] {
 .home-position-hero {
   margin: 0 -1rem;
   padding: 0;
+  border: none;
   border-radius: 0;
-  box-shadow: none;
   background: transparent;
 }
 .home-position-hero .row-sub {
@@ -2298,9 +2294,9 @@ button[data-motion-locked="true"] {
   position: relative;
   margin: 0.75rem 0;
   padding: 1rem;
-  border-radius: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
   background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
 }
 .home-position-hero.home-position-empty p {
   padding: 0;
@@ -2384,7 +2380,6 @@ a.roadside-entry {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   padding: var(--space-4);
-  box-shadow: var(--shadow-sm);
 }
 .list-row {
   display: flex; align-items: center; gap: var(--space-3);
@@ -2542,6 +2537,68 @@ a.roadside-entry {
   min-height: 44px; box-shadow: none;
 }
 .home-map-ctl button span[aria-hidden] { color: var(--color-gold-bright); }
+
+/* --- HOME MOCKUP-TRUE (owner order 2026-11-10): the approved
+   mockup's face for Home — gradient Driver pay card, app-bar brand
+   header, and the mockup's news section head. Home-scoped only
+   (body class set by the Home page); the mockup's tokens already
+   drive the rest of the face through the shared rules. --- */
+/* The mockup's tab bar is FLAT: near-black bar, gold-bright text on the
+   active tab, no tinted pill behind it. */
+nav[aria-label="Primary"] a[aria-current="page"] {
+  background-color: transparent;
+}
+
+.home-pay-card {
+  background: linear-gradient(180deg, #1c1606, var(--color-surface) 70%);
+}
+.home-pay-card h2 {
+  font-size: var(--text-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+.home-pay-card .active-load-route {
+  font-size: var(--text-display);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+.home-pay-card .active-load-route strong {
+  font-size: inherit;
+  font-weight: inherit;
+}
+.home-pay-card .row-sub {
+  font-size: var(--text-small);
+  color: var(--color-text-muted-strong);
+  line-height: 1.5;
+}
+
+body.home-face .page-header {
+  align-items: center;
+}
+body.home-face .page-header h1 {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-primary);
+}
+body.home-face .page-purpose {
+  font-size: var(--text-small);
+}
+
+.home-news-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.home-news-head .news-banner-new {
+  font-size: var(--text-small);
+}
 .home-hud-fullscreen {
   position: fixed; inset: 0; z-index: 60; overflow-y: auto;
   background: var(--color-surface-alt); padding-bottom: var(--space-5);
