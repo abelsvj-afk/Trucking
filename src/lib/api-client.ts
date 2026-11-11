@@ -280,6 +280,17 @@ export const apiClient = {
     ),
   loadEconomics: (loadId: string) => request<{ data: LoadEconomics }>(`/api/v1/loads/${loadId}/economics`),
   paySummary: () => request<{ data: PaySummary }>("/api/v1/pay-summary"),
+  /** Active-load navigation: the active load, its next stop and the route to it. `fix` = this device's position; omit to use the newest Tracker/Telegram one. */
+  activeLoad: (fix?: { lat: number; lng: number; headingDeg?: number | null; speedMph?: number | null } | null) => {
+    const qs = new URLSearchParams();
+    if (fix) {
+      qs.set("lat", String(fix.lat));
+      qs.set("lng", String(fix.lng));
+      if (typeof fix.headingDeg === "number" && Number.isFinite(fix.headingDeg)) qs.set("heading", String(Math.round(((fix.headingDeg % 360) + 360) % 360)));
+      if (typeof fix.speedMph === "number" && Number.isFinite(fix.speedMph)) qs.set("speed", String(Math.max(0, Math.min(150, Math.round(fix.speedMph)))));
+    }
+    return request<{ data: import("@/services/navigation/active-load-state").ActiveLoadState }>(`/api/v1/active-load${qs.size ? `?${qs}` : ""}`);
+  },
   // Truck Fund + money visibility (docs/design/driver-mvp.md §9).
   truckFund: () => request<TruckFundOverview>("/api/v1/truck-fund"),
   updateFundSettings: (body: Record<string, unknown>) =>
