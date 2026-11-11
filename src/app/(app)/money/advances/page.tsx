@@ -200,7 +200,7 @@ export default function CashAdvancesPage() {
         </section>
       ))}
       <p className="row-sub">
-        See the net in <Link href="/money/pay">Projected pay</Link> and <Link href="/money/paychecks">Paychecks</Link>. An advance recorded
+        See the net in <Link href="/money/pay">Driver pay</Link> and <Link href="/money/paychecks">Paychecks</Link>. An advance recorded
         against the wrong week? Delete it and record it with the date you actually took it.
       </p>
     </div>

@@ -30,6 +30,7 @@ import {
   computeMaintenanceOutlook,
   formatMaintenanceOutlook,
 } from "@/services/fleet/maintenance-outlook";
+import { documentModelToText, type DocumentModel } from "@/lib/document-templates";
 
 type Row = Record<string, unknown>;
 
@@ -511,7 +512,7 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
         const id = String(args.document_id ?? "");
         let withText = await client
           .from("documents")
-          .select(`${DOCUMENT_BASE_COLUMNS}, extracted_text`)
+          .select(`${DOCUMENT_BASE_COLUMNS}, extracted_text, model`)
           .eq("id", id)
           .eq("company_id", companyId)
           .maybeSingle();
@@ -535,7 +536,15 @@ export function buildExtendedReadTools(store: BotBrainStore): AgentTool[] {
           `Document [${r.id}]: ${r.file_name} (attached to ${r.related_entity_type} ${r.related_entity_id}, added ${String(r.uploaded_at).slice(0, 10)}).`,
         ];
         const text = str(r.extracted_text);
-        if (!textAvailable) {
+        // Phase 3: a generated document's stored model IS its text —
+        // prefer it over extraction (generated PDFs have no extraction).
+        const model = r.model as DocumentModel | null | undefined;
+        const modelText = model && typeof model.title === "string" && Array.isArray(model.sections)
+          ? documentModelToText(model).join("\n")
+          : null;
+        if (modelText) {
+          lines.push(`Document text (from the document itself):\n${modelText.slice(0, 4000)}${modelText.length > 4000 ? "\n[truncated]" : ""}`);
+        } else if (!textAvailable) {
           lines.push("Extracted text: not available yet - document text extraction hasn't landed in the database, so I can only see the file's metadata, not its content.");
         } else if (text) {
           lines.push(`Extracted text:\n${text.slice(0, 4000)}${text.length > 4000 ? "\n[truncated]" : ""}`);

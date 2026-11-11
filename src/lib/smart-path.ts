@@ -617,7 +617,7 @@ export function checkRoute(input: RouteCheckInput): RouteCheckResult {
 
   if (!input.clocks.fromLogs) {
     warnings.push(
-      "No duty logs in the app yet - this plan assumes fresh clocks (full 11/14/70 available). Log your duty status in Fleet → Hours of service to plan against your real clocks. The truck's ELD is the legal record either way.",
+      "No duty logs in the app yet - this plan assumes fresh clocks (full 11/14/70 available). Log your duty status in Fleet → Day log to plan against your real clocks. The truck's ELD is the legal record either way.",
     );
   }
 

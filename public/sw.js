@@ -22,9 +22,16 @@
 //   Path) still gets a fresh shell. The cached "/" is served ONLY
 //   when the network fetch fails outright (dead zone), preserving
 //   GAP's offline-outbox intent with a bounded fallback.
+// - HTML DOCUMENTS are never cache-first: every .html request is
+//   network-first with the same refresh semantics as a navigation.
+//   (Conformance fix D4, 2026-11-10: the entry HTML was cacheable
+//   below, so a client that had ever cached it could first-paint a
+//   pre-redesign shell — the old six-tile Home — until a later pass
+//   replaced it. Only content-hashed /_next chunks and icons may be
+//   cache-first; an HTML document is never one of those.)
 // - API traffic is NEVER intercepted; non-GET and cross-origin pass
 //   through. Location is never touched.
-const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-04-swstamp1" : "__BUILD_VERSION__";
+const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-10-conformance1" : "__BUILD_VERSION__";
 const CACHE = `trucking-os-shell-${BUILD_VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg", "/icons/icon.svg"];
 
@@ -53,9 +60,11 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
 
-  // Navigations: network-first; ANY successful navigation refreshes
-  // the cached shell; cached "/" only on outright network failure.
-  if (event.request.mode === "navigate") {
+  // Documents (navigations AND any other .html request): network-first;
+  // ANY successful document fetch refreshes the cached shell; cached "/"
+  // only on outright network failure. An HTML document must never be
+  // served cache-first (conformance fix D4).
+  if (event.request.mode === "navigate" || url.pathname.endsWith(".html")) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
@@ -77,11 +86,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Immutable static assets + shell files: cache-first.
+  // Immutable static assets + shell files: cache-first. HTML documents
+  // are excluded outright (D4) — SHELL holds no .html entries today and
+  // this guard keeps it that way even if one is ever added.
   const cacheable =
-    url.pathname.startsWith("/_next/static/") ||
-    url.pathname.startsWith("/icons/") ||
-    SHELL.includes(url.pathname);
+    !url.pathname.endsWith(".html") &&
+    (url.pathname.startsWith("/_next/static/") ||
+      url.pathname.startsWith("/icons/") ||
+      SHELL.includes(url.pathname));
   if (!cacheable) return;
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {

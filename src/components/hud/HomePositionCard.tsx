@@ -12,7 +12,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import Sheet from "@/components/Sheet";
 import { useNowTick } from "@/lib/use-now-tick";
 import { useActiveRoute } from "@/lib/use-active-route";
 import { useSpeedLimit } from "@/lib/use-speed-limit";
@@ -43,6 +44,10 @@ export default function HomePositionCard({
   speedMph: deviceSpeed = null,
   motion: deviceMotion = "unknown",
   hero = false,
+  collapsed = false,
+  onToggleCollapsed,
+  fullscreen = false,
+  onToggleFullscreen,
   driveLeftMs = null,
   windowLeftMs = null,
 }: {
@@ -52,10 +57,69 @@ export default function HomePositionCard({
   motion?: MotionState;
   /** The map is Home's main screen: taller, edge to edge, and it never silently vanishes. */
   hero?: boolean;
-  /** His real remaining clocks from the one HOS read (display only): the ETA line compares against them. null = not known. */
+  /**
+   * Phase 4 map controls (spec §2.4, owner addendum 2026-11-10): the
+   * collapse choice is the owner's stored preference, owned by
+   * DutyHud; full-screen is session-only state, also owned there.
+   * Collapsing hides the MAP BLOCK ONLY — the status/clocks/buttons
+   * under it (DutyHud's own section) always stay visible.
+   */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  /** Active-load navigation: his real remaining clocks from the one HOS read (display only) - the ETA line compares against them. */
   driveLeftMs?: number | null;
   windowLeftMs?: number | null;
 }) {
+  const [floatOpen, setFloatOpen] = useState(false);
+  const handle = hero ? (
+    <button
+      type="button"
+      className="home-map-handle"
+      aria-expanded={!collapsed}
+      onClick={onToggleCollapsed}
+    >
+      <span>Map — following your truck</span>
+      <span className="home-map-handle-chev">{collapsed ? "⌃ Show map" : "⌄ Hide map"}</span>
+    </button>
+  ) : null;
+  const floatSheet = floatOpen ? (
+    <Sheet title="Floating window" onClose={() => setFloatOpen(false)}>
+      <p>
+        The floating window — your map plus your duty status, floating over other apps — lives in the{" "}
+        <strong>Tracker app</strong>, not in this web page: a web page can&apos;t float over other apps.
+        It appears while tracking is on, once the Tracker build that carries it is installed on your
+        phone. Until that build is installed, there is no floating window — the full-screen button on
+        the map gives you the big map right here in the app.
+      </p>
+      <button type="button" onClick={() => setFloatOpen(false)}>
+        Got it
+      </button>
+    </Sheet>
+  ) : null;
+
+  // The map-surface controls (spec §2.4: ⤢ full-screen + Float sit ON
+  // the map surface). They render in EVERY hero state — live map and
+  // the no-fix off state alike (conformance fix D3: the off state used
+  // to drop them, leaving only the handle + a route link). In the off
+  // state full-screen enlarges the off-state card itself; Float opens
+  // the same honest Tracker-handoff sheet as the live state.
+  const mapControls = hero ? (
+    <div className="home-map-ctl">
+      <button
+        type="button"
+        aria-pressed={fullscreen}
+        onClick={onToggleFullscreen}
+      >
+        <span aria-hidden="true">⤢</span> {fullscreen ? "Exit full screen" : "Full screen"}
+      </button>
+      <button type="button" onClick={() => setFloatOpen(true)}>
+        <span aria-hidden="true">▣</span> Float
+      </button>
+    </div>
+  ) : null;
+
   const nowMs = useNowTick(5_000);
   // This device's own fix wins. Without one (just reopened, GPS warming up, permission off) fall back to
   // the position Telegram Live Location last reported - labelled as Telegram's, with its age.
@@ -84,14 +148,40 @@ export default function HomePositionCard({
     () => (position && route ? routeProgress({ lat: position.lat, lng: position.lng }, route.geometry) : null),
     [position, route],
   );
-  if (!position) return hero ? <NoFixCard /> : null;
+  // Collapsed (after every hook): the map block only — the handle
+  // stays so the same control brings the map back.
+  if (hero && collapsed) {
+    return (
+      <section aria-label="Where you are" className="home-position home-position-hero home-position-collapsed">
+        {handle}
+        {floatSheet}
+      </section>
+    );
+  }
+  if (!position)
+    return hero ? (
+      <>
+        {handle}
+        <NoFixCard controls={mapControls} fullscreen={fullscreen} />
+        {floatSheet}
+      </>
+    ) : null;
   const age = nowMs - position.atMs;
-  if (!fromServer && age > POSITION_FRESH_MS) return hero ? <NoFixCard /> : null;
+  if (!fromServer && age > POSITION_FRESH_MS)
+    return hero ? (
+      <>
+        {handle}
+        <NoFixCard controls={mapControls} fullscreen={fullscreen} />
+        {floatSheet}
+      </>
+    ) : null;
 
   const speedText = speedMph !== null && motion !== "stopped" ? String(Math.round(speedMph)) : motion === "stopped" ? "0" : "—";
   return (
     <section aria-label="Where you are" className={hero ? "home-position home-position-hero" : "home-position"}>
+      {handle}
       <div className="home-map-wrap">
+        {mapControls}
         <DriveMap
           geometry={route?.geometry ?? []}
           deadheadGeometry={[]}
@@ -108,7 +198,7 @@ export default function HomePositionCard({
           traveledGeometry={guidance?.onRoute ? guidance.traveled : progress?.onRoute ? progress.traveled : []}
           onUserPan={() => {}}
           night={false}
-          height={hero ? "clamp(220px, 50vh, 600px)" : "min(40vh, 340px)"}
+          height={hero ? (fullscreen ? "min(62vh, 720px)" : "clamp(220px, 50vh, 600px)") : "min(40vh, 340px)"}
           label={route ? "Map following your truck along your planned route" : "Map following your truck"}
         />
         <div className="home-map-overlay">
@@ -119,6 +209,7 @@ export default function HomePositionCard({
           </div>
         </div>
       </div>
+      {/* --- Active-load navigation: guidance lines. Plain elements only - no layout or styling of the Home surface is changed. --- */}
       {nav.route && !nav.route.truckLegal && (
         <p role="alert" data-testid="not-truck-legal">
           <strong>NOT TRUCK-LEGAL.</strong> Only a car route could be reached, so it ignores height, weight and truck restrictions. It is drawn for
@@ -174,6 +265,7 @@ export default function HomePositionCard({
         {fromServer ? "Last position from Telegram live location" : "Phone GPS"} · ±{Math.round(position.accuracyM)} m · {positionAgeText(age)} ·{" "}
         <Link href="/smart-path">{route ? "Route details" : "Plan a route"}</Link>
       </p>
+      {floatSheet}
     </section>
   );
 }
@@ -182,9 +274,23 @@ export default function HomePositionCard({
  * The map is Home's main screen, so when there is no fresh location it says WHY and how to fix it, instead of leaving a hole
  * (live audit 2026-11-07: the card simply was not there). Never a blank map or a guessed position.
  */
-function NoFixCard() {
+function NoFixCard({
+  controls,
+  fullscreen = false,
+}: {
+  /** The map-surface controls (⤢ + Float) — the off state keeps them
+   *  (spec §2.4; conformance fix D3). */
+  controls?: React.ReactNode;
+  /** Full-screen enlarges this card, same as it enlarges the map. */
+  fullscreen?: boolean;
+}) {
   return (
-    <section aria-label="Where you are" className="home-position home-position-hero home-position-empty">
+    <section
+      aria-label="Where you are"
+      className="home-position home-position-hero home-position-empty"
+      style={fullscreen ? { minHeight: "min(62vh, 720px)" } : undefined}
+    >
+      {controls}
       <p role="status">
         <strong>Map off — no fresh location.</strong> Allow location for this site in your browser, or share Telegram Live Location with
         Abel, and your truck appears here. Your hours and pay below are not affected.

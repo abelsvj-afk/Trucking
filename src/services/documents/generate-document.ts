@@ -106,6 +106,9 @@ export async function createDocumentFile(client: SupabaseClient, input: CreateDo
     situation: input.situation,
     source: "generated",
     generator: generator.id,
+    // Phase 3 (§2.3): store the model itself — the one source the Page
+    // face renders from. Tolerated absent until 00088 is applied.
+    model: input.model,
     // The document's own text rides along as its searchable content.
     caption: documentModelToText(input.model).join(" "),
   });

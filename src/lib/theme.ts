@@ -1,21 +1,28 @@
-// Theme choice — PARKED OWNER DECISION (d).
+// Theme choice — SETTLED BY THE OWNER 2026-11-10 (conformance fix D1).
 //
-// The audit (2026-11-01, Section D-3) recommended an in-app
-// Light / Dark / Auto choice in Settings. The owner has NOT settled
-// this decision yet; what ships here is the audit's recommended
-// default WITHOUT settling it: Auto, i.e. today's behavior where the
-// OS decides. To flip the shipped default later, change THEME_DEFAULT
-// below — that one line is the flip location. The Settings segmented
-// control writes the owner's pick to localStorage, and the pre-paint
-// init script in src/app/layout.tsx applies it as a data-theme
-// attribute that src/app/globals.css keys off:
+// History: the audit (2026-11-01, Section D-3) recommended an in-app
+// Light / Dark / Auto choice in Settings and shipped "auto" (the OS
+// decides) as an unsettled default — parked decision (d). The owner
+// then approved the UI/UX redesign whose mockups are drawn ONLY in
+// the dark black-and-gold scheme, and the spec (§2.6) states "dark
+// scheme is his working scheme". When PR #52 shipped with the default
+// still "auto", every device whose OS was in light mode rendered the
+// cream/white light scheme instead — the owner compared live Home
+// against the approved mockup and rejected it. The default is now
+// DARK: a device with no stored pick renders the approved design.
+// The Settings segmented control still offers Light / Dark / Auto and
+// an explicit pick always wins (it is stored in localStorage and the
+// pre-paint init script in src/app/layout.tsx applies it as a
+// data-theme attribute the stylesheets key off:
 //   dark tokens apply when (OS dark AND NOT data-theme="light")
-//   OR data-theme="dark".
+//   OR data-theme="dark" OR no attribute at all — the base @theme
+//   tokens ARE the dark scheme, §2.6 of the spec).
 
 export type ThemeChoice = "light" | "dark" | "auto";
 
-/** Parked decision (d): the shipped default theme choice. Flip here. */
-export const THEME_DEFAULT: ThemeChoice = "auto";
+/** Settled 2026-11-10: the shipped default theme choice is the dark
+ *  black-and-gold scheme of the approved mockup. */
+export const THEME_DEFAULT: ThemeChoice = "dark";
 
 export const THEME_STORAGE_KEY = "trucking-theme";
 
@@ -38,9 +45,13 @@ export function resolveEffectiveTheme(
   return osPrefersDark ? "dark" : "light";
 }
 
-/** Pure: the data-theme attribute value for a choice. "auto" (or the
- *  default) means NO attribute, so the CSS media query alone decides;
- *  explicit picks set the attribute. */
+/** Pure: the data-theme attribute value for a choice. "auto" means NO
+ *  attribute, so the CSS media query alone decides; explicit picks set
+ *  the attribute. The shipped default (dark, settled 2026-11-10) maps
+ *  to "dark" — with no stored pick the pre-paint script still sets the
+ *  attribute, because the base tokens alone do not decide the scheme
+ *  (the light scheme is the base; dark needs the attribute or an
+ *  OS-dark media match). */
 export function themeAttributeFor(choice: ThemeChoice): "light" | "dark" | null {
   return choice === "auto" ? null : choice;
 }

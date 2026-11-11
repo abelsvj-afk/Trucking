@@ -17,6 +17,7 @@ import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
 import HomePositionCard from "./HomePositionCard";
 import DayLog from "./DayLog";
 import { useHosWindow } from "@/lib/use-hos-window";
+import { useHomeMapCollapsed } from "@/lib/use-preferences";
 import { useNowTick } from "@/lib/use-now-tick";
 import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
 import { formatDateTime, formatSinceTime } from "@/lib/time";
@@ -41,6 +42,22 @@ export default function DutyHud() {
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState(false);
   const [explain, setExplain] = useState<ClockKey | null>(null);
+  // Phase 4 map controls (spec §2.4): collapse is the owner's STORED
+  // preference (person_preferences key home_map_collapsed) — while it
+  // loads, the map renders EXPANDED (the live default), never
+  // flash-collapsed. Full-screen is session-only, never persisted;
+  // ESC exits it alongside the toggle.
+  const mapPref = useHomeMapCollapsed();
+  const mapCollapsed = mapPref.loaded && mapPref.collapsed;
+  const [mapFullscreen, setMapFullscreen] = useState(false);
+  useEffect(() => {
+    if (!mapFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMapFullscreen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mapFullscreen]);
 
   // Focus and data-change refreshes come from the live layer
   // (LiveDataProvider). This interval is only the safety net that
@@ -62,7 +79,7 @@ export default function DutyHud() {
   const drivingLocked = clocks?.state === "ready" && activeLocks(clocks.clocks).length > 0;
 
   return (
-    <>
+    <div className={mapFullscreen ? "home-hud-fullscreen" : undefined}>
       {/* MAP-FIRST HOME (owner ruling 2026-11-07): the map is the hero of Home; the duty status and the clocks sit directly under it,
           and the pay preview follows them (page.tsx), so hours and pay stay in view without scrolling past the map. */}
       <HomePositionCard
@@ -71,7 +88,11 @@ export default function DutyHud() {
         speedMph={speedMph ?? null}
         motion={motion}
         hero
-        // Display only: the map's ETA line compares against the clocks already computed here. No hours math is changed.
+        collapsed={mapCollapsed}
+        onToggleCollapsed={() => mapPref.setCollapsed(!mapCollapsed)}
+        fullscreen={mapFullscreen}
+        onToggleFullscreen={() => setMapFullscreen((v) => !v)}
+        // Active-load navigation, display only: the map's ETA line compares against the clocks already computed here. No hours math is changed.
         driveLeftMs={clocks?.state === "ready" ? (clocks.clocks.find((c) => c.key === "drive")?.remainingMs ?? null) : null}
         windowLeftMs={clocks?.state === "ready" ? (clocks.clocks.find((c) => c.key === "window")?.remainingMs ?? null) : null}
       />
@@ -213,6 +234,6 @@ export default function DutyHud() {
         ELD/official log wins.
       </p>
     </section>
-    </>
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-// Money → Projected pay: this pay week's running total, last week's (and its payday), and the
+// Money → Driver pay (renamed from "Projected pay", Phase 4 spec §2.4 —
+// the route /money/pay is unchanged): this pay week's running total, last week's (and its payday), and the
 // per-load breakdown behind Home's preview - mile part, percent part, or the figure he set on the load.
 // Every row says which miles it counted; while the miles basis is unset the
 // totals are a range, labeled. Gross at his stated rate - not net, not cash,
@@ -11,7 +12,8 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePayProjection } from "@/lib/use-pay-projection";
-import { describeTerms, formatCents, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
+import PayTermsCard from "@/components/PayTermsCard";
+import { formatCents, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
 import { advancesForPeriod, netRange, sumAdvances, type AdvanceLike } from "@/lib/cash-advances";
 import { deductionsForPeriod, sumDeductions, type DeductionLike } from "@/lib/expense-buckets";
 
@@ -91,28 +93,30 @@ function PeriodBlock({
 }
 
 export default function ProjectedPayPage() {
-  usePageTitle("Projected pay");
+  usePageTitle("Driver pay");
   const state = usePayProjection();
 
   return (
     <div>
       <PageHeader
-        title="Projected pay"
+        title="Driver pay"
         purpose="What your loads are worth at your pay terms, week by week toward payday - updating as loads and details come in."
       />
+      {/* Phase 4 (spec §2.4): the pay-terms card sits at the top, next
+          to the numbers it drives — rendered from the live terms,
+          edited in place via a Sheet. Settings keeps its own copy. */}
+      {state.status === "ready" && <PayTermsCard terms={state.terms} />}
+      {state.status === "no-terms" && <PayTermsCard terms={null} />}
       {state.status === "loading" && <ListLoading />}
       {state.status === "error" && <ListError message="Couldn't load your loads or pay terms." onRetry={() => window.location.reload()} />}
       {state.status === "no-terms" && (
         <p>
-          You haven&apos;t entered pay terms yet. <Link href="/more/settings">Add them in Settings → Pay terms</Link> (per mile, a percent of the
+          You haven&apos;t entered pay terms yet. Add them with the card above (per mile, a percent of the
           load, or both) and this fills in.
         </p>
       )}
       {state.status === "ready" && (
         <>
-          <p className="row-sub">
-            {state.terms.employer_name} · {describeTerms(state.terms)} · <Link href="/more/settings">edit terms</Link>
-          </p>
           {state.period.basisAssumed && (
             <p role="note">
               Your miles basis isn&apos;t set, so loads paid by the mile show a range — loaded miles only at the low end, all miles (with

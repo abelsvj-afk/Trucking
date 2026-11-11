@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { buildBannerItems, formatRelativeAge } from "@/lib/news-banner";
-import { topicEmoji } from "@/lib/research-topics";
+import NewsCard from "@/components/NewsCard";
 import WordReveal from "@/components/WordReveal";
 import { useLiveVersion } from "@/lib/use-live";
 import { FEED_OFF_TEXT, FEED_SETUP_TEXT } from "@/lib/feed-status";
@@ -45,8 +45,6 @@ export default function NewsBanner() {
   const [now, setNow] = useState(() => new Date());
   const [checking, setChecking] = useState(false);
   const [wireResult, setWireResult] = useState<ReactNode | null>(null);
-  // Stories whose image failed to load: they fall back to the topic tile.
-  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
   const [manualHold, setManualHold] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,38 +265,31 @@ export default function NewsBanner() {
                   }
                   className="news-banner-item"
                 >
-                  <span className={`news-banner-tile news-tile-${current.topic}`} aria-hidden="true">
-                    {current.imageSrc && !failedImages.has(current.id) ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- our own authenticated, re-encoded endpoint
-                      <img
-                        className="news-banner-img"
-                        src={current.imageSrc}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                        onError={() => setFailedImages((prev) => new Set(prev).add(current.id))}
-                      />
-                    ) : (
-                      topicEmoji(current.topic)
-                    )}
-                  </span>
-                  <span className="news-banner-text">
-                    <span className="news-banner-tagrow">
-                      <span>
-                        {current.topic.toUpperCase()} · {formatRelativeAge(current.at, now)}
+                  {/* Phase 4 (owner ruling 2026-11-10): the story renders
+                      through the design system's NewsCard — its own image
+                      (signals via /api/v1/news-image, briefings via
+                      /api/v1/briefing-image), or the branded fallback tile
+                      when there is none or it fails to load. Never a bare
+                      text row. */}
+                  <NewsCard
+                    headline={<WordReveal text={current.headline} />}
+                    imageSrc={current.imageSrc}
+                    topic={current.topic}
+                    meta={
+                      <span className="news-banner-tagrow">
+                        <span>
+                          {current.topic.toUpperCase()} · {formatRelativeAge(current.at, now)}
+                        </span>
+                        {current.kind === "signal" ? (
+                          <span className="news-banner-watching">WATCHING</span>
+                        ) : current.unread ? (
+                          <span className="news-banner-new">● new</span>
+                        ) : null}
                       </span>
-                      {current.kind === "signal" ? (
-                        <span className="news-banner-watching">WATCHING</span>
-                      ) : current.unread ? (
-                        <span className="news-banner-new">● new</span>
-                      ) : null}
-                    </span>
-                    <span className="news-banner-headline">
-                      <WordReveal text={current.headline} />
-                    </span>
+                    }
+                  >
                     {current.sub && <span className="news-banner-sub">{current.sub}</span>}
-                  </span>
+                  </NewsCard>
                 </Link>
               </div>
             ) : (

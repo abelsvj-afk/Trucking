@@ -99,7 +99,7 @@ export default function HosCarrierSettings() {
 
   return (
     <section aria-label="Carrier hours-of-service rules">
-      <h2>Hours of service — carrier rules</h2>
+      <h2>Day log — carrier rules (hours of service)</h2>
       <p>
         <strong>Carrier-specified (set to match your carrier&apos;s HOS rules).</strong>{" "}
         Your weekly cycle on the Hours screen is computed from these: the cycle, the time

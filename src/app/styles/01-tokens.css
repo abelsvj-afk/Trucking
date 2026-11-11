@@ -1,0 +1,234 @@
+/*
+ * 01-tokens.css — the design system's single source of truth (UI/UX
+ * spec 2026-11-10 §2.6, Phase 1 consolidation of the former seven
+ * stylesheets). Tailwind v4 config lives in CSS via @theme (no JS
+ * config file) — every token here becomes a utility class
+ * automatically (e.g. --color-primary => bg-primary/text-primary).
+ * Both colour schemes live here and only here: light in @theme, dark
+ * in the two override blocks at the bottom (OS-dark + forced-dark,
+ * which must carry identical tokens).
+ */
+@theme (no JS config
+ * file) - every token here becomes a utility class automatically
+ * (e.g. --color-primary => bg-primary/text-primary/border-primary).
+ */
+@theme {
+  /* GOLD SCALE — one scale, four named steps, rooted at the locked brand
+     gold #c9a227 (owner ruling 2026-11-07, option A; UI/UX spec 2026-11-10
+     §2.6). The four golds that used to be chosen per lane are now steps of
+     this scale with fixed roles — use the step, never a raw hex:
+       --color-gold            #c9a227  brand / accent: selected hairlines,
+                                        dots, the branded tile, map route.
+       --color-gold-bright     #e5b83a  gold TEXT on dark surfaces (it is
+                                        also --color-primary in dark scheme).
+       --color-gold-button     #f2b705  button background in BOTH schemes,
+                                        always with --color-on-gold #111
+                                        text (it is --color-primary-button).
+       --color-gold-text-light #7a5a00  gold TEXT on light surfaces (it is
+                                        --color-primary in light scheme).
+     Contrast (WCAG AA, measured, unchanged by this consolidation):
+     link/text gold #7a5a00 on white 6.38:1; button text #111 on gold
+     #f2b705 10.39:1; dark gold #e5b83a on #121212 10.03:1. Gold means
+     "action"; green only "good", red only "danger".
+     Legacy names --color-primary / --color-primary-button /
+     --color-primary-hover / --color-on-primary / --color-primary-light
+     stay as aliases of the steps in each scheme so every existing rule
+     keeps its exact computed value. */
+  --color-primary: #7a5a00;
+  --color-primary-hover: #5c4300;
+  --color-primary-light: #fdf6df;
+  /* Button background: gold in BOTH schemes, with near-black text (--color-on-primary) - white on gold would fail. */
+  --color-primary-button: #f2b705;
+  --color-primary-button-hover: #d9a200;
+  --color-on-primary: #111111;
+  /* Destructive-action background, same in both schemes so white text
+     on it always passes (white on #b91c1c = 6.47:1). */
+  --color-danger-button: #b91c1c;
+
+  /* Semantic colors darkened to pass WCAG AA at badge size (11px bold
+     is small text, so the bar is 4.5:1 against each color's own
+     -light background): success 4.79:1, warning 4.84:1, danger 5.91:1.
+     UI/UX audit 2026-11-01, Section D. */
+  --color-success: #15803d;
+  --color-success-light: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-light: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-light: #fef2f2;
+
+  --color-surface: #ffffff;
+  --color-surface-alt: #faf8f3;
+  --color-border: #e7e2d3;
+  /* Essential boundaries only (input/select/textarea resting borders): 3.67:1 on white, meeting WCAG 1.4.11's 3:1. */
+  --color-border-strong: #8c8573;
+  --color-text: #111111;
+  --color-text-muted: #5f5a4e;
+  /* Muted text that sits on tinted surfaces (page-purpose lines on the gold-tint gradient, paused/unknown badges): 8.71:1 on #fdf6df. */
+  --color-text-muted-strong: #4a463b;
+
+  /* Motion tokens (UI/UX pass): durations/easings for feedback motion
+     (toasts, dialogs). Entrance animation of content is gone - see the
+     motion section below. */
+  --motion-instant: 90ms;
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 360ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+
+  /* Elevation - real shadows, not just borders, so cards/nav/buttons read
+     as raised surfaces instead of flat outlined boxes. */
+  --shadow-xs: 0 1px 2px rgba(17, 17, 17, 0.06);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10), 0 2px 4px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.14), 0 4px 8px rgba(15, 23, 42, 0.06);
+
+  /* Gold scale steps (see the GOLD SCALE comment above). */
+  --color-gold: #c9a227;
+  --color-gold-bright: #e5b83a;
+  --color-gold-button: #f2b705;
+  --color-gold-button-hover: #d9a200;
+  --color-gold-text-light: #7a5a00;
+  --color-on-gold: #111111;
+
+  /* Raised / inset surfaces (spec §2.6; mockup dark values #1a1a1a /
+     #222). Dark-scheme values live in the dark blocks below; light
+     scheme sits one step off the card surface the other way. Existing
+     surfaces map as: page bg = --color-surface-alt (#0a0a0a dark),
+     card = --color-surface (#121212 dark), border = --color-border,
+     border-strong = --color-border-strong (#8c8573, both schemes'
+     essential-boundary token). */
+  --color-surface-raised: #ffffff;
+  --color-surface-inset: #faf8f3;
+
+  /* Type scale (spec §2.6, 1.25 ratio, system sans): Display 30/800,
+     H1 24/700, H2 19/700, Section 16/700, Body 15/400 lh 1.5,
+     Small 13.5, Caption 12 uppercase-tracked. Encoded as tokens +
+     the .type-* utilities in 02-base.css; existing element styles
+     (h1/h2) are NOT resized by this consolidation. */
+  --text-display: 1.875rem;
+  --text-title: 1.5rem;
+  --text-heading: 1.1875rem;
+  --text-section: 1rem;
+  --text-body: 0.9375rem;
+  --text-small: 0.84375rem;
+  --text-caption: 0.75rem;
+
+  /* Radius scale (spec §2.6): cards 14, sheets 18 (top corners),
+     chips full, buttons 10-12 (10 = the long-standing button radius). */
+  --radius-card: 0.875rem;
+  --radius-sheet: 1.125rem;
+  --radius-button: 0.625rem;
+  --radius-chip: 999px;
+}
+
+/* Spacing scale (spec §2.6): 4pt base — 4 / 8 / 12 / 16 / 24 / 32.
+   Card padding 16, page gutter 16, section gap 24 all read off this. */
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --bottom-nav-h: 4.5rem;
+  --bottom-clear: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+}
+
+/* --- UI/UX upgrade (docs/design/ui-ux.md, "UI/UX upgrade" section):
+   dark scheme + the teaching/discoverability components. The design
+   system is CSS-variable driven, so the dark scheme is one token
+   override block - every screen follows at once, in a cab at night
+   where a white screen is a hazard, not a preference.
+   Theme choice (parked decision (d), src/lib/theme.ts): the dark
+   tokens apply when the OS is dark AND the owner has not forced
+   light (:root:not([data-theme="light"]) inside the media query), OR
+   whenever the owner forced dark (:root[data-theme="dark"], no media
+   query). The two blocks below must carry identical tokens. Dark
+   scheme (black-and-gold, owner ruling 2026-11-07): links/text use gold #e5b83a (10.03:1 on the #121212
+   surface), buttons use --color-primary-button (#f2b705) with near-black --color-on-primary text (10.39:1), the active
+   tab and quick actions use gold on the #2a2208 tint (8.45:1), input borders use border-strong #8c8573 (5.10:1 on the
+   surface). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-primary: #e5b83a;
+    --color-primary-hover: #f2cf6b;
+    --color-primary-light: #2a2208;
+    --color-primary-button: #f2b705;
+    --color-primary-button-hover: #d9a200;
+    --color-on-primary: #111111;
+    --color-danger-button: #b91c1c;
+    --color-success: #4ade80;
+    --color-success-light: #052e16;
+    --color-warning: #fbbf24;
+    --color-warning-light: #451a03;
+    --color-danger: #f87171;
+    --color-danger-light: #450a0a;
+    --color-surface: #121212;
+    --color-surface-alt: #0a0a0a;
+    --color-surface-raised: #1a1a1a;
+    --color-surface-inset: #222222;
+    --color-border: #2a2a2a;
+    --color-border-strong: #8c8573;
+    --color-text: #f5f1e6;
+    --color-text-muted: #a8a291;
+    --color-text-muted-strong: #d6d0bf;
+  }
+
+  :root:not([data-theme="light"]) body {
+    background: linear-gradient(180deg, #1c1606 0%, var(--color-surface-alt) 260px);
+  }
+
+  :root:not([data-theme="light"]) nav[aria-label="Primary"] {
+    background-color: rgba(18, 18, 18, 0.94);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  :root:not([data-theme="light"]) nav[aria-label="Primary"] a[aria-current="page"],
+  :root:not([data-theme="light"]) .quick-actions a {
+    color: #e5b83a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-primary: #e5b83a;
+  --color-primary-hover: #f2cf6b;
+  --color-primary-light: #2a2208;
+  --color-primary-button: #f2b705;
+  --color-primary-button-hover: #d9a200;
+  --color-on-primary: #111111;
+  --color-danger-button: #b91c1c;
+  --color-success: #4ade80;
+  --color-success-light: #052e16;
+  --color-warning: #fbbf24;
+  --color-warning-light: #451a03;
+  --color-danger: #f87171;
+  --color-danger-light: #450a0a;
+  --color-surface: #121212;
+  --color-surface-alt: #0a0a0a;
+  --color-surface-raised: #1a1a1a;
+  --color-surface-inset: #222222;
+  --color-border: #2a2a2a;
+  --color-border-strong: #8c8573;
+  --color-text: #f5f1e6;
+  --color-text-muted: #a8a291;
+  --color-text-muted-strong: #d6d0bf;
+}
+
+:root[data-theme="dark"] body {
+  background: linear-gradient(180deg, #1c1606 0%, var(--color-surface-alt) 260px);
+}
+
+:root[data-theme="dark"] nav[aria-label="Primary"] {
+  background-color: rgba(18, 18, 18, 0.94);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] nav[aria-label="Primary"] a[aria-current="page"],
+:root[data-theme="dark"] .quick-actions a {
+  color: #e5b83a;
+}

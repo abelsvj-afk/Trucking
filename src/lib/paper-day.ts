@@ -16,6 +16,15 @@ export const PAPER_REMARK_LINE =
   "This changes the app's mirror — your paper sheet still says the old time until you re-mark it.";
 
 /**
+ * The remark every paper-saved duty row carries as its notes (written
+ * by save_paper_log_day's p_notes) - and, since the edit trail
+ * (spec §2.2, migration 00088), the reason on each paper save's
+ * kind='insert', source='paper' trail rows: the paper day's own
+ * existing remark, never an invented one.
+ */
+export const PAPER_SAVE_REASON = "Recreated from the paper log sheet photo and reviewed in the app.";
+
+/**
  * clean    - read at/above the clean bar
  * flagged  - read, above the floor but faint: shown for a double-check
  * low      - under the floor: the reader's guess, must be confirmed

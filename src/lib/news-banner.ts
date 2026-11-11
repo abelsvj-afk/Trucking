@@ -29,9 +29,11 @@ export interface BannerItem {
   deliveryClass: ResearchDeliveryClass | null;
   magnitude: number | null;
   /**
-   * The story's image, served by OUR endpoint (the browser never loads a
-   * publisher URL): /api/v1/news-image?signal=<id>&i=<n>. Null when there is
-   * no usable image - the banner then shows the topic tile.
+   * The story's image, served by OUR endpoints (the browser never loads a
+   * publisher URL): signals via /api/v1/news-image?signal=<id>&i=<n>,
+   * briefings via /api/v1/briefing-image?briefing=<id>&i=0 (the first
+   * finding's cited article). Null when there is no usable image - the
+   * banner then shows the branded fallback tile.
    */
   imageSrc: string | null;
 }
@@ -68,7 +70,18 @@ function briefingItem(briefing: ResearchBriefing): BannerItem {
     unread: briefing.read_at === null,
     deliveryClass: briefing.delivery_class,
     magnitude: null,
-    imageSrc: null, // briefings carry no image yet (design phase c)
+    // Owner ruling 2026-11-10 (news must show images): a briefing's
+    // image is the preview image of the article its FIRST finding
+    // cites, served by our own endpoint (/api/v1/briefing-image —
+    // the same one the Research page uses). A briefing with no
+    // findings has no citable article, so it honestly gets no image
+    // and the banner renders the branded fallback tile. If the
+    // endpoint 404s for that finding, the card's error path renders
+    // the same tile — never a publisher URL, never a faked image.
+    imageSrc:
+      Array.isArray(briefing.findings) && briefing.findings.length > 0
+        ? `/api/v1/briefing-image?briefing=${encodeURIComponent(briefing.id)}&i=0`
+        : null,
   };
 }
 
@@ -80,12 +93,24 @@ function signalImageSrc(signal: ResearchSignal): string | null {
 }
 
 function signalItem(signal: ResearchSignal): BannerItem {
+  // Conformance fix D2 (owner ruling: news is image-first story cards,
+  // never a bare aggregate row): a multi-story cluster signal (the
+  // GDELT watchers build one signal per burst, summary = "N … items on
+  // "…" inside 48h (GDELT)") headlines its FIRST real story and keeps
+  // the aggregate as the sub-line for context. The image already
+  // resolves independently through signalImageSrc. A signal with no
+  // story items (single-source watchers — EIA diesel, Federal
+  // Register) keeps its own summary as the headline.
+  const storyTitle = Array.isArray(signal.items)
+    ? signal.items.find((item) => typeof item?.title === "string" && item.title.length > 0)?.title
+    : undefined;
+  const isCluster = Array.isArray(signal.items) && signal.items.length > 1 && typeof storyTitle === "string";
   return {
     kind: "signal",
     id: signal.id,
     topic: signal.topic,
-    headline: signal.summary,
-    sub: null,
+    headline: isCluster ? storyTitle : signal.summary,
+    sub: isCluster ? signal.summary : null,
     at: signal.observed_at,
     unread: false,
     deliveryClass: null,

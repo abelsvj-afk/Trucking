@@ -107,15 +107,36 @@ Maps directly onto the workflows already defined in `docs/user-stories.md`:
 
 ## Visual design system
 
-Decided now (Stage 6, once the app was actually visible and the owner asked for a real design pass) rather than at scaffolding time, per this document's original note that visual styling is an implementation-time choice. Built directly in Tailwind CSS v4's `@theme` tokens (`src/app/globals.css`) rather than via Figma-to-code — the Figma MCP connector was unavailable when this was done; nothing here is Figma-incompatible if that changes later.
+Decided (Stage 6) once the app was actually visible and the owner asked for a real design pass, and consolidated into one system by the UI/UX redesign (spec 2026-11-10 §2.6, Phase 1). Built directly in Tailwind CSS v4's `@theme` tokens rather than via Figma-to-code; nothing here is Figma-incompatible if that changes later.
 
 **Tone:** a professional operations tool, not a consumer app — the owner is reading these screens between loads, often outdoors, often in a hurry. Clarity and contrast beat decoration.
 
-- **Color:** a confident blue (`#2563eb`, "primary") for interactive elements — active nav tab, primary buttons, links — against a white/near-white surface with a gray neutral scale for structure and secondary text. Status uses the same semantic mapping already established informally in the data (`draft`/`active`/error): amber for draft/pending, green for active/success/confirmed, red for destructive actions and errors — never color alone (every status already carries a text label, per the accessibility work in task 3.12).
-- **Typography:** the system font stack (`-apple-system`, Segoe UI, Roboto, etc.) — no web font download, which matters on the truck-stop wifi this app is actually used over, and it already looks native on every device.
-- **Spacing/density:** comfortable tap targets (44px minimum touch target, matching platform guidance) over a dense desktop-style layout — every list row, button, and form field sized for a thumb, not a mouse.
-- **Styling mechanism:** every screen already uses plain semantic HTML consistently (`<form>`, `<label>`, `<input>`, `<select>`, `<button>`, `<ul>`/`<li>`) — chosen for accessibility in task 3.12, not incidentally. Rather than introduce a component library on top of that, the visual design is applied as base-element styles in `src/app/globals.css` (Tailwind v4's `@layer base`), so every form/list/button across all ~40 screens picks up the same look automatically. This is the same "shared infra, not per-screen reinvention" approach already used for `services/db/crud.ts` and `ListStates.tsx`, just expressed as CSS instead of a JS component — a screen's visual language comes from the semantic element it already uses, not from hand-tuned utility classes scattered per file.
-- **Navigation:** the bottom tab bar gets a real visual treatment — elevated surface, active-tab color + icon-weight distinction (not just the underlying `aria-current` that already exists for accessibility).
+**File layout (three files, cascade order is import order in `src/app/globals.css`):**
+
+- `src/app/styles/01-tokens.css` — the single source of truth: the `@theme` tokens (light scheme), the spacing scale, and both dark-scheme override blocks (OS-dark and forced-dark, identical tokens).
+- `src/app/styles/02-base.css` — element styles + typography: every screen uses the same plain semantic HTML (chosen for accessibility in task 3.12), so base-element styles give all ~40 screens the same look automatically; plus the `.type-*` scale utilities and `.tabular`.
+- `src/app/styles/03-components.css` — component classes: nav/motion, lists/pages, HUD + day-log, sheets, document/roadside surfaces, and the shared design-system component classes at the end.
+
+The former seven lane files (`01-base` … `07-late`) were merged mechanically in original cascade order: every class name and the cascade outcome are preserved; duplicate definitions were kept in order so the later one still wins where they conflict.
+
+**Color — black-and-gold, one gold scale (locked; owner ruling 2026-11-07).** Brand gold `#c9a227` is the single accent, formalized as named steps of one scale rooted at it — use the step, never a raw hex:
+
+| Token | Value | Role |
+|---|---|---|
+| `--color-gold` | `#c9a227` | Brand/accent: selected hairlines, dots, branded tile, map route |
+| `--color-gold-bright` | `#e5b83a` | Gold text on dark surfaces (alias: dark-scheme `--color-primary`) |
+| `--color-gold-button` | `#f2b705` | Button background in both schemes, with `--color-on-gold` `#111` text (alias: `--color-primary-button`) |
+| `--color-gold-text-light` | `#7a5a00` | Gold text on light surfaces (alias: light-scheme `--color-primary`) |
+
+Measured WCAG AA contrast is recorded in `01-tokens.css` and must not regress: `#7a5a00` on white 6.38:1; `#111` on `#f2b705` 10.39:1; `#e5b83a` on `#121212` 10.03:1. Surfaces (dark scheme, the owner's working scheme): page `#0a0a0a` (`--color-surface-alt`), card `#121212` (`--color-surface`), raised `#1a1a1a` (`--color-surface-raised`), inset `#222` (`--color-surface-inset`), border `--color-border`, essential boundaries `--color-border-strong` `#8c8573`, text `#f5f1e6`, muted `#a8a291`, muted-strong `#d6d0bf`. Green (`--color-success`, `#4ade80` dark) means good only; red (`--color-danger`, `#f87171` dark) means danger only. No new hues.
+
+**Typography — 1.25 scale, system sans** (no webfont download; it matters on truck-stop wifi and looks native everywhere): Display 30/800, H1 24/700, H2 19/700, Section 16/700, Body 15/400 at line-height 1.5, Small 13.5, Caption 12 uppercase-tracked — encoded as `--text-*` tokens in `01-tokens.css` with `.type-display/.type-title/.type-heading/.type-section/.type-body/.type-small/.type-caption` utilities in `02-base.css`. Figures (clocks, miles, dollars) use tabular numerals via `.tabular`. Nothing under 12px in component classes.
+
+**Spacing/radius:** 4pt scale `--space-1…6` = 4/8/12/16/24/32; card padding 16, page gutter 16, section gap 24. Radius tokens: `--radius-card` 14, `--radius-sheet` 18 (top corners), `--radius-chip` full, `--radius-button` 10–12. Elevation on dark is borders, not shadows; one gold hairline is reserved for the selected/active thing only. Comfortable tap targets throughout (44px minimum, matching platform guidance) — every row, button, and field sized for a thumb, not a mouse.
+
+**Shared components (`src/components/`, built once, adopted by screens in later phases):** `Sheet` (the editor container), `Card` (`.ds-card`), `ListRow` (dot + two-line + trailing action), `HubRow` (hub link row extracted from the Fleet/Money/More hub markup), `Field` (label-above-input wrapper, 50px inputs, danger-red error text), `SegmentedStatus` (segmented control for duty statuses / rendition toggles), `QuickAction` (Home grid tile), `ReasonField` (required reason: quick chips + free text, exposes value + validity), `NewsCard` (image-first story card) with `BrandedTile` (the locked black-and-gold "RL" / "ROAD TO LEGACY" fallback for a story that genuinely has no image — news never renders as bare text rows). They are presentational and typed, with smoke tests in `tests/unit/components/design-system.test.tsx`.
+
+**Navigation:** the bottom tab bar gets a real visual treatment — elevated surface, active-tab color + icon-weight distinction (not just the underlying `aria-current` that already exists for accessibility).
 
 ## UI/UX upgrade (2026-10-31, branch `ui-ux-upgrade`)
 

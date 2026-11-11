@@ -7,12 +7,14 @@
 // through to everything that hangs off this truck - its documents,
 // its maintenance history, its equipment.
 
-import { use, useEffect, useState, type FormEvent } from "react";
+import {use, useEffect, useState} from "react";
 import Link from "next/link";
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import {apiClient} from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
-import { ListLoading, ListError } from "@/components/ListStates";
-import { EntityPhoto, PhotoUpload } from "@/components/EntityPhoto";
+import Sheet from "@/components/Sheet";
+import TruckEditForm from "@/components/edit/TruckEditForm";
+import {ListLoading, ListError} from "@/components/ListStates";
+import {EntityPhoto, PhotoUpload} from "@/components/EntityPhoto";
 import TruckProfileFields, {
   truckProfileFromTruck,
   truckProfileToPayload,
@@ -23,17 +25,17 @@ import TruckIdentityFields, {
   truckIdentityToPayload,
   type TruckIdentityValues,
 } from "@/components/TruckIdentityFields";
-import { usePageTitle } from "@/lib/use-page-title";
-import { useToast } from "@/components/Toast";
-import { DeleteRecordButton } from "@/components/RecordLifecycle";
-import { truckTypeLabel } from "@/lib/fleet-display";
-import type { Truck, VehicleDefect } from "@/types/entities";
-import { formatDate } from "@/lib/time";
+import {usePageTitle} from "@/lib/use-page-title";
+import {DeleteRecordButton} from "@/components/RecordLifecycle";
+import {truckTypeLabel} from "@/lib/fleet-display";
+import type {Truck, VehicleDefect} from "@/types/entities";
+import {formatDate} from "@/lib/time";
 
 export default function TruckDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Truck");
   const [truck, setTruck] = useState<Truck | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openDefects, setOpenDefects] = useState<VehicleDefect[]>([]);
 
@@ -91,6 +93,12 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
       <PageHeader
         title={`Truck ${truck.unit_number}`}
         purpose={type ? `A ${type.toLowerCase()} — its photo, details, and history in one place.` : "Its photo, details, and history in one place."}
+      
+        action={
+          <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
+            Edit
+          </button>
+        }
       />
 
       <EntityPhoto
@@ -142,7 +150,11 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
         </ul>
       </section>
 
-      <TruckEditForm key={truck.id} truck={truck} onSaved={setTruck} />
+      {editOpen && (
+          <Sheet title="Edit truck" onClose={() => setEditOpen(false)}>
+            <TruckEditForm key={truck.id} truck={truck} onSaved={(updated) => { setTruck(updated); setEditOpen(false); }} />
+          </Sheet>
+        )}
 
       <section aria-label="Delete this record">
         <h2>Delete this record</h2>
@@ -155,47 +167,5 @@ export default function TruckDetailPage({ params }: { params: Promise<{ id: stri
         />
       </section>
     </div>
-  );
-}
-
-function TruckEditForm({ truck, onSaved }: { truck: Truck; onSaved: (truck: Truck) => void }) {
-  const toast = useToast();
-  const [identity, setIdentity] = useState<TruckIdentityValues>(() => truckIdentityFromTruck(truck));
-  const [profile, setProfile] = useState<TruckProfileValues>(() => truckProfileFromTruck(truck));
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSaved(false);
-    setSubmitting(true);
-    try {
-      const updated = await apiClient.update<Truck>("trucks", truck.id, {
-        ...truckIdentityToPayload(identity),
-        ...truckProfileToPayload(profile),
-      });
-      onSaved(updated);
-      setSaved(true);
-      toast.success("Saved");
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Couldn't save. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <TruckIdentityFields values={identity} onChange={setIdentity} />
-      <TruckProfileFields values={profile} onChange={setProfile} />
-
-      {error && <p role="alert">{error}</p>}
-      {saved && <p role="status">Saved.</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? "Saving…" : "Save changes"}
-      </button>
-    </form>
   );
 }
