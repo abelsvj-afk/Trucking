@@ -52,6 +52,20 @@ function detailHref(
   return `/money/summary/detail?${qs.toString()}`;
 }
 
+// A calendar day ("2026-11-01") as a driver reads it ("Nov 1, 2026").
+// The day is already the viewer's own calendar day, so it is formatted
+// as written - never shifted through a clock time or a zone name.
+function formatRangeDay(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return day;
+  return new Date(Date.UTC(year, month - 1, date, 12)).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export default function FinancialSummaryPage() {
   usePageTitle("Financial summary");
   // Undefined until the owner picks a range - the hook then omits params,
@@ -127,7 +141,7 @@ export default function FinancialSummaryPage() {
           <dl>
             <dt>Range</dt>
             <dd>
-              {summary.range.from} – {summary.range.to} ({summary.timeZone})
+              {formatRangeDay(summary.range.from)} – {formatRangeDay(summary.range.to)}
             </dd>
             <dt>{revenueConventionLabel(summary.revenueConvention)}</dt>
             <dd>

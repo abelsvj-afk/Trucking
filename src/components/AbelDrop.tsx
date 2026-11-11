@@ -50,7 +50,7 @@
 // alive / hopping / sleeping / static) so tests — and a human doing a
 // visual pass — can tell the drop is alive without guessing.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   motion,
@@ -93,7 +93,19 @@ function inFastWindow(date: Date): boolean {
   return hour >= 20 || hour < 8;
 }
 
+const subscribeNever = () => () => {};
+
+// The drop's first render reads the viewport width, the saved dock side,
+// the clock and the motion preference - none of which the server knows -
+// so server HTML never matched and React threw the whole page away and
+// rebuilt it on every load (hydration mismatch). It is decoration that
+// only exists in a browser, so it renders there only.
 export default function AbelDrop() {
+  const inBrowser = useSyncExternalStore(subscribeNever, () => true, () => false);
+  return inBrowser ? <AbelDropFace /> : null;
+}
+
+function AbelDropFace() {
   const router = useRouter();
   const pathname = usePathname();
   const motionReduced = useReducedMotion();

@@ -3,6 +3,7 @@
 // logic worth getting right and unit-testing, per docs/design/testing.md.
 
 import type { MaintenanceSchedule } from "@/types/entities";
+import { todayEastern } from "@/lib/eastern-date";
 
 export type DueStatus = "ok" | "due-soon" | "overdue" | "paused" | "unknown";
 
@@ -32,7 +33,7 @@ function addDays(date: string, days: number): string {
 export function computeDueStatus(
   schedule: MaintenanceSchedule,
   currentMileage: number | null,
-  today: string = new Date().toISOString().slice(0, 10),
+  today: string = todayEastern(),
 ): DueStatusResult {
   if (schedule.status === "paused") {
     return { status: "paused", nextDueDate: null, nextDueMileage: null };

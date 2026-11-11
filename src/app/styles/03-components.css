@@ -1437,7 +1437,10 @@ button.hud-ring {
 }
 .day-entry-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
+  min-width: 0;
 }
 .day-entry-actions button {
   min-height: 48px;
@@ -2567,3 +2570,47 @@ section.ds-card { margin-top: var(--space-4); }
   flex: 1 1 12rem;
   margin: 0;
 }
+
+/* --- Claude UI pass 2026-11-11 ---------------------------------------- */
+/* Detention stamps: four full-size tap targets in a 2x2 grid under the
+   stop picker, instead of a single pill track that ran off the phone. */
+.stamp-controls {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2);
+  background: transparent; padding: 0; border-radius: 0; overflow: visible;
+}
+.stamp-controls label { grid-column: 1 / -1; display: grid; gap: var(--space-1); }
+.stamp-controls button {
+  min-height: 48px; border-radius: var(--radius-button); padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface);
+  color: var(--color-text); font-size: var(--text-small); font-weight: 600; white-space: normal;
+}
+/* Company inbox filters: one labelled control per row, full width. */
+.inbox-filters { display: grid; gap: var(--space-3); margin: var(--space-4) 0; }
+.inbox-filters label { display: grid; gap: var(--space-1); }
+.inbox-filters label > span { font-size: var(--text-small); color: var(--color-text-muted-strong); font-weight: 600; }
+.inbox-filters select, .inbox-filters input { width: 100%; }
+/* Hub rows (Fleet / Money / More): the row is its own card, so the list
+   item around it must not draw a second one (it showed as a card inside
+   a card), and the chevron sits at the right edge of the label line
+   instead of wrapping onto a line of its own. */
+main li:has(> .ds-hub-row) { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.ds-hub-row { padding: var(--space-4); min-height: 56px; }
+.ds-hub-row .hub-link { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.ds-hub-row .hub-chevron { flex: none; margin-left: 0; }
+/* Long forms (Add load): the fields a driver always fills stay on the
+   page; the optional rate-con detail folds away behind a labelled row. */
+.form-more {
+  margin-top: var(--space-4); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); background: var(--color-surface); padding: 0 var(--space-4);
+}
+.form-more > summary {
+  display: flex; flex-direction: column; justify-content: center; min-height: 56px;
+  cursor: pointer; font-weight: 700; list-style: none; padding: var(--space-2) 0;
+}
+.form-more > summary::-webkit-details-marker { display: none; }
+.form-more > summary::after { content: "+"; position: absolute; right: var(--space-4); font-size: 1.25rem; color: var(--color-gold-bright); }
+.form-more[open] > summary::after { content: "\2212"; }
+.form-more > summary { position: relative; }
+.form-more > summary::after { right: 0; top: 50%; transform: translateY(-50%); }
+.form-more-hint { font-size: 0.8125rem; font-weight: 400; color: var(--color-text-muted); }
+.form-more[open] { padding-bottom: var(--space-4); }

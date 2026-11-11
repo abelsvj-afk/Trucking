@@ -159,9 +159,20 @@ button:disabled {
   padding: 3px;
   background-color: var(--color-border);
   border-radius: 0.75rem;
+  /* A track wider than the phone (Loads has five statuses) scrolls
+     inside itself instead of pushing the whole page sideways. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+[role="group"]::-webkit-scrollbar {
+  display: none;
 }
 
 [role="group"] button {
+  flex: 0 0 auto;
+  white-space: nowrap;
   background-color: transparent;
   /* Unpressed options sit on the border-colored track: muted was
      3.86:1 there, muted-strong is 6.15:1 (audit Section D). */

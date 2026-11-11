@@ -155,58 +155,6 @@ export default function NewLoadPage() {
           onChange={(event) => setDeliveryDate(event.target.value)}
         />
 
-        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con) (optional)</label>
-        <input
-          id="pickup_window_start"
-          type="datetime-local"
-          value={pickupWindowStart}
-          onChange={(event) => setPickupWindowStart(event.target.value)}
-        />
-
-        <label htmlFor="pickup_window_end">Pickup window ends (optional)</label>
-        <input
-          id="pickup_window_end"
-          type="datetime-local"
-          value={pickupWindowEnd}
-          onChange={(event) => setPickupWindowEnd(event.target.value)}
-        />
-
-        <label htmlFor="delivery_window_start">Delivery window starts (optional)</label>
-        <input
-          id="delivery_window_start"
-          type="datetime-local"
-          value={deliveryWindowStart}
-          onChange={(event) => setDeliveryWindowStart(event.target.value)}
-        />
-
-        <label htmlFor="delivery_window_end">Delivery window ends (optional)</label>
-        <input
-          id="delivery_window_end"
-          type="datetime-local"
-          value={deliveryWindowEnd}
-          onChange={(event) => setDeliveryWindowEnd(event.target.value)}
-        />
-
-        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills (optional)</label>
-        <input
-          id="detention_free_minutes"
-          type="number"
-          min="0"
-          step="15"
-          value={detentionFreeMinutes}
-          onChange={(event) => setDetentionFreeMinutes(event.target.value)}
-        />
-
-        <label htmlFor="detention_rate">Detention rate ($/hour after free time) (optional)</label>
-        <input
-          id="detention_rate"
-          type="number"
-          step="0.01"
-          min="0"
-          value={detentionRateDollars}
-          onChange={(event) => setDetentionRateDollars(event.target.value)}
-        />
-
         <label htmlFor="rate">Rate ($) (optional)</label>
         <input
           id="rate"
@@ -266,6 +214,69 @@ export default function NewLoadPage() {
           ))}
         </select>
 
+        <details className="form-more">
+          <summary>
+            Appointment times and detention
+            <span className="form-more-hint">Optional - off the rate con</span>
+          </summary>
+        <label htmlFor="pickup_window_start">Pickup window starts (from the rate con) (optional)</label>
+        <input
+          id="pickup_window_start"
+          type="datetime-local"
+          value={pickupWindowStart}
+          onChange={(event) => setPickupWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="pickup_window_end">Pickup window ends (optional)</label>
+        <input
+          id="pickup_window_end"
+          type="datetime-local"
+          value={pickupWindowEnd}
+          onChange={(event) => setPickupWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_start">Delivery window starts (optional)</label>
+        <input
+          id="delivery_window_start"
+          type="datetime-local"
+          value={deliveryWindowStart}
+          onChange={(event) => setDeliveryWindowStart(event.target.value)}
+        />
+
+        <label htmlFor="delivery_window_end">Delivery window ends (optional)</label>
+        <input
+          id="delivery_window_end"
+          type="datetime-local"
+          value={deliveryWindowEnd}
+          onChange={(event) => setDeliveryWindowEnd(event.target.value)}
+        />
+
+        <label htmlFor="detention_free_minutes">Detention: free minutes before it bills (optional)</label>
+        <input
+          id="detention_free_minutes"
+          type="number"
+          min="0"
+          step="15"
+          value={detentionFreeMinutes}
+          onChange={(event) => setDetentionFreeMinutes(event.target.value)}
+        />
+
+        <label htmlFor="detention_rate">Detention rate ($/hour after free time) (optional)</label>
+        <input
+          id="detention_rate"
+          type="number"
+          step="0.01"
+          min="0"
+          value={detentionRateDollars}
+          onChange={(event) => setDetentionRateDollars(event.target.value)}
+        />
+        </details>
+
+        <details className="form-more">
+          <summary>
+            Broker, customer and places
+            <span className="form-more-hint">Optional</span>
+          </summary>
         <label htmlFor="broker_id">Broker (optional)</label>
         <select id="broker_id" value={brokerId} onChange={(event) => setBrokerId(event.target.value)}>
           <option value="">None</option>
@@ -319,6 +330,8 @@ export default function NewLoadPage() {
             </option>
           ))}
         </select>
+        </details>
+
 
         {error && <p role="alert">{error}</p>}
 

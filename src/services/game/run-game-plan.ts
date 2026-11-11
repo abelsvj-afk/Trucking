@@ -38,6 +38,7 @@ import { formatDollars } from "@/lib/truck-fund";
 import type { AiProvider } from "@/services/ai/provider";
 import type { GamePlan, GamePlanTrigger, GameTarget } from "@/types/entities";
 import { buildGameSnapshot } from "./snapshot";
+import { startOfTodayEasternIso } from "@/lib/eastern-date";
 
 export const GAME_PLAN_CAPABILITY = "game_plan";
 
@@ -149,7 +150,7 @@ async function logRun(
 }
 
 export async function countReGamesToday(client: SupabaseClient, companyId: string): Promise<number> {
-  const startOfDay = `${new Date().toISOString().slice(0, 10)}T00:00:00Z`;
+  const startOfDay = startOfTodayEasternIso();
   const { count, error } = await client
     .from("game_plan_runs")
     .select("id", { count: "exact", head: true })
