@@ -85,6 +85,12 @@ describe("ActiveLoadCard", () => {
     expect(screen.getByRole("link", { name: "Open load" }).getAttribute("href")).toBe("/loads/a");
   });
 
+  it("names the load Trip-first when it has a trip number (owner format 2026-11-10)", () => {
+    listHolder.loads = [load("a", { trip_number: "1874", origin: "Panama City", destination: "Seminole" })];
+    render(<ActiveLoadCard />);
+    expect(document.body.textContent).toContain("Trip 1874 · Panama City → Seminole");
+  });
+
   it("is absent with no confirmed load, and while loading", () => {
     listHolder.loads = [];
     const { container } = render(<ActiveLoadCard />);

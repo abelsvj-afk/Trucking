@@ -58,7 +58,10 @@ describe("SW D4 (2026-11-10): HTML documents are never cache-first", () => {
   });
 
   it("the unstamped fallback constant was bumped so stuck clients rotate once", () => {
-    expect(sw).toContain("2026-11-10-conformance1");
+    // v78 fix round bumped the fallback again ("conformance1" was PR #53's
+    // stamp); pin tracks the current bump, same rotation purpose.
+    expect(sw).toContain("2026-11-10-v78fix1");
+    expect(sw).not.toContain("2026-11-10-conformance1");
     expect(sw).not.toContain("2026-11-04-swstamp1");
   });
 });

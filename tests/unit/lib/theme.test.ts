@@ -11,6 +11,7 @@ import {
   resolveEffectiveTheme,
   resolveThemeChoice,
   themeAttributeFor,
+  themeBootstrapScript,
 } from "@/lib/theme";
 
 describe("theme choice (default settled dark 2026-11-10)", () => {
@@ -41,5 +42,54 @@ describe("theme choice (default settled dark 2026-11-10)", () => {
     expect(themeAttributeFor("auto")).toBeNull();
     expect(themeAttributeFor("dark")).toBe("dark");
     expect(themeAttributeFor("light")).toBe("light");
+  });
+
+  // V78 live-check instability (2026-11-10 ~8:15 PM CT): across plain
+  // reloads with NO setting touched, Home flipped dark -> light and
+  // stayed light. The pre-paint bootstrap is the only applier of the
+  // theme, and it was a hand-duplicated copy of the resolver living in
+  // the layout — the two could drift, and nothing re-asserted the
+  // attribute after load. The bootstrap is now GENERATED from the same
+  // resolver (single source) and these tests pin its behaviour by
+  // executing it the way the browser does.
+  describe("themeBootstrapScript (the layout's pre-paint script, generated)", () => {
+    function runBootstrap(stored: string | null, storageThrows = false) {
+      const dataset: Record<string, string> = {};
+      const fakeDocument = { documentElement: { dataset } };
+      const fakeWindow = {
+        localStorage: {
+          getItem: () => {
+            if (storageThrows) throw new Error("blocked");
+            return stored;
+          },
+        },
+      };
+      const fn = new Function("window", "document", themeBootstrapScript());
+      fn(fakeWindow, fakeDocument);
+      return dataset.theme;
+    }
+
+    it("no stored pick -> dark, every load (the shipped default)", () => {
+      expect(runBootstrap(null)).toBe("dark");
+      expect(runBootstrap(null)).toBe("dark");
+      expect(runBootstrap("garbage")).toBe("dark");
+    });
+
+    it("an explicit pick wins, every load", () => {
+      expect(runBootstrap("light")).toBe("light");
+      expect(runBootstrap("dark")).toBe("dark");
+    });
+
+    it("auto removes the attribute so the OS decides", () => {
+      expect(runBootstrap("auto")).toBeUndefined();
+    });
+
+    it("unreadable storage still lands on the dark default, never the light base", () => {
+      expect(runBootstrap(null, true)).toBe("dark");
+    });
+
+    it("the script reads the one storage key and nothing else", () => {
+      expect(themeBootstrapScript()).toContain(THEME_STORAGE_KEY);
+    });
   });
 });

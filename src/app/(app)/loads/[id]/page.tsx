@@ -15,8 +15,10 @@
 // merged-record validation, and the status section moves the load
 // through its lifecycle (draft -> confirmed -> completed, or
 // cancelled) behind the server's completeness rules: confirming needs
-// rate + pickup + delivery dates, completing needs a delivery date.
-// A refusal comes back as a named 422 and is shown as-is.
+// pickup + delivery dates (a broker rate is NOT required — owner
+// ruling 2026-11-10: pay is miles × CPM under his pay terms),
+// completing needs a delivery date. A refusal comes back as a named
+// 422 and is shown as-is.
 
 import {use, useEffect, useState} from "react";
 import Link from "next/link";
@@ -33,6 +35,7 @@ import {useApiList} from "@/lib/use-api-list";
 import {useLiveVersion} from "@/lib/use-live";
 import {usePickerList} from "@/lib/use-picker-list";
 import {usePageTitle} from "@/lib/use-page-title";
+import {loadDisplayName} from "@/lib/load-name";
 import type {Broker, DetentionStamp, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Trailer, Truck} from "@/types/entities";
 import type {DetentionSummary} from "@/lib/detention";
 import type {PaperworkState} from "@/lib/paperwork";
@@ -393,7 +396,7 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
   return (
     <div>
       <PageHeader
-        title={`${load.origin} → ${load.destination}`}
+        title={loadDisplayName(load)}
         purpose={`Load — ${load.status}. Everything recorded against it, in one place.`}
         action={
           <>
@@ -563,8 +566,11 @@ function LoadStatusSection({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Confirming needs the two dates ONLY (owner ruling 2026-11-10,
+  // Loads audit L-11): a broker rate is not a requirement — his pay
+  // runs off miles × CPM under his pay terms. A missing rate shows as
+  // an informational note under the checklist, never as a ✗ item.
   const checklist = [
-    { label: "Rate", ok: load.rate_cents != null },
     { label: "Pickup date", ok: Boolean(load.pickup_date) },
     { label: "Delivery date", ok: Boolean(load.delivery_date) },
   ];
@@ -600,6 +606,12 @@ function LoadStatusSection({
               </li>
             ))}
           </ul>
+          {load.rate_cents == null && (
+            <p className="row-sub">
+              No broker rate on file — not needed to confirm. Your pay for this load is figured from its
+              miles at your pay terms.
+            </p>
+          )}
         </div>
       )}
       {error && <p role="alert">{error}</p>}

@@ -16,6 +16,7 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
 import { usePageTitle } from "@/lib/use-page-title";
+import { loadDisplayName } from "@/lib/load-name";
 import type { Load, LoadStatus } from "@/types/entities";
 
 const STATUS_FILTERS: { label: string; value: LoadStatus | "" }[] = [
@@ -59,7 +60,7 @@ export default function LoadsListPage() {
       {showDeleted ? (
         <DeletedListSection<Load>
           resource="loads"
-          labelFor={(load) => `${load.origin} → ${load.destination}`}
+          labelFor={(load) => loadDisplayName(load)}
           sublabelFor={(load) => load.status}
         />
       ) : (
@@ -109,7 +110,7 @@ export default function LoadsListPage() {
                 <Link href={`/loads/${load.id}`}>
                   <span className="row-title">
                     <strong data-status={STATUS_BADGES[load.status]}>{load.status}</strong>
-                    {load.origin} → {load.destination}
+                    {loadDisplayName(load)}
                   </span>
                   {facts.length > 0 && <span className="row-sub">{facts.join(" · ")}</span>}
                 </Link>
