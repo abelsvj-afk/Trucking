@@ -6,9 +6,13 @@
 //
 // Rules:
 // - Confirming (status -> "confirmed") requires the draft-completeness
-//   set: rate_cents, pickup_date, delivery_date. A draft missing any of
-//   them is refused with a 422 naming what is missing - never a
-//   silent success and never a raw database error.
+//   set: pickup_date, delivery_date. A draft missing either is refused
+//   with a 422 naming what is missing - never a silent success and
+//   never a raw database error. A broker rate (rate_cents) is NOT
+//   required: owner ruling 2026-11-10 — his pay is miles × CPM under
+//   his employer pay terms (all miles, any kind), so a confirmed load
+//   without a rate is valued honestly as an estimate from miles via
+//   the load-earnings path, never presented as a recorded rate.
 // - Completing (status -> "completed") requires a delivery_date; the
 //   "completed" state is what Unit C's revenue recognition keys on, so
 //   an undated completion would be a money-truth bug, not a style nit.
@@ -27,9 +31,6 @@ export function loadTransitionRefusal(
 
   if (to === "confirmed") {
     const fields: FieldError[] = [];
-    if (merged.rate_cents == null) {
-      fields.push({ path: "rate_cents", message: "a rate is required to confirm this load" });
-    }
     if (!merged.pickup_date) {
       fields.push({ path: "pickup_date", message: "a pickup date is required to confirm this load" });
     }

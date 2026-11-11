@@ -15,8 +15,10 @@
 // merged-record validation, and the status section moves the load
 // through its lifecycle (draft -> confirmed -> completed, or
 // cancelled) behind the server's completeness rules: confirming needs
-// rate + pickup + delivery dates, completing needs a delivery date.
-// A refusal comes back as a named 422 and is shown as-is.
+// pickup + delivery dates (a broker rate is NOT required — owner
+// ruling 2026-11-10: pay is miles × CPM under his pay terms),
+// completing needs a delivery date. A refusal comes back as a named
+// 422 and is shown as-is.
 
 import {use, useEffect, useState} from "react";
 import Link from "next/link";
@@ -33,6 +35,7 @@ import {useApiList} from "@/lib/use-api-list";
 import {useLiveVersion} from "@/lib/use-live";
 import {usePickerList} from "@/lib/use-picker-list";
 import {usePageTitle} from "@/lib/use-page-title";
+import {loadDisplayName} from "@/lib/load-name";
 import type {Broker, DetentionStamp, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Trailer, Truck} from "@/types/entities";
 import type {DetentionSummary} from "@/lib/detention";
 import type {PaperworkState} from "@/lib/paperwork";
@@ -148,6 +151,12 @@ function TripTasksSection({ loadId }: { loadId: string }) {
   );
 }
 
+// Miles read as whole numbers ("80 mi"); a fraction shows only when the
+// record really has one.
+function formatMiles(miles: number): string {
+  return miles.toLocaleString("en-US", { maximumFractionDigits: 1 });
+}
+
 function formatStampTime(iso: string) {
   return new Date(iso).toLocaleString("en-US", {
     timeZone: "America/New_York",
@@ -236,9 +245,9 @@ function DetentionSection({ load }: { load: Load }) {
               : `${summary.totalBillableHours} billable hour(s) past free time — add the detention rate from the rate con to price it.`}
         </p>
       )}
-      <div role="group" aria-label="Stamp the clock">
+      <div className="stamp-controls" role="group" aria-label="Stamp the clock">
         <label>
-          Stop{" "}
+          <span>Stop</span>
           <select
             value={stopKind}
             onChange={(event) => setStopKind(event.target.value as "pickup" | "delivery")}
@@ -387,7 +396,7 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
   return (
     <div>
       <PageHeader
-        title={`${load.origin} → ${load.destination}`}
+        title={loadDisplayName(load)}
         purpose={`Load — ${load.status}. Everything recorded against it, in one place.`}
         action={
           <>
@@ -418,24 +427,26 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
           )}
           {load.broker_reference && (<><dt>Broker ref</dt><dd>{load.broker_reference}</dd></>)}
           <dt>Rate</dt>
-          <dd>{load.rate_cents != null ? formatDollars(load.rate_cents) : "—"}</dd>
+          {/* A zero rate means nobody typed one (a per-mile driver never sees
+              the load rate), not a load that pays nothing. */}
+          <dd>{load.rate_cents != null && load.rate_cents > 0 ? formatDollars(load.rate_cents) : "Not entered"}</dd>
           <dt>Miles</dt>
           <dd>{load.miles != null ? load.miles.toLocaleString("en-US") : "—"}</dd>
           {(load.deadhead_miles != null || load.loaded_miles != null) && (
             <>
               <dt>Deadhead / loaded</dt>
               <dd>
-                {load.deadhead_miles != null ? `${load.deadhead_miles.toFixed(2)} mi` : "—"} /{" "}
-                {load.loaded_miles != null ? `${load.loaded_miles.toFixed(2)} mi` : "—"}
+                {load.deadhead_miles != null ? `${formatMiles(load.deadhead_miles)} mi` : "—"} /{" "}
+                {load.loaded_miles != null ? `${formatMiles(load.loaded_miles)} mi` : "—"}
               </dd>
             </>
           )}
-          <dt>Per mile</dt>
-          <dd>
-            {load.rate_cents != null && load.miles != null && load.miles > 0
-              ? `$${(load.rate_cents / 100 / load.miles).toFixed(2)}`
-              : "—"}
-          </dd>
+          {load.rate_cents != null && load.rate_cents > 0 && load.miles != null && load.miles > 0 && (
+            <>
+              <dt>Per mile</dt>
+              <dd>{formatDollars(Math.round(load.rate_cents / load.miles))}</dd>
+            </>
+          )}
           <dt>Expenses on it</dt>
           <dd>{expenseCost > 0 ? formatDollars(expenseCost) : "—"}</dd>
         </dl>
@@ -555,8 +566,11 @@ function LoadStatusSection({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Confirming needs the two dates ONLY (owner ruling 2026-11-10,
+  // Loads audit L-11): a broker rate is not a requirement — his pay
+  // runs off miles × CPM under his pay terms. A missing rate shows as
+  // an informational note under the checklist, never as a ✗ item.
   const checklist = [
-    { label: "Rate", ok: load.rate_cents != null },
     { label: "Pickup date", ok: Boolean(load.pickup_date) },
     { label: "Delivery date", ok: Boolean(load.delivery_date) },
   ];
@@ -592,6 +606,12 @@ function LoadStatusSection({
               </li>
             ))}
           </ul>
+          {load.rate_cents == null && (
+            <p className="row-sub">
+              No broker rate on file — not needed to confirm. Your pay for this load is figured from its
+              miles at your pay terms.
+            </p>
+          )}
         </div>
       )}
       {error && <p role="alert">{error}</p>}

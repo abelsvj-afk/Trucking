@@ -35,7 +35,15 @@ export default function ActiveLoadCard() {
     <section aria-label="Active load" className="active-load">
       <h2>Active load</h2>
       <p className="active-load-route">
-        <strong>{load.origin}</strong> → <strong>{load.destination}</strong>
+        {load.trip_number ? (
+          <>
+            Trip {load.trip_number} · <strong>{load.origin}</strong> → <strong>{load.destination}</strong>
+          </>
+        ) : (
+          <>
+            <strong>{load.origin}</strong> → <strong>{load.destination}</strong>
+          </>
+        )}
       </p>
       <p className="row-sub">
         {pickup ? `Pickup ${pickup}` : "No pickup date"}

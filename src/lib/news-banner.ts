@@ -159,15 +159,50 @@ export function buildBannerItems(
   // ONE instance per story (live audit 2026-11-07: the same headline rotated in twice, once as a briefing and once as the
   // signal behind it). Items are already in rank order, so the highest-ranked copy stays. A story matches on its normalised
   // headline OR on a briefing's one-line summary equalling another item's headline.
+  // V78 live check 2026-11-10: the same story STILL rendered twice —
+  // two GDELT cluster signals (different watchers) headlining the same
+  // article, once with the same and once with slightly different
+  // headline casing/punctuation, and in BOTH cases different sub-lines
+  // (each signal's own aggregate summary) — the headline-exact rule
+  // alone misses the reworded copy. Story identity therefore ALSO
+  // keys on the headlined story's TITLE as the cluster carries it:
+  // normalised with punctuation collapsed and a trailing ellipsis
+  // removed (GDELT truncates long titles at cluster time, so the same
+  // story can arrive full-length in one signal and truncated in
+  // another — a long-enough prefix match is the same story). A
+  // shared story URL alone is NOT identity: distinct signals
+  // legitimately cite one publisher URL for different stories.
+  const storyKey = (text: string): string => {
+    const flat = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    return flat.replace(/( \w{0,3})?$/, "").trim(); // tolerate cluster truncation of the last partial word
+  };
+  const headlinedStoryKey = (item: BannerItem): string | null => {
+    if (item.kind !== "signal") return null;
+    const signal = (page.signals ?? []).find((s) => s.id === item.id);
+    const story = Array.isArray(signal?.items)
+      ? signal.items.find((entry) => typeof entry?.title === "string" && entry.title.length > 0)
+      : undefined;
+    return story ? storyKey(story.title) : null;
+  };
+  const sameStory = (a: string, b: string): boolean => {
+    if (a === b) return true;
+    const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+    return shorter.length >= 24 && longer.startsWith(shorter);
+  };
   const norm = (text: string | null) => (text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const seenHeadlines = new Set<string>();
+  const seenStoryKeys: string[] = [];
   const summaryAliases = new Set<string>(); // a briefing's one-line summary only ever matches another item's HEADLINE, never another summary
   const unique = merged.filter((item) => {
     const headline = norm(item.headline);
     const summary = norm(item.sub);
-    const duplicate = seenHeadlines.has(headline) || summaryAliases.has(headline) || (summary.length > 0 && seenHeadlines.has(summary));
+    const story = headlinedStoryKey(item);
+    const duplicate =
+      (story !== null && seenStoryKeys.some((seen) => sameStory(seen, story))) ||
+      seenHeadlines.has(headline) || summaryAliases.has(headline) || (summary.length > 0 && seenHeadlines.has(summary));
     if (duplicate) return false;
     seenHeadlines.add(headline);
+    if (story !== null) seenStoryKeys.push(story);
     if (summary.length > 0) summaryAliases.add(summary);
     return true;
   });

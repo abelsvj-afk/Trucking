@@ -50,6 +50,7 @@ import { propagateMileage } from "@/services/fleet/mileage";
 import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
+import { todayEastern } from "@/lib/eastern-date";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -375,7 +376,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       },
       async run(args) {
         const parsed = createExpenseArgs.parse(args);
-        const expenseDate = parsed.expense_date ?? new Date().toISOString().slice(0, 10);
+        const expenseDate = parsed.expense_date ?? todayEastern();
         const row = {
           company_id: companyId,
           category: parsed.category,
@@ -1043,7 +1044,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         if (loadError) throw new Error(loadError.message);
         if (!load) throw new Error(`No load with id ${parsed.load_id} in his records.`);
         const row = load as { origin: string; destination: string; notes: string | null };
-        const stamped = `[${new Date().toISOString().slice(0, 10)}] ${parsed.note}`;
+        const stamped = `[${todayEastern()}] ${parsed.note}`;
         const notes = row.notes ? `${row.notes}\n${stamped}` : stamped;
         const { error } = await client
           .from("loads")

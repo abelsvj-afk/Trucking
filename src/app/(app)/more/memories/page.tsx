@@ -96,7 +96,7 @@ export default function MemoriesPage() {
   }
 
   return (
-    <main>
+    <div>
       <PageHeader
         title="What Abel remembers"
         purpose="Everything Abel has stored about you and your business — the same memory he uses on Telegram and here. Correcting a memory saves the new version and keeps the old one in history (marked replaced), so nothing he believed ever vanishes silently."
@@ -195,6 +195,6 @@ export default function MemoriesPage() {
           })}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

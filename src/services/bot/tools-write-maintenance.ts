@@ -17,6 +17,7 @@ import { createVehicleDefectSchema, updateVehicleDefectSchema } from "@/data/sch
 import { defectMatchesWork, listActiveDefects, splitDefectTexts, stageDefectProposals } from "@/services/fleet/defects";
 import { stageMaintenancePack } from "@/services/fleet/maintenance-seeding";
 import { guessTemplateKey } from "@/lib/maintenance-templates";
+import { todayEastern } from "@/lib/eastern-date";
 
 export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): void {
   // --- Maintenance ---------------------------------------------------
@@ -246,7 +247,7 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
         const { client, companyId } = store;
         const schedule = await fetchLiveRow(client, "maintenance_schedules", companyId, String(parsed.schedule_id), "maintenance schedule");
         const patch: Row = {
-          last_done_date: typeof parsed.done_date === "string" ? parsed.done_date : new Date().toISOString().slice(0, 10),
+          last_done_date: typeof parsed.done_date === "string" ? parsed.done_date : todayEastern(),
         };
         if (typeof parsed.done_mileage === "number") {
           patch.last_done_mileage = parsed.done_mileage;
@@ -399,7 +400,7 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
       toPatch: (args) => {
         const { mark_checked, ...rest } = definedOnly(args);
         const patch: Row = { ...rest };
-        if (mark_checked === true) patch.last_checked_date = new Date().toISOString().slice(0, 10);
+        if (mark_checked === true) patch.last_checked_date = todayEastern();
         return patch;
       },
       patchSchema: updateEquipmentChecklistItemSchema,

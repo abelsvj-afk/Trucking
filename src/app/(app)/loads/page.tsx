@@ -16,6 +16,7 @@ import { ListLoading, TeachingEmpty, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import AskAssistant from "@/components/AskAssistant";
 import { usePageTitle } from "@/lib/use-page-title";
+import { loadDisplayName } from "@/lib/load-name";
 import type { Load, LoadStatus } from "@/types/entities";
 
 const STATUS_FILTERS: { label: string; value: LoadStatus | "" }[] = [
@@ -59,7 +60,7 @@ export default function LoadsListPage() {
       {showDeleted ? (
         <DeletedListSection<Load>
           resource="loads"
-          labelFor={(load) => `${load.origin} → ${load.destination}`}
+          labelFor={(load) => loadDisplayName(load)}
           sublabelFor={(load) => load.status}
         />
       ) : (
@@ -94,9 +95,9 @@ export default function LoadsListPage() {
         <ul>
           {state.result.data.map((load) => {
             const facts: string[] = [];
-            if (load.rate_cents != null) facts.push(`$${(load.rate_cents / 100).toFixed(2)}`);
+            if (load.rate_cents != null && load.rate_cents > 0) facts.push(`$${(load.rate_cents / 100).toFixed(2)}`);
             if (load.miles != null) facts.push(`${load.miles.toLocaleString("en-US")} mi`);
-            if (load.rate_cents != null && load.miles != null && load.miles > 0) {
+            if (load.rate_cents != null && load.rate_cents > 0 && load.miles != null && load.miles > 0) {
               facts.push(`$${(load.rate_cents / 100 / load.miles).toFixed(2)}/mi`);
             }
             if (load.pickup_date) {
@@ -109,7 +110,7 @@ export default function LoadsListPage() {
                 <Link href={`/loads/${load.id}`}>
                   <span className="row-title">
                     <strong data-status={STATUS_BADGES[load.status]}>{load.status}</strong>
-                    {load.origin} → {load.destination}
+                    {loadDisplayName(load)}
                   </span>
                   {facts.length > 0 && <span className="row-sub">{facts.join(" · ")}</span>}
                 </Link>

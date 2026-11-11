@@ -15,6 +15,7 @@ import { TeachingEmpty } from "@/components/ListStates";
 import { useSubmissionId } from "@/lib/use-submission-id";
 import type { AccountSnapshot } from "@/types/entities";
 import type { AccountView } from "@/types/truck-fund";
+import { todayEastern } from "@/lib/eastern-date";
 
 export default function SnapshotsSection({
   accounts,
@@ -28,7 +29,7 @@ export default function SnapshotsSection({
   const [last4, setLast4] = useState("");
   const [balance, setBalance] = useState("");
   const [lane, setLane] = useState<"business" | "personal">("business");
-  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
+  const [asOf, setAsOf] = useState(() => todayEastern());
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

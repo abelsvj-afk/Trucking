@@ -483,7 +483,7 @@ describe("extended write tools - happy paths (§9)", () => {
     await executeWriteTool(s, "create_checklist_item", { truck_id: TRUCK_ID, item_name: "Zip ties" });
     expect(db.equipment_checklist_items).toHaveLength(2);
     await executeWriteTool(s, "update_checklist_item", { item_id: CHECKLIST_ID, mark_checked: true });
-    expect(db.equipment_checklist_items![0]!.last_checked_date).toBe(new Date().toISOString().slice(0, 10));
+    expect(db.equipment_checklist_items![0]!.last_checked_date).toBe(new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" })); // the owner's Eastern day, not the UTC day
     await executeWriteTool(s, "log_pretrip_inspection", {
       truck_id: TRUCK_ID, passed: false, defects_found: "Left marker light out",
     });

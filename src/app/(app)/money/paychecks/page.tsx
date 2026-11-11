@@ -168,7 +168,7 @@ function LoadRow({ c }: { c: PaySummaryLoad }) {
         <Link href={`/loads/${c.loadId}`}>{c.origin} → {c.destination}</Link>
       </span>
       <span className="row-sub">
-        {c.deliveryDate ?? "no delivery date"} · <strong>{c.status !== "completed" ? "Booked — not delivered yet" : c.line ? STATUS_WORDS[c.line.status] : "No terms"}</strong>
+        {c.deliveryDate ? formatDay(c.deliveryDate) : "no delivery date"} · <strong>{c.status !== "completed" ? "Booked — not delivered yet" : c.line ? STATUS_WORDS[c.line.status] : "No terms"}</strong>
         {c.line?.expected.lowCents != null && c.line.expected.highCents != null
           ? ` · expected ${formatRange(c.line.expected.lowCents, c.line.expected.highCents)}`
           : ""}

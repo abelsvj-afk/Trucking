@@ -31,6 +31,7 @@ import {
   type MaintenanceOutlook,
   type ScheduleOutlook,
 } from "@/services/fleet/maintenance-outlook";
+import { todayEastern } from "@/lib/eastern-date";
 
 export const MAINTENANCE_WATCH_CAPABILITY = "maintenance_watch";
 
@@ -150,7 +151,7 @@ function scheduleCandidate(
 function buildScheduleCandidates(ctx: BuildContext): ReminderCandidate[] {
   const { outlook, now, ledger } = ctx;
   const candidates: ReminderCandidate[] = [];
-  const today = now.toISOString().slice(0, 10);
+  const today = todayEastern(now);
 
   for (const entry of outlook.schedules) {
     const { schedule, due } = entry;
@@ -198,7 +199,7 @@ function buildScheduleCandidates(ctx: BuildContext): ReminderCandidate[] {
           text: `${schedule.description} on ${entry.vehicleLabel}: no last-done on record, so I can't tell when it's due - tell me when it was last done and I'll track it from there.`,
           scheduleId: schedule.id,
           stamp: async (sentAt) => {
-            ledger.unknownNotified[schedule.id] = sentAt.toISOString().slice(0, 10);
+            ledger.unknownNotified[schedule.id] = todayEastern(sentAt);
           },
         });
       }

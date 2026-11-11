@@ -51,7 +51,9 @@ declare
   priv text;
   -- tables whose tenant INSERT policy also fences the row's SHAPE (manual, queued
   -- research runs only): a complete generic row is rightly refused for tenants.
-  shaped constant text[] := array['research_runs', 'research_requests'];
+  -- research_learning_topics (00084): its owner INSERT policy also fences the row's shape (proposed_by = 'owner', status = 'proposed',
+  -- no research_run_id), so a generic complete row is refused by that fence - a shaped table, not an isolation failure.
+  shaped constant text[] := array['research_runs', 'research_requests', 'research_learning_topics'];
 begin
   insert into companies (id, name) values (a, 'iso-A'), (b, 'iso-B');
   insert into auth.users (id) values (ua), (ub);

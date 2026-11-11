@@ -30,6 +30,7 @@ import type { FundEntry } from "@/types/entities";
 import NumberTicker from "@/components/NumberTicker";
 import LadderSection from "./ladder";
 import SnapshotsSection from "./snapshots";
+import { todayEastern } from "@/lib/eastern-date";
 
 const BAND_OPTIONS: { value: TruckPriceBandKey; label: string }[] = (
   Object.entries(TRUCK_PRICE_BANDS) as [TruckPriceBandKey, (typeof TRUCK_PRICE_BANDS)[TruckPriceBandKey]][]
@@ -64,7 +65,7 @@ export default function TruckFundPage() {
   const [entryFund, setEntryFund] = useState<FundKey>("truck_fund");
   const [entryKind, setEntryKind] = useState<"deposit" | "withdrawal">("deposit");
   const [entryAmount, setEntryAmount] = useState("");
-  const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(() => todayEastern());
   const [entryLane, setEntryLane] = useState<"business" | "personal">("business");
   const [entryNote, setEntryNote] = useState("");
   const [savingEntry, setSavingEntry] = useState(false);
@@ -101,7 +102,7 @@ export default function TruckFundPage() {
         fund_key: "truck_fund",
         kind: "deposit",
         amount_cents: data.suggestion.amount_cents,
-        entry_date: new Date().toISOString().slice(0, 10),
+        entry_date: todayEastern(),
         lane: "business",
         source: "sweep",
         note: "Sweep rule suggestion, recorded by owner",

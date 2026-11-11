@@ -22,6 +22,7 @@ import TodaysLogStrip from "@/components/TodaysLogStrip";
 import QuickAction from "@/components/QuickAction";
 import NewsBanner from "@/components/NewsBanner";
 import SetupChecklist from "@/components/SetupChecklist";
+import BodyClass from "@/components/BodyClass";
 import AskAssistant from "@/components/AskAssistant";
 import ActivePlanCard from "@/components/ActivePlanCard";
 import ActiveLoadCard from "@/components/ActiveLoadCard";
@@ -126,9 +127,10 @@ export default function HomePage() {
 
   return (
     <div>
+      <BodyClass name="home-face" />
       <PageHeader
         title="Road to Legacy"
-        purpose="Your whole business at a glance — hours, money, and the one thing to do next."
+        purpose="Trucking Business OS — your whole business at a glance: hours, money, and the one thing to do next."
       />
 
       <DutyHud />

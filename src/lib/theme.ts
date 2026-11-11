@@ -82,3 +82,47 @@ export function applyThemeChoice(choice: ThemeChoice): void {
     document.documentElement.dataset.theme = attribute;
   }
 }
+
+/**
+ * V78 live-check instability fix (2026-11-10): across plain reloads
+ * with no setting touched, Home flipped dark -> light and stayed
+ * light. Root cause at the code level: the pre-paint bootstrap in
+ * the root layout was a HAND-WRITTEN copy of the resolution logic —
+ * the only applier of the theme, free to drift from this module, and
+ * with nothing re-asserting the attribute after load, any client
+ * whose bootstrap did not run the current logic (a stale cached
+ * shell, a stripped attribute) settled on the LIGHT base tokens and
+ * stayed there. The bootstrap is now GENERATED from this module's
+ * constants (single source of truth — the layout injects exactly
+ * this string), and applyStoredTheme() below re-asserts the same
+ * resolution after hydration so the rendered scheme is stable on
+ * every load: no stored pick -> the dark default; an explicit pick
+ * wins; "auto" leaves the attribute off for the OS media query.
+ * Neither function ever WRITES storage: a default is never persisted
+ * as if it were a pick (applyThemeChoice, the Settings handler, is
+ * the only write path, and it only runs on an explicit pick).
+ */
+export function themeBootstrapScript(): string {
+  const key = JSON.stringify(THEME_STORAGE_KEY);
+  const fallback = JSON.stringify(themeAttributeFor(THEME_DEFAULT) ?? "dark");
+  return (
+    `try{var t=window.localStorage.getItem(${key});` +
+    `if(t==="dark"||t==="light"){document.documentElement.dataset.theme=t;}` +
+    `else if(t==="auto"){delete document.documentElement.dataset.theme;}` +
+    `else{document.documentElement.dataset.theme=${fallback};}}` +
+    `catch(e){document.documentElement.dataset.theme=${fallback};}`
+  );
+}
+
+/** Re-assert the resolved theme attribute from storage (browser
+ *  only). Idempotent; never writes storage. Run once after hydration
+ *  by the root layout's client guard. */
+export function applyStoredTheme(): void {
+  if (typeof window === "undefined") return;
+  const attribute = themeAttributeFor(getStoredThemeChoice());
+  if (attribute === null) {
+    delete document.documentElement.dataset.theme;
+  } else {
+    document.documentElement.dataset.theme = attribute;
+  }
+}
