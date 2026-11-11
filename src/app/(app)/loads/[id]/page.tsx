@@ -148,6 +148,12 @@ function TripTasksSection({ loadId }: { loadId: string }) {
   );
 }
 
+// Miles read as whole numbers ("80 mi"); a fraction shows only when the
+// record really has one.
+function formatMiles(miles: number): string {
+  return miles.toLocaleString("en-US", { maximumFractionDigits: 1 });
+}
+
 function formatStampTime(iso: string) {
   return new Date(iso).toLocaleString("en-US", {
     timeZone: "America/New_York",
@@ -236,9 +242,9 @@ function DetentionSection({ load }: { load: Load }) {
               : `${summary.totalBillableHours} billable hour(s) past free time — add the detention rate from the rate con to price it.`}
         </p>
       )}
-      <div role="group" aria-label="Stamp the clock">
+      <div className="stamp-controls" role="group" aria-label="Stamp the clock">
         <label>
-          Stop{" "}
+          <span>Stop</span>
           <select
             value={stopKind}
             onChange={(event) => setStopKind(event.target.value as "pickup" | "delivery")}
@@ -418,24 +424,26 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
           )}
           {load.broker_reference && (<><dt>Broker ref</dt><dd>{load.broker_reference}</dd></>)}
           <dt>Rate</dt>
-          <dd>{load.rate_cents != null ? formatDollars(load.rate_cents) : "—"}</dd>
+          {/* A zero rate means nobody typed one (a per-mile driver never sees
+              the load rate), not a load that pays nothing. */}
+          <dd>{load.rate_cents != null && load.rate_cents > 0 ? formatDollars(load.rate_cents) : "Not entered"}</dd>
           <dt>Miles</dt>
           <dd>{load.miles != null ? load.miles.toLocaleString("en-US") : "—"}</dd>
           {(load.deadhead_miles != null || load.loaded_miles != null) && (
             <>
               <dt>Deadhead / loaded</dt>
               <dd>
-                {load.deadhead_miles != null ? `${load.deadhead_miles.toFixed(2)} mi` : "—"} /{" "}
-                {load.loaded_miles != null ? `${load.loaded_miles.toFixed(2)} mi` : "—"}
+                {load.deadhead_miles != null ? `${formatMiles(load.deadhead_miles)} mi` : "—"} /{" "}
+                {load.loaded_miles != null ? `${formatMiles(load.loaded_miles)} mi` : "—"}
               </dd>
             </>
           )}
-          <dt>Per mile</dt>
-          <dd>
-            {load.rate_cents != null && load.miles != null && load.miles > 0
-              ? `$${(load.rate_cents / 100 / load.miles).toFixed(2)}`
-              : "—"}
-          </dd>
+          {load.rate_cents != null && load.rate_cents > 0 && load.miles != null && load.miles > 0 && (
+            <>
+              <dt>Per mile</dt>
+              <dd>{formatDollars(Math.round(load.rate_cents / load.miles))}</dd>
+            </>
+          )}
           <dt>Expenses on it</dt>
           <dd>{expenseCost > 0 ? formatDollars(expenseCost) : "—"}</dd>
         </dl>

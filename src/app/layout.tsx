@@ -37,7 +37,7 @@ export default function RootLayout({
   const publicConfig = readPublicConfigFromEnv();
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
         <script
           // Theme init (src/lib/theme.ts; default SETTLED dark

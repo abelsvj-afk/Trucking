@@ -73,7 +73,7 @@ function PeriodBlock({
                 <Link href={`/loads/${load.id}`}>{load.origin} → {load.destination}</Link>
               </span>
               <span className="row-sub">
-                {load.delivery_date ?? load.pickup_date} ·{" "}
+                {formatDay((load.delivery_date ?? load.pickup_date) as string)} ·{" "}
                 {projection.lowCents === null || projection.highCents === null
                   ? "can't project yet"
                   : formatRange(projection.lowCents, projection.highCents)}

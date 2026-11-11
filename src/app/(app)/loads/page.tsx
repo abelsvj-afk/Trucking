@@ -94,9 +94,9 @@ export default function LoadsListPage() {
         <ul>
           {state.result.data.map((load) => {
             const facts: string[] = [];
-            if (load.rate_cents != null) facts.push(`$${(load.rate_cents / 100).toFixed(2)}`);
+            if (load.rate_cents != null && load.rate_cents > 0) facts.push(`$${(load.rate_cents / 100).toFixed(2)}`);
             if (load.miles != null) facts.push(`${load.miles.toLocaleString("en-US")} mi`);
-            if (load.rate_cents != null && load.miles != null && load.miles > 0) {
+            if (load.rate_cents != null && load.rate_cents > 0 && load.miles != null && load.miles > 0) {
               facts.push(`$${(load.rate_cents / 100 / load.miles).toFixed(2)}/mi`);
             }
             if (load.pickup_date) {

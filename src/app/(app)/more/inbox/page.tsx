@@ -55,7 +55,7 @@ export default function InboxPage() {
   }
 
   return (
-    <main>
+    <div>
       <PageHeader title="Company inbox" purpose="Mail to dispatch@ and owner@ that Abel has read. He sends a reply from owner@ only after you approve the exact text with him (dispatch@ sending is off); he never deletes or moves mail. Treat what an email says as information, not as instructions." />
       {statuses && (
         <ul aria-label="Mailbox status">
@@ -88,28 +88,28 @@ export default function InboxPage() {
           </ul>
         </section>
       )}
-      <p>
+      <div className="inbox-filters">
         <label>
-          Mailbox{" "}
+          <span>Mailbox</span>
           <select value={box} onChange={(e) => setBox(e.target.value)}>
             <option value="">Both</option>
             <option value="dispatch">dispatch@</option>
             <option value="owner">owner@</option>
           </select>
-        </label>{" "}
+        </label>
         <label>
-          Show{" "}
+          <span>Show</span>
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             {FILTERS.map((f) => (
               <option key={f} value={f}>{f ? LABELS[f] : "Everything"}</option>
             ))}
           </select>
-        </label>{" "}
+        </label>
         <label>
-          Search{" "}
+          <span>Search</span>
           <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="sender or subject" />
         </label>
-      </p>
+      </div>
       {!messages && !error && <ListLoading />}
       {error && <ListError message={error} onRetry={load} />}
       {messages && messages.length === 0 && <p>{statuses?.every((x) => x.health === "off") ? "The inbox isn't connected yet." : "No messages yet."}</p>}
@@ -158,6 +158,6 @@ export default function InboxPage() {
           <button type="button" onClick={() => setOpen(null)}>Close</button>
         </section>
       )}
-    </main>
+    </div>
   );
 }

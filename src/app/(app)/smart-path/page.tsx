@@ -261,8 +261,7 @@ function SmartPathInner() {
     <div>
       <PageHeader title="Smart Path" purpose="One route, checked three ways — legal first (your hours), rested second, paid third — with fuel and food that fit the truck." />
       <p>
-        One plan for the whole run — legal first, rested second, paid third. Times are Eastern.
-        Plan while you&apos;re parked; on the road, the bot speaks the plan.
+        Times are Eastern. Plan while you&apos;re parked; on the road, Abel speaks the plan.
       </p>
 
       <SmartPathMap
