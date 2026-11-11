@@ -533,7 +533,13 @@ describe("load status transitions (F-016)", () => {
     ],
   });
 
-  it("confirming a draft missing rate/dates is a 422 naming the missing fields", async () => {
+  // Owner ruling 2026-11-10 (he hit this wall live on Trip 1874): a
+  // broker rate is NOT a confirm requirement — his pay is miles × CPM
+  // under his employer pay terms, so a rate-less load confirms on its
+  // dates alone. This test replaces the old rate-refusal test
+  // deliberately: confirming used to 422 naming rate_cents; now a
+  // missing rate must NOT be named, and the dates are what get named.
+  it("confirming a draft missing dates is a 422 naming the dates — never the rate", async () => {
     useDb(seedLoad());
     const res = await loadRoutes().update(
       jsonReq("http://x/api/v1/loads/l1", "PATCH", { status: "confirmed" }),
@@ -542,10 +548,27 @@ describe("load status transitions (F-016)", () => {
     expect(res.status).toBe(422);
     const body = await res.json();
     const paths = (body.error.fields as { path: string }[]).map((f) => f.path);
-    expect(paths).toEqual(expect.arrayContaining(["rate_cents", "pickup_date", "delivery_date"]));
+    expect(paths).toEqual(expect.arrayContaining(["pickup_date", "delivery_date"]));
+    expect(paths).not.toContain("rate_cents");
   });
 
-  it("confirming succeeds when the same PATCH supplies the missing fields", async () => {
+  it("confirming succeeds with NO rate when both dates are present (owner ruling 2026-11-10)", async () => {
+    useDb(seedLoad());
+    const res = await loadRoutes().update(
+      jsonReq("http://x/api/v1/loads/l1", "PATCH", {
+        status: "confirmed",
+        pickup_date: "2026-03-01",
+        delivery_date: "2026-03-03",
+      }),
+      ctxFor("l1"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("confirmed");
+    expect(body.rate_cents).toBeNull();
+  });
+
+  it("confirming succeeds when the same PATCH supplies the missing dates (rate present is fine too)", async () => {
     useDb(seedLoad());
     const res = await loadRoutes().update(
       jsonReq("http://x/api/v1/loads/l1", "PATCH", {

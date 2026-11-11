@@ -26,6 +26,29 @@
 //  4. Every timer/listener is removed on unmount.
 //  5. Dock points sit over the page margin at the left/right edge,
 //     above the bottom nav — never centered over content.
+//
+// D7 restoration (2026-11-10): the rig above shipped on 2026-11-03
+// but read as a STATIC button in real use — the owner's words:
+// "a little circle with the eyes... it literally doesn't do anything
+// I described it to do." Root causes found in this pass:
+//  * No entrance moment: the owner's spec calls for the drop to
+//    stretch/squash like liquid WHEN THE APP LOADS; the drop simply
+//    appeared.  -> Entrance melt below (satellite starts offset and
+//    is reabsorbed while the body springs in with a squash).
+//  * Idle amplitudes were sub-perceptual on a phone: a 3px bob and a
+//    6-14px same-colour satellite wander inside a 72px disc.
+//    -> Bob is 5px; the wander radius is 10-18px so the goo visibly
+//    necks and melts at idle.
+//  * The two big motions were wired to triggers that never occur:
+//    squash peaked during dock travel, but travel needed an
+//    undiscoverable double-tap, and the celebrate squash listens for
+//    an event nothing in the app fires.  -> Dock travel is now a real
+//    spring-driven glide across the screen (velocity stretches the
+//    goo), triggered by double-tap OR long-press; a liquid "hop"
+//    fires on every route change; waking from sleep plays a stretch.
+// The lifecycle is observable via data-life on the root (entering /
+// alive / hopping / sleeping / static) so tests — and a human doing a
+// visual pass — can tell the drop is alive without guessing.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -42,6 +65,11 @@ import {
 export const ASSISTANT_PATH = "/more/assistant";
 const SIDE_STORAGE_KEY = "abel-drop-side";
 const IDLE_SLEEP_MS = 45_000;
+const DOCK_WIDTH_PX = 72;
+const DOCK_MARGIN_PX = 12;
+const LONG_PRESS_MS = 550;
+
+type LifeState = "entering" | "alive" | "hopping" | "sleeping";
 
 type DockSide = "left" | "right";
 
@@ -87,6 +115,8 @@ export default function AbelDrop() {
   }, []);
   const reduceMotion = Boolean(motionReduced || mqReduced);
   const celebrateControls = useAnimationControls();
+  const entranceControls = useAnimationControls();
+  const hopControls = useAnimationControls();
 
   const [side, setSide] = useState<DockSide>(() => {
     try {
@@ -111,6 +141,21 @@ export default function AbelDrop() {
   const lastTapAtRef = useRef(0);
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const lastScrollYRef = useRef(0);
+  // D7 lifecycle: "entering" during the load melt, "hopping" during a
+  // route-change hop; derived display state is computed at render.
+  const [phase, setPhase] = useState<"entering" | "ready">("entering");
+  const [hopping, setHopping] = useState(false);
+  const hoppingRef = useRef(false);
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sleepingRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const prevPathnameRef = useRef(pathname);
+  const [viewportWidth, setViewportWidth] = useState<number>(() =>
+    typeof window !== "undefined" ? window.innerWidth : 0,
+  );
 
   // --- Pupils: springs toward the last tap point / scroll direction.
   const pupilTargetX = useMotionValue(0);
@@ -120,8 +165,10 @@ export default function AbelDrop() {
 
   // --- Satellite: lags the body on a softer spring; its velocity drives
   // the squash/stretch of the whole goo body (capped at 1.18x).
-  const satTargetX = useMotionValue(0);
-  const satTargetY = useMotionValue(0);
+  // D7: it starts offset (unless reduced motion) so the entrance melt
+  // can reabsorb it into the body on load.
+  const satTargetX = useMotionValue(reduceMotion ? 0 : -22);
+  const satTargetY = useMotionValue(reduceMotion ? 0 : -16);
   const satSpring = reduceMotion
     ? { stiffness: 1000, damping: 100 }
     : { stiffness: 60, damping: 14 };
@@ -142,6 +189,42 @@ export default function AbelDrop() {
     return Math.min(1.18, Math.max(0.85, y / Math.sqrt(x)));
   });
 
+  // --- Dock travel (D7): the dock is anchored at the left margin and
+  // the whole drop GLIDES to its side on a spring; travel velocity
+  // stretches the goo along the direction of travel (same 1.18 cap).
+  // Before the viewport has been measured (first paint) the dock sits
+  // at its side via the plain left/right style instead, so there is
+  // never a visible jump or a wrong-side flash.
+  const travelTargetX =
+    viewportWidth > 0 && side === "right"
+      ? Math.max(0, viewportWidth - DOCK_MARGIN_PX * 2 - DOCK_WIDTH_PX)
+      : 0;
+  const dockX = useSpring(travelTargetX, {
+    stiffness: 120,
+    damping: 20,
+    mass: 0.9,
+  });
+  useEffect(() => {
+    dockX.set(travelTargetX);
+  }, [dockX, travelTargetX]);
+  const travelVelX = useVelocity(dockX);
+  const travelScaleX = useTransform(
+    travelVelX,
+    [-900, 0, 900],
+    [1.18, 1, 1.18],
+  );
+  const travelScaleY = useTransform(travelScaleX, (sx) =>
+    Math.min(1.18, Math.max(0.85, 1 / Math.sqrt(sx))),
+  );
+
+  // Track the viewport width so the right dock stays at the margin.
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   const schedule = useCallback((fn: () => void, ms: number) => {
     const id = setTimeout(() => {
       timersRef.current.delete(id);
@@ -151,7 +234,104 @@ export default function AbelDrop() {
     return id;
   }, []);
 
+  // Entrance melt (D7): on load the body springs in small and
+  // overshoots with a liquid squash while the offset satellite is
+  // reabsorbed; two quick blinks right after say the eyes are alive.
+  // Reduced motion: no melt at all — the drop is simply there (its
+  // life state is "static", derived from reduceMotion at render, so
+  // this branch only needs to settle the satellite).
+  useEffect(() => {
+    if (reduceMotion) {
+      satTargetX.set(0);
+      satTargetY.set(0);
+      return;
+    }
+    let cancelled = false;
+    const reabsorb = setTimeout(() => {
+      satTargetX.set(0);
+      satTargetY.set(0);
+    }, 120);
+    void entranceControls
+      .start({
+        scale: [0.35, 1.14, 0.93, 1.03, 1],
+        scaleY: [0.5, 0.88, 1.1, 0.97, 1],
+        opacity: [0, 1, 1, 1, 1],
+        transition: { duration: 0.85, ease: "easeOut" },
+      })
+      .then(() => {
+        if (!cancelled) setPhase("ready");
+      });
+    const welcome = setTimeout(() => {
+      if (cancelled) return;
+      setBlinking(true);
+      setTimeout(() => {
+        if (cancelled) return;
+        setBlinking(false);
+        setTimeout(() => {
+          if (cancelled) return;
+          setBlinking(true);
+          setTimeout(() => {
+            if (!cancelled) setBlinking(false);
+          }, 110);
+        }, 160);
+      }, 110);
+    }, 950);
+    return () => {
+      cancelled = true;
+      clearTimeout(reabsorb);
+      clearTimeout(welcome);
+    };
+    // Runs once on mount; controls/targets are stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Route-change hop (D7): using the app makes the drop hop — squash,
+  // stretch, settle — so its motion is tied to the app moving, not
+  // only to idle drift. The hop is triggered from an animation-frame
+  // callback so the state flip never lands synchronously inside the
+  // effect body. Skipped for the very first render (the entrance
+  // covers it), under reduced motion, and toward /smart-path (the
+  // drop unmounts there anyway).
+  useEffect(() => {
+    if (prevPathnameRef.current === pathname) return;
+    prevPathnameRef.current = pathname;
+    if (reduceMotion || pathname?.startsWith("/smart-path")) return;
+    let innerRaf = 0;
+    const outerRaf = requestAnimationFrame(() => {
+      innerRaf = requestAnimationFrame(() => {
+        hoppingRef.current = true;
+        setHopping(true);
+        void hopControls
+          .start({
+            scaleX: [1, 1.16, 0.94, 1],
+            scaleY: [1, 0.8, 1.13, 1],
+            transition: { duration: 0.45, ease: "easeOut" },
+          })
+          .then(() => {
+            hoppingRef.current = false;
+            setHopping(false);
+          });
+        if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
+        safetyTimerRef.current = setTimeout(() => {
+          hoppingRef.current = false;
+          setHopping(false);
+        }, 700);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outerRaf);
+      if (innerRaf) cancelAnimationFrame(innerRaf);
+    };
+  }, [pathname, reduceMotion, hopControls]);
+
+  // Keep the ref mirror of `sleeping` current for the wake handler.
+  useEffect(() => {
+    sleepingRef.current = sleeping;
+  }, [sleeping]);
+
   // Idle sleep (45s without interaction) + wake on any interaction.
+  // D7: waking from an actual sleep plays a small stretch-yawn (via
+  // the celebrate controls) so sleep/wake reads as a living thing.
   useEffect(() => {
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
@@ -159,8 +339,16 @@ export default function AbelDrop() {
       idleTimer = setTimeout(() => setSleeping(true), IDLE_SLEEP_MS);
     };
     const wake = () => {
+      const wasSleeping = sleepingRef.current;
       setSleeping(false);
       arm();
+      if (wasSleeping && !reduceMotion) {
+        void celebrateControls.start({
+          scaleX: [1, 1.13, 0.95, 1],
+          scaleY: [1, 0.86, 1.09, 1],
+          transition: { duration: 0.45, ease: "easeOut" },
+        });
+      }
     };
     arm();
     window.addEventListener("pointerdown", wake);
@@ -172,7 +360,7 @@ export default function AbelDrop() {
       window.removeEventListener("keydown", wake);
       window.removeEventListener("touchstart", wake);
     };
-  }, []);
+  }, [celebrateControls, reduceMotion]);
 
   // Blink loop: scaleY to 0.1 for 120ms every randomized 2.8-5.5s.
   // No blinking while asleep (eyes are closed arcs) or reduced-motion.
@@ -219,7 +407,9 @@ export default function AbelDrop() {
         return;
       }
       const angle = Math.random() * Math.PI * 2;
-      const radius = 6 + Math.random() * 8;
+      // D7: 10-18px (was 6-14) so the goo visibly necks and melts at
+      // idle on a phone-sized disc instead of trembling invisibly.
+      const radius = 10 + Math.random() * 8;
       satTargetX.set(Math.cos(angle) * radius);
       satTargetY.set(Math.sin(angle) * radius);
     }, 1600);
@@ -293,12 +483,21 @@ export default function AbelDrop() {
   }, [celebrateControls, reduceMotion]);
 
   // Clear any one-shot scheduled timers on unmount (blink/idle/drift
-  // cleanups above handle their own; this covers `schedule()` users).
+  // cleanups above handle their own; this covers `schedule()` users
+  // and the long-press timer).
   useEffect(() => {
     const timers = timersRef.current;
     return () => {
       timers.forEach((id) => clearTimeout(id));
       timers.clear();
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      if (safetyTimerRef.current) {
+        clearTimeout(safetyTimerRef.current);
+        safetyTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -320,6 +519,12 @@ export default function AbelDrop() {
   };
 
   const handleClick = () => {
+    // A completed long-press already flipped the dock; the click that
+    // follows the pointer-up must not also navigate.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     const now = Date.now();
     if (now - lastTapAtRef.current < 350) {
       // Double-tap flips the dock instead of navigating twice.
@@ -331,10 +536,39 @@ export default function AbelDrop() {
     router.push(ASSISTANT_PATH);
   };
 
+  // Long-press (D7): holding the drop flips the dock — the discoverable
+  // alternative to double-tap. The flip itself wakes the drop and the
+  // glide across the screen is the liquid travel motion.
+  const handlePointerDown = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      suppressClickRef.current = true;
+      flipSide();
+    }, LONG_PRESS_MS);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const life: LifeState | "static" = reduceMotion
+    ? "static"
+    : phase === "entering"
+      ? "entering"
+      : sleeping
+        ? "sleeping"
+        : hopping
+          ? "hopping"
+          : "alive";
+
   return (
     <div
       data-testid="abel-drop-root"
       data-motion={reduceMotion ? "static" : "animated"}
+      data-life={life}
       style={{
         position: "fixed",
         inset: 0,
@@ -342,20 +576,25 @@ export default function AbelDrop() {
         zIndex: 60,
       }}
     >
-      <div
+      <motion.div
         data-testid="abel-drop-dock"
         data-side={side}
         style={{
           position: "absolute",
           bottom: "calc(76px + env(safe-area-inset-bottom, 0px))",
-          ...(side === "right" ? { right: "12px" } : { left: "12px" }),
+          left: `${DOCK_MARGIN_PX}px`,
+          ...(viewportWidth > 0
+            ? { x: dockX }
+            : side === "right"
+              ? { left: "auto", right: `${DOCK_MARGIN_PX}px` }
+              : {}),
           visibility: focusHidden ? "hidden" : "visible",
         }}
       >
         <motion.div
           data-testid="abel-drop-bob"
           animate={
-            reduceMotion || sleeping ? { y: 0 } : { y: [0, -3, 0] }
+            reduceMotion || sleeping ? { y: 0 } : { y: [0, -5, 0] }
           }
           transition={
             reduceMotion
@@ -363,20 +602,40 @@ export default function AbelDrop() {
               : { duration: 3, repeat: Infinity, ease: "easeInOut" }
           }
         >
-          <motion.div animate={celebrateControls}>
+          <motion.div
+            style={
+              reduceMotion
+                ? undefined
+                : { scaleX: travelScaleX, scaleY: travelScaleY }
+            }
+          >
             <motion.div
-              style={
+              animate={entranceControls}
+              initial={
                 reduceMotion
-                  ? undefined
-                  : { scaleX: squashScaleX, scaleY: squashScaleY }
+                  ? false
+                  : { scale: 0.35, scaleY: 0.5, opacity: 0 }
               }
             >
-              <button
-                type="button"
-                data-testid="abel-drop-button"
-                aria-label="Open Abel, the assistant"
-                onClick={handleClick}
-                onDoubleClick={flipSide}
+              <motion.div animate={hopControls}>
+                <motion.div animate={celebrateControls}>
+                  <motion.div
+                    style={
+                      reduceMotion
+                        ? undefined
+                        : { scaleX: squashScaleX, scaleY: squashScaleY }
+                    }
+                  >
+                    <button
+                      type="button"
+                      data-testid="abel-drop-button"
+                      aria-label="Open Abel, the assistant"
+                      onClick={handleClick}
+                      onDoubleClick={flipSide}
+                      onPointerDown={handlePointerDown}
+                      onPointerUp={cancelLongPress}
+                      onPointerLeave={cancelLongPress}
+                      onContextMenu={(event) => event.preventDefault()}
                 style={{
                   pointerEvents: focusHidden ? "none" : "auto",
                   width: "72px",
@@ -462,12 +721,15 @@ export default function AbelDrop() {
                       </motion.g>
                     </motion.g>
                   )}
-                </svg>
-              </button>
+                    </svg>
+                    </button>
+                  </motion.div>
+                </motion.div>
+              </motion.div>
             </motion.div>
           </motion.div>
         </motion.div>
-      </div>
+      </motion.div>
     </div>
   );
 }

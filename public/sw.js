@@ -31,7 +31,7 @@
 //   cache-first; an HTML document is never one of those.)
 // - API traffic is NEVER intercepted; non-GET and cross-origin pass
 //   through. Location is never touched.
-const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-10-conformance1" : "__BUILD_VERSION__";
+const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-10-v78fix1" : "__BUILD_VERSION__";
 const CACHE = `trucking-os-shell-${BUILD_VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg", "/icons/icon.svg"];
 

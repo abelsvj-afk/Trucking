@@ -60,6 +60,104 @@ describe("buildBannerItems", () => {
     expect(buildBannerItems({ data: [], signals: [] }, NOW)).toEqual([]);
   });
 
+  // V78 live check 2026-11-10: the SAME story rendered at two carousel
+  // positions — two different signals whose first story is the same
+  // article (same URL, slightly different headline casing/punctuation
+  // from two watchers) both survived the headline-exact dedupe.
+  // Dedupe must key on story identity (canonical URL of the headlined
+  // story, then normalized headline), not the raw headline string.
+  it("the same story arriving via two signals renders ONCE (dedupe by story identity)", () => {
+    const story = {
+      title: "FMCSA proposes new broker transparency rule",
+      url: "https://www.thetrucker.com/story/fmcsa-broker-rule?utm_source=feed",
+      publishedAt: null,
+      summary: null,
+      imageUrl: null,
+    };
+    const items = buildBannerItems(
+      {
+        data: [],
+        signals: [
+          signal({
+            id: "sig-a",
+            watcher_key: "gdelt_regulation",
+            kind: "news_cluster",
+            topic: "regulation",
+            magnitude: 0.9,
+            summary: "12 regulation news items on 'FMCSA' inside 48h (GDELT)",
+            items: [story],
+            observed_at: hoursAgo(1),
+          }),
+          signal({
+            id: "sig-b",
+            watcher_key: "gdelt_freight",
+            kind: "news_cluster",
+            topic: "regulation",
+            magnitude: 0.7,
+            summary: "9 regulation news items on 'broker rules' inside 48h (GDELT)",
+            items: [
+              {
+                ...story,
+                title: "FMCSA Proposes New Broker Transparency Rule.",
+                url: "https://www.thetrucker.com/story/fmcsa-broker-rule",
+              },
+            ],
+            observed_at: hoursAgo(2),
+          }),
+        ],
+      },
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.id).toBe("sig-a");
+  });
+
+  it("the same story arriving once as a signal and once as a briefing renders ONCE", () => {
+    const items = buildBannerItems(
+      {
+        data: [
+          briefing({
+            id: "b-reg",
+            topic: "regulation",
+            title: "FMCSA proposes new broker transparency rule",
+            created_at: hoursAgo(5),
+            delivery_class: "routine",
+            findings: [
+              {
+                claim: "c",
+                source_url: "https://www.thetrucker.com/story/fmcsa-broker-rule",
+                source_title: "FMCSA proposes new broker transparency rule",
+              },
+            ],
+          }),
+        ],
+        signals: [
+          signal({
+            id: "sig-reg",
+            watcher_key: "gdelt_regulation",
+            kind: "news_cluster",
+            topic: "regulation",
+            magnitude: 0.9,
+            summary: "12 regulation news items on 'FMCSA' inside 48h (GDELT)",
+            items: [
+              {
+                title: "FMCSA proposes new broker transparency rule",
+                url: "https://www.thetrucker.com/story/fmcsa-broker-rule",
+                publishedAt: null,
+                summary: null,
+                imageUrl: null,
+              },
+            ],
+            observed_at: hoursAgo(1),
+          }),
+        ],
+      },
+      NOW,
+    );
+    const storyCopies = items.filter((i) => /broker transparency/i.test(i.headline));
+    expect(storyCopies).toHaveLength(1);
+  });
+
   it("excludes briefings older than 14 days but keeps the boundary", () => {
     const items = buildBannerItems(
       {

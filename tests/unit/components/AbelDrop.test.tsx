@@ -129,6 +129,54 @@ describe("AbelDrop", () => {
     expect(window.localStorage.getItem("abel-drop-side")).toBe("left");
   });
 
+  it("starts in the entering life state on load (the melt-in moment)", () => {
+    render(<AbelDrop />);
+    const root = screen.getByTestId("abel-drop-root");
+    expect(root.getAttribute("data-life")).toBe("entering");
+  });
+
+  it("is static AND never 'entering' under prefers-reduced-motion", () => {
+    stubMatchMedia(true);
+    render(<AbelDrop />);
+    const root = screen.getByTestId("abel-drop-root");
+    expect(root.getAttribute("data-life")).toBe("static");
+  });
+
+  it("long-press flips the dock side and the following click does not navigate", () => {
+    vi.useFakeTimers();
+    render(<AbelDrop />);
+    const dock = screen.getByTestId("abel-drop-dock");
+    const button = screen.getByTestId("abel-drop-button");
+    expect(dock.getAttribute("data-side")).toBe("right");
+    fireEvent.pointerDown(button);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(dock.getAttribute("data-side")).toBe("left");
+    expect(window.localStorage.getItem("abel-drop-side")).toBe("left");
+    // The click that follows the long-press pointer-up is consumed.
+    fireEvent.click(button);
+    expect(mockPush).not.toHaveBeenCalled();
+    // A fresh, ordinary tap still opens Abel (parity: the door works).
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
+    fireEvent.click(button);
+    expect(mockPush).toHaveBeenCalledWith("/more/assistant");
+  });
+
+  it("a short press does NOT flip the dock (long-press threshold holds)", () => {
+    vi.useFakeTimers();
+    render(<AbelDrop />);
+    const dock = screen.getByTestId("abel-drop-dock");
+    const button = screen.getByTestId("abel-drop-button");
+    fireEvent.pointerDown(button);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.pointerUp(button);
+    expect(dock.getAttribute("data-side")).toBe("right");
+  });
+
   it("abelCelebrate dispatches the abel:celebrate event the drop listens for", () => {
     render(<AbelDrop />);
     const spy = vi.fn();
