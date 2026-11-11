@@ -84,6 +84,67 @@ describe("collapse preference persistence (useHomeMapCollapsed)", () => {
     expect(result.current.loaded).toBe(true);
     expect(result.current.collapsed).toBe(false);
   });
+
+  // V78 live-check instability (2026-11-10 ~8:15 PM CT): across plain
+  // reloads the map block flipped collapsed -> expanded with no toggle
+  // touched. The hook had NO synchronous first-paint source: every
+  // mount started expanded and only the async server read could
+  // collapse it, so the rendered state depended on fetch timing. The
+  // hook now mirrors the theme pattern: a device-local mirror written
+  // ONLY on an explicit toggle (a default is never persisted as a
+  // pick) is read synchronously for first paint, and the server value
+  // reconciles when it lands.
+  it("first paint reads the toggle mirror synchronously (no expanded flash, no fetch dependence)", async () => {
+    window.localStorage.setItem("trucking-home-map-collapsed", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise(() => {
+            /* the read never settles during this test */
+          }),
+      ),
+    );
+    const { result } = renderHook(() => useHomeMapCollapsed());
+    expect(result.current.collapsed).toBe(true);
+    window.localStorage.removeItem("trucking-home-map-collapsed");
+  });
+
+  it("toggling writes the mirror; the load path never does (defaults are not picks)", async () => {
+    window.localStorage.removeItem("trucking-home-map-collapsed");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ key: "home_map_collapsed", value: null }),
+      })),
+    );
+    const { result } = renderHook(() => useHomeMapCollapsed());
+    await act(async () => {});
+    expect(result.current.collapsed).toBe(false);
+    expect(window.localStorage.getItem("trucking-home-map-collapsed")).toBeNull();
+    act(() => result.current.setCollapsed(true));
+    expect(window.localStorage.getItem("trucking-home-map-collapsed")).toBe("1");
+    act(() => result.current.setCollapsed(false));
+    expect(window.localStorage.getItem("trucking-home-map-collapsed")).toBe("0");
+    window.localStorage.removeItem("trucking-home-map-collapsed");
+  });
+
+  it("the server value reconciles over a stale mirror when the read lands", async () => {
+    window.localStorage.setItem("trucking-home-map-collapsed", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ key: "home_map_collapsed", value: { collapsed: false } }),
+      })),
+    );
+    const { result } = renderHook(() => useHomeMapCollapsed());
+    await act(async () => {});
+    expect(result.current.collapsed).toBe(false);
+    expect(window.localStorage.getItem("trucking-home-map-collapsed")).toBe("0");
+    window.localStorage.removeItem("trucking-home-map-collapsed");
+  });
 });
 
 describe("news images (Phase 4 wiring)", () => {

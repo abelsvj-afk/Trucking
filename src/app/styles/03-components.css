@@ -714,6 +714,9 @@ a.page-action:hover,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .news-banner-line {
@@ -2302,15 +2305,19 @@ button[data-motion-locked="true"] {
 .home-position-hero.home-position-empty p {
   padding: 0;
 }
-/* Off state keeps the map-surface controls (D3): they overlay the card
-   exactly as they overlay the map (spec §2.4) — space is reserved by
-   the full-screen min-height / natural card flow. */
+/* Off state keeps the map-surface controls (D3, spec §2.4) — but NOT
+   as an overlay: overlaid on the off-state card, the Full screen pill
+   sat on top of the first line of the message text and hid words
+   (v78 live-check defect 2). In the off state the control row is in
+   normal flow at the top of the card: the message and both controls
+   are fully visible and can never overlap. The LIVE map keeps the
+   overlaid pair (the generic .home-map-ctl rule below) untouched. */
 .home-position-hero.home-position-empty .home-map-ctl {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  position: static;
   display: flex;
+  justify-content: flex-end;
   gap: 0.4rem;
+  margin-bottom: 0.75rem;
 }
 
 /* Roadside inspection mode (docs/design/eld-roadside-overlay.md): the
@@ -2444,7 +2451,14 @@ a.roadside-entry {
 }
 .news-card-media { flex: none; width: 84px; height: 64px; border-radius: 10px; overflow: hidden; border: 1px solid var(--color-border-strong); }
 .news-card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.news-card-headline { font-size: 0.90625rem; font-weight: 600; line-height: 1.4; color: var(--color-text); }
+/* News text clipping fix (V78 live check 2026-11-10): the text column
+   must be allowed to SHRINK inside the flex row — without min-width: 0
+   a flex item stops at its content's min-content size and the card
+   hard-clips words at its edge ("…freight relevanc") instead of the
+   text wrapping/ellipsizing. The headline clamps cleanly at two lines
+   and the sub-line's ellipsis can finally engage. */
+.news-card-body { flex: 1 1 auto; min-width: 0; }
+.news-card-headline { font-size: 0.90625rem; font-weight: 600; line-height: 1.4; color: var(--color-text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: break-word; }
 .news-card-meta { font-size: var(--text-caption); color: var(--color-text-muted); margin-top: 2px; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .branded-tile {
   flex: none; width: 84px; height: 64px; border-radius: 10px;
