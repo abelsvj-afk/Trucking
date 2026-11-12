@@ -2,8 +2,9 @@
 
 // Live position on Home (docs/design/driver-hud.md §8; Block C of driver-hud-round2.md): an
 // ELD-style mini map. Zoomed in, heading-up, the truck (a top-down semi icon) kept centred as it
-// moves. When the active trip has a planned route it is drawn as a line with the part already
-// driven dimmed; with no route it shows position + heading only - no invented line. A posted
+// moves. When the active trip has a planned route it is drawn as a glowing gold line showing only
+// the part still ahead; the part already driven is dropped from the line, so it never reads as a
+// turn-around. With no route it shows position + heading only - no invented line. A posted
 // speed-limit badge appears ONLY when OpenStreetMap data has a limit for this road; no data, no
 // badge. The current speed is always shown. Shown ONLY while a recent GPS fix exists - otherwise
 // the card is absent (never a blank map or a guessed location). It is where the PHONE is, not an
@@ -21,6 +22,7 @@ import { useServerPosition } from "@/lib/use-server-position";
 import { routeProgress } from "@/lib/route-progress";
 import { useActiveNavigation } from "@/lib/use-active-navigation";
 import { etaAgainstClocks, formatMiles, liveGuidance } from "@/lib/active-navigation";
+import { HOME_TIME_ZONE, timeZoneForPosition } from "@/lib/display-zone";
 import type { MotionState } from "@/lib/vehicle-motion";
 import type { VehiclePosition } from "@/lib/use-vehicle-motion";
 import SpeedLimitBadge from "./SpeedLimitBadge";
@@ -132,7 +134,7 @@ export default function HomePositionCard({
   // Motion from a server fix is judged from its own speed, never assumed: unknown speed = unknown.
   const motion: MotionState = fromServer ? (server.speedMph === null ? "unknown" : server.speedMph >= 5 ? "moving" : "stopped") : deviceMotion;
   // ACTIVE-LOAD NAVIGATION: the automatic route to the active load's next stop (no Smart Path run needed). It feeds the SAME route-line
-  // mechanism a Smart Path run uses (DriveMap's geometry / traveledGeometry); a saved Smart Path run is the fallback when there is none.
+  // mechanism a Smart Path run uses (DriveMap's geometry, remaining part only — the line clears behind the truck); a saved Smart Path run is the fallback when there is none.
   const nav = useActiveNavigation(position ? { lat: position.lat, lng: position.lng, accuracyM: position.accuracyM } : null, headingDeg, speedMph);
   const smartPathRoute = useActiveRoute();
   const route = useMemo(
@@ -148,6 +150,8 @@ export default function HomePositionCard({
     () => (position && route ? routeProgress({ lat: position.lat, lng: position.lng }, route.geometry) : null),
     [position, route],
   );
+  // The zone the truck is in, for the ETA label (map fix 2026-11-12): the card used to say "ET" always.
+  const displayZone = useMemo(() => (position ? timeZoneForPosition(position.lat, position.lng) : HOME_TIME_ZONE), [position]);
   // Collapsed (after every hook): the map block only — the handle
   // stays so the same control brings the map back.
   if (hero && collapsed) {
@@ -183,7 +187,8 @@ export default function HomePositionCard({
       <div className="home-map-wrap">
         {mapControls}
         <DriveMap
-          geometry={route?.geometry ?? []}
+          // Remaining route only (map fix 2026-11-12): the line clears behind the truck as he passes.
+          geometry={progress?.onRoute ? progress.ahead : route?.geometry ?? []}
           deadheadGeometry={[]}
           stops={[]}
           stopStatus={[]}
@@ -195,7 +200,6 @@ export default function HomePositionCard({
           followZoom={FOLLOW_ZOOM}
           interactive={false}
           frameRoute={false}
-          traveledGeometry={guidance?.onRoute ? guidance.traveled : progress?.onRoute ? progress.traveled : []}
           onUserPan={() => {}}
           night={false}
           height={hero ? (fullscreen ? "min(62vh, 720px)" : "clamp(220px, 50vh, 600px)") : "min(40vh, 340px)"}
@@ -222,13 +226,23 @@ export default function HomePositionCard({
         </p>
       )}
       {nav.route && guidance?.onRoute && guidance.etaAt !== null && guidance.milesLeft !== null && guidance.minutesLeft !== null && (() => {
-        const line = etaAgainstClocks(guidance.etaAt, guidance.minutesLeft, { driveLeftMs, windowLeftMs });
+        const line = etaAgainstClocks(guidance.etaAt, guidance.minutesLeft, { driveLeftMs, windowLeftMs }, displayZone);
         return (
           <p role={line.past ? "alert" : "status"} data-testid="nav-eta">
             {formatMiles(guidance.milesLeft)} to {nav.stopLabel ?? "your next stop"} · {line.text}
           </p>
         );
       })()}
+      {/* Trip state (map fix 2026-11-12): the card knows whether the trip has started. A pickup-unknown routing says so as a warning, so one tap can confirm it. */}
+      {nav.route && nav.tripState === "pickup-unknown" && nav.basis && (
+        <p role="alert" data-testid="trip-state">{nav.basis}</p>
+      )}
+      {nav.route && (nav.tripState === "picked-up" || nav.tripState === "en-route-to-delivery") && (
+        <p role="status" data-testid="trip-state">Picked up — heading to {nav.stopLabel ?? "your next stop"}.</p>
+      )}
+      {nav.route && nav.tripState === "at-pickup" && (
+        <p role="status" data-testid="trip-state">At the pickup — {nav.stopLabel ?? "your next stop"}.</p>
+      )}
       {/* One notice line. A not-truck-legal route's notice is the stamp above, so it is not repeated here. */}
       {nav.notice && (!nav.route || nav.route.truckLegal) && <p role="status" data-testid="nav-notice">{nav.notice}</p>}
       {!route && nav.unavailableReason && <p className="row-sub" role="note">{nav.unavailableReason}</p>}
@@ -247,7 +261,7 @@ export default function HomePositionCard({
       {nav.route && (
         <p className="row-sub">
           {nav.trailering ? "Trailer on this load — no U-turns; a reroute goes around the block." : "No trailer on this load (bobtail)."} Routed by{" "}
-          {nav.route.providerName}.{nav.basis ? ` ${nav.basis}` : ""}
+          {nav.route.providerName}.{nav.basis && !nav.pickupUnconfirmed ? ` ${nav.basis}` : ""}
         </p>
       )}
       <p className="row-sub">

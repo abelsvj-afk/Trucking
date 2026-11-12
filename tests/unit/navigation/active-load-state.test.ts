@@ -78,6 +78,32 @@ describe("pickNextStop", () => {
     expect(isTrailering(load())).toBe(true);
     expect(isTrailering(load({ trailer_id: null }))).toBe(false);
   });
+  it("with stop records, a pickup never marked left still wins when the truck is close or the window is open", () => {
+    const stops = [stop({ id: "a", seq: 1 }), stop({ id: "b", seq: 2, kind: "delivery", address: "Tampa, FL" })];
+    const l = load({ pickup_window_end: "2026-11-10T22:00:00-06:00" }); // window ends 22:00 CST; NOW is 12:00 CST
+    // 514 mi away, but the window is still open.
+    expect(pickNextStop(l, stops, NOW, "2026-11-10", { pickupDistanceMiles: 514 })).toMatchObject({ stopId: "a", tripState: "not-started", pickupUnconfirmed: false });
+    // Window ended, but only 5 mi from the pickup.
+    expect(pickNextStop(l, stops, new Date("2026-11-11T05:00:00Z"), "2026-11-10", { pickupDistanceMiles: 5 })).toMatchObject({ stopId: "a", tripState: "not-started" });
+    // Window ended, no position evidence at all.
+    expect(pickNextStop(l, stops, new Date("2026-11-11T05:00:00Z"), "2026-11-10")).toMatchObject({ stopId: "a", tripState: "not-started" });
+  });
+  it("with stop records, far from an un-departed pickup past the window it advances to the delivery and says so", () => {
+    const stops = [stop({ id: "a", seq: 1 }), stop({ id: "b", seq: 2, kind: "delivery", address: "Tampa, FL" })];
+    const l = load({ pickup_window_end: "2026-11-10T22:00:00-06:00" });
+    const r = pickNextStop(l, stops, new Date("2026-11-11T05:00:00Z"), "2026-11-10", { pickupDistanceMiles: 514 })!;
+    expect(r).toMatchObject({ stopId: "b", kind: "delivery", tripState: "pickup-unknown", pickupUnconfirmed: true });
+    expect(r.basis).toMatch(/never marked left/);
+  });
+  it("with stop records, a pickup marked left routes to the delivery as en-route-to-delivery", () => {
+    const stops = [stop({ id: "a", seq: 1, departed_at: "2026-11-10T15:00:00Z" }), stop({ id: "b", seq: 2, kind: "delivery", address: "Tampa, FL" })];
+    const r = pickNextStop(load(), stops, NOW, "2026-11-10", { pickupDistanceMiles: 100 })!;
+    expect(r).toMatchObject({ stopId: "b", tripState: "en-route-to-delivery", pickupUnconfirmed: false });
+  });
+  it("without stop records, aiming at the delivery is pickup-unknown", () => {
+    const after = pickNextStop(load({ pickup_window_end: "2026-11-10T19:00:00Z" }), [], new Date("2026-11-10T19:00:01Z"), "2026-11-10")!;
+    expect(after).toMatchObject({ kind: "delivery", tripState: "pickup-unknown", pickupUnconfirmed: true });
+  });
 });
 
 describe("buildActiveLoadState: one source of truth", () => {
@@ -101,6 +127,17 @@ describe("buildActiveLoadState: one source of truth", () => {
     expect(text).toMatch(/ETA Tue 7:40 PM ET/); // Eastern, never UTC
     expect(text).not.toMatch(/UTC|Z\b/);
     expect(text).toContain("Trailer on the load (no U-turns)");
+  });
+
+  it("the 1874 case: pickup never marked left, truck far away past the window — the server routes to the DELIVERY and says why", async () => {
+    const d = deps({ now: () => new Date("2026-11-11T05:00:00Z"), devicePosition: { lat: 35.23, lng: -96.67 } }); // 23:00 CST, truck near Seminole OK
+    const l = load({ pickup_window_end: "2026-11-10T22:00:00-06:00" }); // window ended 22:00 CST
+    const stops = [stop({ id: "P", seq: 1, name: "Kontoor Panama City", address: "1 Seaport Dr, Panama City, FL" }), stop({ id: "D", seq: 2, kind: "delivery", name: "Kontoor Seminole", address: "1400 Wrangler Blvd W, Seminole, OK" })];
+    const s = await buildActiveLoadState(fakeClient({ loads: [l], load_stops: stops, trucks: [{ id: "T1", company_id: "c", height_in: 162, length_in: 840, weight_lbs: 78000 }] }).client, "c", d);
+    expect(s.nextStop).toMatchObject({ stopId: "D", kind: "delivery", tripState: "pickup-unknown", pickupUnconfirmed: true });
+    expect(s.nextStop!.basis).toMatch(/never marked left/);
+    expect(s.route).not.toBeNull();
+    expect(describeActiveLoadState(s)).toMatch(/never marked left/);
   });
 
   it("PROVIDER HONESTY: a car-profile route is shown but stamped not truck-legal, guidance is refused and no turn list is carried", async () => {

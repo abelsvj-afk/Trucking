@@ -20,10 +20,10 @@ import HomePositionCard from "@/components/hud/HomePositionCard";
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const east = [{ lat: 37, lng: -94 }, { lat: 37, lng: -93.9 }, { lat: 37, lng: -93.5 }, { lat: 37, lng: -93 }];
-const state = (routeOver: Record<string, unknown> = {}, loadOver: Record<string, unknown> = {}) => ({
+const state = (routeOver: Record<string, unknown> = {}, loadOver: Record<string, unknown> = {}, nextOver: Record<string, unknown> = {}) => ({
   data: {
     load: { id: "L1", origin: "A", destination: "B", tripNumber: null, pickupDate: null, deliveryDate: null, overdue: false, trailering: true, ...loadOver },
-    nextStop: { source: "stop", stopId: "S1", seq: 1, kind: "pickup", name: "Acme DC", address: "1 Dock Rd", appointmentAt: null, appointmentTz: null, arrived: false, basis: null, point: { lat: 37, lng: -93 } },
+    nextStop: { source: "stop", stopId: "S1", seq: 1, kind: "pickup", name: "Acme DC", address: "1 Dock Rd", appointmentAt: null, appointmentTz: null, arrived: false, basis: null, tripState: "not-started", pickupUnconfirmed: false, point: { lat: 37, lng: -93 }, ...nextOver },
     position: null,
     route: {
       distanceMiles: 55, durationMinutes: 300, etaAt: "x", providerName: "OpenRouteService (driving-hgv)", truckLegal: true, guidanceAllowed: true, notTruckLegalNotice: null, providerNotes: [],
@@ -43,11 +43,19 @@ describe("Home map card: active-load navigation", () => {
     expect(activeLoad).toHaveBeenCalledWith(expect.objectContaining({ lat: 37, lng: -94, headingDeg: 90, speedMph: 55 }));
     expect(screen.getByTestId("nav-next").textContent).toMatch(/Head east on I-44/);
     const eta = screen.getByTestId("nav-eta");
-    expect(eta.textContent).toMatch(/55 mi to Acme DC · ETA .* ET — past your drive clock by ~40 min/);
+    // The truck is in Joplin, MO (Central): the ETA is labelled CT, not ET (map fix 2026-11-12).
+    expect(eta.textContent).toMatch(/55 mi to Acme DC · ETA .* CT — past your drive clock by ~40 min/);
     expect(eta.getAttribute("role")).toBe("alert");
     expect(screen.getByText(/Trailer on this load — no U-turns/)).toBeTruthy();
     expect(screen.getByText(/Turns ahead \(2\)/)).toBeTruthy();
     expect(screen.queryByTestId("not-truck-legal")).toBeNull();
+  });
+
+  it("the route line clears behind the truck: halfway along, only the remaining points are drawn (map fix 2026-11-12)", async () => {
+    activeLoad.mockResolvedValue(state());
+    // On the third of four route points: the two points behind him are dropped from the line.
+    render(<HomePositionCard position={{ lat: 37, lng: -93.5, accuracyM: 8, atMs: Date.now() }} headingDeg={90} speedMph={55} motion="moving" hero driveLeftMs={260 * 60_000} windowLeftMs={600 * 60_000} />);
+    await waitFor(() => expect(screen.getByTestId("map").getAttribute("data-route-points")).toBe("2"));
   });
 
   it("a car-only route is drawn but stamped NOT TRUCK-LEGAL, with no turn and no turn list", async () => {
@@ -72,5 +80,21 @@ describe("Home map card: active-load navigation", () => {
     render(<HomePositionCard position={here()} hero />);
     expect(await screen.findByText(/Nothing was guessed/)).toBeTruthy();
     expect(screen.getByTestId("map").getAttribute("data-route-points")).toBe("0");
+  });
+
+  it("says the trip is picked up when the server says so (map fix 2026-11-12)", async () => {
+    activeLoad.mockResolvedValue(state({}, {}, { tripState: "en-route-to-delivery", kind: "delivery", name: "Kontoor Seminole" }));
+    render(<HomePositionCard position={here()} headingDeg={90} speedMph={55} motion="moving" hero driveLeftMs={260 * 60_000} windowLeftMs={600 * 60_000} />);
+    expect((await screen.findByTestId("trip-state")).textContent).toMatch(/Picked up — heading to Kontoor Seminole/);
+  });
+
+  it("warns plainly when the pickup was never marked left, and does not repeat the warning in the Routed-by line", async () => {
+    const basis = "The pickup was never marked left — the truck is 514 mi from Kontoor Panama City and the pickup window has ended, so I'm aiming at the delivery instead. Tap 'I left' on the pickup to confirm.";
+    activeLoad.mockResolvedValue(state({}, {}, { tripState: "pickup-unknown", pickupUnconfirmed: true, basis, kind: "delivery", name: "Kontoor Seminole" }));
+    render(<HomePositionCard position={here()} headingDeg={90} speedMph={55} motion="moving" hero driveLeftMs={260 * 60_000} windowLeftMs={600 * 60_000} />);
+    const line = await screen.findByTestId("trip-state");
+    expect(line.getAttribute("role")).toBe("alert");
+    expect(line.textContent).toContain("never marked left");
+    expect(screen.getByText(/Routed by/).textContent).not.toContain("never marked left");
   });
 });
