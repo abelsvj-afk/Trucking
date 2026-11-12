@@ -202,3 +202,124 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(toolMsg)).toContain("broker_id: Invalid uuid");
   });
 });
+
+// Think deeper, Frontier 1 (owner GO 2026-11-11): the self-verification
+// pass. A draft that quotes a dollar figure a LATER tool result
+// superseded is caught before send - the model gets one chance to
+// answer again with the fresh figure, and a second stale draft comes
+// back as an explicit conflict flag, never as a confident answer.
+// Answers with no numbers cost nothing extra: no extra model call.
+describe("runAgentLoop - self-verification pass (think deeper, Frontier 1)", () => {
+  // A read tool whose successive calls return different labeled
+  // figures - the seeded stale-number shape: an early lookup says
+  // $611.20, a later re-read says $650.00.
+  const payLookupTool = (results: string[]): AgentTool => {
+    let index = 0;
+    const run = vi.fn(async () => results[Math.min(index++, results.length - 1)]!);
+    return {
+      name: "pay_lookup",
+      description: "Projected pay for the load.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      run,
+    };
+  };
+
+  it("F1-A: a draft quoting the superseded figure is caught, and the corrected figure is what he gets", async () => {
+    const { provider, calls } = scriptedProvider([
+      toolCall("c1", "pay_lookup", {}),
+      toolCall("c2", "pay_lookup", {}),
+      textTurn("Your pay is $611.20."),
+      textTurn("Your pay is $650.00."),
+    ]);
+    const out = await runAgentLoop({
+      ...baseInput,
+      provider,
+      userText: "What will I make on this load?",
+      tools: [payLookupTool(["Projected pay: $611.20", "Projected pay: $650.00"])],
+    });
+
+    expect(out.reply).toBe("Your pay is $650.00.");
+    expect(out.reply).not.toContain("$611.20");
+    expect(out.verificationRetries).toBe(1);
+    // The retry carried the conflict to the model in code, not as his words.
+    const retryMessages = JSON.stringify(calls[3]!.messages);
+    expect(retryMessages).toMatch(/VERIFICATION/);
+    expect(retryMessages).toContain("$611.20");
+    expect(retryMessages).toContain("$650.00");
+  });
+
+  it("F1-A: a second stale draft is flagged as a conflict, never sent as confident - and retried only once", async () => {
+    const { provider, calls } = scriptedProvider([
+      toolCall("c1", "pay_lookup", {}),
+      toolCall("c2", "pay_lookup", {}),
+      textTurn("Your pay is $611.20."),
+      textTurn("Your pay is $611.20."),
+    ]);
+    const out = await runAgentLoop({
+      ...baseInput,
+      provider,
+      userText: "What will I make on this load?",
+      tools: [payLookupTool(["Projected pay: $611.20", "Projected pay: $650.00"])],
+    });
+
+    expect(out.reply).toMatch(/stale/i);
+    expect(out.reply).toContain("$650.00");
+    expect(out.verificationRetries).toBe(1);
+    expect(calls).toHaveLength(4);
+    expect(out.stepsUsed).toBe(4);
+  });
+
+  it("F1-A: a draft that shows BOTH figures (the conflict, honestly) is not flagged", async () => {
+    const { provider } = scriptedProvider([
+      toolCall("c1", "pay_lookup", {}),
+      toolCall("c2", "pay_lookup", {}),
+      textTurn("First lookup said $611.20 but the re-read says $650.00 - those two don't match."),
+    ]);
+    const out = await runAgentLoop({
+      ...baseInput,
+      provider,
+      userText: "What will I make on this load?",
+      tools: [payLookupTool(["Projected pay: $611.20", "Projected pay: $650.00"])],
+    });
+
+    expect(out.reply).toContain("$611.20");
+    expect(out.reply).toContain("$650.00");
+    expect(out.verificationRetries).toBe(0);
+  });
+
+  it("verbatim stays verbatim: the verification pass never rewrites a verbatim relay", async () => {
+    const verbatimTool: AgentTool = {
+      name: "read_email_verbatim",
+      description: "Read an email exactly as stored.",
+      parameters: { type: "object", properties: {} },
+      access: "read",
+      verbatimRelay: true,
+      run: async () => "The settlement says: Projected pay: $611.20.",
+    };
+    const { provider } = scriptedProvider([
+      toolCall("c1", "read_email_verbatim", {}),
+      toolCall("c2", "pay_lookup", {}),
+      textTurn("The settlement says $611.20."),
+    ]);
+    const out = await runAgentLoop({
+      ...baseInput,
+      provider,
+      tools: [verbatimTool, payLookupTool(["Projected pay: $650.00"])],
+    });
+
+    expect(out.reply).toBe("The settlement says: Projected pay: $611.20.");
+    expect(out.verificationRetries).toBe(0);
+  });
+
+  it("F1-D: an answer with no numbers costs no extra model call", async () => {
+    const { provider, calls } = scriptedProvider([textTurn("Got it - I'll check the load next.")]);
+    const out = await runAgentLoop({ ...baseInput, provider, tools: [moneyTool(vi.fn())] });
+
+    expect(calls).toHaveLength(1);
+    expect(out.stepsUsed).toBe(1);
+    expect(out.verificationRetries).toBe(0);
+    expect(out.verificationMs).toEqual(expect.any(Number));
+    expect(out.verificationMs).toBeGreaterThanOrEqual(0);
+  });
+});
