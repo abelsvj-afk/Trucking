@@ -11,6 +11,7 @@ import { createBotStore } from "@/services/bot/store";
 import {
   applySupersession,
   memorySubjectKey,
+  memorySupersessionChain,
   personIdentityConfirmed,
   tokenSimilarity,
 } from "@/services/bot/memory-lifecycle";
@@ -281,5 +282,43 @@ describe("What Abel remembers - admin operations", () => {
     await store.deleteMemory(id!);
     expect(await store.listMemories({ includeHistory: true })).toHaveLength(0);
     expect(db.bot_memories?.[0]?.deleted_at).toBeTruthy();
+  });
+});
+
+describe("memorySupersessionChain (F2-B, bot_memories side)", () => {
+  it("a corrected fact keeps its history queryable while current reads show only the new value", async () => {
+    const db: Record<string, Row[]> = { bot_memories: [] };
+    const store = fakeStore(db);
+    const firstId = await store.saveMemory(
+      "person_profile",
+      "PERSON — Steven | role: truck owner | Settles on Fridays.",
+    );
+    const secondId = await store.saveMemory(
+      "person_profile",
+      "PERSON — Steven | role: truck owner | Settles on Thursdays now.",
+    );
+    // "What's true now" returns only the new value.
+    const current = await store.listMemories();
+    expect(current).toHaveLength(1);
+    expect(current[0]?.content).toContain("Thursdays");
+    // The full chain answers "what did I used to believe", oldest
+    // first, with who superseded whom — from either end.
+    const chain = await memorySupersessionChain(store.client, COMPANY, secondId!);
+    expect(chain.map((c) => c.id)).toEqual([firstId, secondId]);
+    expect(chain[0]!.content).toContain("Fridays");
+    expect(chain[0]!.superseded_by).toBe(secondId);
+    const chainFromOld = await memorySupersessionChain(store.client, COMPANY, firstId!);
+    expect(chainFromOld.map((c) => c.id)).toEqual([firstId, secondId]);
+  });
+
+  it("returns just the row when nothing superseded it, and [] for an unknown id", async () => {
+    const db: Record<string, Row[]> = {
+      bot_memories: [
+        { id: "m1", company_id: COMPANY, kind: "fact", content: "Lone fact.", created_at: stamp(), deleted_at: null, valid_to: null, superseded_by: null },
+      ],
+    };
+    const client = { from: (table: string) => new FakeQuery(db, table, stamp) } as unknown as SupabaseClient;
+    expect((await memorySupersessionChain(client, COMPANY, "m1")).map((c) => c.id)).toEqual(["m1"]);
+    expect(await memorySupersessionChain(client, COMPANY, "nope")).toEqual([]);
   });
 });

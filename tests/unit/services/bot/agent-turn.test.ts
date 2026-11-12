@@ -11,7 +11,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { BOT_DISABLED_REPLY, runAgentTurn } from "@/services/bot/agent-turn";
+import { BOT_DISABLED_REPLY, loadBotContext, runAgentTurn } from "@/services/bot/agent-turn";
 import { createBotStore, type BotBrainStore } from "@/services/bot/store";
 import type { BotChatInput } from "@/services/ai/bot-chat";
 import type {
@@ -1698,7 +1698,10 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // this lane adds NO tools (rich cards are presentation code).
     // F1 (think deeper) adds NO tools either - verification reuses
     // existing read tools; count re-verified at the F1 rebase onto a2021ed5.
-    expect(buildBotTools(store)).toHaveLength(148);
+    // F2 (remember better) adds 3 tools (list_agent_lessons,
+    // save_agent_lesson, correct_agent_lesson — episode-tools.ts):
+    // 148 re-measured on this branch before the addition, 151 after.
+    expect(buildBotTools(store)).toHaveLength(151);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
@@ -1793,5 +1796,73 @@ describe("think deeper (owner GO 2026-11-11)", () => {
     const out = await runAgentTurn(provider, telegramStore(client), input("What rate did the broker offer on that load?"));
     expect(out.reply).toMatch(/can't tell/i);
     expect(out.reply).toMatch(/would settle it/i);
+  });
+});
+
+describe("Frontier 2 — Remember better (agent-turn wiring)", () => {
+  it("hot path: an approved + executed proposal writes an acted episode (and never breaks the reply when the write fails)", async () => {
+    const { client, db } = fakeClient(baseSeed(true));
+    const store = telegramStore(client);
+    const { provider } = scriptedProvider([
+      {
+        text: null,
+        toolCalls: [
+          {
+            id: "c1",
+            name: "create_expense",
+            arguments: JSON.stringify({ category: "repairs", amount_dollars: 88, confirmation: "propose" }),
+          },
+        ],
+      },
+      { text: "That tire repair sounds like $88.00 - want me to record it?", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, store, input("The tire repair cost me 88 bucks"));
+    const { provider: noModel } = neverCalledProvider();
+    const second = await runAgentTurn(noModel, store, input("yes"));
+    expect(second.reply).toContain("Done");
+    expect(db.expenses).toHaveLength(1);
+    const acted = (db.agent_episodes ?? []).filter((r) => r.kind === "acted");
+    expect(acted).toHaveLength(1);
+    expect(acted[0]).toMatchObject({ company_id: COMPANY, valence: "helped" });
+    expect(String(acted[0]!.summary)).toContain("create_expense");
+  });
+
+  it("correction path: an owner edit of a memory writes an erred episode capturing old -> new", async () => {
+    const seed = baseSeed(true);
+    seed.bot_memories = [
+      { id: "m1", company_id: COMPANY, kind: "fact", content: "Carrier settles on Fridays.", created_at: new Date().toISOString(), deleted_at: null, valid_to: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const store = telegramStore(client);
+    await store.editMemory("m1", "Carrier settles on Thursdays.");
+    const erred = (db.agent_episodes ?? []).filter((r) => r.kind === "erred");
+    expect(erred).toHaveLength(1);
+    expect(String(erred[0]!.lesson)).toContain("Fridays");
+    expect(String(erred[0]!.lesson)).toContain("Thursdays");
+  });
+
+  it("pre-action recall: loadBotContext carries the WHAT I'VE LEARNED block when a lesson matches the situation", async () => {
+    const seed = baseSeed(true);
+    seed.agent_episodes = [
+      {
+        id: "ep-1", company_id: COMPANY, kind: "learned", summary: "Morning digest flops",
+        situation: "Suggested a morning digest 3 times; he dropped each one.",
+        lesson: "Only suggest a morning digest when he asks for one.",
+        valence: "hurt", confidence: 0.9,
+        created_at: new Date().toISOString(), deleted_at: null, valid_to: null,
+      },
+    ];
+    const { client } = fakeClient(seed);
+    const store = telegramStore(client);
+    const ctx = await loadBotContext(store, "should I send a morning digest?");
+    expect(ctx.lessonRecallText).toContain("WHAT I'VE LEARNED ABOUT WORKING WITH HIM");
+    expect(ctx.lessonRecallText).toContain("Only suggest a morning digest when he asks for one.");
+  });
+
+  it("pre-action recall: no block when nothing was learned about the situation", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const store = telegramStore(client);
+    const ctx = await loadBotContext(store, "what is the weather?");
+    expect(ctx.lessonRecallText).toBeNull();
   });
 });

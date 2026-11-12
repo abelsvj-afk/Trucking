@@ -22,6 +22,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEmbeddingProvider, toVectorLiteral, type EmbeddingProvider } from "./embeddings";
 import { isMissingColumnError } from "./tool-helpers";
 import { tokenSimilarity } from "./memory-lifecycle";
+import { labelOf, readyLessons, summarizeOutcomes, WINDOW_DAYS } from "./learning";
+import { listEpisodes, synthesizeLearnedLessons } from "./episodes";
 import { retireOldMessages } from "./retention";
 import { refreshConversationSummaries, type SummarizeTurns } from "./summaries";
 
@@ -51,6 +53,10 @@ export interface ConsolidationResult {
   proposalsStaged: number;
   updatesStaged: number;
   duplicatesDropped: number;
+  /** Frontier 2: learned lessons staged as save_agent_lesson proposals (never saved directly). */
+  lessonsStaged: number;
+  /** Frontier 2: candidate lessons dropped by the synthesis guard (stale figure or already-known duplicate). */
+  lessonsDropped: number;
   report: string | null;
 }
 
@@ -161,6 +167,8 @@ export async function runConsolidation(deps: ConsolidationDeps): Promise<Consoli
     proposalsStaged: 0,
     updatesStaged: 0,
     duplicatesDropped: 0,
+    lessonsStaged: 0,
+    lessonsDropped: 0,
     report: null,
   };
 
@@ -258,12 +266,99 @@ export async function runConsolidation(deps: ConsolidationDeps): Promise<Consoli
   }
 
   const stagedTotal = proposalsStaged + updatesStaged;
+
+  // Frontier 2 — consolidation-time synthesis (learned): lessons
+  // from his answer patterns (learning.ts readyLessons) are STAGED
+  // as save_agent_lesson proposals — consolidation NEVER saves
+  // directly, same rule as facts. Each lesson passes Frontier 1's
+  // verification against fresh current facts (a lesson quoting a
+  // superseded figure is DROPPED, never staged) and the duplicate
+  // band against lessons already kept. The evidence (the outcome
+  // counts behind the lesson) travels in the staged proposal's
+  // arguments, so the app page can show it once the lesson lands.
+  // Best-effort: a failed synthesis step never fails the run.
+  let lessonsStaged = 0;
+  let lessonsDropped = 0;
+  try {
+    const nowDate = deps.now ?? new Date();
+    const since90 = new Date(nowDate.getTime() - WINDOW_DAYS * 86_400_000).toISOString();
+    const { data: outcomeRows, error: outcomeError } = await client
+      .from("bot_proposal_outcomes")
+      .select("tool_name, signature, outcome, summary, created_at")
+      .eq("company_id", companyId)
+      .gte("created_at", since90)
+      .order("created_at", { ascending: false })
+      .limit(400);
+    if (outcomeError) throw new Error(outcomeError.message);
+    const stats = summarizeOutcomes((outcomeRows ?? []) as Parameters<typeof summarizeOutcomes>[0], nowDate);
+    const { data: factRows, error: factError } = await client
+      .from("bot_memories")
+      .select("id, kind, content")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .is("valid_to", null)
+      .limit(1000);
+    let factContents: string[] = [];
+    if (!factError) {
+      factContents = ((factRows ?? []) as { content: string }[]).map((r) => r.content);
+    } else if (isMissingColumnError(factError)) {
+      const retry = await client
+        .from("bot_memories")
+        .select("id, kind, content")
+        .eq("company_id", companyId)
+        .is("deleted_at", null)
+        .limit(1000);
+      if (!retry.error) factContents = ((retry.data ?? []) as { content: string }[]).map((r) => r.content);
+    } else {
+      throw new Error(factError.message);
+    }
+    const ready = readyLessons(stats, factContents);
+    if (ready.length > 0) {
+      const existing = await listEpisodes(client, companyId, { limit: 200 });
+      const existingLessons = existing.map((e) => e.lesson ?? e.summary);
+      const kept = synthesizeLearnedLessons({
+        lessons: ready.map((l) => l.text),
+        existingLessons,
+        groundingTexts: factContents,
+      });
+      lessonsDropped = ready.length - kept.length;
+      for (const text of kept) {
+        const lesson = ready.find((l) => l.text === text);
+        const stat = lesson ? stats.find((s) => s.signature === lesson.signature) : undefined;
+        const evidence = stat
+          ? `Based on his answers (last 90 days): ${labelOf(stat.signature)} — approved ${stat.approved}, turned down ${stat.declined}.`
+          : "Based on his answers (last 90 days).";
+        const { error: stageError } = await client.from("bot_pending_actions").insert({
+          company_id: companyId,
+          channel: "telegram",
+          tool_name: "save_agent_lesson",
+          arguments: {
+            kind: "learned",
+            summary: lesson ? `Learned: ${labelOf(lesson.signature)}` : "Learned lesson",
+            situation: evidence,
+            lesson: text,
+            valence: "hurt",
+            confidence: 0.8,
+            provenance: "model_inferred_unconfirmed",
+          },
+          summary: `Lesson I learned: "${text}" — save it so I remember?`,
+        });
+        if (stageError) throw new Error(stageError.message);
+        lessonsStaged += 1;
+      }
+    }
+  } catch (err) {
+    console.error("[consolidation] lesson synthesis failed (run continues, no lessons staged this pass):", err);
+  }
+
   const report =
-    stagedTotal > 0 || summariesRefreshed > 0
+    stagedTotal > 0 || summariesRefreshed > 0 || lessonsStaged > 0
       ? `Night shift: refreshed ${summariesRefreshed} weekly ${summariesRefreshed === 1 ? "summary" : "summaries"}, ` +
         `staged ${stagedTotal} memory ${stagedTotal === 1 ? "proposal" : "proposals"} for your yes/no` +
         `${updatesStaged > 0 ? ` (${updatesStaged} of them update an older fact)` : ""}` +
-        `${duplicatesDropped > 0 ? `, dropped ${duplicatesDropped} you already had` : ""}. Nothing was saved without your say.`
+        `${duplicatesDropped > 0 ? `, dropped ${duplicatesDropped} you already had` : ""}` +
+        `${lessonsStaged > 0 ? `, staged ${lessonsStaged} learned ${lessonsStaged === 1 ? "lesson" : "lessons"} for your yes/no` : ""}` +
+        `${lessonsDropped > 0 ? `, dropped ${lessonsDropped} ${lessonsDropped === 1 ? "lesson" : "lessons"} that quoted a superseded figure or was already known` : ""}. Nothing was saved without your say.`
       : null;
 
   const { error: runError } = await client.from("consolidation_runs").insert({
@@ -282,6 +377,8 @@ export async function runConsolidation(deps: ConsolidationDeps): Promise<Consoli
     proposalsStaged,
     updatesStaged,
     duplicatesDropped,
+    lessonsStaged,
+    lessonsDropped,
     report,
   };
 }

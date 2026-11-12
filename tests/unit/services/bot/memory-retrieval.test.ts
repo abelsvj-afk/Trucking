@@ -295,3 +295,67 @@ describe("searchMemoryEverywhere (fallback arms)", () => {
     expect(sources).toEqual(new Set(["memory", "message", "document"]));
   });
 });
+
+describe("retrieveCurrentFacts — Frontier 2 half-life re-rank (F2-C, retrieval path)", () => {
+  it("a 30-day-old note ranks below a fresh fact of equal RRF similarity", async () => {
+    const now = new Date("2026-11-11T12:00:00Z");
+    const db: Record<string, Row[]> = {
+      bot_memories: [
+        {
+          id: "old-note", company_id: COMPANY, kind: "note",
+          content: "Detention pays after two hours at the Macon yard",
+          created_at: new Date(now.getTime() - 30 * 86_400_000).toISOString(),
+          deleted_at: null, valid_to: null,
+        },
+        {
+          id: "fresh-fact", company_id: COMPANY, kind: "fact",
+          content: "Detention pays after two hours at the Macon yard",
+          created_at: now.toISOString(),
+          deleted_at: null, valid_to: null,
+        },
+      ],
+    };
+    // Equal hybrid scores from the RPC — the half-life decides.
+    const client = fakeClient(db, () => ({
+      data: [
+        { id: "old-note", kind: "note", content: "Detention pays after two hours at the Macon yard", created_at: new Date(now.getTime() - 30 * 86_400_000).toISOString(), rrf_score: 0.5 },
+        { id: "fresh-fact", kind: "fact", content: "Detention pays after two hours at the Macon yard", created_at: now.toISOString(), rrf_score: 0.5 },
+      ],
+      error: null,
+    }));
+    const result = await retrieveCurrentFacts(client, COMPANY, "detention Macon yard");
+    expect(result.mode).toBe("hybrid");
+    expect(result.facts.map((f) => f.id)).toEqual(["fresh-fact", "old-note"]);
+  });
+
+  it("a constraint (standing instruction kind) never decays out of relevance", async () => {
+    const now = new Date("2026-11-11T12:00:00Z");
+    const db: Record<string, Row[]> = {
+      bot_memories: [
+        {
+          id: "old-instruction", company_id: COMPANY, kind: "instruction",
+          content: "Always text before calling about detention pay",
+          created_at: new Date(now.getTime() - 300 * 86_400_000).toISOString(),
+          deleted_at: null, valid_to: null,
+        },
+        {
+          id: "fresh-note", company_id: COMPANY, kind: "note",
+          content: "Detention pay question at the yard",
+          created_at: now.toISOString(),
+          deleted_at: null, valid_to: null,
+        },
+      ],
+    };
+    const client = fakeClient(db, () => ({
+      data: [
+        { id: "old-instruction", kind: "instruction", content: "Always text before calling about detention pay", created_at: new Date(now.getTime() - 300 * 86_400_000).toISOString(), rrf_score: 0.4 },
+        { id: "fresh-note", kind: "note", content: "Detention pay question at the yard", created_at: now.toISOString(), rrf_score: 0.4 },
+      ],
+      error: null,
+    }));
+    const result = await retrieveCurrentFacts(client, COMPANY, "detention pay");
+    // Equal scores; the 300-day-old instruction is undecayed (0.4)
+    // while the fresh note is also 0.4 — the tie keeps RPC order.
+    expect(result.facts.map((f) => f.id)).toEqual(["old-instruction", "fresh-note"]);
+  });
+});

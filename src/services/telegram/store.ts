@@ -50,6 +50,12 @@ export interface TelegramStore {
   isDriverTwinEnabled?(): Promise<boolean>;
   /** Phase E: draft-time voice exemplars (from the brain store). Optional, same pattern. */
   loadVoiceExemplars?(incomingText: string): Promise<import("@/services/bot/voice-corpus").VoiceExemplar[]>;
+  /** Frontier 2: pre-action recall — top-K lessons for a situation (see BotBrainStore). Optional; context loading skips it when absent. */
+  recallLessons?(situation: string, options?: { category?: string; outcomeRows?: import("@/services/bot/learning").OutcomeRow[]; now?: Date }): Promise<import("@/services/bot/lesson-recall").LessonRecall>;
+  /** Frontier 2: "What I know about you" (see BotBrainStore). Optional; /model answers honestly when absent. */
+  getWhatIKnow?(): Promise<import("@/services/bot/what-i-know").WhatIKnowModel>;
+  /** Frontier 2: stages a lesson correction as a proposal (see BotBrainStore) — never auto-applies. Optional; /model correct-by-reply is unavailable when absent. */
+  stageLessonCorrection?(episodeId: string, lesson: string): Promise<void>;
 }
 
 function serviceRoleClient(): SupabaseClient | null {

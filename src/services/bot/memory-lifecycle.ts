@@ -194,3 +194,68 @@ export async function applySupersession(
   }
   return closed;
 }
+
+export interface ChainMemoryRow extends CurrentMemoryRow {
+  superseded_by: string | null;
+}
+
+/**
+ * Frontier 2-B — the supersession-chain reader for bot_memories,
+ * mirroring episodeSupersessionChain (episodes.ts): given any row
+ * in a chain, return the full chain oldest first — "what did I
+ * used to believe" stays answerable, with superseded_by naming
+ * who superseded whom at each step. [] when the row doesn't exist
+ * (or pre-00029, when the lifecycle columns don't exist).
+ */
+export async function memorySupersessionChain(
+  client: SupabaseClient,
+  companyId: string,
+  memoryId: string,
+): Promise<ChainMemoryRow[]> {
+  const load = async (id: string): Promise<ChainMemoryRow | null> => {
+    const { data, error } = await client
+      .from("bot_memories")
+      .select("id, kind, content, created_at, superseded_by")
+      .eq("company_id", companyId)
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return null;
+    const row = (data as ChainMemoryRow | null) ?? null;
+    return row ? { ...row, superseded_by: row.superseded_by ?? null } : null;
+  };
+  const start = await load(memoryId);
+  if (!start) return [];
+  // Forward to the newest row in the chain.
+  let newest = start;
+  const forwardSeen = new Set<string>([start.id]);
+  while (newest.superseded_by && !forwardSeen.has(newest.superseded_by)) {
+    const next = await load(newest.superseded_by);
+    if (!next) break;
+    forwardSeen.add(next.id);
+    newest = next;
+  }
+  // Backward to the oldest: predecessors are rows whose
+  // superseded_by points at the current oldest. (The backward
+  // walk has its own seen-set: the start row is legitimately met
+  // again here when the chain was entered from its old end.)
+  const chain: ChainMemoryRow[] = [newest];
+  const seen = new Set<string>([newest.id]);
+  let oldest = newest;
+  while (true) {
+    const { data, error } = await client
+      .from("bot_memories")
+      .select("id, kind, content, created_at, superseded_by")
+      .eq("company_id", companyId)
+      .eq("superseded_by", oldest.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error || !data) break;
+    const prev = data as ChainMemoryRow;
+    if (seen.has(prev.id)) break;
+    seen.add(prev.id);
+    chain.unshift({ ...prev, superseded_by: prev.superseded_by ?? null });
+    oldest = prev;
+  }
+  return chain;
+}

@@ -42,6 +42,8 @@ const RAN: ConsolidationResult = {
   proposalsStaged: 0,
   updatesStaged: 0,
   duplicatesDropped: 0,
+  lessonsStaged: 0,
+  lessonsDropped: 0,
   report: "Night shift: refreshed 1 weekly summary.",
 };
 

@@ -314,6 +314,29 @@ Added alongside `telegram_messages` (design §6). The bot's durable memory store
 
 Retrieval in v1 is keyword match + recency, in code (`src/services/telegram/context.ts`) — stated plainly in the design; no embeddings yet.
 
+## agent_episodes
+
+Added by Frontier 2 — Remember better (migration `00092`). Abel's own autobiography: what he said, recommended, did, got wrong, and learned — one row per episode, with the lesson it taught and the evidence (situation) behind it. Same conventions as `bot_memories`: company_id + tenant-isolation RLS, soft delete, bi-temporal supersession (a correction CLOSES the old row via `valid_to`/`superseded_by`, never edits or deletes it), embedding + FTS with hybrid search (`abel_search_episodes`, RRF k=60, mirroring `abel_search_memories`). Retrieval re-ranks by per-kind half-life (episodes ~7d) — decay ranks, never deletes.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| id | uuid | no | |
+| company_id | uuid | no | |
+| kind | text | no | `said` \| `recommended` \| `acted` \| `erred` \| `learned` (check constraint) |
+| summary | text | no | short title for the episode |
+| situation | text | yes | what happened — the evidence behind the lesson |
+| lesson | text | yes | the lesson itself, in plain words |
+| valence | text | yes | `helped` \| `hurt` \| `neutral` (check constraint) |
+| confidence | numeric(3,2) | yes | 0..1 (check constraint) |
+| supersedes_id | uuid | yes | references `agent_episodes (id)` — the row this episode replaces |
+| user_episode_ids | uuid[] | yes | owner-side episodes this one relates to, when known |
+| provenance | text | no | `owner_stated` \| `document` \| `owner_confirmed_inference` \| `model_inferred_unconfirmed` (check constraint; default `model_inferred_unconfirmed`) |
+| embedding | vector(1536) | yes | `text-embedding-3-small`; model recorded in `embedding_model` |
+| embedding_model | text | yes | |
+| fts | tsvector | no | generated from `summary` + `lesson` |
+| valid_from / valid_to / superseded_by | timestamptz / timestamptz / uuid | no / yes / yes | bi-temporal lifecycle (see `bot_memories`); `valid_to >= valid_from` (check constraint) |
+| created_at / deleted_at | timestamptz | see global conventions | |
+
 ## bot_pending_actions
 
 Added by bot intelligence v2 (`docs/design/driver-mvp.md` §8, migration `00016`). Write actions the bot **proposed** (as opposed to writes the owner directly ordered, which execute immediately) wait here for his yes. Resolution — execute on yes, drop on no — soft-deletes the row; the bot treats proposals older than 2 hours as expired and never executes them. Written/read by the bot surfaces via `src/services/bot/store.ts` (service-role on Telegram, owner session on web).
