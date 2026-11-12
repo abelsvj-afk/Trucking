@@ -19,6 +19,11 @@ const HEALTH: Record<string, string> = { connected: "Connected", off: "Off", fai
 const FILTERS = ["", "load_offer", "payment", "facility", "other", "junk"] as const;
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET";
 
+// The server's reason names its own setting for whoever runs the server; a driver reads it without that.
+function plainReason(reason: string | null): string {
+  return (reason ?? "switched off").replace(/\s*\([A-Z][A-Z0-9_]+\)(\.?)$/, "$1");
+}
+
 export default function InboxPage() {
   usePageTitle("Company inbox");
   const [statuses, setStatuses] = useState<EmailStatus[] | null>(null);
@@ -71,7 +76,7 @@ export default function InboxPage() {
         <ul aria-label="Sending">
           {sending.map((x) => (
             <li key={x.mailbox}>
-              <strong>{BOX[x.mailbox]} sending:</strong> {x.enabled ? "ON - Abel sends only after you approve the exact text with him" : `OFF - ${x.reason ?? "switched off"}`}
+              <strong>{BOX[x.mailbox]} sending:</strong> {x.enabled ? "ON - Abel sends only after you approve the exact text with him" : `OFF - ${plainReason(x.reason)}`}
             </li>
           ))}
         </ul>

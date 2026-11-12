@@ -2731,3 +2731,16 @@ button.button-danger-quiet:hover { background-color: var(--color-danger-light); 
 .hud-tone-expired .hud-ring-tone { font-size: 0.6875rem; letter-spacing: 0.02em; line-height: 1.25; }
 /* A link inside a sentence stays in the sentence (Game Plan's "Turn it on in Account & settings" broke onto its own line). */
 section p a { display: inline; margin-top: 0; }
+/* A status line that is also a list card keeps the card's padding (Company inbox mailbox status sat flush on the card edge). */
+main li[role="status"] { padding: 1rem 1.125rem; }
+/* Checklists: four folded lists instead of one 4,800px page; open the one you are doing. Steps are numbered. */
+.checklist-fold { border: 1px solid var(--color-border); border-radius: 0.875rem; background: var(--color-surface); padding: 0 var(--space-4); margin-top: var(--space-3); }
+.checklist-fold > summary { position: relative; list-style: none; cursor: pointer; min-height: 56px; display: flex; align-items: center; padding-right: 2rem; }
+.checklist-fold > summary::-webkit-details-marker { display: none; }
+.checklist-fold > summary h2 { margin: 0; }
+.checklist-fold > summary::after { content: "+"; position: absolute; right: 0; top: 50%; transform: translateY(-50%); font-size: 1.25rem; color: var(--color-primary); }
+.checklist-fold[open] > summary::after { content: "\2212"; }
+.checklist-fold[open] { padding-bottom: var(--space-4); }
+.checklist-fold ol { list-style: none; margin: 0; padding: 0; counter-reset: step; display: flex; flex-direction: column; gap: 0.5rem; }
+.checklist-fold ol > li { counter-increment: step; position: relative; padding-left: 2.75rem; }
+.checklist-fold ol > li::before { content: counter(step); position: absolute; left: 0.875rem; top: 1rem; font-weight: 800; color: var(--color-primary); font-variant-numeric: tabular-nums; }

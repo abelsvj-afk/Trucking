@@ -67,3 +67,24 @@ describe("UI pass 3 2026-11-12", () => {
     expect(page).toContain("formatPeriodDay(data.periods.month.to)");
   });
 });
+
+describe("UI pass 4 2026-11-12", () => {
+  it("the inbox does not show a server setting name to the driver", () => {
+    const page = read("src/app/(app)/more/inbox/page.tsx");
+    expect(page).toContain("`OFF - ${plainReason(x.reason)}`");
+    const strip = (r: string) => r.replace(/\s*\([A-Z][A-Z0-9_]+\)(\.?)$/, "$1");
+    expect(strip("Dormant until the dispatch program is in use (EMAIL_SEND_DISPATCH_ENABLED).")).toBe(
+      "Dormant until the dispatch program is in use.",
+    );
+  });
+
+  it("a status line that is a list card keeps its padding", () => {
+    expect(read("src/app/styles/03-components.css")).toContain('main li[role="status"] { padding: 1rem 1.125rem; }');
+  });
+  it("Checklists are four folded, numbered lists instead of one 4,800px page", () => {
+    const page = read("src/app/(app)/fleet/checklists/page.tsx");
+    expect(page.match(/<details className="checklist-fold"/g)).toHaveLength(4);
+    expect(page).not.toContain("<section");
+    expect(read("src/app/styles/03-components.css")).toContain(".checklist-fold ol > li::before { content: counter(step);");
+  });
+});

@@ -23,8 +23,8 @@ export default function ChecklistsPage() {
     <div>
       <PageHeader title="Checklists" purpose="Coupling, uncoupling, docking, and paperwork — step by step, written to be worked top to bottom at the truck." />
 
-      <section aria-label="Coupling">
-        <h2>Coupling (hooking up to a trailer)</h2>
+      <details className="checklist-fold" aria-label="Coupling">
+        <summary><h2>Coupling (hooking up to a trailer)</h2></summary>
         <Steps
           items={[
             "Inspect the trailer first: tires, landing gear, doors/seal, no obvious damage. Chock the wheels if they aren't already.",
@@ -40,10 +40,10 @@ export default function ChecklistsPage() {
             "Final walk-around of the whole rig before you move.",
           ]}
         />
-      </section>
+      </details>
 
-      <section aria-label="Uncoupling">
-        <h2>Uncoupling (dropping a trailer)</h2>
+      <details className="checklist-fold" aria-label="Uncoupling">
+        <summary><h2>Uncoupling (dropping a trailer)</h2></summary>
         <Steps
           items={[
             "Park straight on firm, level ground. Set both parking brakes.",
@@ -54,10 +54,10 @@ export default function ChecklistsPage() {
             "Drive clear. If the spot requires it, chock the trailer wheels and note the trailer's position.",
           ]}
         />
-      </section>
+      </details>
 
-      <section aria-label="Docking and backing">
-        <h2>Docking &amp; backing</h2>
+      <details className="checklist-fold" aria-label="Docking and backing">
+        <summary><h2>Docking &amp; backing</h2></summary>
         <Steps
           items={[
             "GOAL - Get Out And Look, every time you're unsure. Professional drivers do this; only rookies guess.",
@@ -68,10 +68,10 @@ export default function ChecklistsPage() {
             "Once docked: brakes set, and follow the dock's rule - driver waiting area, keys in, wheels chocked. Don't wander the warehouse floor.",
           ]}
         />
-      </section>
+      </details>
 
-      <section aria-label="At the shipper or receiver">
-        <h2>At the shipper / receiver - paperwork</h2>
+      <details className="checklist-fold" aria-label="At the shipper or receiver">
+        <summary><h2>At the shipper / receiver - paperwork</h2></summary>
         <Steps
           items={[
             "Check in FIRST, before parking in a door: find the shipping/receiving office or guard shack. Have your name, the company name you're running under, the load/pickup number, and your CDL ready.",
@@ -84,7 +84,7 @@ export default function ChecklistsPage() {
             "At delivery the flow is the same: check in first, get the door, get the BOL signed by the receiver before you leave, photograph it, and note any damage or shortage the receiver writes on it - that note is what protects you.",
           ]}
         />
-      </section>
+      </details>
     </div>
   );
 }
