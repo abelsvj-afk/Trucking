@@ -12,6 +12,10 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
    - 4 Home preview card — CODE DONE (`PaycheckHomeCard`): expected pay on the active load, completed-but-unpaid total, break-due + cycle remaining; consume `pay-summary`.
 4. **Standing work order after that:** step 6 / step 7 with the pay profile; paper log; Smart Path Phases 1–3 (corridor geometry, regional fuel, weather, state laws, construction; stale data always labeled); decomposition (remaining oversized files: `services/bot/store.ts` (pay-truth -> `store-pay.ts`, threads/people -> `store-threads.ts`, memory+capability flags -> `store-memory.ts`; 1664 -> 805 lines, pending-actions -> `store-pending.ts`; the store is now composed of five slice modules), `tools-write.ts` (1780 -> 684: helpers, maintenance, fleet, records slices in `tools-write-*.ts`), `telegram/dispatch-bot.ts` (1104 -> 923: `forward-format.ts`, `context-loader.ts`; text-turn processing is the remaining large block)); reliability Units D and E.
 
+## A2. Claude UI pass 2 2026-11-12 - BUILT + gated on `fix/ui-pass-2-2026-11-12`, NOT merged, NOT deployed, no migration
+- Done: five more visible defects fixed; record in `docs/ui-pass-2026-11-11.md` ("Pass 2").
+- Open: Game Plan settings-link line break; Truck Fund / Checklists / Add truck length; `/api/v1/documents?limit=200` 400 seen in the test setup; drive screen and light theme not opened.
+
 ## A1. Claude UI pass 2026-11-11 (owner: "just fix my app") - MERGED to main 2026-11-11 (`3acae01`, with audit PR #55), NOT deployed; migration 00090 NOT applied
 - Done: nine visible phone-width defects fixed; record in `docs/ui-pass-2026-11-11.md`.
 - Open (from that record): Financial summary long-label layout; verify summary expenses/fuel on the live app; destructive button style; inbox status wording; screens not yet opened (fleet forms, expenses/fuel forms, Truck Fund, invoices, documents, drive screen, light theme).

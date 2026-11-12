@@ -107,7 +107,7 @@ export function DeleteRecordButton({
   return (
     <div>
       {phase.kind === "idle" && (
-        <button type="button" onClick={() => setPhase({ kind: "confirming" })}>
+        <button type="button" className="button-danger-quiet" onClick={() => setPhase({ kind: "confirming" })}>
           Delete {recordName}
         </button>
       )}
@@ -138,7 +138,7 @@ export function DeleteRecordButton({
       {phase.kind === "error" && (
         <div>
           <p role="alert">{phase.message}</p>
-          <button type="button" onClick={() => setPhase({ kind: "confirming" })}>
+          <button type="button" className="button-danger-quiet" onClick={() => setPhase({ kind: "confirming" })}>
             Delete {recordName}
           </button>
         </div>

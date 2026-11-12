@@ -183,7 +183,7 @@ export default function MemoriesPage() {
                         >
                           Correct
                         </button>{" "}
-                        <button type="button" disabled={busy} onClick={() => void remove(memory.id)}>
+                        <button type="button" className="button-danger-quiet" disabled={busy} onClick={() => void remove(memory.id)}>
                           Delete
                         </button>
                       </div>

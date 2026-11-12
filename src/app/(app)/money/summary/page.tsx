@@ -37,7 +37,8 @@ export const RESTATEMENT_NOTICE_TEXT =
   "Past months' operational revenue was restated to count loads when delivered. This changes how this app reports its own figures; it does not change any cash you received or any tax record.";
 
 function formatDollars(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
+  const amount = (Math.abs(cents) / 100).toFixed(2);
+  return cents < 0 ? `-$${amount}` : `$${amount}`;
 }
 
 function detailHref(
@@ -138,11 +139,10 @@ export default function FinancialSummaryPage() {
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {summary && (
         <>
+          <p className="summary-range">
+            {formatRangeDay(summary.range.from)} – {formatRangeDay(summary.range.to)}
+          </p>
           <dl>
-            <dt>Range</dt>
-            <dd>
-              {formatRangeDay(summary.range.from)} – {formatRangeDay(summary.range.to)}
-            </dd>
             <dt>{revenueConventionLabel(summary.revenueConvention)}</dt>
             <dd>
               <Link href={detailHref("revenue", summary)}>

@@ -463,7 +463,7 @@ export default function ResearchPage() {
   }
 
   return (
-    <div>
+    <div className="research-page">
       <h1>Research</h1>
       <p>
         The deep research engine watches fuel prices, federal trucking rules, and industry news.
