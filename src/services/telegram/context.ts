@@ -6,6 +6,7 @@
 // the rule is unit-testable.
 
 import type { HosSummary } from "@/lib/hos";
+import { formatMoney } from "@/lib/money-format";
 
 export type TelegramIntent = "dispatch" | "remember" | "instruction" | "chat";
 
@@ -182,7 +183,7 @@ export interface CompanySnapshot {
 }
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 function formatMinutes(minutes: number): string {

@@ -12,6 +12,20 @@ Kept in the repo so it survives context loss and interruptions. If a newer reque
    - 4 Home preview card — CODE DONE (`PaycheckHomeCard`): expected pay on the active load, completed-but-unpaid total, break-due + cycle remaining; consume `pay-summary`.
 4. **Standing work order after that:** step 6 / step 7 with the pay profile; paper log; Smart Path Phases 1–3 (corridor geometry, regional fuel, weather, state laws, construction; stale data always labeled); decomposition (remaining oversized files: `services/bot/store.ts` (pay-truth -> `store-pay.ts`, threads/people -> `store-threads.ts`, memory+capability flags -> `store-memory.ts`; 1664 -> 805 lines, pending-actions -> `store-pending.ts`; the store is now composed of five slice modules), `tools-write.ts` (1780 -> 684: helpers, maintenance, fleet, records slices in `tools-write-*.ts`), `telegram/dispatch-bot.ts` (1104 -> 923: `forward-format.ts`, `context-loader.ts`; text-turn processing is the remaining large block)); reliability Units D and E.
 
+## A4. Claude studio implementation 2026-11-12 - MERGED to main 2026-11-12 (`4bedb0f`), NOT deployed
+- Done: two accuracy fixes, one money format (app + Abel), Settings index, Money net-first. Detail: PROJECT_STATE.md top note.
+- Waiting on the owner: the Fly deploy.
+- After deploy, on the phone: Money top figure equals Home's; a load with a rate of $1,000 or more shows a comma everywhere;
+  Settings rows show current values; Financial summary detail dates match the load's own page.
+- Still open from the roadmap: Home on one screen, brand tokens and type, hours log grid, Abel cards, Loads cards, Add truck
+  folding; the red tool-count test on main; Abel's rolling 'last N days' windows cut at the UTC day (low impact, not fixed).
+
+## A3. FOR THE BUSINESS CREDIT LANE (found 2026-11-12, NOT fixed, file untouched)
+- `src/app/(app)/more/business-credit/page.tsx:59` shows "Next payment due" with `formatDate(account.next_due_date)`. `next_due_date` is a
+  calendar day, so it renders ONE DAY EARLY in every US zone (reproduced in isolation: `formatDate("2026-11-13")` in America/New_York
+  gives "Nov 12, 2026"). Fix available in one line: `formatCalendarDay()` from `src/lib/time.ts` (added by `fix/summary-detail-day-early`).
+  Left for that lane by the owner's instruction ("Do not expand this into Business Credit work").
+
 ## A2. Claude UI pass 2 2026-11-12 - MERGED to main 2026-11-12 (`80bb0e7`), NOT deployed, no migration
 - Done: five more visible defects fixed; record in `docs/ui-pass-2026-11-11.md` ("Pass 2").
 - Open: Game Plan settings-link line break; Truck Fund / Checklists / Add truck length; `/api/v1/documents?limit=200` 400 seen in the test setup; drive screen and light theme not opened.

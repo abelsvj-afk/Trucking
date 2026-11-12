@@ -1,3 +1,5 @@
+import { formatMoney } from "@/lib/money-format";
+
 // Projected pay that adds up as loads are added (owner request 2026-11-05).
 // Pure. Computed from the owner's pay terms (employer_pay_profiles) and each
 // load's miles - never from a guess:
@@ -247,7 +249,7 @@ export function projectPreviousPeriod(terms: PayTerms, loads: ProjectableLoad[],
   return projectRange(terms, loads, weekBounds(addDays(current.start, -1), terms.pay_week_ends_on), options);
 }
 
-export const formatCents = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const formatCents = (cents: number) => formatMoney(cents);
 
 /** "$1,200.00" or "$1,200.00 – $1,330.00". */
 export function formatRange(lowCents: number, highCents: number): string {
@@ -257,12 +259,21 @@ export function formatRange(lowCents: number, highCents: number): string {
 /** "$0.55/mile", "85% of the load" or "$0.40/mile + 20% of the load" - the terms in his words. */
 export function describeTerms(terms: PayTerms): string {
   const parts: string[] = [];
-  if (terms.rate_cents_per_mile > 0) parts.push(`$${(terms.rate_cents_per_mile / 100).toFixed(2)}/mile`);
+  if (terms.rate_cents_per_mile > 0) parts.push(`${formatMoney(terms.rate_cents_per_mile)}/mile`);
   if ((terms.percent_of_load_bps ?? 0) > 0) parts.push(`${pct(terms.percent_of_load_bps!)} of the load`);
   return parts.length > 0 ? parts.join(" + ") : "no rate set";
 }
 
-/** "Fri Nov 13" for a YYYY-MM-DD day (calendar day as-is, no timezone shift). */
+/**
+ * "Fri Nov 13" for a YYYY-MM-DD day (calendar day as-is, no timezone shift).
+ *
+ * PAY-DATE RULE (timezone transitions 2026-11-11, lib/display-zone rule 4):
+ * pay dates stay in the HOME zone (America/New_York) — pay weeks and
+ * paydays are home-terminal dates, not where the truck happens to be.
+ * This renders from a noon-UTC instant precisely so the calendar day
+ * cannot shift under any viewer or truck zone; do not "fix" it by
+ * rendering the instant in the display zone.
+ */
 export function formatDay(day: string): string {
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }

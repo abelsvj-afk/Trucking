@@ -81,7 +81,7 @@ describe("Financial summary page (Unit C labels)", () => {
 
   it("makes each total a link to its rows (F-010)", () => {
     render(<FinancialSummaryPage />);
-    const revenueLink = screen.getByRole("link", { name: /\$2000.00/ });
+    const revenueLink = screen.getByRole("link", { name: /\$2,000\.00/ });
     expect(revenueLink.getAttribute("href")).toContain("component=revenue");
     expect(revenueLink.getAttribute("href")).toContain("from=2026-11-01");
     expect(screen.getByRole("link", { name: /\$400\.00/ }).getAttribute("href")).toContain(
@@ -94,7 +94,7 @@ describe("Financial summary page (Unit C labels)", () => {
     expect(
       screen.getByText("Contribution margin — loads delivered in this period"),
     ).toBeTruthy();
-    expect(screen.getByText("$1660.00")).toBeTruthy();
-    expect(screen.getByText("$1250.00")).toBeTruthy();
+    expect(screen.getByText("$1,660.00")).toBeTruthy();
+    expect(screen.getByText("$1,250.00")).toBeTruthy();
   });
 });

@@ -14,9 +14,9 @@ import {
   DeletedToggleButton,
   DeletedListSection,
 } from "@/components/RecordLifecycle";
-import { formatDollars } from "@/lib/truck-fund";
 import { formatDate } from "@/lib/time";
 import type { FuelPurchase } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export default function FuelPurchasesListPage() {
   usePageTitle("Fuel purchases");
@@ -46,8 +46,8 @@ export default function FuelPurchasesListPage() {
           resource="fuel-purchases"
           labelFor={(purchase: FuelPurchase) =>
             purchase.location
-              ? `${purchase.location} — ${purchase.gallons} gal — ${formatDollars(purchase.total_cost_cents)}`
-              : `${formatDate(purchase.purchased_at)} — ${purchase.gallons} gal — ${formatDollars(purchase.total_cost_cents)}`
+              ? `${purchase.location} — ${purchase.gallons} gal — ${formatMoney(purchase.total_cost_cents)}`
+              : `${formatDate(purchase.purchased_at)} — ${purchase.gallons} gal — ${formatMoney(purchase.total_cost_cents)}`
           }
           sublabelFor={(purchase: FuelPurchase) =>
             purchase.location ? formatDate(purchase.purchased_at) : null
@@ -71,14 +71,13 @@ export default function FuelPurchasesListPage() {
             <li key={purchase.id}>
               <Link href={`/money/fuel-purchases/${purchase.id}`}>
                 <span className="row-title">
-                  ${(purchase.total_cost_cents / 100).toFixed(2)} — {purchase.gallons} gal
+                  {formatMoney(purchase.total_cost_cents)} — {purchase.gallons} gal
                   {purchase.location ? ` at ${purchase.location}` : ""}
                 </span>
                 <span className="row-sub">
-                  {formatDate(purchase.purchased_at)} · $
-                  {(purchase.price_per_gallon_cents / 100).toFixed(2)}/gal
+                  {formatDate(purchase.purchased_at)} · {formatMoney(purchase.price_per_gallon_cents)}/gal
                   {purchase.adjustment_cents !== 0
-                    ? ` · incl. adjustment ${formatDollars(purchase.adjustment_cents)}${
+                    ? ` · incl. adjustment ${formatMoney(purchase.adjustment_cents)}${
                         purchase.adjustment_reason ? ` — ${purchase.adjustment_reason}` : ""
                       }`
                     : ""}

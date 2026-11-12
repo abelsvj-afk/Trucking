@@ -105,7 +105,7 @@ describe("formatCompanySnapshot", () => {
     };
     const text = formatCompanySnapshot(snapshot);
     expect(text).toContain("Melbourne, FL → Atlanta, GA");
-    expect(text).toContain("$1250.00");
+    expect(text).toContain("$1,250.00");
     expect(text).toContain("$402.10");
     expect(text).toContain("brokers (1)");
   });

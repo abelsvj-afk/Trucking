@@ -11,6 +11,7 @@ import { bearerToken } from "@/lib/device-token";
 import { applyAutoMotionSwitch } from "@/services/fleet/auto-motion";
 import { authenticateDeviceToken, feedBodySchema, normalizeFixes, rateLimited } from "@/services/fleet/device-feed";
 import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
+import { formatClock, timeZoneForPosition } from "@/lib/display-zone";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 import { createTelegramBrainStore } from "@/services/telegram/store";
 
@@ -58,9 +59,9 @@ export async function POST(request: NextRequest) {
     try {
       const res = await handleLiveLocation(store, fix.loc, fix.atMs, {
         sendMessage: async (text) => void (await notifier.notifyOwner(text)),
-        formatTime: (t) => new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(t)),
-        autoSwitch: (detectedAtIso, submissionId) =>
-          applyAutoMotionSwitch({ client, companyId: device.companyId, detectedAtIso, submissionId, nowMs: Date.now(), origin: "position feed" }),
+        formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
+        autoSwitch: (detectedAtIso, submissionId, timeZone) =>
+          applyAutoMotionSwitch({ client, companyId: device.companyId, detectedAtIso, submissionId, nowMs: Date.now(), origin: "position feed", timeZone }),
       });
       if (res.kind === "recorded") accepted += 1;
     } catch (err) {

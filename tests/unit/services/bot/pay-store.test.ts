@@ -239,8 +239,8 @@ describe("recordSettlement", () => {
     const store = fakeStore(db);
     const recorded = await store.recordSettlement({ ...SETTLEMENT_INPUT, driverPayCents: 100_000 });
     expect(recorded.pinCheck).toBe("mismatch");
-    expect(recorded.pinCheckDetail).toContain("$1200.00");
-    expect(recorded.pinCheckDetail).toContain("$1000.00");
+    expect(recorded.pinCheckDetail).toContain("$1,200.00");
+    expect(recorded.pinCheckDetail).toContain("$1,000.00");
   });
 
   it("unpinned: the settlement still records, checked as unpinned - nothing invented", async () => {

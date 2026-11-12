@@ -20,8 +20,9 @@ describe("UI pass 2026-11-12", () => {
   });
 
   it("Financial summary writes a loss as -$568.94, not $-568.94", () => {
-    const page = read("src/app/(app)/money/summary/page.tsx");
-    expect(page).toContain("return cents < 0 ? `-$${amount}` : `$${amount}`;");
+    // Since 2026-11-12 the page uses the shared formatter; the sign rule lives there.
+    expect(read("src/app/(app)/money/summary/page.tsx")).toContain("formatMoney(summary.measures.periodOperatingResult)");
+    expect(read("src/lib/money-format.ts")).toContain("? `-$${amount}` : `$${amount}`");
   });
 
   it("Delete is a quiet red button, never the gold main action", () => {

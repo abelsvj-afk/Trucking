@@ -35,7 +35,7 @@ import {
 } from "./pay-truth";
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 function cents(dollarsValue: number): number {
@@ -88,6 +88,7 @@ const setPayPinArgs = z.object({
 
 import { addDays, mondayOf } from "./pay-report";
 import { todayEastern } from "@/lib/eastern-date";
+import { formatMoney } from "@/lib/money-format";
 
 /** Models that are meaningless without a rate. */
 const PIN_NEEDS_RATE = new Set(["percentage_gross", "percentage_net", "cpm_loaded", "cpm_all_miles", "flat_per_load", "flat_per_day"]);
@@ -201,7 +202,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
         if (newRate === 0 && newPct === 0) {
           return { ok: false, error: "that would leave him with no per-mile rate and no percent (pay $0). Who pays fuel or tolls is its own field - change only that and leave the rate alone" };
         }
-        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const dollars = (c: number) => formatMoney(c);
         const changes: string[] = [];
         if (a.data.rate_dollars_per_mile != null && newRate !== curRate) {
           changes.push(`per mile: ${cur ? dollars(curRate) : "not set"} → ${dollars(newRate)}${newRate < curRate ? " ⚠ lower pay" : ""}`);

@@ -944,7 +944,7 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     seed.loads = [{ id: L1, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
     const { client } = fakeClient(seed);
     const r = await proposeTurn(client, telegramStore(client), "update_load", { load_id: L1, rate_dollars: 0 });
-    expect(r.out.reply).toMatch(/⚠ this ZEROES rate \(was \$2000\.00\)/);
+    expect(r.out.reply).toMatch(/⚠ this ZEROES rate \(was \$2,000\.00\)/);
   });
 
   it("an identical proposal already waiting is not asked for again - he is told it is waiting", async () => {
@@ -995,7 +995,7 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     expect(waiting[0]!.arguments).toMatchObject({ delivery_date: "2026-11-06", rate_dollars: 2100 });
     expect(out.reply).toContain("combined two changes");
     expect(out.reply).toMatch(/delivery date → 2026-11-06/);
-    expect(out.reply).toMatch(/rate → \$2100\.00/);
+    expect(out.reply).toMatch(/rate → \$2,100\.00/);
   });
 
   it("confirmations say WHERE it was kept: 💾 an app record with its page, or 🧠 Abel's own note", async () => {
@@ -1692,8 +1692,13 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     const { buildBotTools } = await import("@/services/bot/tools");
     const { client } = fakeClient(baseSeed(true));
     const store = telegramStore(client);
-    // Measured on main da5bcea before this branch: 146 tools. Instruction-layer only - no new tools.
-    expect(buildBotTools(store)).toHaveLength(146);
+    // Measured on main 7cfac3d2 (2026-11-11): 148 tools - the 146 pin
+    // went stale at the #59/#60 merges, which added 2 tools without
+    // updating it. Deliberately re-pinned here with that measurement;
+    // this lane adds NO tools (rich cards are presentation code).
+    // F1 (think deeper) adds NO tools either - verification reuses
+    // existing read tools; count re-verified at the F1 rebase onto a2021ed5.
+    expect(buildBotTools(store)).toHaveLength(148);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
@@ -1707,8 +1712,86 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
       "LEARN WHAT HE VALUES FROM WHAT HE DOES",
       "USE WHAT YOU ALREADY LEARNED",
       "KNOW WHEN TO STOP",
+      "PLAN THEN ACT",
+      "CHECK BEFORE YOU SEND",
+      "SAY WHAT YOU DON'T KNOW",
+      "SHOW BOTH SIDES OF THE MATH",
+      "FORECAST, DON'T BLOCK",
     ]) {
       expect(sent.split(marker).length - 1, marker).toBe(1);
     }
+  });
+});
+
+describe("think deeper (owner GO 2026-11-11)", () => {
+  async function sentSystem(): Promise<string> {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("hello"));
+    return JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+  }
+
+  it("the prompt carries the chained-reasoning rules", async () => {
+    const sent = await sentSystem();
+    expect(sent).toMatch(/PLAN THEN ACT/);
+    expect(sent).toMatch(/each tool result feeds the next/i);
+    expect(sent).toMatch(/shows the chain/i);
+  });
+
+  it("the prompt carries the self-verification rules", async () => {
+    const sent = await sentSystem();
+    expect(sent).toMatch(/CHECK BEFORE YOU SEND/);
+    expect(sent).toMatch(/re-read your draft against the LATEST tool results/i);
+    expect(sent).toMatch(/never send a superseded figure as current/i);
+  });
+
+  it("the prompt carries the honest-uncertainty rules", async () => {
+    const sent = await sentSystem();
+    expect(sent).toMatch(/SAY WHAT YOU DON'T KNOW/);
+    expect(sent).toMatch(/name exactly what would settle it/i);
+    expect(sent).toMatch(/never invent a figure/i);
+  });
+
+  it("the prompt carries the trade-off-math rules", async () => {
+    const sent = await sentSystem();
+    expect(sent).toMatch(/SHOW BOTH SIDES OF THE MATH/);
+    expect(sent).toMatch(/deadhead miles/i);
+    expect(sent).toMatch(/a bare pick with no figures is not an answer/i);
+  });
+
+  it("the prompt carries the causal-prediction rules, advisory only", async () => {
+    const sent = await sentSystem();
+    expect(sent).toMatch(/FORECAST, DON'T BLOCK/);
+    expect(sent).toMatch(/advisory text only/i);
+    expect(sent).toMatch(/never blocks, refuses, or gates/i);
+  });
+
+  it("F1-B: a trade-off answer with both options and their seeded figures reaches him intact", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider } = scriptedProvider([
+      {
+        text: "Load A: $1,250 for 800 miles. Load B: $1,100 for 600 miles. Take B - it pays more per mile, but it costs you a day at home.",
+        toolCalls: [],
+      },
+    ]);
+    const out = await runAgentTurn(
+      provider,
+      telegramStore(client),
+      input("Load A pays $1,250 for 800 miles, load B pays $1,100 for 600 miles - which should I take?"),
+    );
+    expect(out.reply).toContain("$1,250");
+    expect(out.reply).toContain("$1,100");
+    expect(out.reply).toContain("800 miles");
+    expect(out.reply).toContain("600 miles");
+  });
+
+  it("F1-C: an unanswerable question comes back as one uncertainty line plus what would settle it", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider } = scriptedProvider([
+      { text: "I can't tell from what I have - the rate-con would settle it.", toolCalls: [] },
+    ]);
+    const out = await runAgentTurn(provider, telegramStore(client), input("What rate did the broker offer on that load?"));
+    expect(out.reply).toMatch(/can't tell/i);
+    expect(out.reply).toMatch(/would settle it/i);
   });
 });

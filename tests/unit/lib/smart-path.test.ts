@@ -214,7 +214,7 @@ describe("checkRoute - HOS vs appointment verdicts", () => {
 
   it("paid governor: per-mile math only from the load's own numbers", () => {
     const result = checkRoute(input({ rateCents: 150_000, loadMiles: 500 }));
-    expect(result.paidLines[0]).toContain("$1500.00");
+    expect(result.paidLines[0]).toContain("$1,500.00");
     expect(result.paidLines[0]).toContain("$3.00 a mile");
     const noMiles = checkRoute(input({ rateCents: 150_000, loadMiles: null }));
     expect(noMiles.paidLines[0]).toContain("no per-mile figure");

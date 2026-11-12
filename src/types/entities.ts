@@ -355,6 +355,13 @@ export interface DutyLog extends BaseRow {
   source?: "app" | "paper_photo" | "conversation" | "auto_motion";
   /** For paper_photo rows: the documents row of the sheet photograph. */
   source_document_id?: string | null;
+  /**
+   * IANA zone where the entry happened (migration 00091, timezone
+   * transitions 2026-11-11). Optional: rows written before 00091
+   * landed simply don't carry it — renders fall back to labeled home
+   * Eastern. Never a raw UTC quote.
+   */
+  time_zone?: string | null;
 }
 
 export type DutyLogEditKind = "update" | "insert" | "delete" | "restore";

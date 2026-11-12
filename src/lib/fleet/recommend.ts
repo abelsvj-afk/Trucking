@@ -4,6 +4,7 @@
 // Recommending does not book anything; it is advice the owner and driver decide on.
 
 import { normalizeState, regionOfState, stateInPlace } from "./regions";
+import { formatMoney } from "@/lib/money-format";
 
 export interface CandidateLoad {
   id: string;
@@ -53,7 +54,7 @@ export interface Scored {
 }
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+const dollars = (cents: number) => formatMoney(cents);
 
 /** Weights sum to 100: money 20-60, comfort 50-20, home time 30-20, by the dial. */
 export function weights(moneyVsComfort: number): { money: number; comfort: number; home: number } {

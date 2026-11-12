@@ -7,9 +7,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { AgentTool } from "@/services/ai/agent-loop";
+import { formatMoney } from "@/lib/money-format";
 
 export function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 /**

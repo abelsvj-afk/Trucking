@@ -8,9 +8,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import { projectLoad, formatRange, formatCents } from "@/lib/pay-projection";
+import { projectLoad, formatRange } from "@/lib/pay-projection";
 import { termsForDate, type PayTermsRow } from "@/lib/paycheck";
 import type { EmployerPayProfile, Load } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 function centsFromDollars(text: string): number | null {
   const n = Number.parseFloat(text.replace(/[$,]/g, ""));
@@ -75,7 +76,7 @@ export default function LoadPaySection({ load, onSaved }: { load: Load; onSaved:
       <h2>What this load pays me</h2>
       {!projection && (
         <p>
-          No pay terms yet, so the app can&apos;t work this out. <Link href="/more/settings">Add them in Settings → Pay terms</Link>, or set the
+          No pay terms yet, so the app can&apos;t work this out. <Link href="/more/settings/pay">Add them in Settings → Pay terms</Link>, or set the
           figure yourself below.
         </p>
       )}
@@ -132,7 +133,7 @@ export default function LoadPaySection({ load, onSaved }: { load: Load; onSaved:
       )}
       {error && !editing && <p role="alert">{error}</p>}
       <p className="row-sub">
-        Gross, before fuel, taxes and deductions{load.pay_override_cents != null ? ` · you set ${formatCents(load.pay_override_cents)}` : ""}. Your
+        Gross, before fuel, taxes and deductions{load.pay_override_cents != null ? ` · you set ${formatMoney(load.pay_override_cents)}` : ""}. Your
         settlement is the final number.
       </p>
     </section>

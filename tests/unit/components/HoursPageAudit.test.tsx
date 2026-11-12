@@ -45,7 +45,7 @@ describe("Hours page (visual audit F2, F3)", () => {
     render(<HoursPage />);
     expect(screen.getByText(/provisional default settings/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("your carrier's specified period start");
-    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/more/settings");
+    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/more/settings/hours");
   });
 
   it("F2: once the carrier's own rules are set it states them as the carrier's", () => {

@@ -196,7 +196,7 @@ export default function NewsBanner() {
       <section aria-label="News" className="news-banner news-banner-muted">
         <p className="news-banner-line">
           {FEED_OFF_TEXT}{" "}
-          <Link href="/more/settings">Turn on Deep research in Settings →</Link>
+          <Link href="/more/settings/ai">Turn on Deep research in Settings →</Link>
         </p>
       </section>
     );

@@ -13,6 +13,7 @@ import { createApiHandler } from "@/services/api/handler";
 import { validateBody } from "@/services/api/validate";
 import { createClient } from "@/services/db/server";
 import { applyAutoMotionSwitch, autoSwitchNotice } from "@/services/fleet/auto-motion";
+import { loadDisplayZone } from "@/lib/display-zone";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 
 const bodySchema = z.object({
@@ -23,6 +24,9 @@ const bodySchema = z.object({
 export const POST = createApiHandler(async (req: NextRequest, ctx) => {
   const { detected_at, submission_id } = await validateBody(req, bodySchema);
   const supabase = await createClient();
+  // The open app posts a detection, not a fix: the zone comes from
+  // the latest stored position (either feed), home Eastern fallback.
+  const displayZone = await loadDisplayZone(supabase, ctx.auth.companyId);
   const result = await applyAutoMotionSwitch({
     client: supabase,
     companyId: ctx.auth.companyId,
@@ -30,10 +34,11 @@ export const POST = createApiHandler(async (req: NextRequest, ctx) => {
     submissionId: submission_id,
     nowMs: Date.now(),
     origin: "app",
+    timeZone: displayZone.timeZone,
   });
   if (result.switched && !result.deduplicated && result.startedAt) {
     // Best-effort: the in-app notice is shown by the caller either way.
-    void createTelegramNotifier().notifyOwner(autoSwitchNotice(result.startedAt)).catch(() => false);
+    void createTelegramNotifier().notifyOwner(autoSwitchNotice(result.startedAt, displayZone.timeZone)).catch(() => false);
   }
   return NextResponse.json({ data: result });
 });

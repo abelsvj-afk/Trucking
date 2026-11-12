@@ -11,10 +11,11 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePaySummary } from "@/lib/use-pay-summary";
-import { formatCents, formatDay, formatRange } from "@/lib/pay-projection";
+import { formatDay, formatRange } from "@/lib/pay-projection";
 import type { PaycheckStatus } from "@/lib/paycheck";
 import { paydayTitle, stillOwedWords } from "@/lib/payday-text";
 import type { PaySummaryLoad } from "@/services/api/pay-summary";
+import { formatMoney } from "@/lib/money-format";
 
 const STATUS_WORDS: Record<PaycheckStatus, string> = {
   paid: "Paid",
@@ -35,7 +36,7 @@ export default function PaychecksPage() {
       {state.status === "error" && <ListError message="Couldn't load your paycheck check." onRetry={() => window.location.reload()} />}
       {state.status === "ready" && !state.summary.hasTerms && (
         <p>
-          No pay terms yet, so nothing can be checked. <Link href="/more/settings">Add them in Settings → Pay terms</Link>.
+          No pay terms yet, so nothing can be checked. <Link href="/more/settings/pay">Add them in Settings → Pay terms</Link>.
         </p>
       )}
       {state.status === "ready" && state.summary.hasTerms && (
@@ -45,7 +46,7 @@ export default function PaychecksPage() {
               ? `${state.summary.totals.unpaidCount} finished load${state.summary.totals.unpaidCount === 1 ? "" : "s"} not paid yet — about ${formatRange(state.summary.totals.unpaidLowCents, state.summary.totals.unpaidHighCents)} expected.`
               : "No finished loads waiting on pay."}{" "}
             {state.summary.totals.shortCount > 0
-              ? `${state.summary.totals.shortCount} paid short by ${formatCents(state.summary.totals.shortfallCents)} in all.`
+              ? `${state.summary.totals.shortCount} paid short by ${formatMoney(state.summary.totals.shortfallCents)} in all.`
               : ""}
           </p>
           {(state.summary.totals.advancesCents > 0 || state.summary.totals.deductionsCents > 0) && (
@@ -53,13 +54,13 @@ export default function PaychecksPage() {
               Coming out of these checks:{" "}
               {state.summary.totals.advancesCents > 0 && (
                 <>
-                  <Link href="/money/advances">cash advances</Link> {formatCents(state.summary.totals.advancesCents)}
+                  <Link href="/money/advances">cash advances</Link> {formatMoney(state.summary.totals.advancesCents)}
                 </>
               )}
               {state.summary.totals.advancesCents > 0 && state.summary.totals.deductionsCents > 0 ? " · " : ""}
               {state.summary.totals.deductionsCents > 0 && (
                 <>
-                  <Link href="/money/expenses">pay deductions</Link> {formatCents(state.summary.totals.deductionsCents)}
+                  <Link href="/money/expenses">pay deductions</Link> {formatMoney(state.summary.totals.deductionsCents)}
                 </>
               )}
               .
@@ -95,17 +96,17 @@ export default function PaychecksPage() {
                     </div>
                     <div>
                       <dt>Advances taken</dt>
-                      <dd>{g.advancesCents > 0 ? `− ${formatCents(g.advancesCents)}` : "none"}</dd>
+                      <dd>{g.advancesCents > 0 ? `− ${formatMoney(g.advancesCents)}` : "none"}</dd>
                     </div>
                     <div>
                       <dt>Pay deductions</dt>
-                      <dd>{g.deductionsCents > 0 ? `− ${formatCents(g.deductionsCents)}` : "none"}</dd>
+                      <dd>{g.deductionsCents > 0 ? `− ${formatMoney(g.deductionsCents)}` : "none"}</dd>
                     </div>
                     {g.deductionLines.map((d) => (
                       <div key={`${d.date}-${d.amountCents}-${d.reason}`}>
                         <dt>Deduction — {d.reason}</dt>
                         <dd>
-                          − {formatCents(d.amountCents)} · {formatDay(d.date)}
+                          − {formatMoney(d.amountCents)} · {formatDay(d.date)}
                         </dd>
                       </div>
                     ))}
@@ -118,13 +119,13 @@ export default function PaychecksPage() {
                     </div>
                     <div>
                       <dt>Received so far</dt>
-                      <dd>{formatCents(g.receivedCents)}</dd>
+                      <dd>{formatMoney(g.receivedCents)}</dd>
                     </div>
                     <div>
                       <dt>Still owed</dt>
                       <dd>
                         <strong>{stillOwedWords(g)}</strong>
-                        {g.shortCount > 0 ? ` · SHORT ${formatCents(g.shortfallCents)} on ${g.shortCount} load${g.shortCount === 1 ? "" : "s"}` : ""}
+                        {g.shortCount > 0 ? ` · SHORT ${formatMoney(g.shortfallCents)} on ${g.shortCount} load${g.shortCount === 1 ? "" : "s"}` : ""}
                       </dd>
                     </div>
                   </dl>
@@ -172,8 +173,8 @@ function LoadRow({ c }: { c: PaySummaryLoad }) {
         {c.line?.expected.lowCents != null && c.line.expected.highCents != null
           ? ` · expected ${formatRange(c.line.expected.lowCents, c.line.expected.highCents)}`
           : ""}
-        {c.line?.receivedCents != null ? ` · received ${formatCents(c.line.receivedCents)}` : ""}
-        {c.line && c.line.status === "short" ? ` · short ${formatCents(c.line.shortfallCents)}` : ""}
+        {c.line?.receivedCents != null ? ` · received ${formatMoney(c.line.receivedCents)}` : ""}
+        {c.line && c.line.status === "short" ? ` · short ${formatMoney(c.line.shortfallCents)}` : ""}
       </span>
       {c.line && !c.line.termsUsed.inForce && (
         <span className="row-sub" role="note">

@@ -80,7 +80,7 @@ describe("ActiveLoadCard", () => {
     expect(document.body.textContent).toContain("Pickup Nov 5, 2026");
     expect(document.body.textContent).toContain("Delivery Nov 6, 2026");
     expect(document.body.textContent).toContain("480 mi");
-    expect(document.body.textContent).toContain("Rate $2500.00 — operational revenue, counted when delivered (not cash received)");
+    expect(document.body.textContent).toContain("Rate $2,500.00 — operational revenue, counted when delivered (not cash received)");
     expect(document.body.textContent).not.toMatch(/profit/i);
     expect(screen.getByRole("link", { name: "Open load" }).getAttribute("href")).toBe("/loads/a");
   });

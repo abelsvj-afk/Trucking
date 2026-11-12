@@ -14,7 +14,17 @@
 // caller is authenticated by the webhook secret + allowlist instead.
 
 import { createPersonalitySenders } from "@/services/telegram/personality-send";
-import { formatReply, splitTelegramMessage } from "@/services/telegram/format-reply";
+import {
+  answerTelegramCallbackQuery,
+  editTelegramMessageReplyMarkup,
+  editTelegramMessageText,
+  sendTelegramAskMessage,
+  sendTelegramMessage,
+  sendTelegramRichMessage,
+  sendTelegramYesNoMessage,
+} from "@/services/telegram/bot-api";
+import { getTelegramAppUrl } from "@/services/telegram/cards";
+import { renderSummaryCardPng } from "@/services/telegram/card-image";
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { OpenAiProvider } from "@/services/ai/providers/openai";
@@ -39,6 +49,7 @@ import { captureForwardThread } from "@/services/bot/thread-capture";
 import { createRateLimiter } from "@/services/telegram/rate-limit";
 import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
 import { applyAutoMotionSwitch } from "@/services/fleet/auto-motion";
+import { formatClock, timeZoneForPosition } from "@/lib/display-zone";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
 export const runtime = "nodejs";
@@ -97,96 +108,6 @@ function secretMatches(provided: string | null, expected: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
-}
-
-async function sendTelegramMessage(botToken: string, chatId: number, rawText: string): Promise<void> {
-  // Backstop: whatever reaches Telegram is clean plain text (idempotent - already-formatted text is unchanged).
-  const text = formatReply(rawText);
-  // Telegram caps a message at 4096 characters - split on line breaks, and
-  // hard-split any single line that is over the limit on its own (T-006).
-  const chunks = splitTelegramMessage(text);
-
-  for (const chunk of chunks) {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: chunk }),
-    });
-    if (!res.ok) {
-      // Server log only - never surface provider detail to any client.
-      console.error("[telegram] sendMessage failed", res.status);
-      throw new Error("Telegram sendMessage failed.");
-    }
-  }
-}
-
-/**
- * §3.3: sends a message carrying an inline keyboard (the photo-
- * purpose ask). One message, no chunking - ask texts are short by
- * construction; a failure throws and the bot falls back to the
- * numbered text list.
- */
-async function sendTelegramAskMessage(
-  botToken: string,
-  chatId: number,
-  text: string,
-  buttons: { text: string; callback_data: string }[][],
-): Promise<void> {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_markup: { inline_keyboard: buttons },
-    }),
-  });
-  if (!res.ok) {
-    console.error("[telegram] sendMessage (ask) failed", res.status);
-    throw new Error("Telegram sendMessage failed.");
-  }
-}
-
-/**
- * A Yes / No reply keyboard under a proposal. Pressing a key sends the plain message "Yes" / "No" through the
- * normal text path (no callback_query needed), and one_time_keyboard hides it again after use.
- */
-async function sendTelegramYesNoMessage(botToken: string, chatId: number, text: string): Promise<void> {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_markup: {
-        keyboard: [[{ text: "Yes" }, { text: "No" }]],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      },
-    }),
-  });
-  if (!res.ok) {
-    console.error("[telegram] sendMessage (yes/no keyboard) failed", res.status);
-    throw new Error("Telegram sendMessage failed.");
-  }
-}
-
-/** §3.3: stops the button-tap spinner. Never throws - a failed ack must not fail the turn. */
-async function answerTelegramCallbackQuery(
-  botToken: string,
-  queryId: string,
-  text?: string,
-): Promise<void> {
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callback_query_id: queryId, ...(text ? { text } : {}) }),
-    });
-    if (!res.ok) console.error("[telegram] answerCallbackQuery failed", res.status);
-  } catch (err) {
-    console.error("[telegram] answerCallbackQuery failed", err);
-  }
 }
 
 const webhookLimiter = createRateLimiter();
@@ -279,7 +200,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           if (!(await brainStore.isLiveLocationEnabled())) return;
           await handleLiveLocation(createBrainLiveLocationStore(brainStore), loc, atMs, {
             sendMessage: (text) => sendTelegramMessage(botToken, chatId, text),
-            autoSwitch: (detectedAtIso, submissionId) =>
+            autoSwitch: (detectedAtIso, submissionId, timeZone) =>
               applyAutoMotionSwitch({
                 client: brainStore.client,
                 companyId: brainStore.companyId,
@@ -287,9 +208,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 submissionId,
                 nowMs: Date.now(),
                 origin: "position feed",
+                timeZone,
               }),
-            formatTime: (t) =>
-              new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(t)),
+            formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
           });
         }
       : undefined,
@@ -379,6 +300,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       sendTelegramAskMessage(botToken, chatId, text, buttons),
     answerCallbackQuery: (queryId, text) =>
       answerTelegramCallbackQuery(botToken, queryId, text),
+    // Rich cards (owner 2026-11-11): HTML/photo cards with inline
+    // buttons + edit-in-place. All five are best-effort surfaces
+    // over the plain path - an absent or failing rich dep degrades
+    // to the same plain text as today, never to silence.
+    sendRichMessage: (chatId, msg) => sendTelegramRichMessage(botToken, chatId, msg),
+    editMessageText: (chatId, messageId, html, keyboard) =>
+      editTelegramMessageText(botToken, chatId, messageId, html, keyboard),
+    editMessageReplyMarkup: (chatId, messageId, keyboard) =>
+      editTelegramMessageReplyMarkup(botToken, chatId, messageId, keyboard),
+    renderCardImage: (title, rows) => renderSummaryCardPng(title, rows),
+    appUrl: getTelegramAppUrl(),
     resolvePhotoAsk:
       brainStore && photoCompanyId
         ? (pendingId, choice) =>

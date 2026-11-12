@@ -2744,3 +2744,29 @@ main li[role="status"] { padding: 1rem 1.125rem; }
 .checklist-fold ol { list-style: none; margin: 0; padding: 0; counter-reset: step; display: flex; flex-direction: column; gap: 0.5rem; }
 .checklist-fold ol > li { counter-increment: step; position: relative; padding-left: 2.75rem; }
 .checklist-fold ol > li::before { content: counter(step); position: absolute; left: 0.875rem; top: 1rem; font-weight: 800; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+/* --- Money opens on the net (2026-11-12). Tokens only; the figure is the one gold number on the screen. */
+.money-net { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.875rem; padding: var(--space-4); margin-top: var(--space-4); display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.money-net-label { margin: 0; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted-strong); }
+.money-net-figure { margin: 0.25rem 0 0; font-size: 2.125rem; line-height: 1.1; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.money-net-figure a { color: var(--color-primary); display: inline; margin: 0; font-weight: 800; }
+.money-net-figure-gross a { color: var(--color-text); }
+.money-net-caption { margin: 0 0 0.25rem; font-weight: 700; }
+.money-net .row-sub { margin: 0; }
+.money-net .row-sub a { display: inline; margin: 0; }
+.money-weeks { margin-top: var(--space-4); }
+.money-weeks h2 { margin: 0 0 var(--space-2); }
+.money-weeks ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+main .money-weeks li { padding: 0; }
+.money-weeks li > a { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding: 0.75rem 1rem; color: inherit; font-weight: 400; }
+.money-weeks li > a:hover { text-decoration: none; }
+.money-week-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+.money-week-head strong { font-variant-numeric: tabular-nums; }
+.money-week-bar { display: block; height: 6px; border-radius: 3px; background: var(--color-surface-inset); overflow: hidden; }
+.money-week-bar > span { display: block; height: 100%; background: var(--color-border-strong); border-radius: 3px; }
+.money-week-paid .money-week-bar > span { background: var(--color-success); }
+.money-week-short .money-week-bar > span { background: var(--color-danger); }
+.money-week-unpaid .money-week-bar > span { background: var(--color-primary); }
+/* Settings index (2026-11-12): the way back from a group page. */
+.settings-back { margin-top: var(--space-6); }
+/* The page header already names the group; the group heading that the long page needed is not repeated under it. */
+.settings-group-page h2.settings-group { display: none; }

@@ -13,9 +13,10 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePayProjection } from "@/lib/use-pay-projection";
 import PayTermsCard from "@/components/PayTermsCard";
-import { formatCents, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
+import { formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
 import { advancesForPeriod, netRange, sumAdvances, type AdvanceLike } from "@/lib/cash-advances";
 import { deductionsForPeriod, sumDeductions, type DeductionLike } from "@/lib/expense-buckets";
+import { formatMoney } from "@/lib/money-format";
 
 function PeriodBlock({
   title,
@@ -50,12 +51,12 @@ function PeriodBlock({
       </p>
       {outAvailable && advancesCents > 0 && (
         <p role="status">
-          − {formatCents(advancesCents)} in <Link href="/money/advances">cash advances</Link> already taken out of this pay
+          − {formatMoney(advancesCents)} in <Link href="/money/advances">cash advances</Link> already taken out of this pay
         </p>
       )}
       {outAvailable && deductionsCents > 0 && (
         <p role="status">
-          − {formatCents(deductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out of this pay
+          − {formatMoney(deductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out of this pay
         </p>
       )}
       {outAvailable && (advancesCents > 0 || deductionsCents > 0) && (
@@ -120,7 +121,7 @@ export default function ProjectedPayPage() {
           {state.period.basisAssumed && (
             <p role="note">
               Your miles basis isn&apos;t set, so loads paid by the mile show a range — loaded miles only at the low end, all miles (with
-              deadhead) at the high end. <Link href="/more/settings">Set which miles are paid</Link> to get one number.
+              deadhead) at the high end. <Link href="/more/settings/pay">Set which miles are paid</Link> to get one number.
             </p>
           )}
           {state.period.unavailableCount > 0 && (
@@ -128,7 +129,7 @@ export default function ProjectedPayPage() {
           )}
           {!state.period.weekEndSet && (
             <p className="row-sub" role="note">
-              Your pay week isn&apos;t set, so weeks run Monday to Sunday. <Link href="/more/settings">Set the day it ends and your payday</Link>.
+              Your pay week isn&apos;t set, so weeks run Monday to Sunday. <Link href="/more/settings/pay">Set the day it ends and your payday</Link>.
             </p>
           )}
           {(!state.advancesAvailable || !state.deductionsAvailable) && (

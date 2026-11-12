@@ -18,25 +18,19 @@ import { usePageTitle } from "@/lib/use-page-title";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
 import { useSubmissionId } from "@/lib/use-submission-id";
-import {
-  EMERGENCY_FUND_TARGET_CENTS,
-  TRUCK_PRICE_BANDS,
-  formatDollars,
-  type FundKey,
-  type SweepMode,
-  type TruckPriceBandKey,
-} from "@/lib/truck-fund";
+import { EMERGENCY_FUND_TARGET_CENTS, TRUCK_PRICE_BANDS, type FundKey, type SweepMode, type TruckPriceBandKey } from "@/lib/truck-fund";
 import type { FundEntry } from "@/types/entities";
 import NumberTicker from "@/components/NumberTicker";
 import LadderSection from "./ladder";
 import SnapshotsSection from "./snapshots";
 import { todayEastern } from "@/lib/eastern-date";
+import { formatMoney } from "@/lib/money-format";
 
 const BAND_OPTIONS: { value: TruckPriceBandKey; label: string }[] = (
   Object.entries(TRUCK_PRICE_BANDS) as [TruckPriceBandKey, (typeof TRUCK_PRICE_BANDS)[TruckPriceBandKey]][]
 ).map(([key, band]) => ({
   value: key,
-  label: `${band.label} — ${formatDollars(band.lowCents)} to ${formatDollars(band.highCents)}`,
+  label: `${band.label} — ${formatMoney(band.lowCents)} to ${formatMoney(band.highCents)}`,
 }));
 
 // A calendar day ("2026-11-09") as a driver reads it ("Nov 9"). It is already
@@ -199,16 +193,16 @@ export default function TruckFundPage() {
               <strong>
                 <NumberTicker
                   value={data.truck_fund_progress.balance_cents}
-                  format={(v) => formatDollars(Math.round(v))}
+                  format={(v) => formatMoney(Math.round(v))}
                 />
               </strong>{" "}
               logged
               {data.truck_fund_progress.target_cents != null && (
                 <>
                   {" "}
-                  of {formatDollars(data.truck_fund_progress.target_cents)} target
+                  of {formatMoney(data.truck_fund_progress.target_cents)} target
                   {data.truck_fund_progress.percent_of_target != null &&
-                    ` — ${data.truck_fund_progress.percent_of_target}% there, ${formatDollars(data.truck_fund_progress.remaining_cents ?? 0)} to go`}
+                    ` — ${data.truck_fund_progress.percent_of_target}% there, ${formatMoney(data.truck_fund_progress.remaining_cents ?? 0)} to go`}
                 </>
               )}
             </p>
@@ -268,15 +262,15 @@ export default function TruckFundPage() {
             <dl className="stack">
               <dt>This week ({formatPeriodDay(data.periods.week.from)} – {formatPeriodDay(data.periods.week.to)})</dt>
               <dd>
-                Settled {formatDollars(data.periods.week.settled_income_cents)} — costs{" "}
-                {formatDollars(data.periods.week.costs_cents)} — net{" "}
-                {formatDollars(data.periods.week.settled_net_cents)}
+                Settled {formatMoney(data.periods.week.settled_income_cents)} — costs{" "}
+                {formatMoney(data.periods.week.costs_cents)} — net{" "}
+                {formatMoney(data.periods.week.settled_net_cents)}
               </dd>
               <dt>This month ({formatPeriodDay(data.periods.month.from)} – {formatPeriodDay(data.periods.month.to)})</dt>
               <dd>
-                Settled {formatDollars(data.periods.month.settled_income_cents)} — costs{" "}
-                {formatDollars(data.periods.month.costs_cents)} — net{" "}
-                {formatDollars(data.periods.month.settled_net_cents)}
+                Settled {formatMoney(data.periods.month.settled_income_cents)} — costs{" "}
+                {formatMoney(data.periods.month.costs_cents)} — net{" "}
+                {formatMoney(data.periods.month.settled_net_cents)}
               </dd>
             </dl>
             {data.income_estimate.loads_estimated_from_miles > 0 && (
@@ -299,14 +293,14 @@ export default function TruckFundPage() {
             <dl className="stack">
               <dt>Business-credit bucket</dt>
               <dd>
-                {formatDollars(data.funds.business_credit.balance_cents)}
+                {formatMoney(data.funds.business_credit.balance_cents)}
                 {data.funds.business_credit.last_entry_date &&
                   ` — last entry ${data.funds.business_credit.last_entry_date}`}
               </dd>
               <dt>Emergency fund</dt>
               <dd>
-                {formatDollars(data.funds.emergency_fund.balance_cents)} of{" "}
-                {formatDollars(EMERGENCY_FUND_TARGET_CENTS)}
+                {formatMoney(data.funds.emergency_fund.balance_cents)} of{" "}
+                {formatMoney(EMERGENCY_FUND_TARGET_CENTS)}
                 <span className="row-sub">
                   Your Finance Project&apos;s target, shown here for context; that plan runs the emergency fund, this page just shows it.
                   {data.funds.emergency_fund.last_entry_date && ` Last entry ${data.funds.emergency_fund.last_entry_date}.`}
@@ -328,7 +322,7 @@ export default function TruckFundPage() {
                   <li key={entry.id}>
                     {entry.entry_date} — {entry.fund_key === "truck_fund" ? "Truck Fund" : entry.fund_key === "business_credit" ? "Business-credit bucket" : "Emergency fund"} —{" "}
                     {entry.kind === "deposit" ? "+" : "−"}
-                    {formatDollars(entry.amount_cents)} ({entry.lane}
+                    {formatMoney(entry.amount_cents)} ({entry.lane}
                     {entry.source === "sweep" ? ", sweep rule" : ""}){entry.note && ` — ${entry.note}`}
                   </li>
                 ))}
@@ -344,7 +338,7 @@ export default function TruckFundPage() {
               <DeletedListSection<FundEntry>
                 resource="fund-entries"
                 labelFor={(entry) =>
-                  `${entry.entry_date} — ${entry.kind === "deposit" ? "+" : "−"}${formatDollars(entry.amount_cents)}`
+                  `${entry.entry_date} — ${entry.kind === "deposit" ? "+" : "−"}${formatMoney(entry.amount_cents)}`
                 }
                 sublabelFor={(entry) => entry.fund_key}
               />

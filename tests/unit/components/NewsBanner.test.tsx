@@ -110,7 +110,7 @@ describe("NewsBanner", () => {
     const strip = container.querySelector(".news-banner");
     expect(strip).not.toBeNull();
     expect(strip!.textContent).toContain("News is off");
-    expect(screen.getByRole("link", { name: /Settings/ }).getAttribute("href")).toBe("/more/settings");
+    expect(screen.getByRole("link", { name: /Settings/ }).getAttribute("href")).toBe("/more/settings/ai");
     expect(container.querySelector(".news-banner-headline")).toBeNull();
   });
 

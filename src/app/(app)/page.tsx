@@ -38,10 +38,7 @@ import { useNowTick } from "@/lib/use-now-tick";
 import type { DutyLog } from "@/types/entities";
 import { revenueConventionLabel } from "@/types/financial-summary";
 import { useShowBusinessSummary } from "@/lib/home-display";
-
-function formatDollars(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+import { formatMoney } from "@/lib/money-format";
 
 const STATUS_LABELS: Record<DutyLog["duty_status"], string> = {
   off_duty: "Off duty",
@@ -261,25 +258,25 @@ export default function HomePage() {
                 renders from the API's revenueConvention field. */}
             <dt>{revenueConventionLabel(state.summary.revenueConvention)}</dt>
             <dd>
-              <NumberTicker value={state.summary.revenue_cents} format={(v) => formatDollars(Math.round(v))} />
+              <NumberTicker value={state.summary.revenue_cents} format={(v) => formatMoney(Math.round(v))} />
             </dd>
             <dt>Expenses</dt>
             <dd>
               <NumberTicker
                 value={state.summary.expenses_cents + state.summary.fuel_cents + state.summary.maintenance_cents}
-                format={(v) => formatDollars(Math.round(v))}
+                format={(v) => formatMoney(Math.round(v))}
               />
             </dd>
             <dt>Operating result</dt>
             <dd>
-              <NumberTicker value={state.summary.net_cents} format={(v) => formatDollars(Math.round(v))} />
+              <NumberTicker value={state.summary.net_cents} format={(v) => formatMoney(Math.round(v))} />
             </dd>
           </dl>
         )}
         {state.status === "loaded" && state.summary.estimatedPay && state.summary.estimatedPay.loadCount > 0 && (
           <p className="row-sub" role="note">
             {state.summary.estimatedPay.loadCount} delivered load{state.summary.estimatedPay.loadCount === 1 ? " has" : "s have"} no rate recorded, so revenue shows $0 — at your pay terms times the miles that is about{" "}
-            {formatDollars(state.summary.estimatedPay.cents)} (an estimate, not added above).
+            {formatMoney(state.summary.estimatedPay.cents)} (an estimate, not added above).
           </p>
         )}
         <Link href="/money/summary">View full summary</Link>
