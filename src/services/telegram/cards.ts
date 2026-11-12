@@ -53,27 +53,51 @@ function todayKey(now: Date = new Date()): string {
 }
 
 const LABELED_LINE = /^(?:\p{Extended_Pictographic}\S*\s+)?[A-Za-z][A-Za-z ]{1,24}:\s+\S/u;
+/** A dispatch workup stop line ("Stop 1 · PICKUP: ...") — a structured fact, not prose. */
+const STOP_LINE = /^Stop \d+\s*[·•\-–—]/;
+/** A numbered list item ("1. Attach the BOL...") — a structured fact, not prose. */
+const NUMBERED_ITEM = /^\d+[.)]\s+\S/;
+
+/**
+ * How many structured fact lines a reply carries: labeled
+ * "Label: value" lines, dispatch workup stop lines, and numbered
+ * list items. A reply needs at least two to be a card — one fact
+ * is a note, two is a summary.
+ */
+export function structuredLineCount(plainText: string): number {
+  return String(plainText ?? "")
+    .split("\n")
+    .filter((l) => {
+      const t = l.trim();
+      return LABELED_LINE.test(t) || STOP_LINE.test(t) || NUMBERED_ITEM.test(t);
+    }).length;
+}
 
 /**
  * True only for a structured summary: an emoji header naming the
  * kind, a kind marker (trip number / a money figure / HOS clocks),
- * and at least two labeled fact lines. Everything else - prose,
+ * and at least two structured fact lines. Everything else - prose,
  * questions, drafts, verbatim reads - returns null and stays plain.
+ *
+ * The header requirement is the verbatim guard: a document read
+ * back word for word can mention a trip and carry labeled lines,
+ * but it never starts with a card header, so it stays plain.
  */
 export function detectCard(plainText: string, now: Date = new Date()): DetectedCard | null {
   const lines = String(plainText ?? "").split("\n");
   const first = lines.find((l) => l.trim().length > 0)?.trim() ?? "";
-  const labeled = lines.filter((l) => LABELED_LINE.test(l.trim())).length;
-  if (labeled < 2) return null;
+  if (structuredLineCount(plainText) < 2) return null;
 
   const trip = /Trip (\d{3,6})/.exec(plainText);
-  if (first.startsWith("🚚") && trip) {
+  // 🚛 (delivery truck) as well as 🚚 — the model picks either truck,
+  // and the owner reads both as "a load".
+  if ((first.startsWith("🚚") || first.startsWith("🚛")) && trip) {
     return { kind: "load", key: `load:${trip[1]}`, tripNumber: trip[1] };
   }
   if (first.startsWith("💵") && /\$[\d,]+\.\d{2}/.test(plainText)) {
     return { kind: "pay", key: "pay:latest" };
   }
-  if (first.startsWith("🕒") && /hour|drive|window|break|clock/i.test(plainText)) {
+  if (first.startsWith("🕒") && /hour|driv|window|break|clock/i.test(plainText)) {
     return { kind: "hos", key: `hos:${todayKey(now)}` };
   }
   return null;

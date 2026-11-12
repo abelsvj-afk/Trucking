@@ -64,10 +64,31 @@ const STATUS_WORDS: Record<DutyStatus, string> = {
   sleeper: "Sleeper",
 };
 
+/**
+ * The duty proposal as a labeled card, not a wall of prose
+ * (owner 2026-11-12: structured information arrives as a card).
+ * 🕒 header + labeled Status / Since / Proposed lines, so the
+ * detector reads it as an HOS card with Yes/No buttons; "Reply
+ * YES" (uppercase) is what arms those buttons. Same question as
+ * before, same facts — structured, not reworded.
+ */
 export function proposalText(p: StatusProposal, timeLabel: string): string {
-  return p.kind === "start_driving"
-    ? `Looks like you've been moving since ${timeLabel}, but your log doesn't say Driving. Want me to log ${STATUS_WORDS[p.status]} from ${timeLabel}? Reply yes, or tell me what it should be.`
-    : `The truck hasn't moved since ${timeLabel} and your log still says Driving. Want me to log ${STATUS_WORDS[p.status]} from ${timeLabel}? Reply yes, or tell me what it should be (off duty, sleeper...).`;
+  if (p.kind === "start_driving") {
+    return [
+      "🕒 Duty check — truck moving",
+      "Status: log doesn't say Driving",
+      `Moving since: ${timeLabel}`,
+      `Proposed: log Driving from ${timeLabel}`,
+      "Reply YES to confirm, or tell me what it should be.",
+    ].join("\n");
+  }
+  return [
+    "🕒 Duty check — truck stopped",
+    "Status: log still says Driving",
+    `Stopped since: ${timeLabel}`,
+    `Proposed: log ${STATUS_WORDS[p.status]} from ${timeLabel}`,
+    "Reply YES to confirm, or tell me what it should be (off duty, sleeper...).",
+  ].join("\n");
 }
 
 function validLocation(l: TelegramLocation): boolean {

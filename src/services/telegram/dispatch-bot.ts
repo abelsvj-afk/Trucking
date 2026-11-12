@@ -17,7 +17,7 @@
 // model never decides what to fetch. With no store configured the bot
 // degrades honestly to dispatch-only replies with no context.
 
-import { parseDispatchTrip } from "@/lib/dispatch-trip";
+import { parseDispatchTrip, type ParsedTrip } from "@/lib/dispatch-trip";
 import { formatReply } from "@/services/telegram/format-reply";
 import {
   buildCardKeyboard,
@@ -25,6 +25,7 @@ import {
   detectCard,
   formatCardHtml,
   getTelegramAppUrl,
+  structuredLineCount,
   TELEGRAM_CAPTION_LIMIT,
   TELEGRAM_MESSAGE_LIMIT,
   type DetectedCard,
@@ -440,6 +441,8 @@ async function processTextItems(
     const segments: string[] = [];
     let afterSend: (() => Promise<void>) | undefined;
     let dispatchDisabled = false;
+    /** The trip a forwarded dispatch in this turn parsed to (null when none did) — the card header keys off it. */
+    let dispatchTrip: ParsedTrip | null = null;
 
     // --- photos filed with this bundle (fix round) --------------
     // When they ride a forwarded dispatch bundle, the trip review
@@ -518,6 +521,7 @@ async function processTextItems(
         // P2-3 (telegram audit 2026-11-06): a recognized trip assignment needs no "who is this /
         // what are they asking" guess - it is dispatch assigning a trip, and the staged load says the rest.
         const trip = parseDispatchTrip(combinedForward);
+        dispatchTrip = trip;
         let reply = trip
           ? `That's dispatch assigning Trip ${trip.tripNumber}.` +
             (suggestion.suggested_reply ? `\n\nSuggested reply:\n${suggestion.suggested_reply}` : "")
@@ -664,7 +668,12 @@ async function processTextItems(
     // Owner 2026-11-07: no raw markdown stars - clean, emoji-labelled text, before it is sent AND before it is stored.
     // Personality markers ({{sticker:..}} / {{react:..}}) are pulled out first and never stored or shown.
     const flair = extractFlair(segments.join("\n\n"));
-    return { result, reply: formatReply(flair.text), degraded: ctx.degraded, persist: true, afterSend, flair };
+    // Cards fix: a trip workup / staged proposal without a card
+    // header gets a code-built one, so it rides a card (with its
+    // Yes/No buttons) instead of a wall of text. The words below
+    // the header are untouched.
+    const headed = ensureLoadCardHeader(flair.text, dispatchTrip, chatItems.length === 0);
+    return { result, reply: formatReply(headed), degraded: ctx.degraded, persist: true, afterSend, flair };
   } catch (err) {
     console.error("[telegram] bot turn failed", err);
     return {
@@ -875,6 +884,52 @@ export function asksForYesNo(text: string): boolean {
   return /\bReply YES\b/.test(text);
 }
 
+const EMOJI_LED_FIRST_LINE = /^[\p{Extended_Pictographic}⭐✅❌]/u;
+
+/**
+ * Cards fix (owner 2026-11-12): ANY structured information Abel
+ * presents must arrive as a clean card, never a wall of text. The
+ * detector needs a card header as the first line, so a trip workup
+ * or staged proposal that lacks one gets a code-built header
+ * prepended here — the words below it are untouched.
+ *
+ * Fires only when the reply is really about one trip AND carries at
+ * least two structured fact lines, AND either (a) this turn worked
+ * a forwarded dispatch that parsed to that trip (dispatch-only
+ * turn — the workup dominates the reply), or (b) the reply asks
+ * for his yes/no on staged items (a proposal, whether code-built
+ * or agent-written). A verbatim read never asks for yes/no and is
+ * never a dispatch workup, so the verbatim guard stands. A prose
+ * question or clarification ("which one do you mean") asks
+ * nothing and stays plain.
+ */
+export function ensureLoadCardHeader(
+  text: string,
+  dispatchTrip: ParsedTrip | null,
+  dispatchOnlyTurn: boolean,
+): string {
+  const first = String(text ?? "").split("\n").find((l) => l.trim().length > 0)?.trim() ?? "";
+  if (EMOJI_LED_FIRST_LINE.test(first)) return text;
+  const tripNo =
+    dispatchTrip?.tripNumber ?? /Trip (\d{3,6})/.exec(text)?.[1] ?? null;
+  if (!tripNo) return text;
+  if (structuredLineCount(text) < 2) return text;
+  const isTripWorkup = dispatchTrip !== null && (dispatchOnlyTurn || asksForYesNo(text));
+  const isTripProposal = dispatchTrip === null && asksForYesNo(text);
+  if (!isTripWorkup && !isTripProposal) return text;
+  return `🚚 Load — Trip ${tripNo}\n\n${text}`;
+}
+
+/**
+ * The fields card sending actually uses — a caller passes only
+ * these (the webhook reuses sendReply for live-location proposals
+ * without dragging in the whole bot dependency bag).
+ */
+export type CardSendDeps = Pick<
+  TelegramDeps,
+  "sendMessage" | "sendYesNoMessage" | "sendRichMessage" | "editMessageText" | "renderCardImage" | "appUrl"
+>;
+
 /**
  * Rich cards (owner 2026-11-11): sends one summary card - HTML
  * text, or a photo whose caption IS the full card text - with its
@@ -887,7 +942,7 @@ export function asksForYesNo(text: string): boolean {
  * buttons are added, and the timeline still stores the plain text.
  */
 async function sendCardReply(
-  deps: TelegramDeps,
+  deps: CardSendDeps,
   chatId: number,
   text: string,
   card: DetectedCard,
@@ -956,8 +1011,11 @@ async function sendCardReply(
  * the same text - he can always just type it. (Inline "yn:" taps from older messages are still handled below.)
  * A load / pay / HOS summary goes out as ONE rich card instead (same words, bold headers, Open-in-app + Dismiss),
  * with the plain path as the fallback for every failure.
+ *
+ * Exported: the webhook routes non-conversational sends (live-location duty proposals) through this same
+ * detection, so a structured notice cards instead of arriving as a wall of plain text.
  */
-async function sendReply(deps: TelegramDeps, chatId: number, text: string): Promise<void> {
+export async function sendReply(deps: CardSendDeps, chatId: number, text: string): Promise<void> {
   const card = detectCard(text);
   if (card && (await sendCardReply(deps, chatId, text, card))) return;
   if (deps.sendYesNoMessage && asksForYesNo(text)) {

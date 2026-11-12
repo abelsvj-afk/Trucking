@@ -33,6 +33,7 @@ import { runBotChat } from "@/services/ai/bot-chat";
 import {
   getTelegramConfig,
   handleTelegramUpdate,
+  sendReply,
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
@@ -199,7 +200,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           // The live_location switch: off (or unverifiable) = nothing is stored or proposed.
           if (!(await brainStore.isLiveLocationEnabled())) return;
           await handleLiveLocation(createBrainLiveLocationStore(brainStore), loc, atMs, {
-            sendMessage: (text) => sendTelegramMessage(botToken, chatId, text),
+            // Cards fix (owner 2026-11-12): a stillness / motion
+            // proposal is structured information, so it goes out
+            // through the same card detection as a chat reply — an
+            // HOS card with Yes/No buttons, not a wall of plain
+            // text. Prose notices (zone crossings, auto-switch
+            // notes) have no structured lines, so they stay plain.
+            sendMessage: (text) =>
+              sendReply(
+                {
+                  sendMessage: (id, t) => sendTelegramMessage(botToken, id, t),
+                  sendYesNoMessage: (id, t) => sendTelegramYesNoMessage(botToken, id, t),
+                  sendRichMessage: (id, msg) => sendTelegramRichMessage(botToken, id, msg),
+                  editMessageText: (id, mid, html, kb) =>
+                    editTelegramMessageText(botToken, id, mid, html, kb),
+                  renderCardImage: (title, rows) => renderSummaryCardPng(title, rows),
+                  appUrl: getTelegramAppUrl(),
+                },
+                chatId,
+                text,
+              ),
             autoSwitch: (detectedAtIso, submissionId, timeZone) =>
               applyAutoMotionSwitch({
                 client: brainStore.client,

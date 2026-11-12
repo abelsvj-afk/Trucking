@@ -78,9 +78,23 @@ describe("handleLiveLocation", () => {
 });
 
 describe("proposalText", () => {
-  it("asks, never claims", () => {
+  it("asks, never claims - and arrives as a labeled card, not prose", () => {
     const t = proposalText({ kind: "start_driving", status: "driving", sinceMs: 0 }, "9:14 AM");
-    expect(t).toContain("Want me to log Driving from 9:14 AM");
+    expect(t).toContain("Proposed: log Driving from 9:14 AM");
+    // Card shape: 🕒 header + labeled Status / Since / Proposed lines.
+    expect(t.startsWith("🕒 Duty check")).toBe(true);
+    expect(t).toContain("Status: log doesn't say Driving");
+    expect(t).toContain("Moving since: 9:14 AM");
+    expect(t).toContain("Reply YES to confirm");
+  });
+
+  it("a stopped-truck proposal carries the same card shape", () => {
+    const t = proposalText({ kind: "stop_driving", status: "off_duty", sinceMs: 0 }, "8:40 AM CT");
+    expect(t.startsWith("🕒 Duty check")).toBe(true);
+    expect(t).toContain("Status: log still says Driving");
+    expect(t).toContain("Stopped since: 8:40 AM CT");
+    expect(t).toContain("Proposed: log Off duty from 8:40 AM CT");
+    expect(t).toContain("Reply YES to confirm");
   });
 });
 
@@ -119,7 +133,7 @@ describe("handleLiveLocation - automatic switch to Driving (works with the app c
     const d = { ...deps(), autoSwitch: vi.fn(async () => ({ switched: false, reason: "switched_off" })) };
     for (let i = 0; i <= 8; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
     expect(m.staged).toHaveLength(1);
-    expect(d.sendMessage.mock.calls.some((c) => String(c[0]).includes("Want me to log"))).toBe(true);
+    expect(d.sendMessage.mock.calls.some((c) => String(c[0]).includes("Proposed: log Driving from"))).toBe(true);
   });
 
   it("a manual choice wins: the shared rules stand down and he is NOT nagged with a proposal on top", async () => {
