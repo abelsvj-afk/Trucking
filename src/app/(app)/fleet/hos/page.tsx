@@ -150,7 +150,7 @@ export default function HosPage() {
                 {" "}
                 — <strong>provisional default settings</strong>, not your carrier&apos;s confirmed rules.
                 Enter your carrier&apos;s real cycle, period start and time zone in{" "}
-                <Link href="/more/settings">Settings</Link>.
+                <Link href="/more/settings/hours">Settings</Link>.
               </>
             ) : (
               " — your carrier's specified period start, not calendar days."

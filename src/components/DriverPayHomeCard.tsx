@@ -35,7 +35,7 @@ export default function DriverPayHomeCard() {
         <h2>Driver pay</h2>
         <p className="row-sub">
           Add your pay terms and this shows what the week is worth as loads come in.{" "}
-          <Link href="/more/settings">Add pay terms</Link>
+          <Link href="/more/settings/pay">Add pay terms</Link>
         </p>
       </section>
     );
@@ -145,7 +145,7 @@ export default function DriverPayHomeCard() {
             {period.basisAssumed && (
               <p className="row-sub" role="note">
                 Your miles basis isn&apos;t set, so this is a range (loaded miles only to all miles).{" "}
-                <Link href="/more/settings">Set it</Link>
+                <Link href="/more/settings/pay">Set it</Link>
               </p>
             )}
           </>

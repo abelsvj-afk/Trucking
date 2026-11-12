@@ -102,7 +102,7 @@ export default function GamePlanPage() {
               <h2>The planner is off</h2>
               <p>
                 The Game Plan capability is OFF, so no plan is being gamed. Your target still saves here.
-                Turn it on in <Link href="/more/settings">Account &amp; settings</Link> (&quot;Game Plan&quot;)
+                Turn it on in <Link href="/more/settings/ai">Account &amp; settings</Link> (&quot;Game Plan&quot;)
                 and the next save - or the Re-game button - builds the plan.
               </p>
             </section>

@@ -121,7 +121,7 @@ export default function ProjectedPayPage() {
           {state.period.basisAssumed && (
             <p role="note">
               Your miles basis isn&apos;t set, so loads paid by the mile show a range — loaded miles only at the low end, all miles (with
-              deadhead) at the high end. <Link href="/more/settings">Set which miles are paid</Link> to get one number.
+              deadhead) at the high end. <Link href="/more/settings/pay">Set which miles are paid</Link> to get one number.
             </p>
           )}
           {state.period.unavailableCount > 0 && (
@@ -129,7 +129,7 @@ export default function ProjectedPayPage() {
           )}
           {!state.period.weekEndSet && (
             <p className="row-sub" role="note">
-              Your pay week isn&apos;t set, so weeks run Monday to Sunday. <Link href="/more/settings">Set the day it ends and your payday</Link>.
+              Your pay week isn&apos;t set, so weeks run Monday to Sunday. <Link href="/more/settings/pay">Set the day it ends and your payday</Link>.
             </p>
           )}
           {(!state.advancesAvailable || !state.deductionsAvailable) && (

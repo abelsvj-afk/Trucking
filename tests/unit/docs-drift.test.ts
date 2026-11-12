@@ -50,7 +50,7 @@ describe("docs drift", () => {
   it("every capability with a kill switch appears in the authority matrix", () => {
     const doc = read("docs/ai-authority-matrix.md");
     const src = read("src/data/schemas/ai-settings.ts");
-    const labels = read("src/app/(app)/more/settings/page.tsx");
+    const labels = read("src/lib/ai-capability-labels.ts");
     const keys = [...labels.matchAll(/^\s{2}([a-z_]+): "/gm)].map((m) => m[1]!).filter((k) => src.length > 0 && k.length > 3);
     const missing = keys.filter((k) => !doc.includes(`\`${k}\``));
     expect(missing, `add these capabilities to docs/ai-authority-matrix.md §2`).toEqual([]);

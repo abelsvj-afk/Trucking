@@ -153,3 +153,12 @@ Owner verdict on the live app: "everything is ugly, you don't know what anything
 ---
 
 *Visual styling (colors, typography, exact component library) isn't decided here — that's an implementation-time choice within the structure above, not a separate spec step. What's fixed by this document is structure, states, and behavior; polish is free to evolve.*
+
+## Settings as an index (2026-11-12, owner-approved; design note `docs/design/settings-index.md`)
+
+`/more/settings` is an index of six groups (My pay, Hours and truck, Connections, Appearance and Home, Abel and AI, Account).
+Each row shows what is set now where an existing endpoint provides it (pay terms, hours rules, appearance, AI switches) and
+opens that group at `/more/settings/<pay|hours|connections|look|ai|account>`. The group pages hold the same blocks the single
+long page held, unchanged. The index cannot change a setting; the AI kill switches (`docs/governance.md`) are changed only on
+the "Abel and AI" page. Old anchors (`/more/settings#settings-pay` and the rest) forward to the matching page. No search in
+this version. A summary that cannot be read is left out, never guessed.

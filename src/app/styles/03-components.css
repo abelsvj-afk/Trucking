@@ -2753,3 +2753,7 @@ main .money-weeks li { padding: 0; }
 .money-week-paid .money-week-bar > span { background: var(--color-success); }
 .money-week-short .money-week-bar > span { background: var(--color-danger); }
 .money-week-unpaid .money-week-bar > span { background: var(--color-primary); }
+/* Settings index (2026-11-12): the way back from a group page. */
+.settings-back { margin-top: var(--space-6); }
+/* The page header already names the group; the group heading that the long page needed is not repeated under it. */
+.settings-group-page h2.settings-group { display: none; }
