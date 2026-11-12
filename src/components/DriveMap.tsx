@@ -9,7 +9,11 @@
 // real fix when signal is lost - no dead reckoning, ever.
 // Home's mini map (Block C) runs it heading-up: zoomed in, the
 // camera rotates so the truck always points up and stays centred,
-// and the part of the route already driven is drawn dimmed.
+// and the route line shows ONLY the part still ahead, in glowing
+// gold — the part already driven is dropped from the line (map fix
+// 2026-11-12: the traveled part used to stay drawn, dimmed, so it
+// looked like he needed to turn around when he didn't). Callers pass
+// the remaining geometry in `geometry`; there is no traveled overlay.
 
 import { useCallback, useEffect, useRef } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
@@ -40,8 +44,6 @@ interface DriveMapProps {
   interactive?: boolean;
   /** Block C: false = do not fit the map to the route (follow mode owns the camera). Default true. */
   frameRoute?: boolean;
-  /** Block C: the part of the route already driven, drawn dimmed over the route. */
-  traveledGeometry?: LatLng[];
   /** Accessible label override. */
   label?: string;
 }
@@ -110,7 +112,6 @@ export default function DriveMap({
   followZoom,
   interactive = true,
   frameRoute = true,
-  traveledGeometry = [],
   label,
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -120,7 +121,7 @@ export default function DriveMap({
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
   const framedRef = useRef(false);
-  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, traveledGeometry });
+  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus });
   const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
@@ -137,13 +138,12 @@ export default function DriveMap({
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("drive-route")) return;
-    const { geometry: geo, deadheadGeometry: deadhead, stops: currentStops, stopStatus: statuses, traveledGeometry: traveled } =
+    const { geometry: geo, deadheadGeometry: deadhead, stops: currentStops, stopStatus: statuses } =
       dataRef.current;
     const routeSource = map.getSource("drive-route") as
       | { setData: (data: unknown) => void }
       | undefined;
     routeSource?.setData(lineFeature(geo));
-    (map.getSource("drive-traveled") as { setData: (data: unknown) => void } | undefined)?.setData(lineFeature(traveled));
     const deadheadSource = map.getSource("drive-deadhead") as
       | { setData: (data: unknown) => void }
       | undefined;
@@ -219,27 +219,23 @@ export default function DriveMap({
           data: { type: "FeatureCollection", features: [] },
         });
         map.addLayer({
+          id: "drive-route-glow",
+          type: "line",
+          source: "drive-route",
+          paint: { "line-color": "#f2b705", "line-width": 12, "line-opacity": 0.4, "line-blur": 6 },
+        });
+        map.addLayer({
           id: "drive-route-casing",
           type: "line",
           source: "drive-route",
           paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 },
         });
+        // The remaining route, glowing brand gold (#c9a227) — the only line on the map.
         map.addLayer({
           id: "drive-route-line",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#111111", "line-width": 5, "line-opacity": 0.85 },
-        });
-        // The part already driven: dimmed over the route so progress reads at a glance.
-        map.addSource("drive-traveled", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        });
-        map.addLayer({
-          id: "drive-traveled-line",
-          type: "line",
-          source: "drive-traveled",
-          paint: { "line-color": "#64748b", "line-width": 5, "line-opacity": 0.9 },
+          paint: { "line-color": "#c9a227", "line-width": 5, "line-opacity": 0.9 },
         });
         drawRoute();
       });
@@ -251,9 +247,9 @@ export default function DriveMap({
   }, [drawRoute]);
 
   useEffect(() => {
-    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, traveledGeometry };
+    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus };
     drawRoute();
-  }, [geometry, deadheadGeometry, stops, stopStatus, traveledGeometry, drawRoute]);
+  }, [geometry, deadheadGeometry, stops, stopStatus, drawRoute]);
 
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).

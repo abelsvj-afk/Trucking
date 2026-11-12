@@ -108,6 +108,15 @@ describe("the status card's ETA against his real clocks (display only)", () => {
     expect(line.text).toBe("ETA 6:10 PM ET — your hours aren't available to compare");
     expect(line.text).not.toMatch(/UTC|23:10/);
   });
+  it("labels the ETA in the zone the truck is in, not always ET (map fix 2026-11-12)", () => {
+    // 23:10Z is 6:10 PM ET but 5:10 PM CT.
+    const line = etaAgainstClocks(eta, 120, { driveLeftMs: 200 * 60_000, windowLeftMs: 500 * 60_000 }, "America/Chicago");
+    expect(line).toEqual({ text: "ETA 5:10 PM CT — inside your drive clock (1 h 20 min to spare, no breaks counted)", past: false });
+  });
+  it("warns only when the ETA is genuinely past the tighter clock, in the truck's zone", () => {
+    const line = etaAgainstClocks(eta, 300, { driveLeftMs: 260 * 60_000, windowLeftMs: 600 * 60_000 }, "America/Chicago");
+    expect(line).toEqual({ text: "ETA 5:10 PM CT — past your drive clock by ~40 min", past: true });
+  });
   it("formats distances for a glance", () => {
     expect(formatMiles(412.3)).toBe("412 mi");
     expect(formatMiles(2.34)).toBe("2.3 mi");
@@ -118,18 +127,24 @@ describe("the status card's ETA against his real clocks (display only)", () => {
 describe("applyServerState: what the map holds after each server answer", () => {
   const state = (o: Partial<ActiveLoadState> = {}): ActiveLoadState => ({
     load: { id: "L1", origin: "A", destination: "B", tripNumber: null, pickupDate: null, deliveryDate: null, overdue: false, trailering: true },
-    nextStop: { source: "stop", stopId: "S1", seq: 1, kind: "pickup", name: "Acme DC", address: "1 Dock Rd", appointmentAt: null, appointmentTz: null, arrived: false, basis: null, point: { lat: 37, lng: -93 } },
+    nextStop: { source: "stop", stopId: "S1", seq: 1, kind: "pickup", name: "Acme DC", address: "1 Dock Rd", appointmentAt: null, appointmentTz: null, arrived: false, basis: null, tripState: "not-started", pickupUnconfirmed: false, point: { lat: 37, lng: -93 } },
     position: null,
     route: { ...route(), etaAt: "2026-11-10T19:00:00Z", providerNotes: [], needsUTurn: false, uTurnBlocked: false },
     routeUnavailableReason: null, asOf: "2026-11-10T18:00:00Z", ...o,
   });
-  const empty = { nav: { route: null, guide: false, stopLabel: null, trailering: false, notice: null, unavailableReason: null, basis: null, rerouting: false }, key: "" };
+  const empty = { nav: { route: null, guide: false, stopLabel: null, trailering: false, notice: null, unavailableReason: null, basis: null, tripState: null, pickupUnconfirmed: false, rerouting: false }, key: "" };
   const motion = { headingDeg: 90, speedMph: 50 };
 
   it("first answer: the route is adopted with guidance, labelled with the stop", () => {
     const next = applyServerState(empty, state(), motion, false);
     expect(next.nav).toMatchObject({ guide: true, stopLabel: "Acme DC", trailering: true, notice: null });
     expect(next.nav.route!.distanceMiles).toBe(55);
+  });
+  it("trip state flows through: a pickup-unknown answer carries its flag and basis", () => {
+    const s = state({ nextStop: { ...state().nextStop!, stopId: "S2", kind: "delivery", name: "Kontoor Seminole", basis: "The pickup was never marked left — the truck is 514 mi from Kontoor Panama City and the pickup window has ended, so I'm aiming at the delivery instead. Tap 'I left' on the pickup to confirm.", tripState: "pickup-unknown", pickupUnconfirmed: true } });
+    const next = applyServerState(empty, s, motion, false);
+    expect(next.nav).toMatchObject({ tripState: "pickup-unknown", pickupUnconfirmed: true });
+    expect(next.nav.basis).toMatch(/never marked left/);
   });
   it("a reroute that needs a U-turn while trailering keeps the old line and says why", () => {
     const first = applyServerState(empty, state(), motion, false);

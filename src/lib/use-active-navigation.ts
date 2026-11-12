@@ -12,6 +12,7 @@ import { apiClient } from "@/lib/api-client";
 import { decideAdoption, NAV_COPY, type NavRoute } from "@/lib/active-navigation";
 import { distanceToRouteMiles, INITIAL_OFF_ROUTE, mayRequestReroute, stepOffRoute, type OffRouteState } from "@/lib/drive-reroute";
 import { useLiveVersion } from "@/lib/use-live";
+import type { TripState } from "@/lib/trip-state";
 import type { ActiveLoadState } from "@/services/navigation/active-load-state";
 
 export const NAV_REFRESH_MS = 5 * 60_000;
@@ -36,10 +37,14 @@ export interface ActiveNavigation {
   unavailableReason: string | null;
   /** How the next stop was chosen, when it was not from a stop record. */
   basis: string | null;
+  /** The trip's real state (lib/trip-state.ts); null when there is no active load/next stop. */
+  tripState: TripState | null;
+  /** True when the routing assumes the pickup is done without a departed_at mark. */
+  pickupUnconfirmed: boolean;
   rerouting: boolean;
 }
 
-const EMPTY: ActiveNavigation = { route: null, guide: false, stopLabel: null, trailering: false, notice: null, unavailableReason: null, basis: null, rerouting: false };
+const EMPTY: ActiveNavigation = { route: null, guide: false, stopLabel: null, trailering: false, notice: null, unavailableReason: null, basis: null, tripState: null, pickupUnconfirmed: false, rerouting: false };
 
 const stopKey = (s: ActiveLoadState): string => (s.load && s.nextStop ? `${s.load.id}|${s.nextStop.stopId ?? s.nextStop.address}` : "");
 
@@ -58,6 +63,8 @@ export function applyServerState(
     stopLabel: server.nextStop.name ?? server.nextStop.address,
     trailering: server.load.trailering,
     basis: server.nextStop.basis,
+    tripState: server.nextStop.tripState,
+    pickupUnconfirmed: server.nextStop.pickupUnconfirmed,
     rerouting: false,
   };
   if (!server.route) {

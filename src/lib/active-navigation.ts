@@ -8,6 +8,7 @@
 //  - HOS: the ETA is compared with the driver's REAL remaining clocks. Display only; no hours math is changed here.
 
 import { haversineMiles, type LatLng } from "@/lib/smart-path";
+import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { routeProgress } from "@/lib/route-progress";
 
 export interface NavManeuver {
@@ -151,7 +152,6 @@ export function liveGuidance(route: NavRoute, position: LatLng, nowMs: number, g
   };
 }
 
-const etClock = (iso: string) => new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
 const span = (minutes: number) => {
   const m = Math.max(1, Math.round(minutes));
   return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
@@ -172,10 +172,11 @@ export interface EtaLine {
 
 /**
  * The status card's ETA line against his real clocks (point 5). The tighter of the drive clock and the 14-hour window decides.
- * Display only: the remaining times come from the one HOS read; nothing is recomputed.
+ * Display only: the remaining times come from the one HOS read; nothing is recomputed. The ETA is labelled in the zone the
+ * truck is in (map fix 2026-11-12: it used to say "ET" always, even in Central); callers that pass no zone get home time.
  */
-export function etaAgainstClocks(etaAt: string, minutesLeft: number, clocks: ClockInput): EtaLine {
-  const eta = `ETA ${etClock(etaAt)} ET`;
+export function etaAgainstClocks(etaAt: string, minutesLeft: number, clocks: ClockInput, timeZone: string = HOME_TIME_ZONE): EtaLine {
+  const eta = `ETA ${formatClock(etaAt, timeZone)}`;
   const candidates: { name: string; leftMin: number }[] = [];
   if (clocks.driveLeftMs !== null && Number.isFinite(clocks.driveLeftMs)) candidates.push({ name: "drive clock", leftMin: clocks.driveLeftMs / 60_000 });
   if (clocks.windowLeftMs !== null && Number.isFinite(clocks.windowLeftMs)) candidates.push({ name: "14-hour window", leftMin: clocks.windowLeftMs / 60_000 });

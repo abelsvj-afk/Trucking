@@ -15,7 +15,8 @@ import { pickActiveLoad } from "@/lib/active-load";
 import { todayEastern } from "@/lib/eastern-date";
 import { checkUTurn } from "@/lib/active-navigation";
 import { isTrailering, pickNextStop, type NextStop } from "@/lib/next-stop";
-import type { LatLng } from "@/lib/smart-path";
+import { deriveTripState, pickupWindowEndMs } from "@/lib/trip-state";
+import { haversineMiles, type LatLng } from "@/lib/smart-path";
 import { GeocodingUnavailableError, NominatimGeocodingProvider, type GeocodingProvider } from "@/services/integrations/geocoding";
 import { defaultRoutingProvider, RoutingUnavailableError, type RouteManeuver, type RoutingProvider, type VehicleProfile } from "@/services/integrations/routing";
 import type { Load, LoadStop, Truck } from "@/types/entities";
@@ -127,11 +128,31 @@ export async function buildActiveLoadState(client: SupabaseClient, companyId: st
   const stopsRes = await client.from("load_stops").select("*").eq("company_id", companyId).eq("load_id", load.id).is("deleted_at", null).order("seq", { ascending: true });
   // Stop records are optional (and the table may predate a deployment): an unreadable list falls back to the load's own text.
   const stops = stopsRes.error ? [] : ((stopsRes.data ?? []) as LoadStop[]);
-  const next = pickNextStop(load, stops, now, todayEastern(now));
 
   const position: StartPosition | null = deps.devicePosition
     ? { lat: deps.devicePosition.lat, lng: deps.devicePosition.lng, headingDeg: deps.devicePosition.headingDeg ?? null, speedMph: deps.devicePosition.speedMph ?? null, source: "device", recordedAt: asOf, ageSeconds: 0 }
     : await latestServerPosition(client, companyId, now.getTime());
+
+  // Evidence for the trip-state model (map fix 2026-11-12): how far the truck is from an
+  // un-departed pickup, so a trip already picked up stops aiming back at its pickup. The
+  // geocoder is cached (migration 00089), so this is one lookup per pickup address ever.
+  // Best-effort: a failed lookup leaves the distance unknown and the old behaviour stands.
+  const geocoder = createCachedGeocoder(client, companyId, deps.geocoding ?? new NominatimGeocodingProvider(), () => now);
+  let pickupDistanceMiles: number | null = null;
+  const liveStops = stops.filter((s) => !s.deleted_at).sort((a, b) => a.seq - b.seq);
+  const openPickup = liveStops.find((s) => s.kind === "pickup" && !s.departed_at && !s.arrived_at);
+  if (position && openPickup) {
+    const pickupAddress = (openPickup.address ?? "").trim() || (openPickup.name ?? "").trim();
+    if (pickupAddress) {
+      try {
+        const point = await geocoder.geocode(pickupAddress);
+        if (point) pickupDistanceMiles = haversineMiles({ lat: position.lat, lng: position.lng }, point);
+      } catch {
+        pickupDistanceMiles = null;
+      }
+    }
+  }
+  const next = pickNextStop(load, stops, now, todayEastern(now), { pickupDistanceMiles });
 
   const state: ActiveLoadState = {
     load: {
@@ -146,12 +167,24 @@ export async function buildActiveLoadState(client: SupabaseClient, companyId: st
   };
 
   if (!next) {
-    state.routeUnavailableReason = stops.length > 0 ? "Every stop on this load is marked as left - there is no next stop to route to." : "This load has no address to route to.";
+    // No next stop: either every stop is marked left, or the pickup was never marked left
+    // and there is no later stop to aim at — in the second case say so plainly.
+    const trip = deriveTripState({
+      stops: liveStops, now, pickupWindowEndMs: pickupWindowEndMs(load),
+      pickupDate: load.pickup_date ? load.pickup_date.slice(0, 10) : null,
+      todayIso: todayEastern(now), pickupDistanceMiles,
+    });
+    state.routeUnavailableReason =
+      trip.state === "pickup-unknown" && trip.basis
+        ? trip.basis
+        : stops.length > 0
+          ? "Every stop on this load is marked as left - there is no next stop to route to."
+          : "This load has no address to route to.";
     return state;
   }
 
-  // Geocode the stop once (persisted in geocode_cache, migration 00089).
-  const geocoder = createCachedGeocoder(client, companyId, deps.geocoding ?? new NominatimGeocodingProvider(), () => now);
+  // Geocode the stop once (persisted in geocode_cache, migration 00089; the geocoder was
+  // created above for the pickup-distance evidence and is reused here).
   let point: LatLng | null;
   try {
     point = await geocoder.geocode(next.address);
