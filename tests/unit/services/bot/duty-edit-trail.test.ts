@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildBotTools } from "@/services/bot/tools";
+import { formatClock } from "@/lib/display-zone";
 import type { BotBrainStore } from "@/services/bot/store";
 
 type Row = Record<string, unknown>;
@@ -138,8 +139,13 @@ describe("Abel duty writes - edit trail parity (no new tools)", () => {
     expect(edit.duty_log_id).toBe(st.duty[0]!.id);
     expect(edit.before).toBeNull();
     expect((edit.after as Row).duty_status).toBe("driving");
-    // The reason IS the proposal's explanation (the summarize() text).
-    expect(String(edit.reason)).toContain(`Duty status: driving starting at ${startedAt}`);
+    // The reason IS the proposal's explanation (the summarize() text) —
+    // labeled home time, never a raw ISO (timezone transitions 2026-11-11:
+    // a raw ISO in this text is the Nov 11 9:58 PM incident).
+    expect(String(edit.reason)).toContain(
+      `Duty status: driving starting at ${formatClock(startedAt, "America/New_York")}`,
+    );
+    expect(String(edit.reason)).not.toContain(startedAt);
   });
 
   it("live logging (starts now) writes NO trail row and needs no reason", async () => {

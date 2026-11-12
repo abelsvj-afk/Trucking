@@ -26,6 +26,7 @@ import PageHeader from "@/components/PageHeader";
 import { summarizeHos } from "@/lib/hos";
 import { isProvisionalCarrierConfig } from "@/lib/hos-periods";
 import { formatDate, formatDateTime } from "@/lib/time";
+import { formatDateTime as formatDateTimeLabeled, HOME_TIME_ZONE } from "@/lib/display-zone";
 import {
   useDeletedToggle,
   DeletedToggleButton,
@@ -215,7 +216,7 @@ export default function HosPage() {
               <li key={row.id}>
                 <Link href={`/fleet/hos?entry=${row.id}`}>
                   {STATUS_LABELS[row.duty_status]} —{" "}
-                  {formatDateTime(row.started_at)}
+                  {formatDateTimeLabeled(row.started_at, row.time_zone ?? HOME_TIME_ZONE)}
                   {row.location ? ` — ${row.location}` : ""}
                   {row.notes ? ` — ${row.notes}` : ""}
                 </Link>

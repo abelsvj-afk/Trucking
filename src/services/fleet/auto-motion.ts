@@ -8,7 +8,8 @@
 // is idempotent per detection, and respects the auto_duty_switch kill switch.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { easternClock, judgeAutoMotion } from "@/lib/auto-motion-rules";
+import { judgeAutoMotion } from "@/lib/auto-motion-rules";
+import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { AUTO_DUTY_SWITCH_CAPABILITY, DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
 import type { DutyLog } from "@/types/entities";
 
@@ -39,8 +40,16 @@ export async function applyAutoMotionSwitch(opts: {
   nowMs: number;
   /** "app" = the open app saw it; "position feed" = a server-side position source (works with the app closed). */
   origin: "app" | "position feed";
+  /**
+   * The zone the switch is announced in — the truck's zone at the
+   * fix that detected the motion (lib/display-zone). Defaults to home
+   * Eastern. The row also records it (duty_logs.time_zone, migration
+   * 00091): every entry carries the zone where it happened.
+   */
+  timeZone?: string;
 }): Promise<AutoMotionResult> {
   const { client, companyId, detectedAtIso, submissionId, nowMs, origin } = opts;
+  const timeZone = opts.timeZone ?? HOME_TIME_ZONE;
   if (!(await isAutoSwitchEnabled(client, companyId))) return { switched: false, reason: "switched_off" };
 
   // Replay of the same detection: report the original outcome, never a second row.
@@ -67,7 +76,7 @@ export async function applyAutoMotionSwitch(opts: {
 
   const startedAt = new Date(detectedAtIso).toISOString();
   const note =
-    `Automatic: switched to Driving by detected truck motion at ${easternClock(startedAt)} ` +
+    `Automatic: switched to Driving by detected truck motion at ${formatClock(startedAt, timeZone)} ` +
     `(moving for 60 s while the log said ${latest!.duty_status.replace("_", " ")}; ${origin === "app" ? "seen by the open app" : "from the phone's position feed"}).`;
   const base = {
     company_id: companyId,
@@ -79,11 +88,18 @@ export async function applyAutoMotionSwitch(opts: {
     odometer: null,
     notes: note,
     submission_id: submissionId,
+    time_zone: timeZone,
   };
   let insert = await client.from("duty_logs").insert({ ...base, source: "auto_motion" });
   if (insert.error && /duty_logs_source_check|violates check constraint/i.test(insert.error.message)) {
     // Migration 00072 not applied yet: the row is still recorded, the note carries the provenance.
     insert = await client.from("duty_logs").insert({ ...base, source: "app" });
+  }
+  if (insert.error && /time_zone/i.test(insert.error.message) && /does not exist/i.test(insert.error.message)) {
+    // Migration 00091 not applied yet: the row still lands; the note
+    // carries the labeled time, so the zone is not lost, only uncolumned.
+    const { time_zone: _dropped, ...withoutZone } = base;
+    insert = await client.from("duty_logs").insert({ ...withoutZone, source: "auto_motion" });
   }
   if (insert.error) {
     // A second tab/device/feed won the same detection: that is a replay, not a failure.
@@ -93,9 +109,9 @@ export async function applyAutoMotionSwitch(opts: {
   return { switched: true, startedAt };
 }
 
-/** The Telegram notice, one wording for both callers. */
-export function autoSwitchNotice(startedAtIso: string): string {
-  return `Switched to Driving at ${easternClock(startedAtIso)} — truck moving. (Automatic, from detected motion. If that's wrong, change your status in the app.)`;
+/** The Telegram notice, one wording for both callers — in the truck's zone, labeled, never UTC. */
+export function autoSwitchNotice(startedAtIso: string, timeZone: string = HOME_TIME_ZONE): string {
+  return `Switched to Driving at ${formatClock(startedAtIso, timeZone)} — truck moving. (Automatic, from detected motion. If that's wrong, change your status in the app.)`;
 }
 
 /** One stable id per detection, so a retry or a second source replays the same switch instead of adding another. */

@@ -11,6 +11,7 @@
 import type { DetentionSummary } from "./detention";
 import type { PaperworkState } from "./paperwork";
 import type { DutyLog } from "@/types/entities";
+import { formatClock, HOME_TIME_ZONE } from "./display-zone";
 
 export interface DayWrapItem {
   kind:
@@ -48,7 +49,7 @@ export interface DayWrapInput {
   now: Date;
 }
 
-export function buildDayWrap(input: DayWrapInput): DayWrapItem[] {
+export function buildDayWrap(input: DayWrapInput, timeZone: string = HOME_TIME_ZONE): DayWrapItem[] {
   const items: DayWrapItem[] = [];
   const logs = [...input.dutyLogs].sort(
     (a, b) => Date.parse(a.started_at) - Date.parse(b.started_at),
@@ -71,7 +72,7 @@ export function buildDayWrap(input: DayWrapInput): DayWrapItem[] {
         items.push({
           kind: "duty",
           severity: "gap",
-          text: `Your last duty change was 'driving' at ${new Date(last.started_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} — still driving, or did the day end without the change getting logged?`,
+          text: `Your last duty change was 'driving' at ${formatClock(last.started_at, timeZone)} — still driving, or did the day end without the change getting logged?`,
         });
       }
     }

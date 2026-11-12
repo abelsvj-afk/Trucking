@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildDayWrap, easternDate, type DayWrapItem } from "@/lib/day-wrap";
+import { loadDisplayZone } from "@/lib/display-zone";
 import { computeDetention } from "@/lib/detention";
 import { computePaperwork } from "@/lib/paperwork";
 import type { DetentionStamp, DutyLog, Load } from "@/types/entities";
@@ -200,6 +201,12 @@ export async function getDayWrap(
     }));
   }
 
+  // The day's times render in the display zone (the truck's zone
+  // from its latest fix, home Eastern fallback). The day BOUNDARY
+  // itself stays America/New_York (the `date` param's contract and the
+  // easternDate bucketing above) — a boundary move is a separate
+  // decision, not smuggled in with the label fix.
+  const displayZone = await loadDisplayZone(supabase, companyId, now.getTime());
   const items = buildDayWrap({
     date,
     dutyLogs,
@@ -213,6 +220,6 @@ export async function getDayWrap(
     overdueInvoices,
     dueFollowups,
     now,
-  });
+  }, displayZone.timeZone);
   return { date, items };
 }

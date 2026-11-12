@@ -34,10 +34,3 @@ export function judgeAutoMotion(
   if (Date.parse(latest.started_at) >= detected - SUSTAIN_MS) return { ok: false, reason: "manual_change_won" };
   return { ok: true };
 }
-
-/** "3:42 PM ET" - Eastern, never UTC. */
-export function easternClock(iso: string): string {
-  return (
-    new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }) + " ET"
-  );
-}

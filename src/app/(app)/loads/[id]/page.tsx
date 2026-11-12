@@ -36,24 +36,13 @@ import {useLiveVersion} from "@/lib/use-live";
 import {usePickerList} from "@/lib/use-picker-list";
 import {usePageTitle} from "@/lib/use-page-title";
 import {loadDisplayName} from "@/lib/load-name";
+import { formatAppointment } from "@/lib/display-zone";
 import type {Broker, DetentionStamp, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Trailer, Truck} from "@/types/entities";
 import type {DetentionSummary} from "@/lib/detention";
 import type {PaperworkState} from "@/lib/paperwork";
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
-}
-
-/** An appointment in the zone it was written in (the facility's), labeled - never silently the phone's. */
-function formatInZone(iso: string, zone: string | null | undefined) {
-  if (!zone) return formatStampTime(iso);
-  try {
-    return new Date(iso).toLocaleString("en-US", {
-      timeZone: zone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
-    });
-  } catch {
-    return formatStampTime(iso);
-  }
 }
 
 /** Each stop with its appointment in the facility's zone, and progress the owner records by tapping. */
@@ -90,7 +79,7 @@ function StopsSection({ loadId }: { loadId: string }) {
             <strong>{s.kind === "pickup" ? "Pickup" : s.kind === "delivery" ? "Delivery" : "Stop"} {s.seq}</strong>
             {s.name ? ` — ${s.name}` : ""}
             {s.address && <div className="row-sub">{s.address}</div>}
-            {s.appointment_at && <div className="row-sub">Appointment {formatInZone(s.appointment_at, s.appointment_tz)}</div>}
+            {s.appointment_at && <div className="row-sub">Appointment {formatAppointment(s.appointment_at, s.appointment_tz)}</div>}
             <div className="row-sub">
               {s.arrived_at ? `Arrived ${when(s.arrived_at)}` : "Not arrived"} ·{" "}
               {s.approved_at ? `Dispatcher approved ${when(s.approved_at)}` : "No dispatcher approval recorded"} ·{" "}
@@ -168,6 +157,8 @@ function formatStampTime(iso: string) {
   });
 }
 
+// Appointments render in the PLACE's zone (lib/display-zone): the
+// shared formatter, so the load page can never drift from the rule.
 const STAMP_BUTTONS: { type: string; label: string }[] = [
   { type: "arrival", label: "Stamp arrival" },
   { type: "door", label: "Stamp door" },
@@ -464,10 +455,10 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
         {(load.pickup_window_start || load.delivery_window_start) && (
           <p className="row-sub">
             {load.pickup_window_start &&
-              `Pickup window ${formatInZone(load.pickup_window_start, load.pickup_tz)} – ${load.pickup_window_end ? formatInZone(load.pickup_window_end, load.pickup_tz) : "?"}`}
+              `Pickup window ${formatAppointment(load.pickup_window_start, load.pickup_tz)} – ${load.pickup_window_end ? formatAppointment(load.pickup_window_end, load.pickup_tz) : "?"}`}
             {load.pickup_window_start && load.delivery_window_start ? " · " : ""}
             {load.delivery_window_start &&
-              `Delivery window ${formatInZone(load.delivery_window_start, load.delivery_tz)} – ${load.delivery_window_end ? formatInZone(load.delivery_window_end, load.delivery_tz) : "?"}`}
+              `Delivery window ${formatAppointment(load.delivery_window_start, load.delivery_tz)} – ${load.delivery_window_end ? formatAppointment(load.delivery_window_end, load.delivery_tz) : "?"}`}
           </p>
         )}
         {load.weight_lbs != null && (

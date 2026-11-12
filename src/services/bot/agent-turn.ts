@@ -66,6 +66,7 @@ import {
   parseBatchCommand,
   type BatchCommand,
 } from "./dump-intake";
+import { formatClock, HOME_TIME_ZONE, loadDisplayZone, zoneLongName } from "@/lib/display-zone";
 
 export const BOT_DISABLED_REPLY =
   "My chat brain is turned off right now. You can turn it on in the app: More -> Account & settings -> Bot chat. Dispatch help and remember: still work either way.";
@@ -682,10 +683,10 @@ async function withStillWaiting(store: BotBrainStore, out: BotChatOutput, exclud
   }
 }
 
-/** P1-2: the current moment on his clock, for every turn. */
-export function nowBlock(now: Date): string {
+/** P1-2: the current moment on his clock, for every turn. In the display zone (the truck's zone from its latest fix, home Eastern fallback) — the zone is a parameter, never a hardcoded Eastern, so a Central "an hour ago" resolves on the Central clock. */
+export function nowBlock(now: Date, timeZone: string = HOME_TIME_ZONE): string {
   const text = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
+    timeZone,
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -693,12 +694,12 @@ export function nowBlock(now: Date): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(now);
-  const isoDay = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  return `NOW: ${text} Eastern (America/New_York) - today is ${isoDay}. Resolve "an hour ago", "today", "yesterday", "the 6th" from this; dates you record are on this clock.`;
+  const isoDay = now.toLocaleDateString("en-CA", { timeZone });
+  return `NOW: ${text} ${zoneLongName(timeZone)} (${timeZone}) - today is ${isoDay}. Resolve "an hour ago", "today", "yesterday", "the 6th" from this; dates you record are on this clock.`;
 }
 
 /** P1-3: documents filed in the last few hours (newest first), so "that image / it's the BOL" has an id. */
-async function loadRecentDocumentsBlock(store: BotBrainStore): Promise<string | null> {
+async function loadRecentDocumentsBlock(store: BotBrainStore, timeZone: string = HOME_TIME_ZONE): Promise<string | null> {
   try {
     const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
     const { data, error } = await store.client
@@ -710,10 +711,10 @@ async function loadRecentDocumentsBlock(store: BotBrainStore): Promise<string | 
       .limit(5);
     if (error || !data || data.length === 0) return null;
     const rows = data as { id: string; file_name: string; related_entity_type: string; related_entity_id: string; created_at: string }[];
-    const when = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    const when = (iso: string) => formatClock(iso, timeZone);
     const lines = rows.map(
       (d) =>
-        `- [${d.id}] "${d.file_name}" at ${when(d.created_at)} ET - ${d.related_entity_type === "company" ? "NOT attached to anything yet" : `attached to ${d.related_entity_type} ${d.related_entity_id}`}`,
+        `- [${d.id}] "${d.file_name}" at ${when(d.created_at)} - ${d.related_entity_type === "company" ? "NOT attached to anything yet" : `attached to ${d.related_entity_type} ${d.related_entity_id}`}`,
     );
     return (
       "RECENT PHOTOS / DOCUMENTS HE SENT (newest first; ids are real):\n" +
@@ -890,7 +891,16 @@ export async function runAgentTurn(
 
   const contextBlocks: string[] = [];
   // P1-2: the agent had no clock - "an hour ago", "today", "the 6th" were guesses.
-  contextBlocks.push(nowBlock(new Date()));
+  // The clock runs in the display zone (the truck's zone from its
+  // latest fix, home Eastern fallback) — resolved once per turn, and
+  // a failed lookup falls back to home rather than failing the turn.
+  let displayZone = HOME_TIME_ZONE;
+  try {
+    displayZone = (await loadDisplayZone(store.client, store.companyId)).timeZone;
+  } catch {
+    // Home fallback stands.
+  }
+  contextBlocks.push(nowBlock(new Date(), displayZone));
   if (writesRefused) {
     contextBlocks.push(
       "WRITES ARE PAUSED FOR THIS TURN (a storage hiccup kept this message's duplicate-check from being established): answer from his records only. Do not propose, stage, or claim any recording or change - if he asked for one, tell him plainly it needs a re-send in a moment.",
@@ -922,7 +932,7 @@ export async function runAgentTurn(
     );
   }
   // P1-3: "that's the BOL / that image" - the photos he just sent, by id, so they can be attached.
-  const photosBlock = await loadRecentDocumentsBlock(store);
+  const photosBlock = await loadRecentDocumentsBlock(store, displayZone);
   if (photosBlock) contextBlocks.push(photosBlock);
   if (input.instructions.length > 0) {
     contextBlocks.push(`STANDING INSTRUCTIONS FROM THE OWNER:\n${input.instructions.map((i) => `- ${i}`).join("\n")}`);
