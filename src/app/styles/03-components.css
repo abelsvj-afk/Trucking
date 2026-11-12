@@ -2704,3 +2704,28 @@ button.button-danger-quiet {
   box-shadow: none;
 }
 button.button-danger-quiet:hover { background-color: var(--color-danger-light); box-shadow: none; }
+/* Home duty buttons (owner 2026-11-12: "buttons under map that don't fit in their box"). The pass-1 filter-track rule
+   (one line, never wrap) also caught this grid and cut "On duty (not driving)" and "Sleeper berth" mid-word. Two per row
+   on a phone, words wrap inside the button, nothing is clipped. */
+.hud-buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: none;
+  overflow: visible;
+}
+@media (min-width: 40rem) {
+  .hud-buttons { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.hud-buttons .hud-status-btn {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-align: center;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.9375rem;
+}
+.hud-buttons .hud-btn-lock { display: block; font-size: 0.75rem; }
+/* Hours tiles: every word stays inside its tile, also when a clock is EXPIRED. */
+.hud-ring { min-width: 0; text-align: center; }
+.hud-ring-label, .hud-ring-tone { max-width: 100%; overflow-wrap: break-word; text-align: center; }
+.hud-tone-expired { border-width: 3px; }
+.hud-tone-expired .hud-ring-tone { font-size: 0.6875rem; letter-spacing: 0.02em; line-height: 1.25; }

@@ -35,4 +35,15 @@ describe("UI pass 2026-11-12", () => {
     expect(read("src/app/(app)/more/research/page.tsx")).toContain('<div className="research-page">');
     expect(read("src/app/styles/03-components.css")).toContain(".research-page h2, .research-page h3 {");
   });
+
+  it("Home duty buttons wrap their words inside the button, two per row on a phone (they were cut mid-word)", () => {
+    const css = read("src/app/styles/03-components.css");
+    const block = css.slice(css.lastIndexOf(".hud-buttons .hud-status-btn {"));
+    expect(block).toContain("white-space: normal");
+    expect(css).toContain(".hud-buttons {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  max-width: none;\n  overflow: visible;");
+  });
+
+  it("an EXPIRED hours tile keeps its words inside the tile", () => {
+    expect(read("src/app/styles/03-components.css")).toContain(".hud-tone-expired .hud-ring-tone { font-size: 0.6875rem;");
+  });
 });
