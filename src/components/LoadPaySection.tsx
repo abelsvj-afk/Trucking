@@ -75,7 +75,7 @@ export default function LoadPaySection({ load, onSaved }: { load: Load; onSaved:
       <h2>What this load pays me</h2>
       {!projection && (
         <p>
-          No pay terms yet, so the app can&apos;t work this out. <Link href="/more/settings">Add them in Settings → Pay terms</Link>, or set the
+          No pay terms yet, so the app can&apos;t work this out. <Link href="/more/settings/pay">Add them in Settings → Pay terms</Link>, or set the
           figure yourself below.
         </p>
       )}

@@ -2731,3 +2731,7 @@ button.button-danger-quiet:hover { background-color: var(--color-danger-light); 
 .hud-tone-expired .hud-ring-tone { font-size: 0.6875rem; letter-spacing: 0.02em; line-height: 1.25; }
 /* A link inside a sentence stays in the sentence (Game Plan's "Turn it on in Account & settings" broke onto its own line). */
 section p a { display: inline; margin-top: 0; }
+/* Settings index (2026-11-12): the way back from a group page. */
+.settings-back { margin-top: var(--space-6); }
+/* The page header already names the group; the group heading that the long page needed is not repeated under it. */
+.settings-group-page h2.settings-group { display: none; }

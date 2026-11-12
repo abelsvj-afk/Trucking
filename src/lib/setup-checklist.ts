@@ -25,9 +25,9 @@ export function buildSetupChecklist(f: SetupFacts): SetupItem[] {
   const current = f.payProfiles.filter((p) => !p.effective_to);
   const hasTerms = current.some((p) => p.rate_cents_per_mile > 0 || (p.percent_of_load_bps ?? 0) > 0);
   return [
-    { key: "pay-terms", label: "Enter your pay terms", why: "Every pay figure (projected pay, paychecks, advances) is priced from them.", href: "/more/settings", essential: true, done: hasTerms },
-    { key: "miles-basis", label: "Say which miles you are paid on", why: "Until it is set, per-mile pay shows a range instead of one number.", href: "/more/settings", essential: true, done: hasTerms && current.some((p) => p.mile_basis !== null) },
-    { key: "pay-week", label: "Set your pay week and payday", why: "Groups your loads and advances under the right payday.", href: "/more/settings", essential: true, done: current.some((p) => p.pay_week_ends_on != null && p.payday_weekday != null) },
+    { key: "pay-terms", label: "Enter your pay terms", why: "Every pay figure (projected pay, paychecks, advances) is priced from them.", href: "/more/settings/pay", essential: true, done: hasTerms },
+    { key: "miles-basis", label: "Say which miles you are paid on", why: "Until it is set, per-mile pay shows a range instead of one number.", href: "/more/settings/pay", essential: true, done: hasTerms && current.some((p) => p.mile_basis !== null) },
+    { key: "pay-week", label: "Set your pay week and payday", why: "Groups your loads and advances under the right payday.", href: "/more/settings/pay", essential: true, done: current.some((p) => p.pay_week_ends_on != null && p.payday_weekday != null) },
     { key: "truck", label: "Add your truck", why: "Hours, maintenance, fuel and routes attach to a truck.", href: "/fleet/trucks/new", essential: true, done: f.truckCount > 0 },
     { key: "first-load", label: "Add your first load", why: "Loads are what pay, hours and the paycheck check are built on.", href: "/loads/new", essential: true, done: f.loadCount > 0 },
     { key: "truck-profile", label: "Fill in your truck profile (height, length, weight)", why: "Smart Path plans legal, truck-safe routes from it.", href: "/fleet/truck-profile", essential: false, done: f.truckCount > 0 && f.truckWithProfileCount > 0 },

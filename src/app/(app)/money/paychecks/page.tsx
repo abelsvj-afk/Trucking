@@ -35,7 +35,7 @@ export default function PaychecksPage() {
       {state.status === "error" && <ListError message="Couldn't load your paycheck check." onRetry={() => window.location.reload()} />}
       {state.status === "ready" && !state.summary.hasTerms && (
         <p>
-          No pay terms yet, so nothing can be checked. <Link href="/more/settings">Add them in Settings → Pay terms</Link>.
+          No pay terms yet, so nothing can be checked. <Link href="/more/settings/pay">Add them in Settings → Pay terms</Link>.
         </p>
       )}
       {state.status === "ready" && state.summary.hasTerms && (
