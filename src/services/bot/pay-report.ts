@@ -7,14 +7,21 @@
 import type { BotBrainStore } from "./store";
 import { buildWeeklyPayReport, type WeeklyReport } from "./pay-truth";
 import { formatTwinDigestLine } from "./voice-corpus";
+import { todayEastern } from "@/lib/eastern-date";
 
-/** Monday (YYYY-MM-DD) of the week containing `date`, UTC - the report's week key. (Weeks are labeled with their dates in the report text; the key only needs to be stable across machines.) */
+/**
+ * Monday (YYYY-MM-DD) of the week containing `date` ON THE OWNER'S CALENDAR
+ * (America/New_York) - the report's week. It used to be the UTC week, so from
+ * Sunday 7 PM Eastern (8 PM in summer) "this week" was already the week that
+ * had not started for the driver: the weekly_pay_report tool reported the wrong
+ * week, and the scheduled report treated a Sunday still in progress as a
+ * finished week (defect found 2026-11-12). The day comes from todayEastern();
+ * the weekday arithmetic then runs on that calendar day alone, no clock involved.
+ */
 export function mondayOf(date: Date): string {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const dow = d.getUTCDay(); // 0 = Sunday
-  const delta = (dow + 6) % 7; // days since Monday
-  d.setUTCDate(d.getUTCDate() - delta);
-  return d.toISOString().slice(0, 10);
+  const day = todayEastern(date);
+  const dow = new Date(`${day}T12:00:00Z`).getUTCDay(); // 0 = Sunday
+  return addDays(day, -((dow + 6) % 7));
 }
 
 export function addDays(isoDate: string, days: number): string {
