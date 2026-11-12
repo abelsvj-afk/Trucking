@@ -102,7 +102,7 @@ export default function HomePage() {
   // and the Hours page; live via the live layer.
   const hosWindow = useHosWindow();
   // UH-12 fix: documents feed the paper/partial label under the hours.
-  const documents = useApiList<PaperDocLike & Record<string, unknown>>("documents", { limit: "200" });
+  const documents = useApiList<PaperDocLike & Record<string, unknown>>("documents", { recent: "100" });
 
   const nowMs = useNowTick(60_000);
   const logs = hosWindow.state.status === "loaded" ? hosWindow.state.data : [];

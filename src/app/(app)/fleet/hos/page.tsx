@@ -78,7 +78,7 @@ export default function HosPage() {
   // Paper-log provenance (Image Intelligence §7.5/§7.7): a sheet's
   // completeness stamp lives on its document row; the clocks built
   // on a partial day must say partial on this surface too.
-  const documents = useApiList<Document>("documents", { limit: "200" });
+  const documents = useApiList<Document>("documents", { recent: "100" });
   // UH-12 fix: the paper/partial computation lives in the shared
   // helper (src/lib/hos-paper.ts) — Home consumes the same labels.
   const paperDocs =

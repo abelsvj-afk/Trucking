@@ -47,3 +47,23 @@ describe("UI pass 2026-11-12", () => {
     expect(read("src/app/styles/03-components.css")).toContain(".hud-tone-expired .hud-ring-tone { font-size: 0.6875rem;");
   });
 });
+
+describe("UI pass 3 2026-11-12", () => {
+  it("Home and Day log ask for documents in a way the API accepts (limit=200 was always refused with 400)", () => {
+    for (const page of ["src/app/(app)/page.tsx", "src/app/(app)/fleet/hos/page.tsx"]) {
+      expect(read(page)).toContain('"documents", { recent: "100" }');
+      expect(read(page)).not.toContain('"documents", { limit: "200" }');
+    }
+    // The route's own rule: without q or an entity, only recent mode is allowed.
+    expect(read("src/app/api/v1/documents/route.ts")).toContain("if (!query && !recent && (!relatedEntityType || !relatedEntityId))");
+  });
+
+  it("a link inside a sentence stays inline", () => {
+    expect(read("src/app/styles/03-components.css")).toContain("section p a { display: inline; margin-top: 0; }");
+  });
+  it("Truck Fund shows its week and month as days, not raw ISO strings", () => {
+    const page = read("src/app/(app)/money/truck-fund/page.tsx");
+    expect(page).not.toContain("{data.periods.week.from} –");
+    expect(page).toContain("formatPeriodDay(data.periods.month.to)");
+  });
+});

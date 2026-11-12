@@ -39,6 +39,18 @@ const BAND_OPTIONS: { value: TruckPriceBandKey; label: string }[] = (
   label: `${band.label} — ${formatDollars(band.lowCents)} to ${formatDollars(band.highCents)}`,
 }));
 
+// A calendar day ("2026-11-09") as a driver reads it ("Nov 9"). It is already
+// the viewer's own calendar day, so it is formatted as written, never shifted.
+function formatPeriodDay(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return day;
+  return new Date(Date.UTC(year, month - 1, date, 12)).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export default function TruckFundPage() {
   usePageTitle("Truck Fund");
   const { state, retry } = useTruckFund();
@@ -254,13 +266,13 @@ export default function TruckFundPage() {
               not saved — it only becomes fund money when you log moving it below.
             </p>
             <dl className="stack">
-              <dt>This week ({data.periods.week.from} – {data.periods.week.to})</dt>
+              <dt>This week ({formatPeriodDay(data.periods.week.from)} – {formatPeriodDay(data.periods.week.to)})</dt>
               <dd>
                 Settled {formatDollars(data.periods.week.settled_income_cents)} — costs{" "}
                 {formatDollars(data.periods.week.costs_cents)} — net{" "}
                 {formatDollars(data.periods.week.settled_net_cents)}
               </dd>
-              <dt>This month ({data.periods.month.from} – {data.periods.month.to})</dt>
+              <dt>This month ({formatPeriodDay(data.periods.month.from)} – {formatPeriodDay(data.periods.month.to)})</dt>
               <dd>
                 Settled {formatDollars(data.periods.month.settled_income_cents)} — costs{" "}
                 {formatDollars(data.periods.month.costs_cents)} — net{" "}
