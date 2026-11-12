@@ -1172,9 +1172,11 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       type: "object",
       properties: {
         item_number: { type: "number", description: "The item's number in a pending batch. Leave out for a single waiting proposal." },
+        pending_id: { type: "string", description: "The [pending ...] id of the waiting item, from the EVERYTHING WAITING block. Preferred: it reaches any waiting item, not only the newest." },
+        drop: { type: "boolean", description: "True to drop the waiting item altogether because he said it is wrong (not a value to fix). Nothing is recorded." },
         patch: { type: "object", description: "Only the fields to change, in the proposal tool's argument shape." },
       },
-      required: ["patch"],
+      required: [],
     },
     access: "write",
     summarize: (args) =>
@@ -1186,14 +1188,21 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       const batch = await store.loadPendingBatch();
       // Telegram audit P1-7: a SINGLE waiting proposal can be corrected too (it used to fail "not found").
       const single = batch.length === 0 ? await store.loadPendingAction() : null;
+      const pendingId = typeof args.pending_id === "string" ? args.pending_id : null;
+      const byId = pendingId ? (await store.loadOpenPendingRows()).find((row) => row.id === pendingId) : undefined;
+      if (pendingId && !byId) throw new Error("There is no waiting item with that pending id - use an id from the EVERYTHING WAITING block.");
       const item =
-        itemNumber !== null ? batch.find((row) => row.item_number === itemNumber) : batch.length === 1 ? batch[0] : single;
+        byId ?? (itemNumber !== null ? batch.find((row) => row.item_number === itemNumber) : batch.length === 1 ? batch[0] : single);
       if (!item || item.tool_name === "photo_purpose") {
         throw new Error(
           itemNumber !== null
             ? `There is no waiting proposal item numbered ${itemNumber} to correct.`
             : "There is no single waiting proposal to correct (a numbered list needs the item number).",
         );
+      }
+      if (args.drop === true) {
+        await store.clearPendingAction(item.id);
+        return `Dropped the waiting item, nothing was recorded: ${item.summary}. Tell him plainly it is dropped.`;
       }
       const tool = writeRegistry.get(item.tool_name);
       if (!tool || !tool.validateArgs || !tool.summarize) {

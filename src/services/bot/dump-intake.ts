@@ -19,6 +19,7 @@
 // caller stores them as bot_pending_actions rows (migration 00021)
 // and the owner's batch replies are parsed here, in code.
 
+import { plainSummary } from "./waiting-list";
 import { randomUUID } from "node:crypto";
 import type { AgentTool, ProposedWrite } from "@/services/ai/agent-loop";
 
@@ -221,9 +222,12 @@ export function formatBatchItemLine(
   itemNumber: number,
   item: { summary: string; sourceQuote?: string | null; confidence?: string | null },
 ): string {
-  const parts = [`${itemNumber}. ${item.summary}`];
-  if (item.confidence) parts.push(`(confidence: ${item.confidence})`);
-  if (item.sourceQuote) parts.push(`— from: "${item.sourceQuote}"`);
+  // Plain words (owner 2026-11-12). A "high" confidence told him nothing he could use; only a reading Abel is
+  // NOT sure of is flagged, because that is the one he should check. The words it was read from stay, except
+  // the two labels a forwarded trip stamps on every item, which say nothing.
+  const parts = [`${itemNumber}. ${plainSummary(item.summary)}`];
+  if (item.confidence && item.confidence !== "high") parts.push("(not sure I read this right — check it)");
+  if (item.sourceQuote && !/^(?:NEW TRIP \S+|forwarded with the trip)$/i.test(item.sourceQuote.trim())) parts.push(`— from: "${item.sourceQuote}"`);
   return parts.join(" ");
 }
 

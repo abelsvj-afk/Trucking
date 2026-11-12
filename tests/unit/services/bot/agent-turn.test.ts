@@ -326,7 +326,7 @@ describe("runAgentTurn - write approval flow (§8)", () => {
     const { client, db } = fakeClient(seed);
     const { provider: noModel } = neverCalledProvider();
     const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
-    expect(out.reply).toContain("not sure which one");
+    expect(out.reply).toContain("things are waiting on you");
     expect(out.reply).toContain("$11.00");
     expect(out.reply).toContain("$88.00");
     expect(db.expenses ?? []).toHaveLength(0);
@@ -697,7 +697,7 @@ describe("transcript regression - telegram audit 2026-11-06", () => {
     const { provider: noModel } = neverCalledProvider();
     const out = await runAgentTurn(noModel, telegramStore(client), input("yes"));
     expect(db.expenses).toHaveLength(1);
-    expect(out.reply).toContain("Still waiting for your yes/no");
+    expect(out.reply).toContain("Still waiting on you");
     expect(out.reply).toContain("$11.00");
   });
 
@@ -958,7 +958,7 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     expect(live(db)).toHaveLength(1);
     expect(out.reply).toContain("already waiting for your yes");
     expect(out.reply.match(/Reply YES/g) ?? []).toHaveLength(1);
-    expect(out.reply).toContain("delivery date → 2026-11-06");
+    expect(out.reply).toContain("delivery date → Fri Nov 6");
   });
 
   it("a newer change to the same load replaces the older waiting one", async () => {
@@ -994,7 +994,7 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     expect(waiting).toHaveLength(1);
     expect(waiting[0]!.arguments).toMatchObject({ delivery_date: "2026-11-06", rate_dollars: 2100 });
     expect(out.reply).toContain("combined two changes");
-    expect(out.reply).toMatch(/delivery date → 2026-11-06/);
+    expect(out.reply).toMatch(/delivery date → Fri Nov 6/);
     expect(out.reply).toMatch(/rate → \$2,100\.00/);
   });
 
@@ -1864,5 +1864,95 @@ describe("Frontier 2 — Remember better (agent-turn wiring)", () => {
     const store = telegramStore(client);
     const ctx = await loadBotContext(store, "what is the weather?");
     expect(ctx.lessonRecallText).toBeNull();
+  });
+});
+
+// Owner transcript 2026-11-11/12 (fictional data): four things waiting, answered one by one.
+describe("the waiting list is answered by number, in code (owner 2026-11-12)", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const live = (db: Record<string, Row[]>) => db.bot_pending_actions!.filter((r) => !r.deleted_at).map((r) => r.id);
+  const four = () => {
+    const seed = baseSeed(true);
+    const row = (id: string, min: number, tool: string, args: Row, summary: string) => ({
+      id, company_id: COMPANY, channel: "telegram", tool_name: tool, arguments: args, summary, created_at: ago(min), deleted_at: null,
+    });
+    seed.bot_pending_actions = [
+      row("a", 90, "create_expense", { category: "permits", amount_dollars: 11 }, "Expense: $11.00 (permits)"),
+      row("b", 80, "create_expense", { category: "repairs", amount_dollars: 22 }, "Expense: $22.00 (repairs)"),
+      row("c", 70, "save_memory", { kind: "fact", content: "the Tulsa load is complete" }, "Remember: the Tulsa load is complete"),
+      row("d", 60, "create_expense", { category: "other", amount_dollars: 44 }, "Expense: $44.00 (other) on 2026-11-08T13:40:37.858Z"),
+    ];
+    return seed;
+  };
+
+  it("'1. Yes 2. Yes 3. <comment> 4. Not sure, no': 1 and 2 run, 3 waits untouched, 4 is dropped and never runs - no model call", async () => {
+    const { client, db } = fakeClient(four());
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("1. Yes 2. Yes 3. It's active not complete 4.  Not sure , no"));
+    expect((db.expenses ?? []).map((e) => e.amount_cents).sort()).toEqual([1100, 2200]);
+    expect(db.bot_memories ?? []).toHaveLength(0);
+    expect(live(db)).toEqual(["c"]);
+    expect(out.reply).toContain("3. ⏸ Not done");
+    expect(out.reply).toContain("It's active not complete");
+    expect(out.reply).toContain("4. 🚫 Dropped, nothing recorded");
+    expect(out.reply).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("a bare Yes gets the short list once, in plain words, and runs nothing", async () => {
+    const { client, db } = fakeClient(four());
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("Yes"));
+    expect(out.reply).toContain("4 things are waiting on you");
+    expect(out.reply).toContain('"1 yes, 2 no"');
+    expect(out.reply).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(db.expenses ?? []).toHaveLength(0);
+    expect(live(db)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("'drop 4' drops only that one; 'yes all' then records the rest", async () => {
+    const { client, db } = fakeClient(four());
+    const { provider: noModel } = neverCalledProvider();
+    const store = telegramStore(client);
+    await runAgentTurn(noModel, store, input("drop 4"));
+    expect(live(db)).toEqual(["a", "b", "c"]);
+    expect(db.expenses ?? []).toHaveLength(0);
+    await runAgentTurn(noModel, store, input("yes all"));
+    expect(live(db)).toEqual([]);
+    expect((db.expenses ?? []).map((e) => e.amount_cents).sort()).toEqual([1100, 2200]);
+    expect(db.bot_memories).toHaveLength(1);
+  });
+
+  it("numbers mean the list when the list was the last thing shown, even if the newest item is fresh", async () => {
+    const seed = four();
+    seed.bot_pending_actions![3]!.created_at = ago(1);
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const turn = { ...input("2 no"), history: [{ role: "assistant" as const, text: 'Still waiting on you:\n1. ...\n👉 Answer by number, like "1 yes, 2 no"' }] };
+    await runAgentTurn(noModel, telegramStore(client), turn);
+    expect(live(db)).toEqual(["a", "c", "d"]);
+    expect(db.expenses ?? []).toHaveLength(0);
+  });
+
+  it("a correction sees EVERY waiting item with the id it needs, and the rule that a waiting trip is not saved yet", async () => {
+    const { client } = fakeClient(four());
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Which one is wrong?", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("the amount on the repairs one is wrong"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0]);
+    for (const id of ["a", "b", "c", "d"]) expect(sent).toContain(`[pending ${id}]`);
+    expect(sent).toContain("DOES NOT EXIST in his records yet");
+  });
+
+  it("revise_pending_item reaches any waiting item by id, and can drop one - nothing is recorded", async () => {
+    const { client, db } = fakeClient(four());
+    const call = (id: string, args: Row) => ({ id, name: "revise_pending_item", arguments: JSON.stringify({ ...args, confirmation: "execute" }) });
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [call("r1", { pending_id: "b", patch: { amount_dollars: 33 } }), call("r2", { pending_id: "c", drop: true })] },
+      { text: "Fixed the repairs amount and dropped the note.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("the repairs one is 33 not 22, and the Tulsa load is active not complete"));
+    expect(live(db)).toEqual(["a", "b", "d"]);
+    expect(db.bot_pending_actions!.find((r) => r.id === "b")!.arguments).toMatchObject({ amount_dollars: 33 });
+    expect(db.expenses ?? []).toHaveLength(0);
+    expect(db.bot_memories ?? []).toHaveLength(0);
   });
 });

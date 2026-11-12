@@ -14,6 +14,7 @@
 // names it, so he knows it is still there. (The old "queued behind - settle that one first" wording
 // promised the opposite of what a YES actually did.)
 
+import { waitingLine } from "./waiting-list";
 import { buildBotTools } from "./tools";
 import { parseDispatchTrip, tripToCreateLoadArgs, type ParsedTrip } from "@/lib/dispatch-trip";
 import { loadLabel } from "./reference-resolution";
@@ -128,7 +129,11 @@ export async function stageRecordables(
       // the photo attach(es) forwarded with it, one yes. Trailer
       // linking mutates tripArgs, so it runs BEFORE validation.
       const batchId = randomUUID();
+      // Owner 2026-11-12: forwarding the same trip again used to leave BOTH copies waiting, so a later yes
+      // could create the load twice. The copy still waiting (and what was bundled with it) is replaced.
+      const replaced = await clearWaitingTripCopies(store, trip.tripNumber);
       const bundleLines = await linkBundleTrailer(store, trip, tripArgs, bundle);
+      if (replaced > 0) bundleLines.push("This replaces the copy of this trip that was still waiting — there is only one now.");
       const checked = createLoad?.validateArgs ? createLoad.validateArgs(tripArgs) : { ok: true as const, args: tripArgs };
       if (createLoad && checked.ok) {
         proposals.unshift({
@@ -197,7 +202,20 @@ export async function stageRecordables(
     });
   }
 
-  return { proposals, rejected, blockedByPending: false, queuedBehindPending, review, earlierPending: pending?.summary };
+  // What was waiting before may just have been replaced by this forward - only name it if it is still open.
+  const stillOpen = pending ? (await store.loadOpenPendingRows()).some((r) => r.id === pending.id) : false;
+  return { proposals, rejected, blockedByPending: false, queuedBehindPending: stillOpen, review, earlierPending: stillOpen ? pending?.summary : undefined };
+}
+
+/** Drops waiting create_load proposals for this trip number, with the rest of their batch. Returns how many trips were replaced. */
+async function clearWaitingTripCopies(store: BotBrainStore, tripNumber: string): Promise<number> {
+  const rows = await store.loadOpenPendingRows();
+  const copies = rows.filter((r) => r.tool_name === "create_load" && String(r.arguments.trip_number ?? "") === tripNumber);
+  if (copies.length === 0) return 0;
+  const batchIds = new Set(copies.map((r) => r.batch_id).filter((b): b is string => Boolean(b)));
+  const ids = rows.filter((r) => copies.includes(r) || (r.batch_id && batchIds.has(r.batch_id))).map((r) => r.id);
+  await store.clearPendingActions(ids);
+  return copies.length;
 }
 
 /** Broker NAME -> id, by code (exact, case-insensitive). Ambiguous or missing -> null, never a guess. */
@@ -449,7 +467,7 @@ export function formatRecordableOutcome(result: StageRecordablesResult): string 
   }
   if (result.queuedBehindPending && result.proposals.length > 0 && result.earlierPending) {
     out +=
-      `\n\n(A YES now answers the list above. Something from before is also still waiting: ${result.earlierPending} — ` +
+      `\n\n(A YES now answers the list above. Something from before is also still waiting: ${waitingLine(result.earlierPending)} — ` +
       "tell me in words if you want that one recorded or dropped.)";
   }
   for (const rejection of result.rejected) {

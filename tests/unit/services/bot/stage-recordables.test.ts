@@ -33,6 +33,15 @@ class FakePendingQuery {
   limit(): this {
     return this;
   }
+  private patch: Row | null = null;
+  update(patch: Row): this {
+    this.patch = patch;
+    return this;
+  }
+  in(_col: string, ids: unknown[]): this {
+    if (this.patch) for (const row of this.rows) if (ids.includes(row.id)) Object.assign(row, this.patch);
+    return this;
+  }
   insert(row: Row): Promise<{ error: null }> {
     this.rows.push({
       ...row,
@@ -178,6 +187,39 @@ describe("stageRecordables", () => {
     const result = await stageRecordables(store, MESSAGE, []);
     expect(result).toEqual({ proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false });
     expect(rows).toHaveLength(0);
+  });
+
+  it("forwarding the same trip again replaces the copy still waiting - one load proposal, never two (owner 2026-11-12)", async () => {
+    const { store, rows } = makeStoreWithBrokers([]);
+    const msg = `NEW TRIP 1234 HAS BEEN ASSIGNED
+STOP 1
+SHIPPER/CONSIGNEE: Example Steel Co
+ADDRESS: 100 Example Way, Springfield, MO 65801
+APPT: 11/04/2026 00:00 CST
+TYPE: Pickup Stop
+STOP 2
+SHIPPER/CONSIGNEE: Sample County Recycling
+ADDRESS: 200 Sample Road , Tampa, FL 33601
+APPT: 11/05/2026 00:00 EST
+TYPE: Delivery Stop
+TRIP DETAILS
+BROKER: Example Logistics
+REF #: REF123456
+DEADHEAD: 120.00 mi
+LOADED DISTANCE: 900.50 mi
+TOTAL DISTANCE: 1,000.50 mi
+❗️SEND SEAL PICTURE`;
+    await stageRecordables(store, msg, []);
+    const first = rows.filter((r) => !r.deleted_at && r.tool_name === "create_load");
+    expect(first).toHaveLength(1);
+    const again = await stageRecordables(store, msg, []);
+    const open = rows.filter((r) => !r.deleted_at && r.tool_name === "create_load");
+    expect(open).toHaveLength(1);
+    expect(open[0]!.id).not.toBe(first[0]!.id);
+    expect(again.review).toContain("replaces the copy of this trip that was still waiting");
+    // the replaced copy is not announced as "also still waiting"
+    expect(again.earlierPending).toBeUndefined();
+    expect(formatRecordableOutcome(again)).not.toContain("Something from before is also still waiting");
   });
 
   it("a structured trip assignment is read by code: one proposal with trip fields, broker id, stops, tasks, and a clean review", async () => {
