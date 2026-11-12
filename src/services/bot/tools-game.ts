@@ -22,9 +22,10 @@ import {
 import type { BotBrainStore } from "./store";
 import { validateWith } from "./tool-helpers";
 import type { GamePlan, GameTarget } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 function dollars(cents: number): string {
-  return formatDollars(cents);
+  return formatMoney(cents);
 }
 
 function narrationProvider(): AiProvider {

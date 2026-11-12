@@ -944,7 +944,7 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     seed.loads = [{ id: L1, company_id: COMPANY, origin: "A", destination: "B", status: "confirmed", rate_cents: 200000, pickup_date: "2026-11-04", delivery_date: "2026-11-05", deleted_at: null }];
     const { client } = fakeClient(seed);
     const r = await proposeTurn(client, telegramStore(client), "update_load", { load_id: L1, rate_dollars: 0 });
-    expect(r.out.reply).toMatch(/⚠ this ZEROES rate \(was \$2000\.00\)/);
+    expect(r.out.reply).toMatch(/⚠ this ZEROES rate \(was \$2,000\.00\)/);
   });
 
   it("an identical proposal already waiting is not asked for again - he is told it is waiting", async () => {
@@ -995,7 +995,7 @@ describe("owner 2026-11-07: pay safety, no redundant approvals, saved-where, rea
     expect(waiting[0]!.arguments).toMatchObject({ delivery_date: "2026-11-06", rate_dollars: 2100 });
     expect(out.reply).toContain("combined two changes");
     expect(out.reply).toMatch(/delivery date → 2026-11-06/);
-    expect(out.reply).toMatch(/rate → \$2100\.00/);
+    expect(out.reply).toMatch(/rate → \$2,100\.00/);
   });
 
   it("confirmations say WHERE it was kept: 💾 an app record with its page, or 🧠 Abel's own note", async () => {

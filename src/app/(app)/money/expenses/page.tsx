@@ -14,9 +14,9 @@ import {
   DeletedToggleButton,
   DeletedListSection,
 } from "@/components/RecordLifecycle";
-import { formatDollars } from "@/lib/truck-fund";
 import { bucketOf } from "@/lib/expense-buckets";
 import type { Expense } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
   insurance: "Insurance",
@@ -48,7 +48,7 @@ export default function ExpensesListPage() {
         <DeletedListSection
           resource="expenses"
           labelFor={(expense: Expense) =>
-            `${CATEGORY_LABELS[expense.category]} — ${formatDollars(expense.amount_cents)} — ${new Date(
+            `${CATEGORY_LABELS[expense.category]} — ${formatMoney(expense.amount_cents)} — ${new Date(
               `${expense.expense_date}T12:00:00`,
             ).toLocaleDateString()}`
           }
@@ -70,13 +70,13 @@ export default function ExpensesListPage() {
           {/* The two buckets, side by side: business costs in the books, pay deductions out of the check. */}
           <p role="note">
             Business expenses:{" "}
-            {formatDollars(
+            {formatMoney(
               state.result.data
                 .filter((e) => bucketOf(e) === "business")
                 .reduce((sum, e) => sum + e.amount_cents, 0),
             )}{" "}
             · Pay deductions (out of the check):{" "}
-            {formatDollars(
+            {formatMoney(
               state.result.data
                 .filter((e) => bucketOf(e) === "pay_deduction")
                 .reduce((sum, e) => sum + e.amount_cents, 0),
@@ -88,7 +88,7 @@ export default function ExpensesListPage() {
               <li key={expense.id}>
                 <Link href={`/money/expenses/${expense.id}`}>
                   <span className="row-title">
-                    ${(expense.amount_cents / 100).toFixed(2)} — {CATEGORY_LABELS[expense.category]}
+                    {formatMoney(expense.amount_cents)} — {CATEGORY_LABELS[expense.category]}
                   </span>
                   <span className="row-sub">
                     {new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}

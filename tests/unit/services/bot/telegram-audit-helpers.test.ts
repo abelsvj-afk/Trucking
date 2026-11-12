@@ -122,7 +122,7 @@ describe("records in words (P0-3, P1-8)", () => {
     expect(changesInWords({ delivery_date: "2026-11-06" }, { delivery_date: "2026-11-05" })).toBe(
       "delivery date → 2026-11-06 (was 2026-11-05)",
     );
-    expect(changesInWords({ rate_cents: 310000 })).toBe("rate → $3100.00");
+    expect(changesInWords({ rate_cents: 310000 })).toBe("rate → $3,100.00");
   });
 });
 

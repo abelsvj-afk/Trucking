@@ -12,6 +12,7 @@ import type { DetentionSummary } from "./detention";
 import type { PaperworkState } from "./paperwork";
 import type { DutyLog } from "@/types/entities";
 import { formatClock, HOME_TIME_ZONE } from "./display-zone";
+import { formatMoney } from "@/lib/money-format";
 
 export interface DayWrapItem {
   kind:
@@ -104,7 +105,7 @@ export function buildDayWrap(input: DayWrapInput, timeZone: string = HOME_TIME_Z
       items.push({
         kind: "detention",
         severity: "info",
-        text: `${entry.loadLabel}: detention owed $${(entry.summary.totalOwedCents / 100).toFixed(2)} — the claim pack is ready on the load page.`,
+        text: `${entry.loadLabel}: detention owed ${formatMoney(entry.summary.totalOwedCents)} — the claim pack is ready on the load page.`,
       });
     } else if (entry.summary.totalBillableHours > 0) {
       items.push({
@@ -125,7 +126,7 @@ export function buildDayWrap(input: DayWrapInput, timeZone: string = HOME_TIME_Z
     items.push({
       kind: "receivables",
       severity: "gap",
-      text: `${invoice.loadLabel}: invoice is ${invoice.daysLate} day(s) past due — $${(invoice.outstandingCents / 100).toFixed(2)} still owed.`,
+      text: `${invoice.loadLabel}: invoice is ${invoice.daysLate} day(s) past due — ${formatMoney(invoice.outstandingCents)} still owed.`,
     });
   }
 

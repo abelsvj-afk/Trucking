@@ -27,6 +27,7 @@ import { formatEastern, formatMinutes } from "@/lib/smart-path";
 import * as smartPathStops from "@/lib/smart-path-stops";
 import type { RankedFuelCandidate } from "@/lib/smart-path-stops";
 import type { BotBrainStore } from "./store";
+import { formatMoney } from "@/lib/money-format";
 
 const isoTimestamp = z
   .string()
@@ -79,7 +80,7 @@ const STATUS_HEADLINES: Record<RouteCheckResponse["verdict"]["status"], string> 
 };
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 function duration(minutes: number): string {

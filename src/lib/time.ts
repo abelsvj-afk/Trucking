@@ -108,6 +108,28 @@ export function formatDate(value: string | Date, timeZone: string = viewerTimeZo
 }
 
 /**
+ * A calendar day ("2026-11-13", a DATE column: delivery, expense,
+ * service, due dates) rendered as written: "Nov 13, 2026". It is NOT
+ * an instant, so it is never passed through a time zone - formatDate()
+ * on a date-only string reads it as UTC midnight and shows the evening
+ * before in every US zone (the one-day-early defect, 2026-11-12).
+ * Anything that is not a plain YYYY-MM-DD day is returned as given.
+ */
+export function formatCalendarDay(day: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) return day;
+  const [, year, month, date] = match;
+  const pinned = new Date(Date.UTC(Number(year), Number(month) - 1, Number(date), 12));
+  if (pinned.getUTCDate() !== Number(date)) return day;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(pinned);
+}
+
+/**
  * "12:34 PM" when the instant is on today's calendar day in the zone,
  * otherwise the full date and time - so "since 12:34 PM" can never be
  * read as today when it was yesterday.

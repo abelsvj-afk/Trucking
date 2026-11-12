@@ -16,9 +16,9 @@
 import Link from "next/link";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { usePayProjection } from "@/lib/use-pay-projection";
-import { describeTerms, formatCents, formatDay, formatRange } from "@/lib/pay-projection";
-import { advancesForPeriod, netRange, sumAdvances } from "@/lib/cash-advances";
-import { deductionsForPeriod, sumDeductions } from "@/lib/expense-buckets";
+import { describeTerms, formatDay, formatRange } from "@/lib/pay-projection";
+import { payWeekNet } from "@/lib/money-hub";
+import { formatMoney } from "@/lib/money-format";
 
 const hm = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60_000));
@@ -35,7 +35,7 @@ export default function DriverPayHomeCard() {
         <h2>Driver pay</h2>
         <p className="row-sub">
           Add your pay terms and this shows what the week is worth as loads come in.{" "}
-          <Link href="/more/settings">Add pay terms</Link>
+          <Link href="/more/settings/pay">Add pay terms</Link>
         </p>
       </section>
     );
@@ -56,23 +56,20 @@ export default function DriverPayHomeCard() {
   // stated plainly; gross figures still show. (The server pay summary
   // fails visibly on its own advances error - see pay-summary - so a
   // ready summary's totals are real and stay as they were.)
-  const advancesUnavailable = projection !== null && projection.advancesAvailable === false;
+  // The calculation itself is shared with Money's top block (src/lib/money-hub.ts payWeekNet) so the two
+  // screens can never show different nets for the same week.
+  const week = projection ? payWeekNet(projection) : null;
+  const advancesUnavailable = week?.advancesUnavailable ?? false;
   // Same honesty rule for pay deductions: a failed deductions read is
   // "unavailable", never zero - no net from the projection is shown.
-  const deductionsUnavailable = projection !== null && projection.deductionsAvailable === false;
-  const outUnavailable = advancesUnavailable || deductionsUnavailable;
+  const deductionsUnavailable = week?.deductionsUnavailable ?? false;
+  const outUnavailable = week?.outUnavailable ?? false;
 
   const period = projection?.period ?? null;
-  const weekAdvancesCents =
-    projection && period && !outUnavailable
-      ? sumAdvances(advancesForPeriod(projection.advances, period.start, period.end))
-      : 0;
-  const weekDeductionsCents =
-    projection && period && !outUnavailable
-      ? sumDeductions(deductionsForPeriod(projection.deductions, period.start, period.end))
-      : 0;
-  const weekOutCents = weekAdvancesCents + weekDeductionsCents;
-  const weekNet = period && !outUnavailable ? netRange(period.lowCents, period.highCents, weekOutCents) : null;
+  const weekAdvancesCents = week?.advancesCents ?? 0;
+  const weekDeductionsCents = week?.deductionsCents ?? 0;
+  const weekOutCents = week?.outCents ?? 0;
+  const weekNet = week?.net ?? null;
   // Advances are netted in exactly one place in this story: against
   // this pay week's projection when this week has any. Advances taken
   // against other weeks' still-unpaid loads are shown netted against
@@ -109,13 +106,13 @@ export default function DriverPayHomeCard() {
             </p>
             {weekAdvancesCents > 0 && (
               <p className="row-sub">
-                − {formatCents(weekAdvancesCents)} in <Link href="/money/advances">cash advances</Link> already taken
+                − {formatMoney(weekAdvancesCents)} in <Link href="/money/advances">cash advances</Link> already taken
                 out of this pay
               </p>
             )}
             {weekDeductionsCents > 0 && (
               <p className="row-sub">
-                − {formatCents(weekDeductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out
+                − {formatMoney(weekDeductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out
                 of this pay
               </p>
             )}
@@ -148,7 +145,7 @@ export default function DriverPayHomeCard() {
             {period.basisAssumed && (
               <p className="row-sub" role="note">
                 Your miles basis isn&apos;t set, so this is a range (loaded miles only to all miles).{" "}
-                <Link href="/more/settings">Set it</Link>
+                <Link href="/more/settings/pay">Set it</Link>
               </p>
             )}
           </>
@@ -162,12 +159,12 @@ export default function DriverPayHomeCard() {
             ? `${totals.unpaidCount} finished, unpaid (~${formatRange(totals.unpaidLowCents, totals.unpaidHighCents)})`
             : ""}
           {totals.unpaidCount > 0 && totals.shortCount > 0 ? " · " : ""}
-          {totals.shortCount > 0 ? `${totals.shortCount} short ${formatCents(totals.shortfallCents)}` : ""}
+          {totals.shortCount > 0 ? `${totals.shortCount} short ${formatMoney(totals.shortfallCents)}` : ""}
         </p>
       )}
       {showUnpaidAdvances && totals && (
         <p>
-          <Link href="/money/advances">Cash advances</Link>: {formatCents(totals.advancesCents)} already taken out of
+          <Link href="/money/advances">Cash advances</Link>: {formatMoney(totals.advancesCents)} already taken out of
           your pay
           {totals.unpaidCount > 0
             ? ` · unpaid loads should net ~${formatRange(totals.unpaidNetLowCents, totals.unpaidNetHighCents)}`

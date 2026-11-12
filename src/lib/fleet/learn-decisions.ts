@@ -3,6 +3,7 @@
 // clear pattern; candidates are shown with their evidence and become real preferences only after the owner approves.
 
 import { regionOfState, REGION_IDS, type RegionId } from "./regions";
+import { formatMoney } from "@/lib/money-format";
 
 export interface DecisionFeatures {
   decision: "taken" | "passed";
@@ -27,7 +28,7 @@ export const FAVOR_ABOVE = 0.85;
 export const SHORT_MILES = 300;
 export const LONG_MILES = 800;
 
-const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+const money = (c: number) => formatMoney(c);
 const rpm = (d: DecisionFeatures) => (d.miles && d.miles > 0 && d.rate_cents != null ? d.rate_cents / d.miles : null);
 
 /** Confidence grows with sample size and with how one-sided the pattern is (0-0.95). */

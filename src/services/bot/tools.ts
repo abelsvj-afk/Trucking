@@ -52,9 +52,10 @@ import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
 import { todayEastern } from "@/lib/eastern-date";
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone } from "@/lib/display-zone";
+import { formatMoney } from "@/lib/money-format";
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 function formatMinutes(minutes: number): string {
@@ -823,7 +824,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           return "No invoices on the books — receivables wake up when he's invoicing brokers under his own authority.";
         }
         const aging = summarizeAging(rows, easternDate(new Date()));
-        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const dollars = (c: number) => formatMoney(c);
         return [
           `Outstanding: ${dollars(aging.totalOutstandingCents)}.`,
           `Current: ${dollars(aging.buckets.current.outstandingCents)} · 1–30 late: ${dollars(aging.buckets["1-30"].outstandingCents)} · 31–60: ${dollars(aging.buckets["31-60"].outstandingCents)} · 60+: ${dollars(aging.buckets["60+"].outstandingCents)}.`,
@@ -855,7 +856,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           return "No recurring obligations registered yet — tell me a bill ('phone, $95, on the 12th') and I'll keep its calendar.";
         }
         const projection = projectObligations(rows, easternDate(new Date()), 30);
-        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const dollars = (c: number) => formatMoney(c);
         const lines = projection.weeks.map(
           (w) => `- Week of ${w.weekStart}: ${dollars(w.totalCents)} out (${w.occurrences.map((o) => `${o.name} ${dollars(o.amountCents)} on ${o.date}`).join("; ")})`,
         );
@@ -955,7 +956,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         const { easternDate } = await import("@/lib/day-wrap");
         const year = parsed.year ?? Number(easternDate(new Date()).slice(0, 4));
         const packet = await getTaxPacket(client, companyId, year);
-        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const dollars = (c: number) => formatMoney(c);
         const categories = Object.entries(packet.expensesByCategory)
           .map(([k, v]) => `${k} ${dollars(v)}`)
           .join(" · ");

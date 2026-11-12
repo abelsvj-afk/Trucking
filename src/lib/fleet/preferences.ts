@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 import { normalizePlace, normalizeState } from "./regions";
+import { formatMoney } from "@/lib/money-format";
 
 export const NEWS_TOPICS = ["trucking", "regulation", "tech", "politics", "world"] as const;
 export type NewsTopic = (typeof NEWS_TOPICS)[number];
@@ -66,7 +67,7 @@ export function parsePreference(subject: "owner" | "driver", key: string, value:
   return r.success ? { ok: true, value: r.data } : { ok: false, error: r.error.issues[0]?.message ?? "invalid value" };
 }
 
-const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (c: number) => formatMoney(c);
 
 /** A stored preference in words. */
 export function describePreference(key: string, value: unknown): string {

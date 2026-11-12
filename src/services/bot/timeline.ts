@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { daysBetween, relativeTo } from "@/lib/temporal";
+import { formatMoney } from "@/lib/money-format";
 
 export type TimelineTopic = "loads" | "money" | "fuel" | "maintenance" | "documents" | "duty";
 export const TIMELINE_TOPICS: readonly TimelineTopic[] = ["loads", "money", "fuel", "maintenance", "documents", "duty"];
@@ -19,7 +20,7 @@ export interface TimelineEvent {
 }
 
 const MAX_LINES = 80;
-const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dollars = (cents: number) => formatMoney(cents);
 const easternDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 const easternTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 const dayHeader = (day: string, today: string) =>

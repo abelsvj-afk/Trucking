@@ -1,3 +1,5 @@
+import { formatMoney } from "@/lib/money-format";
+
 // Truck Fund + money visibility (docs/design/driver-mvp.md §9). All the
 // math worth getting wrong lives here as pure functions, unit-tested
 // without a database - same reasoning as lib/hos.ts and
@@ -44,8 +46,7 @@ export const FUND_LABELS: Record<FundKey, string> = {
 };
 
 export function formatDollars(cents: number): string {
-  const sign = cents < 0 ? "-" : "";
-  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 // --- Fund ledger -----------------------------------------------------------

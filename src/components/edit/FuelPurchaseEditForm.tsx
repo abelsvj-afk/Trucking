@@ -11,9 +11,9 @@ import {useState, type FormEvent} from "react";
 import {apiClient, ApiClientError} from "@/lib/api-client";
 import {usePickerList} from "@/lib/use-picker-list";
 import FuelLoadPicker from "@/components/FuelLoadPicker";
-import {formatDollars} from "@/lib/truck-fund";
 import {deriveFuelTotal} from "@/lib/fuel-math";
 import type {FuelPurchase, Truck} from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export default function FuelPurchaseEditForm({
   purchase,
@@ -156,7 +156,7 @@ export default function FuelPurchaseEditForm({
 
         <p aria-live="polite">
           {editDerived
-            ? `Base ${formatDollars(editDerived.baseCents)} · Total ${formatDollars(editDerived.totalCents)} (calculated)`
+            ? `Base ${formatMoney(editDerived.baseCents)} · Total ${formatMoney(editDerived.totalCents)} (calculated)`
             : "Total is calculated from gallons and price."}
         </p>
 
