@@ -31,6 +31,16 @@
 //   cache-first; an HTML document is never one of those.)
 // - API traffic is NEVER intercepted; non-GET and cross-origin pass
 //   through. Location is never touched.
+// - Public website (2026-11-10): genuine navigations to the bare
+//   domain (roadtolegacytrucking.com / www) are rewritten by
+//   src/proxy.ts to the public one-page website, and the navigation
+//   branch below caches that page under "/" FOR THAT ORIGIN — correct:
+//   each origin has its own cache storage, and the public origin's
+//   offline fallback IS the website. On the APP origin nothing
+//   changes: the proxy's split keys on the request's Host header and
+//   only fires for document navigations, so this worker's install
+//   fetch of "/" (a subresource fetch, issued same-origin from the
+//   app) always receives the app shell, never the website.
 const BUILD_VERSION = "__BUILD_VERSION__" === "__BUILD" + "_VERSION__" ? "2026-11-10-v78fix1" : "__BUILD_VERSION__";
 const CACHE = `trucking-os-shell-${BUILD_VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg", "/icons/icon.svg"];

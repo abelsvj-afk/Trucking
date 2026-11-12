@@ -11,6 +11,7 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isPublicSiteRequest } from "@/lib/public-site";
 
 // /api/internal/* (the industry-intelligence manual-trigger debug route,
 // docs/runtime.md) is deliberately public here too - it has no user
@@ -46,10 +47,50 @@ import { NextResponse, type NextRequest } from "next/server";
 // visitor - so they are public like the icon files (which the matcher
 // below already exempts from this proxy entirely). ONLY these two
 // exact asset paths are added; no page, API route, or data path is
-// widened.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed", "/api/v1/position/clocks", "/sw.js", "/manifest.webmanifest"];
+// widened. /public-site is listed as well: it is the internal rewrite
+// target that serves the public website on the bare domain (see the
+// public-site block at the top of proxy() below) — the route only
+// answers requests the proxy marked, and 404s everything else.
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed", "/api/v1/position/clocks", "/sw.js", "/manifest.webmanifest", "/public-site"];
 
 export async function proxy(request: NextRequest) {
+  // Public website on the bare domain (owner ruling 2026-11-10):
+  // roadtolegacytrucking.com and www.roadtolegacytrucking.com serve
+  // the public one-page website (src/app/public-site); the app lives
+  // on app.roadtolegacytrucking.com. DNS and Fly certificates already
+  // point all three hostnames at this one deployment, so the split is
+  // made here, before any session work — a public visitor has no
+  // session to refresh, and the app's auth gate must never redirect
+  // the public page to /login.
+  //
+  // The check reads the request's HOST header (the hostname the
+  // client actually addressed), never request.nextUrl.hostname: the
+  // service worker's install fetch is same-origin BY URL on the app
+  // host even when a public-host page triggered the install, and
+  // keying on the URL would rewrite that fetch too. The navigation
+  // test (method + sec-fetch-dest, see src/lib/public-site.ts) keeps
+  // the split to genuine page loads for the same reason: the worker's
+  // install fetch of "/" is a subresource fetch, and if it ever
+  // received the public page while installing from the app, the app
+  // shell cache would be poisoned with the marketing page. public/
+  // sw.js carries the matching note on its side.
+  if (
+    isPublicSiteRequest(
+      request.headers.get("host"),
+      request.method,
+      request.headers.get("sec-fetch-dest"),
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/public-site";
+    const headers = new Headers(request.headers);
+    // The route answers only proxy-marked requests; the marker also
+    // keeps a rewrite loop impossible (the rewritten request's path
+    // is /public-site on a public host, which lands back here).
+    headers.set("x-public-site-rewrite", "1");
+    return NextResponse.rewrite(url, { request: { headers } });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
