@@ -61,7 +61,7 @@ describe("live-location proposal in the fix's zone", () => {
 
   it("proposalText itself carries the label it is given", () => {
     const t = proposalText({ kind: "start_driving", status: "driving", sinceMs: 0 }, "7:40 AM CT");
-    expect(t).toContain("Want me to log Driving from 7:40 AM CT");
+    expect(t).toContain("Proposed: log Driving from 7:40 AM CT");
     expect(t).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 });
