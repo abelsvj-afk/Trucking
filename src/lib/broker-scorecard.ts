@@ -9,6 +9,7 @@
 
 import type { DetentionStamp, Load, LoadInvoice } from "@/types/entities";
 import { computeDetention } from "./detention";
+import { formatMoney } from "@/lib/money-format";
 
 export interface BrokerScorecard {
   brokerId: string;
@@ -91,7 +92,7 @@ export function describeScorecard(
   brokerName: string,
   card: BrokerScorecard,
 ): string {
-  const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const dollars = (cents: number) => formatMoney(cents);
   const parts = [`${card.loadsRun} load(s) run with ${brokerName}, ${dollars(card.revenueCents)} booked.`];
   parts.push(
     card.avgDaysToPay == null

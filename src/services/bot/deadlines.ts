@@ -7,6 +7,7 @@ import { addDays, daysBetween, formatLong } from "@/lib/temporal";
 import { projectObligations } from "@/lib/obligations";
 import { computeDueStatus } from "@/lib/maintenance-schedule";
 import type { MaintenanceSchedule, RecurringObligation } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export type DueKind = "credential" | "bill" | "maintenance" | "load";
 
@@ -73,7 +74,7 @@ export async function loadDueItems(
   if (!obligations) unreadable.push("recurring bills");
   else {
     const projected = projectObligations(obligations as unknown as RecurringObligation[], today, withinDays);
-    for (const o of projected.occurrences) items.push({ date: o.date, kind: "bill", text: `${o.name} $${(o.amountCents / 100).toFixed(2)} due` });
+    for (const o of projected.occurrences) items.push({ date: o.date, kind: "bill", text: `${o.name} ${formatMoney(o.amountCents)} due` });
   }
 
   const schedules = await get(base("maintenance_schedules"));

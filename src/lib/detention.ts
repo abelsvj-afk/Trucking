@@ -19,6 +19,7 @@
 //   future invoice all quote the same numbers.
 
 import type { DetentionStamp, DetentionStopKind, Load } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export const DEFAULT_FREE_MINUTES = 120;
 
@@ -137,7 +138,7 @@ function fmtTime(iso: string | null): string {
 }
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 /**

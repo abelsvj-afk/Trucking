@@ -23,7 +23,7 @@ describe("buildBusinessSnapshot", () => {
     expect(snap!.content).toContain("4 loads");
     expect(snap!.content).toContain("2 completed");
     expect(snap!.content).toContain("3,210 miles");
-    expect(snap!.content).toContain("$4100.00");
+    expect(snap!.content).toContain("$4,100.00");
     expect(snap!.content).toContain("$625.00");
     expect(snap!.content).toContain("Panama City, FL → Seminole, OK ×2");
     expect(snap!.content).toContain("$0.55 per mile");

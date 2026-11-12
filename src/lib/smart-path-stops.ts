@@ -8,6 +8,7 @@
 
 import type { TruckAppliance } from "@/types/entities";
 import { formatMinutes, isInFastWindow, type LatLng } from "./smart-path";
+import { formatMoney } from "@/lib/money-format";
 
 // ----------------------------------------------------------------------- fuel
 
@@ -131,13 +132,13 @@ export function rankFuelCandidates(
  */
 export function formatFuelPriceLine(c: RankedFuelCandidate): string {
   if (c.pricePerGallonCents !== null) {
-    return `$${(c.pricePerGallonCents / 100).toFixed(2)}/gal (from your fuel log)`;
+    return `${formatMoney(c.pricePerGallonCents)}/gal (from your fuel log)`;
   }
   const estimate = c.estimatedPricePerGallonCents ?? null;
   if (estimate !== null) {
     return c.estimateLabel
-      ? `≈$${(estimate / 100).toFixed(2)}/gal (est. — ${c.estimateLabel})`
-      : `≈$${(estimate / 100).toFixed(2)}/gal (est.)`;
+      ? `≈${formatMoney(estimate)}/gal (est. — ${c.estimateLabel})`
+      : `≈${formatMoney(estimate)}/gal (est.)`;
   }
   return "price unknown";
 }

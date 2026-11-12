@@ -17,10 +17,11 @@ import { formatHomeTime, homeTimeStatus } from "@/lib/fleet/home-time";
 import { laneAverager, laneStats, stateOf, type LaneLoad } from "@/lib/lane-stats";
 import { normalizeState } from "@/lib/fleet/regions";
 import { loadPayCalendarTerms } from "./pay-phrases";
+import { formatMoney } from "@/lib/money-format";
 
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const usd = (cents: number) => formatMoney(cents);
 
 const recordPreferenceArgs = z
   .object({

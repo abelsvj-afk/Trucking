@@ -99,8 +99,8 @@ describe("pin reproduction + check", () => {
   it("mismatch: BOTH figures are shown, never absorbed", () => {
     const check = checkSettlementAgainstPin(figures({ driverPayCents: 100_000 }), PIN_30_1099, 0);
     expect(check.status).toBe("mismatch");
-    expect(check.detail).toContain("$1200.00"); // pin reproduces
-    expect(check.detail).toContain("$1000.00"); // statement paid
+    expect(check.detail).toContain("$1,200.00"); // pin reproduces
+    expect(check.detail).toContain("$1,000.00"); // statement paid
   });
 
   it("unpinned, mixed, and insufficient-data are their own states, not silent passes", () => {
@@ -155,7 +155,7 @@ describe("buildWeeklyPayReport", () => {
     expect(report.figures.carrierCutCents).toBe(280_000 + 210_000);
     expect(report.figures.taxSetasideCents).toBe(Math.round(210_000 * 0.25));
     expect(report.figures.spendableCents).toBe(210_000 - (report.figures.taxSetasideCents ?? 0));
-    expect(report.text).toContain("$2100.00");
+    expect(report.text).toContain("$2,100.00");
     expect(report.text).toContain("Deadhead: 700 of 4200 miles");
   });
 
@@ -209,7 +209,7 @@ describe("explainLoadEconomics", () => {
     expect(text).toContain("typical lease-on cut is 20-30%");
     expect(text).toContain("NOT this carrier's number");
     expect(text).not.toContain("The carrier kept");
-    expect(text).toContain("own authority, the full $2000.00");
+    expect(text).toContain("own authority, the full $2,000.00");
   });
 
   it("pinned: his share comes from the pin and is labeled as the pin's math", () => {

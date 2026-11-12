@@ -1,3 +1,5 @@
+import { formatMoney } from "@/lib/money-format";
+
 // Own-business snapshot (docs/design/autonomous-research.md §3):
 // the pure builder that turns a company's own records into the
 // knowledge lines Abel reasons from. Everything here is computed
@@ -34,7 +36,7 @@ export interface BusinessSnapshot {
 }
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 const BASIS_WORDS: Record<string, string> = {
@@ -68,7 +70,7 @@ export function buildBusinessSnapshot(input: BusinessSnapshotInput): BusinessSna
   }
 
   if (input.payProfile) {
-    const rate = `$${(input.payProfile.rateCentsPerMile / 100).toFixed(2)} per mile`;
+    const rate = `${formatMoney(input.payProfile.rateCentsPerMile)} per mile`;
     const basis = input.payProfile.mileBasis
       ? (BASIS_WORDS[input.payProfile.mileBasis] ?? input.payProfile.mileBasis)
       : "mile basis UNSET in his pay profile - expected-pay figures must be shown as a range until he sets it";
