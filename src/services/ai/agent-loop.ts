@@ -16,6 +16,12 @@
 //   to the grounding corpus (context blocks, the owner's own
 //   message, or this turn's tool results). An untraceable figure
 //   replaces the reply with an honest refusal to quote it.
+// - Self-verification pass (think deeper, Frontier 1): a draft that
+//   quotes a dollar figure a LATER tool result superseded is caught
+//   before send - the model gets ONE more turn to answer with the
+//   fresh figure, and a second stale draft comes back as an explicit
+//   conflict flag, never as a confident answer. Verbatim relays are
+//   exempt: exact text goes out exactly as stored.
 // - Dynamic tool selection (owner requirement, 2026-11-09): the
 //   per-turn tool list is a SELECTION from the full registry, never
 //   the whole of what Abel can do. When the caller passes the full
@@ -173,6 +179,13 @@ export interface AgentLoopOutput {
   ranOutOfSteps: boolean;
   /** Results of verbatimRelay tools this turn, in call order - when non-empty, they are the reply. */
   verbatimRelays: string[];
+  /**
+   * Think deeper (Frontier 1): time spent in the self-verification
+   * pass (pure code - a regex scan, no model call), and how many
+   * verification retries the turn used (0 or 1, never more).
+   */
+  verificationMs: number;
+  verificationRetries: number;
 }
 
 function specFor(tool: AgentTool): AiToolSpec {
@@ -222,6 +235,87 @@ function amountsIn(text: string): Set<string> {
 export function ungroundedAmounts(reply: string, groundingCorpus: string): string[] {
   const grounded = amountsIn(groundingCorpus);
   return [...amountsIn(reply)].filter((amount) => !grounded.has(amount));
+}
+
+// Think deeper (Frontier 1): the self-verification pass. A dollar
+// figure is STALE when a later tool result reports the same labeled
+// figure with a different value - the earlier value was superseded.
+// Scope is deliberately narrow, so the check stays deterministic:
+// - only labeled figures from THIS turn's tool results ("Projected
+//   pay: $611.20"), in call order; context blocks, the owner's own
+//   words, and proposal text are not records and never supersede;
+// - a value counts as stale only if NO current record supports it
+//   (the same number under another label's latest value is current,
+//   not stale - two loads can legitimately pay the same);
+// - a draft that shows BOTH the old and the fresh figure is showing
+//   the conflict honestly, not hiding it, so it is not flagged.
+// Dates and commitments are prompt-layer only (the CHECK block in
+// agent-turn.ts): the code check covers dollar figures, the
+// grounding guard's domain.
+export interface StaleFigure {
+  label: string;
+  stale: string;
+  fresh: string;
+}
+
+const LABELED_AMOUNT_PATTERN =
+  /(?:^|\n)\s*([A-Za-z][A-Za-z0-9 .,_\-/()]{0,60}?)\s*[:=]\s*\$\s?(\d{1,3}(?:,\d{3})+|\d+)(\.\d{2})?/g;
+
+/** Labeled dollar figures a draft quotes that a later tool result superseded. */
+export function staleFiguresInReply(reply: string, toolResults: string[]): StaleFigure[] {
+  const replyAmounts = amountsIn(reply);
+  if (replyAmounts.size === 0) return [];
+  const byLabel = new Map<string, string[]>();
+  for (const result of toolResults) {
+    for (const match of result.matchAll(LABELED_AMOUNT_PATTERN)) {
+      const label = match[1]!.trim().replace(/\s+/g, " ").toLowerCase();
+      const value = Number.parseFloat(`${match[2]!.replace(/,/g, "")}${match[3] ?? ""}`).toFixed(2);
+      const values = byLabel.get(label) ?? [];
+      values.push(value);
+      byLabel.set(label, values);
+    }
+  }
+  const current = new Set([...byLabel.values()].map((values) => values[values.length - 1]!));
+  const found = new Map<string, StaleFigure>();
+  for (const [label, values] of byLabel) {
+    const fresh = values[values.length - 1]!;
+    for (const value of values.slice(0, -1)) {
+      if (
+        value !== fresh &&
+        !current.has(value) &&
+        replyAmounts.has(value) &&
+        !replyAmounts.has(fresh)
+      ) {
+        found.set(`${label}|${value}|${fresh}`, { label, stale: value, fresh });
+      }
+    }
+  }
+  return [...found.values()];
+}
+
+/** The reply when a second draft still quotes a superseded figure: an explicit conflict flag, never a confident answer. */
+export function staleFigureReply(stale: StaleFigure[]): string {
+  const lines = stale.map(
+    (s) => `- ${s.label}: my draft said $${s.stale}, but the latest lookup says $${s.fresh}.`,
+  );
+  return (
+    "I caught a stale figure in my draft before sending it, so I won't quote the old number:\n" +
+    lines.join("\n") +
+    "\nAsk me again and I'll pull it fresh."
+  );
+}
+
+/** The note the model gets when its draft is caught: the conflict, in code, so it can answer again with the fresh figure. */
+export function verificationNote(stale: StaleFigure[]): string {
+  const lines = stale.map(
+    (s) => `- ${s.label}: $${s.stale} (earlier lookup) was superseded by $${s.fresh} (latest lookup).`,
+  );
+  return (
+    "VERIFICATION: your draft quotes a figure a later tool result superseded:\n" +
+    lines.join("\n") +
+    "\nRe-check your draft against the latest tool results and answer again with the fresh figure - " +
+    "or show both figures and say they conflict. Do not send the superseded figure as current."
+  );
 }
 
 export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutput> {
@@ -343,6 +437,11 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
   ];
 
   const groundingParts: string[] = [input.contextText, input.userText];
+  // Tool results alone, in call order - the verification pass reads
+  // ONLY these (context, his words, and proposal text never supersede).
+  const toolGrounding: string[] = [];
+  let verificationMs = 0;
+  let verificationRetried = false;
   const proposals: ProposedWrite[] = [];
   const verbatimRelays: string[] = [];
   const toolLog: AgentToolLogEntry[] = [];
@@ -362,7 +461,8 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
       // A verbatim relay this turn IS the answer, exactly as stored - it
       // replaces whatever prose (or refusal, or paraphrase) the model
       // wrapped around the tool call. Grounded by construction: it is a
-      // tool result, never model text.
+      // tool result, never model text. The verification pass never
+      // touches it: verbatim stays verbatim.
       if (verbatimRelays.length > 0) {
         return {
           reply: verbatimRelays.join("\n\n"),
@@ -371,6 +471,8 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
           stepsUsed,
           ranOutOfSteps: false,
           verbatimRelays,
+          verificationMs,
+          verificationRetries: verificationRetried ? 1 : 0,
         };
       }
       const text = turn.text?.trim();
@@ -382,6 +484,37 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
           stepsUsed,
           ranOutOfSteps: false,
           verbatimRelays,
+          verificationMs,
+          verificationRetries: verificationRetried ? 1 : 0,
+        };
+      }
+      // Self-verification pass (think deeper, Frontier 1): pure code,
+      // no model call - a regex scan over this turn's tool results.
+      // An answer with no dollar figures short-circuits here, so the
+      // pass adds no extra model call and no measurable time to it.
+      const verifyStart = Date.now();
+      const stale = staleFiguresInReply(text, toolGrounding);
+      verificationMs += Date.now() - verifyStart;
+      if (stale.length > 0) {
+        if (!verificationRetried) {
+          // One chance to correct: the conflict goes back to the
+          // model as a system note (never as his words), and the
+          // loop runs one more provider turn. The retry is bounded
+          // by this flag, not just by MAX_AGENT_STEPS.
+          verificationRetried = true;
+          messages.push({ role: "assistant", content: text, toolCalls: [] });
+          messages.push({ role: "system", content: verificationNote(stale) });
+          continue;
+        }
+        return {
+          reply: staleFigureReply(stale),
+          proposals,
+          toolLog,
+          stepsUsed,
+          ranOutOfSteps: false,
+          verbatimRelays,
+          verificationMs,
+          verificationRetries: 1,
         };
       }
       const bad = ungroundedAmounts(text, groundingParts.join("\n"));
@@ -392,6 +525,8 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
         stepsUsed,
         ranOutOfSteps: false,
         verbatimRelays,
+        verificationMs,
+        verificationRetries: verificationRetried ? 1 : 0,
       };
     }
 
@@ -531,6 +666,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
       try {
         const result = await tool.run(runArgs);
         groundingParts.push(result);
+        toolGrounding.push(result);
         if (tool.verbatimRelay) verbatimRelays.push(result);
         log({ tool: tool.name, access: tool.access, outcome: "executed" });
         messages.push({ role: "tool", toolCallId: call.id, content: result });
@@ -558,5 +694,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
     stepsUsed,
     ranOutOfSteps: verbatimRelays.length === 0,
     verbatimRelays,
+    verificationMs,
+    verificationRetries: verificationRetried ? 1 : 0,
   };
 }

@@ -191,6 +191,44 @@ const RESTRAINT_RULES =
   "While he is driving, keep every answer as short as the answer allows; if a topic needs real depth, say so and offer it for when he's parked instead of delivering it mid-drive. " +
   "When you have said what you know, stop - never pad an answer with repeats, caveats he didn't ask about, or offers to do things he hasn't requested.";
 
+/**
+ * Think deeper (owner GO 2026-11-11, Frontier 1): the forms that make
+ * Abel reason harder inside one turn. Same shape as the reasoning
+ * layer - one block per form, each line must change behavior. The
+ * self-verification pass is ALSO enforced in code (agent-loop.ts:
+ * staleFiguresInReply catches a dollar figure a later tool result
+ * superseded) - the CHECK block tells the model what that code check
+ * does when it fires; the code is the backstop, not the whole
+ * mechanism. Dates are prompt-layer only: the code check covers
+ * dollar figures, the grounding guard's domain.
+ */
+/** Chained reasoning: plan-then-act; each step's result feeds the next, and the chain is visible. */
+const CHAINED_REASONING_RULES =
+  "PLAN THEN ACT: when one question needs several facts (load → clocks → pay → decision), plan the steps first, then call them in order - each tool result feeds the next call, and the next call is chosen from what the last one showed. " +
+  "The answer shows the chain, not just the conclusion: the figures each step gave, in order. Never answer from the first fact when a later fact can change it; if a step's result changes the direction, say so instead of smoothing it over.";
+
+/** Self-verification: re-read the draft against the latest tool results before sending. */
+const VERIFICATION_RULES =
+  "CHECK BEFORE YOU SEND: before sending any answer that states a number, a date, or a commitment, re-read your draft against the LATEST tool results this turn. " +
+  "If a figure in your draft was superseded by a later result, use the fresh one - or show both figures and say they conflict. Never send a superseded figure as current, and never send a confident number you did not re-check. " +
+  "Code also checks dollar figures against your tool results: if it stops a stale one, you get one more turn to answer with the fresh figure - take it. This check never applies to verbatim reads: exact text goes out exactly as stored.";
+
+/** Honest uncertainty: one line plus what would settle it. */
+const UNCERTAINTY_RULES =
+  "SAY WHAT YOU DON'T KNOW: when the records cannot settle his question, say so in one line - 'I can't tell from what I have' - and name exactly what would settle it ('the rate-con would settle it', 'one settlement would settle it'). " +
+  "Never invent a figure, a date, or a fact to fill the gap, and never dress a guess as an answer. One line of uncertainty plus the settler beats a confident paragraph of maybe.";
+
+/** Trade-off math: both options with computed figures; the recommendation names its cost. */
+const TRADEOFF_RULES =
+  "SHOW BOTH SIDES OF THE MATH: when two options are on the table, show BOTH with their computed figures from the tools - $/mile, deadhead miles, HOS cost, home-time cost. " +
+  "A recommendation names what it costs ('take A: $40 more, home a day later') - a bare pick with no figures is not an answer. " +
+  "Counterfactuals carry their numbers too: 'if you take this load instead…' with the figures that change.";
+
+/** Causal prediction, light: forward inference as advisory text, never a blocking rule. */
+const PREDICTION_RULES =
+  "FORECAST, DON'T BLOCK: from state you already have - his clocks, his week's pattern, a load's dates - you may say what happens next ('at this pace your 70-hour clock runs out Thursday') as advice, with the pace and the numbers behind it. " +
+  "A forecast is advisory text only: it never blocks, refuses, or gates an answer or an action, and it is labeled as a forecast ('at this pace'), never stated as a fact about the future.";
+
 /** Learning (owner 2026-11-07): how he answered a proposal. Best-effort - never throws, never slows or breaks the turn. */
 async function logOutcome(store: BotBrainStore, row: { tool_name: string; arguments: Record<string, unknown>; summary: string; source_quote?: string | null }, outcome: Outcome): Promise<void> {
   try {
@@ -966,7 +1004,7 @@ export async function runAgentTurn(
   const botTools = selectToolsForTurn(catalog, selectionText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${CONTEXTUAL_RULES}\n\n${CAUSAL_RULES}\n\n${SELF_CORRECTION_RULES}\n\n${EPISODIC_RULES}\n\n${THEORY_OF_MIND_RULES}\n\n${VALUE_LEARNING_RULES}\n\n${CONSOLIDATION_RULES}\n\n${RESTRAINT_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${CONTEXTUAL_RULES}\n\n${CAUSAL_RULES}\n\n${SELF_CORRECTION_RULES}\n\n${EPISODIC_RULES}\n\n${THEORY_OF_MIND_RULES}\n\n${VALUE_LEARNING_RULES}\n\n${CONSOLIDATION_RULES}\n\n${RESTRAINT_RULES}\n\n${CHAINED_REASONING_RULES}\n\n${VERIFICATION_RULES}\n\n${UNCERTAINTY_RULES}\n\n${TRADEOFF_RULES}\n\n${PREDICTION_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
