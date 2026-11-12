@@ -17,8 +17,7 @@ import Link from "next/link";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { usePayProjection } from "@/lib/use-pay-projection";
 import { describeTerms, formatDay, formatRange } from "@/lib/pay-projection";
-import { advancesForPeriod, netRange, sumAdvances } from "@/lib/cash-advances";
-import { deductionsForPeriod, sumDeductions } from "@/lib/expense-buckets";
+import { payWeekNet } from "@/lib/money-hub";
 import { formatMoney } from "@/lib/money-format";
 
 const hm = (ms: number) => {
@@ -57,23 +56,20 @@ export default function DriverPayHomeCard() {
   // stated plainly; gross figures still show. (The server pay summary
   // fails visibly on its own advances error - see pay-summary - so a
   // ready summary's totals are real and stay as they were.)
-  const advancesUnavailable = projection !== null && projection.advancesAvailable === false;
+  // The calculation itself is shared with Money's top block (src/lib/money-hub.ts payWeekNet) so the two
+  // screens can never show different nets for the same week.
+  const week = projection ? payWeekNet(projection) : null;
+  const advancesUnavailable = week?.advancesUnavailable ?? false;
   // Same honesty rule for pay deductions: a failed deductions read is
   // "unavailable", never zero - no net from the projection is shown.
-  const deductionsUnavailable = projection !== null && projection.deductionsAvailable === false;
-  const outUnavailable = advancesUnavailable || deductionsUnavailable;
+  const deductionsUnavailable = week?.deductionsUnavailable ?? false;
+  const outUnavailable = week?.outUnavailable ?? false;
 
   const period = projection?.period ?? null;
-  const weekAdvancesCents =
-    projection && period && !outUnavailable
-      ? sumAdvances(advancesForPeriod(projection.advances, period.start, period.end))
-      : 0;
-  const weekDeductionsCents =
-    projection && period && !outUnavailable
-      ? sumDeductions(deductionsForPeriod(projection.deductions, period.start, period.end))
-      : 0;
-  const weekOutCents = weekAdvancesCents + weekDeductionsCents;
-  const weekNet = period && !outUnavailable ? netRange(period.lowCents, period.highCents, weekOutCents) : null;
+  const weekAdvancesCents = week?.advancesCents ?? 0;
+  const weekDeductionsCents = week?.deductionsCents ?? 0;
+  const weekOutCents = week?.outCents ?? 0;
+  const weekNet = week?.net ?? null;
   // Advances are netted in exactly one place in this story: against
   // this pay week's projection when this week has any. Advances taken
   // against other weeks' still-unpaid loads are shown netted against

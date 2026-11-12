@@ -25,6 +25,8 @@ import { lastDefinitePaycheckCents, thisWeekExpensesCents } from "@/lib/money-hu
 import type { Expense } from "@/types/entities";
 import type { ReactNode } from "react";
 import { formatMoney } from "@/lib/money-format";
+import MoneyNetBlock from "@/components/MoneyNetBlock";
+import { usePayProjection } from "@/lib/use-pay-projection";
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/money/expenses", label: "Expenses", desc: "What the business spends — insurance, permits, repairs, the rest." },
@@ -41,6 +43,7 @@ export default function MoneyPage() {
   usePageTitle("Money");
   const expenses = useApiList<Expense>("expenses", { limit: "200" });
   const paySummary = usePaySummary();
+  const payProjection = usePayProjection();
 
   const weekTotal =
     expenses.state.status === "loaded" ? thisWeekExpensesCents(expenses.state.result.data) : null;
@@ -68,6 +71,7 @@ export default function MoneyPage() {
   return (
     <div>
       <PageHeader title="Money" purpose="What came in, what went out, and what's left — the numbers the business runs on." />
+      <MoneyNetBlock projection={payProjection} summary={paySummary} />
       <ul>
         {SECTIONS.map((section, i) => (
           <Reveal as="li" key={section.href} index={i}>
