@@ -20,6 +20,7 @@ import {
   DeletedListSection,
 } from "@/components/RecordLifecycle";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export default function MaintenanceEventsListPage() {
   usePageTitle("Maintenance");
@@ -97,7 +98,7 @@ export default function MaintenanceEventsListPage() {
                 <span className="row-sub">
                   Truck {truckLabel(event.truck_id)} ·{" "}
                   {new Date(`${event.service_date}T12:00:00`).toLocaleDateString()}
-                  {event.cost_cents != null && ` · $${(event.cost_cents / 100).toFixed(2)}`}
+                  {event.cost_cents != null && ` · ${formatMoney(event.cost_cents)}`}
                   {event.mileage_at_service != null &&
                     ` · at ${event.mileage_at_service.toLocaleString("en-US")} mi`}
                 </span>

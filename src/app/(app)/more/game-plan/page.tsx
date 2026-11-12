@@ -23,7 +23,6 @@ import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import { formatDollars } from "@/lib/truck-fund";
 import { GAME_METRIC_LABELS, type GameMetric } from "@/lib/game-plan";
 import type { GamePlanPageData } from "@/types/game-plan";
 import type { GameTarget } from "@/types/entities";
@@ -36,6 +35,7 @@ import {
   TrajectoryChart,
   VersionHistory,
 } from "./sections";
+import { formatMoney } from "@/lib/money-format";
 
 type PageState =
   | { status: "loading" }
@@ -102,7 +102,7 @@ export default function GamePlanPage() {
               <h2>The planner is off</h2>
               <p>
                 The Game Plan capability is OFF, so no plan is being gamed. Your target still saves here.
-                Turn it on in <Link href="/more/settings">Account &amp; settings</Link> (&quot;Game Plan&quot;)
+                Turn it on in <Link href="/more/settings/ai">Account &amp; settings</Link> (&quot;Game Plan&quot;)
                 and the next save - or the Re-game button - builds the plan.
               </p>
             </section>
@@ -229,7 +229,7 @@ function TargetSection({
         <h2>Your target</h2>
         <p>
           <strong>
-            {GAME_METRIC_LABELS[target.metric]}: {formatDollars(target.target_value_cents)}
+            {GAME_METRIC_LABELS[target.metric]}: {formatMoney(target.target_value_cents)}
           </strong>
           {target.target_date ? ` by ${target.target_date}` : " (open-ended - gamed over 36 months)"}
         </p>

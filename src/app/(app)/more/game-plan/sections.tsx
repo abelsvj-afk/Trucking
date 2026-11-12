@@ -7,7 +7,6 @@
 // projected figure is framed as a projection.
 
 import { useState, type FormEvent } from "react";
-import { formatDollars } from "@/lib/truck-fund";
 import {
   EMERGENCY_CUSHION_FLOOR_CENTS,
   GAME_METRIC_LABELS,
@@ -16,10 +15,7 @@ import {
   type SideIncomeCandidate,
 } from "@/lib/game-plan";
 import type { GameCheckpoint, GamePlan, GameTarget } from "@/types/entities";
-
-function dollars(cents: number): string {
-  return formatDollars(cents);
-}
+import { formatMoney } from "@/lib/money-format";
 
 function thinStamp(plan: GamePlan) {
   if (!plan.data_sufficiency.thinData) return null;
@@ -84,15 +80,15 @@ export function TrajectoryChart({ plan, target }: { plan: GamePlan; target: Game
       <ul>
         {lines.map((line) => (
           <li key={line.key}>
-            <span style={{ color: line.color }}>●</span> {line.label}: {dollars(line.scenario.valueAtTargetCents)} by{" "}
+            <span style={{ color: line.color }}>●</span> {line.label}: {formatMoney(line.scenario.valueAtTargetCents)} by{" "}
             {out.gap.targetMonth}
             {line.scenario.shortfallCents === 0
               ? " - closes the gap"
-              : ` - short ${dollars(line.scenario.shortfallCents)}`}
+              : ` - short ${formatMoney(line.scenario.shortfallCents)}`}
           </li>
         ))}
         <li>
-          <span style={{ color: "#c62828" }}>●</span> Target: {dollars(out.gap.targetCents)} (
+          <span style={{ color: "#c62828" }}>●</span> Target: {formatMoney(out.gap.targetCents)} (
           {GAME_METRIC_LABELS[target.metric]})
         </li>
       </ul>
@@ -114,9 +110,9 @@ export function GapBlock({ plan }: { plan: GamePlan }) {
     <section className="card">
       <h2>The gap</h2>
       <p>
-        Target {dollars(gap.targetCents)} by {gap.targetMonth}. Current pace lands at {dollars(gap.currentPaceCents)}{" "}
-        (projection). The recommended path lands at {dollars(gap.recommendedCents)}
-        {rec.shortfallCents === 0 ? " - the gap closes." : ` - short by ${dollars(rec.shortfallCents)}.`}
+        Target {formatMoney(gap.targetCents)} by {gap.targetMonth}. Current pace lands at {formatMoney(gap.currentPaceCents)}{" "}
+        (projection). The recommended path lands at {formatMoney(gap.recommendedCents)}
+        {rec.shortfallCents === 0 ? " - the gap closes." : ` - short by ${formatMoney(rec.shortfallCents)}.`}
       </p>
       {plan.scenarios.levers.length > 0 && (
         <>
@@ -125,7 +121,7 @@ export function GapBlock({ plan }: { plan: GamePlan }) {
             {plan.scenarios.levers.map((line) => (
               <li key={line.key}>
                 {line.label}: {line.contributionCents >= 0 ? "+" : ""}
-                {dollars(line.contributionCents)} at the target month - {line.source}
+                {formatMoney(line.contributionCents)} at the target month - {line.source}
               </li>
             ))}
           </ul>
@@ -136,7 +132,7 @@ export function GapBlock({ plan }: { plan: GamePlan }) {
           Honest version: no path closes the gap by {gap.targetMonth}. At the recommended pace it closes about{" "}
           {gap.closers.extraMonthsAtRecommendedPace ?? "—"} month
           {gap.closers.extraMonthsAtRecommendedPace === 1 ? "" : "s"} later, or the target that IS reachable by the
-          date is {dollars(gap.closers.reachableAtTargetDateCents)}. The only three honest moves: move the date, move
+          date is {formatMoney(gap.closers.reachableAtTargetDateCents)}. The only three honest moves: move the date, move
           the number, or add a lever - nothing here is hidden.
         </p>
       )}
@@ -160,8 +156,8 @@ export function MilestoneSpine({ plan }: { plan: GamePlan }) {
       <h2>The road</h2>
       <ol>
         <li>
-          Emergency cushion: {dollars(plan.snapshot.emergencyFundBalanceCents)} of{" "}
-          {dollars(EMERGENCY_CUSHION_FLOOR_CENTS)} (floor read from your Finance rules - the plan never spends below
+          Emergency cushion: {formatMoney(plan.snapshot.emergencyFundBalanceCents)} of{" "}
+          {formatMoney(EMERGENCY_CUSHION_FLOOR_CENTS)} (floor read from your Finance rules - the plan never spends below
           it).
         </li>
         <li>
@@ -172,7 +168,7 @@ export function MilestoneSpine({ plan }: { plan: GamePlan }) {
         {m.authorityReason && <li>{m.authorityReason}</li>}
         {m.sCorpFlag && (
           <li>
-            Tax-structure flag: trailing net {dollars(m.sCorpTrailingNetCents)} is in the range where an S-corp
+            Tax-structure flag: trailing net {formatMoney(m.sCorpTrailingNetCents)} is in the range where an S-corp
             election usually starts paying for itself (~$40k+). Worth a CPA conversation - the plan flags it, it
             doesn&apos;t file it.
           </li>
@@ -208,7 +204,7 @@ export function DemandsBlock({ plan }: { plan: GamePlan }) {
           is {d.actualSweepPct}% - the gap between those two numbers is the plan&apos;s real demand.
         </li>
         <li>
-          Thinnest month: {d.thinnestCushionMonth ?? "n/a"} - cushion bottoms at {dollars(d.thinnestCushionCents)}
+          Thinnest month: {d.thinnestCushionMonth ?? "n/a"} - cushion bottoms at {formatMoney(d.thinnestCushionCents)}
           {d.cushionBelowFloor
             ? " - BELOW the $10,000 floor (only a labelled what-if can look like this)."
             : " and never crosses below the $10,000 floor on a valid plan."}
@@ -246,13 +242,13 @@ function assumptionValueText(key: string, value: unknown): string {
     return value
       .map((lever) => {
         const l = lever as { label?: string; monthlyLowCents?: number; monthlyHighCents?: number };
-        return `${l.label ?? "lever"} (${dollars(l.monthlyLowCents ?? 0)}–${dollars(l.monthlyHighCents ?? 0)}/mo)`;
+        return `${l.label ?? "lever"} (${formatMoney(l.monthlyLowCents ?? 0)}–${formatMoney(l.monthlyHighCents ?? 0)}/mo)`;
       })
       .join("; ");
   }
   if (typeof value === "number") {
-    if (key.endsWith("_cents_gal")) return `$${(value / 100).toFixed(2)}`;
-    if (key.endsWith("_cents")) return dollars(value);
+    if (key.endsWith("_cents_gal")) return formatMoney(value);
+    if (key.endsWith("_cents")) return formatMoney(value);
     if (key.endsWith("_pct")) return `${value}%`;
     return String(value);
   }
@@ -355,7 +351,7 @@ export function AssumptionSheet({
             {whatIfs.map((w) => (
               <li key={w.id}>
                 <p>
-                  <strong>v{w.version}</strong> - recommended path lands at {dollars(w.scenarios.gap.recommendedCents)} by{" "}
+                  <strong>v{w.version}</strong> - recommended path lands at {formatMoney(w.scenarios.gap.recommendedCents)} by{" "}
                   {w.scenarios.gap.targetMonth} (projection).
                 </p>
                 {w.scenarios.validity.violations.length > 0 && (
@@ -414,7 +410,7 @@ export function CheckpointScoreboard({ checkpoints }: { checkpoints: GameCheckpo
               : c.verdict === "ahead"
                 ? "ahead"
                 : c.verdict === "behind"
-                  ? `behind by ${dollars(Math.abs(c.gap_cents ?? 0))}`
+                  ? `behind by ${formatMoney(Math.abs(c.gap_cents ?? 0))}`
                   : c.verdict === "no_data"
                     ? "no records that month"
                     : "open"}

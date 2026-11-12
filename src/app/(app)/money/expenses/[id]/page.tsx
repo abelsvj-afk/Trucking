@@ -15,11 +15,11 @@ import ExpenseEditForm from "@/components/edit/ExpenseEditForm";
 import {ListLoading, ListError} from "@/components/ListStates";
 import {DeleteRecordButton} from "@/components/RecordLifecycle";
 import {usePageTitle} from "@/lib/use-page-title";
-import {formatDollars} from "@/lib/truck-fund";
 import ExpenseBucketField from "@/components/ExpenseBucketField";
 import EntityDocuments from "@/components/EntityDocuments";
 import {bucketOf} from "@/lib/expense-buckets";
 import type {Expense} from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 const CATEGORY_LABELS: Record<Expense["category"], string> = {
   insurance: "Insurance",
@@ -71,7 +71,7 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
     <div>
       <PageHeader
         title={`${CATEGORY_LABELS[expense.category]} expense`}
-        purpose={`${formatDollars(expense.amount_cents)} — its details, and the record controls, in one place.`}
+        purpose={`${formatMoney(expense.amount_cents)} — its details, and the record controls, in one place.`}
       
         action={
           <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
@@ -86,7 +86,7 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
           <dt>Category</dt>
           <dd>{CATEGORY_LABELS[expense.category]}</dd>
           <dt>Amount</dt>
-          <dd>{formatDollars(expense.amount_cents)}</dd>
+          <dd>{formatMoney(expense.amount_cents)}</dd>
           <dt>Date</dt>
           <dd>{new Date(`${expense.expense_date}T12:00:00`).toLocaleDateString()}</dd>
           <dt>Description</dt>
@@ -117,7 +117,7 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
         <DeleteRecordButton
           resource="expenses"
           id={expense.id}
-          recordName={`${CATEGORY_LABELS[expense.category]} expense (${formatDollars(expense.amount_cents)})`}
+          recordName={`${CATEGORY_LABELS[expense.category]} expense (${formatMoney(expense.amount_cents)})`}
           listHref="/money/expenses"
           listLabel="expenses"
         />

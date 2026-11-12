@@ -8,7 +8,6 @@
 
 import { useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import { formatDollars } from "@/lib/truck-fund";
 import { DeletedListSection, DeletedToggleButton, useDeletedToggle } from "@/components/RecordLifecycle";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { TeachingEmpty } from "@/components/ListStates";
@@ -16,6 +15,7 @@ import { useSubmissionId } from "@/lib/use-submission-id";
 import type { AccountSnapshot } from "@/types/entities";
 import type { AccountView } from "@/types/truck-fund";
 import { todayEastern } from "@/lib/eastern-date";
+import { formatMoney } from "@/lib/money-format";
 
 export default function SnapshotsSection({
   accounts,
@@ -100,7 +100,7 @@ export default function SnapshotsSection({
           {accounts.map((account) => (
             <li key={account.id}>
               {account.institution} — {account.account_name} (••{account.last4}) —{" "}
-              {formatDollars(account.balance_cents)} ({account.lane}) — as of {account.as_of_date},{" "}
+              {formatMoney(account.balance_cents)} ({account.lane}) — as of {account.as_of_date},{" "}
               {account.staleness.label.toLowerCase()}
               {account.staleness.level !== "current" && ` (${account.staleness.age_days} days old)`}
               {account.note && ` — ${account.note}`}{" "}
@@ -203,7 +203,7 @@ export default function SnapshotsSection({
         <DeletedListSection<AccountSnapshot>
           resource="account-snapshots"
           labelFor={(account) =>
-            `${account.institution} — ${account.account_name} (••${account.last4}) — ${formatDollars(account.balance_cents)}`
+            `${account.institution} — ${account.account_name} (••${account.last4}) — ${formatMoney(account.balance_cents)}`
           }
           sublabelFor={(account) => `as of ${account.as_of_date}`}
         />

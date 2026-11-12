@@ -52,3 +52,10 @@ One true total, derived — never a free-typed third number:
 ## Invariants at the database boundary (F-026)
 
 Migration `00044` adds CHECK constraints mirroring the Zod rules (`loads.rate_cents >= 0`, `loads.miles >= 0`, `delivery_date >= pickup_date` when both present, `expenses.amount_cents >= 0`), added **NOT VALID** with a documented application procedure in the migration header: run the violator scans and report counts + IDs, correct through the app's edit UI (or except by owner decision), then `VALIDATE CONSTRAINT`. If a violator will not be corrected, the constraint stays NOT VALID and the finding stays open.
+
+## Expected versus paid on the Money hub (2026-11-12)
+
+The Money hub's top figure is a **projection**: this pay week's loads at the pay terms in force, minus the cash advances and
+pay deductions dated inside that week. It is labelled "Expected net" and is never presented as money received. Finished pay
+weeks below it show the expected amount with a separate statement of what happened to it (paid / came up short / not paid
+yet) and the amount statements have named so far. One calculation (`payWeekNet`) serves Home and Money.

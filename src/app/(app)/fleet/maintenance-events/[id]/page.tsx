@@ -13,6 +13,7 @@ import { DeleteRecordButton } from "@/components/RecordLifecycle";
 import { usePickerList } from "@/lib/use-picker-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { MaintenanceEvent, Truck } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export default function MaintenanceEventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -64,7 +65,7 @@ export default function MaintenanceEventDetailPage({ params }: { params: Promise
           <dt>Service date</dt>
           <dd>{new Date(`${record.service_date}T12:00:00`).toLocaleDateString()}</dd>
           <dt>Cost</dt>
-          <dd>{record.cost_cents != null ? `$${(record.cost_cents / 100).toFixed(2)}` : "Not recorded"}</dd>
+          <dd>{record.cost_cents != null ? formatMoney(record.cost_cents) : "Not recorded"}</dd>
           <dt>Mileage at service</dt>
           <dd>
             {record.mileage_at_service != null

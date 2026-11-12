@@ -31,6 +31,7 @@ import type {
   Truck,
 } from "@/types/entities";
 import { formatDate } from "@/lib/time";
+import { formatMoney } from "@/lib/money-format";
 
 const ENTITY_TYPES: { label: string; value: RelatedEntityType; resource: string }[] = [
   { label: "Truck", value: "truck", resource: "trucks" },
@@ -67,7 +68,7 @@ function labelFor(entityType: RelatedEntityType, record: Truck | Trailer | Drive
   }
   if (entityType === "expense") {
     const expense = record as Expense;
-    return `$${(expense.amount_cents / 100).toFixed(2)} — ${expense.category} — ${expense.expense_date}${expense.description ? ` — ${expense.description}` : ""}`;
+    return `${formatMoney(expense.amount_cents)} — ${expense.category} — ${expense.expense_date}${expense.description ? ` — ${expense.description}` : ""}`;
   }
   return (record as Truck | Trailer).unit_number;
 }

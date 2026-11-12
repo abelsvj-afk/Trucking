@@ -39,10 +39,7 @@ import {loadDisplayName} from "@/lib/load-name";
 import type {Broker, DetentionStamp, DutyLog, Expense, Load, LoadStatus, LoadStop, LoadTask, Trailer, Truck} from "@/types/entities";
 import type {DetentionSummary} from "@/lib/detention";
 import type {PaperworkState} from "@/lib/paperwork";
-
-function formatDollars(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+import { formatMoney } from "@/lib/money-format";
 
 /** An appointment in the zone it was written in (the facility's), labeled - never silently the phone's. */
 function formatInZone(iso: string, zone: string | null | undefined) {
@@ -241,7 +238,7 @@ function DetentionSection({ load }: { load: Load }) {
           {summary.anyClockOpen
             ? "Clock running. "
             : summary.totalOwedCents != null
-              ? `Detention owed: ${formatDollars(summary.totalOwedCents)} (${summary.totalBillableHours} billable hr past ${summary.freeMinutes} free min${summary.freeMinutesAssumed ? ", assumed — no free time on the rate con" : ""}).`
+              ? `Detention owed: ${formatMoney(summary.totalOwedCents)} (${summary.totalBillableHours} billable hr past ${summary.freeMinutes} free min${summary.freeMinutesAssumed ? ", assumed — no free time on the rate con" : ""}).`
               : `${summary.totalBillableHours} billable hour(s) past free time — add the detention rate from the rate con to price it.`}
         </p>
       )}
@@ -429,7 +426,7 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
           <dt>Rate</dt>
           {/* A zero rate means nobody typed one (a per-mile driver never sees
               the load rate), not a load that pays nothing. */}
-          <dd>{load.rate_cents != null && load.rate_cents > 0 ? formatDollars(load.rate_cents) : "Not entered"}</dd>
+          <dd>{load.rate_cents != null && load.rate_cents > 0 ? formatMoney(load.rate_cents) : "Not entered"}</dd>
           <dt>Miles</dt>
           <dd>{load.miles != null ? load.miles.toLocaleString("en-US") : "—"}</dd>
           {(load.deadhead_miles != null || load.loaded_miles != null) && (
@@ -444,11 +441,11 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
           {load.rate_cents != null && load.rate_cents > 0 && load.miles != null && load.miles > 0 && (
             <>
               <dt>Per mile</dt>
-              <dd>{formatDollars(Math.round(load.rate_cents / load.miles))}</dd>
+              <dd>{formatMoney(Math.round(load.rate_cents / load.miles))}</dd>
             </>
           )}
           <dt>Expenses on it</dt>
-          <dd>{expenseCost > 0 ? formatDollars(expenseCost) : "—"}</dd>
+          <dd>{expenseCost > 0 ? formatMoney(expenseCost) : "—"}</dd>
         </dl>
         {(load.pickup_date || load.delivery_date) && (
           <p className="row-sub">
@@ -505,7 +502,7 @@ export default function LoadDetailPage({ params }: { params: Promise<{ id: strin
           <ul>
             {expenseRows.map((row) => (
               <li key={row.id}>
-                {formatDollars(row.amount_cents)} — {row.category}
+                {formatMoney(row.amount_cents)} — {row.category}
                 {row.description ? ` — ${row.description}` : ""}{" "}
                 <span className="row-sub">
                   {new Date(`${row.expense_date}T12:00:00`).toLocaleDateString()}

@@ -15,12 +15,9 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
-import { formatDate } from "@/lib/time";
+import { formatCalendarDay, formatDate } from "@/lib/time";
 import type { FinancialSummaryDetail } from "@/types/financial-summary";
-
-function formatDollars(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+import { formatMoney } from "@/lib/money-format";
 
 const TITLES: Record<string, string> = {
   revenue: "Revenue — loads delivered",
@@ -49,12 +46,12 @@ function rowLabel(component: string, row: Record<string, unknown>): { title: str
     case "revenue":
       return {
         title: `${String(row.origin ?? "")} → ${String(row.destination ?? "")}`,
-        sub: `Delivered ${row.delivery_date ? formatDate(String(row.delivery_date)) : "—"}`,
+        sub: `Delivered ${row.delivery_date ? formatCalendarDay(String(row.delivery_date)) : "—"}`,
       };
     case "expenses":
       return {
         title: String(row.description ?? row.category ?? "Expense"),
-        sub: `${String(row.category ?? "")} · ${row.expense_date ? formatDate(String(row.expense_date)) : ""}`,
+        sub: `${String(row.category ?? "")} · ${row.expense_date ? formatCalendarDay(String(row.expense_date)) : ""}`,
       };
     case "fuel": {
       const adjustment = Number(row.adjustment_cents ?? 0);
@@ -63,14 +60,14 @@ function rowLabel(component: string, row: Record<string, unknown>): { title: str
         sub:
           `${String(row.gallons ?? "")} gal · ${row.purchased_at ? formatDate(String(row.purchased_at)) : ""}` +
           (adjustment !== 0
-            ? ` · adjustment ${formatDollars(adjustment)}${row.adjustment_reason ? ` — ${String(row.adjustment_reason)}` : ""}`
+            ? ` · adjustment ${formatMoney(adjustment)}${row.adjustment_reason ? ` — ${String(row.adjustment_reason)}` : ""}`
             : ""),
       };
     }
     case "maintenance":
       return {
         title: String(row.description ?? "Maintenance"),
-        sub: row.service_date ? formatDate(String(row.service_date)) : "",
+        sub: row.service_date ? formatCalendarDay(String(row.service_date)) : "",
       };
     default:
       return { title: String(row.id ?? ""), sub: "" };
@@ -123,7 +120,7 @@ function DetailContent() {
       <p>
         {detail.range.from} – {detail.range.to} · {detail.row_count}{" "}
         {detail.row_count === 1 ? "record" : "records"} · total{" "}
-        {formatDollars(detail.total_cents)}
+        {formatMoney(detail.total_cents)}
       </p>
       {detail.rows.length === 0 ? (
         <p>No records make up this total for the range.</p>
@@ -136,7 +133,7 @@ function DetailContent() {
               <li key={id}>
                 <Link href={rowHref(detail.component, id)}>
                   <span className="row-title">
-                    {formatDollars(Number(row[amountField] ?? 0))} — {label.title}
+                    {formatMoney(Number(row[amountField] ?? 0))} — {label.title}
                   </span>
                   <span className="row-sub">{label.sub}</span>
                 </Link>
