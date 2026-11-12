@@ -18,6 +18,7 @@ import {
   type BotConsolidationStatus,
   type BotMemoryListItem,
 } from "@/lib/api-client";
+import type { WhatIKnowModel } from "@/services/bot/what-i-know";
 import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
@@ -26,7 +27,12 @@ import { formatDate, formatDateTime } from "@/lib/time";
 type PageState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "loaded"; memories: BotMemoryListItem[]; consolidation: BotConsolidationStatus | null };
+  | {
+      status: "loaded";
+      memories: BotMemoryListItem[];
+      consolidation: BotConsolidationStatus | null;
+      model: WhatIKnowModel | null;
+    };
 
 const KIND_LABELS: Record<string, string> = {
   fact: "Fact",
@@ -44,14 +50,25 @@ export default function MemoriesPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [lessonDraft, setLessonDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    apiClient
-      .listMemories(showHistory)
-      .then((result) =>
-        setState({ status: "loaded", memories: result.data, consolidation: result.consolidation }),
+    Promise.all([
+      apiClient.listMemories(showHistory),
+      // Frontier 2: the model view rides the same load — a failure
+      // here only omits the model section, never the memory list.
+      apiClient.getWhatIKnow().catch(() => null),
+    ])
+      .then(([result, model]) =>
+        setState({
+          status: "loaded",
+          memories: result.data,
+          consolidation: result.consolidation,
+          model: model?.data ?? null,
+        }),
       )
       .catch((err: unknown) => {
         const message =
@@ -89,6 +106,25 @@ export default function MemoriesPage() {
     } catch (err) {
       setActionError(
         err instanceof ApiClientError ? err.message : "That delete didn't go through. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Frontier 2: correcting a lesson saves the new version as a
+  // superseding row at max confidence (his word) and keeps the old
+  // one in history — same close-not-delete rule as memories.
+  async function saveLessonCorrection(id: string) {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiClient.correctLesson(id, lessonDraft.trim());
+      setEditingLessonId(null);
+      load();
+    } catch (err) {
+      setActionError(
+        err instanceof ApiClientError ? err.message : "That correction didn't save. Try again.",
       );
     } finally {
       setBusy(false);
@@ -136,6 +172,103 @@ export default function MemoriesPage() {
 
       {state.status === "loaded" && state.memories.length === 0 && (
         <p>Nothing stored yet. Tell Abel something worth keeping — in chat or with “remember:” — and it will show up here.</p>
+      )}
+
+      {/* Frontier 2: "What I know about you" — beliefs +
+          preferences (current memories, grouped) and lessons (current
+          agent episodes, each with its evidence and a Correct
+          button). Same page, same consolidation banner above. */}
+      {state.status === "loaded" && state.model && (
+        <section>
+          <h2>What I know about you</h2>
+          <p>
+            What Abel believes about you and your business, what you prefer, and what he has
+            learned from working with you — each lesson shows the evidence behind it. Correcting
+            a lesson saves the new version and keeps the old one in history, so nothing he
+            believed ever vanishes silently.
+          </p>
+          {state.model.beliefs.length > 0 && (
+            <div>
+              <h3>Beliefs</h3>
+              <ul>
+                {state.model.beliefs.map((belief) => (
+                  <li key={belief.id}>
+                    <strong>{KIND_LABELS[belief.kind] ?? belief.kind}</strong>{" "}
+                    <span>{formatDate(belief.created_at, "America/New_York")}</span>
+                    <p>{belief.content}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {state.model.preferences.length > 0 && (
+            <div>
+              <h3>Preferences</h3>
+              <ul>
+                {state.model.preferences.map((preference) => (
+                  <li key={preference.id}>
+                    <p>{preference.content}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {state.model.lessons.length > 0 && (
+            <div>
+              <h3>Lessons I&rsquo;ve learned</h3>
+              <ul>
+                {state.model.lessons.map((lesson) => (
+                  <li key={lesson.id}>
+                    <div>
+                      <strong>{lesson.kind}</strong>{" "}
+                      <span>{formatDate(lesson.created_at, "America/New_York")}</span>
+                    </div>
+                    {editingLessonId === lesson.id ? (
+                      <div>
+                        <textarea
+                          value={lessonDraft}
+                          onChange={(event) => setLessonDraft(event.target.value)}
+                          rows={3}
+                          cols={60}
+                        />
+                        <div>
+                          <button type="button" disabled={busy || !lessonDraft.trim()} onClick={() => void saveLessonCorrection(lesson.id)}>
+                            Save correction
+                          </button>{" "}
+                          <button type="button" disabled={busy} onClick={() => setEditingLessonId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <p>{lesson.lesson ?? lesson.summary}</p>
+                        {lesson.evidence && <p>Evidence: {lesson.evidence}</p>}
+                        <div>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditingLessonId(lesson.id);
+                              setLessonDraft(lesson.lesson ?? lesson.summary);
+                            }}
+                          >
+                            Correct
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {state.model.beliefs.length === 0 &&
+            state.model.preferences.length === 0 &&
+            state.model.lessons.length === 0 && (
+              <p>No beliefs, preferences, or lessons yet — the model fills in as Abel learns.</p>
+            )}
+        </section>
       )}
 
       {state.status === "loaded" && state.memories.length > 0 && (

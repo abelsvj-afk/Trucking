@@ -24,6 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { tokenSet } from "./memory-lifecycle";
 import { isMissingColumnError } from "./tool-helpers";
 import { toVectorLiteral, tryEmbed, type EmbeddingProvider } from "./embeddings";
+import { rerankWithHalfLife } from "./half-life";
 
 export const FACT_LIMIT = 12;
 export const FACT_TOKEN_BUDGET = 600;
@@ -73,6 +74,8 @@ interface MemoryQueryRow {
   kind: string;
   content: string;
   created_at: string;
+  /** RRF score from the hybrid RPC (00029) — absent on the fallback path. */
+  rrf_score?: number;
 }
 
 /**
@@ -189,6 +192,7 @@ export async function retrieveCurrentFacts(
       kind: row.kind,
       content: row.content,
       created_at: row.created_at,
+      rrf_score: typeof row.rrf_score === "number" ? row.rrf_score : undefined,
     }));
   } else {
     mode = "fallback";
@@ -196,6 +200,21 @@ export async function retrieveCurrentFacts(
     candidates = scan.rows;
     scannedFacts = scan.scanned;
   }
+
+  // Frontier 2: per-kind half-lives compose with the RRF scores —
+  // a 30-day-old episode ranks below a fresh fact of equal
+  // similarity. Decay ranks, never deletes; the budget cut below
+  // runs on the decayed order.
+  const ranked = rerankWithHalfLife(
+    candidates.map((row, index) => ({
+      id: row.id,
+      kind: row.kind,
+      content: row.content,
+      created_at: row.created_at,
+      score: row.rrf_score ?? 1 / (index + 1),
+    })),
+  );
+  candidates = ranked.map(({ id, kind, content, created_at }) => ({ id, kind, content, created_at }));
 
   const facts: RetrievedFact[] = [];
   let tokens = 0;

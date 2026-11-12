@@ -26,6 +26,7 @@ import type { GamePlan, GameTarget } from "@/types/entities";
 import type { LoadEconomics } from "@/lib/load-economics";
 import type { PaySummary } from "@/services/api/pay-summary";
 import type { BusinessCreditData } from "@/lib/business-credit";
+import type { WhatIKnowModel } from "@/services/bot/what-i-know";
 
 /** One row of the "What Abel remembers" list (Lane 2, Phase B). */
 export interface BotMemoryListItem {
@@ -355,6 +356,19 @@ export const apiClient = {
     request<{ data: { id: string; deleted: boolean } }>("/api/v1/memories", {
       method: "DELETE",
       body: JSON.stringify({ id }),
+    }),
+  // Frontier 2 (Remember better): "What I know about you" — the
+  // inspectable model (beliefs + preferences + lessons with
+  // evidence), and correcting one lesson (superseding row, max
+  // confidence, provenance owner_stated).
+  getWhatIKnow: () =>
+    request<{ data: WhatIKnowModel; consolidation: BotConsolidationStatus | null }>(
+      "/api/v1/what-i-know",
+    ),
+  correctLesson: (episodeId: string, lesson: string) =>
+    request<{ data: { id: string } }>("/api/v1/what-i-know", {
+      method: "POST",
+      body: JSON.stringify({ episode_id: episodeId, lesson }),
     }),
   getAiSettings: () => request<AiSettings>("/api/v1/ai-settings"),
   updateAiSettings: (body: Partial<AiSettings>) =>

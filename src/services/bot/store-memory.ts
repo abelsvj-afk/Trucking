@@ -8,6 +8,7 @@ import { isMissingColumnError } from "./tool-helpers";
 import { getEmbeddingProvider } from "./embeddings";
 import { loadAllInstructions, retrieveCurrentFacts, type RetrievedFact } from "./memory-retrieval";
 import { MEMORY_CONSOLIDATION_CAPABILITY } from "./consolidation";
+import { recordErredEpisode } from "./episodes";
 import { PHOTO_INTELLIGENCE_CAPABILITY } from "@/services/ai/photo-classification";
 import { MAINTENANCE_WATCH_CAPABILITY } from "@/services/fleet/maintenance-watch";
 import { LIVE_LOCATION_CAPABILITY } from "@/lib/live-motion";
@@ -113,7 +114,7 @@ export function createMemoryStore(
     async editMemory(this: BotBrainStore, id: string, content: string) {
       const { data: existing, error: loadError } = await supabase
         .from("bot_memories")
-        .select("id, kind")
+        .select("id, kind, content")
         .eq("id", id)
         .eq("company_id", company)
         .is("deleted_at", null)
@@ -121,6 +122,7 @@ export function createMemoryStore(
       if (loadError) throw new Error(loadError.message);
       if (!existing) throw new Error("That memory doesn't exist (or was already deleted).");
       const kind = (existing as { kind: BotMemoryRow["kind"] }).kind;
+      const oldContent = (existing as { content: string }).content;
       // The correction lands as a NEW row that supersedes the old
       // one - history keeps the original wording and its dates.
       const newId = await this.saveMemory(kind, content, {
@@ -128,6 +130,14 @@ export function createMemoryStore(
         provenance: "owner_stated",
       });
       if (!newId) throw new Error("The corrected memory couldn't be saved.");
+      // Frontier 2 (correction path, erred, free): the owner
+      // corrected Abel — capture old → new and the lesson it
+      // taught. Best-effort; the edit itself already landed.
+      await recordErredEpisode(supabase, company, {
+        oldText: oldContent,
+        newText: content,
+        context: "memory correction",
+      });
       return newId;
     },
 

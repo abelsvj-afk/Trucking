@@ -558,6 +558,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/maintenance-schedules/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/maintenance-schedules` | GET,POST | generic CRUD (contract above) |
 | `/api/v1/memories` | DELETE,GET,PATCH | custom (see section / design doc) |
+| `/api/v1/what-i-know` | GET,POST | custom (see section / design doc) |
 | `/api/v1/map/speed-limit` | GET | custom (see section / design doc) |
 | `/api/v1/briefing-image` | GET | custom (see section / design doc) |
 | `/api/v1/news-image` | GET | custom (see section / design doc) |

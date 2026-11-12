@@ -26,6 +26,7 @@ import { computeDetention } from "@/lib/detention";
 import { computePaperwork } from "@/lib/paperwork";
 import { validateWith } from "./tool-helpers";
 import { buildExtendedReadTools } from "./tools-read";
+import { buildEpisodeTools } from "./episode-tools";
 import { buildGameTools } from "./tools-game";
 import { buildDocumentTools } from "./document-tools";
 import { buildExtendedWriteTools } from "./tools-write";
@@ -1110,6 +1111,9 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   // work over the registry itself - dump staging and proposal
   // revision.
   tools.push(...buildExtendedReadTools(store), ...buildExtendedWriteTools(store));
+  // Frontier 2 (Remember better): list / save / correct the
+  // lessons in agent_episodes (migration 00092).
+  tools.push(...buildEpisodeTools(store));
 
   // Autonomous Research (2026-11-09 design): the standing watch,
   // stored knowledge, and the learning agenda - own module

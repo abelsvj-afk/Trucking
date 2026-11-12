@@ -19,6 +19,8 @@ export interface LoadedContext {
   relevantMemories: BotMemoryRow[];
   /** Lane 2: the retrieval self-report line (null on the legacy path). */
   memoryReport: string | null;
+  /** Frontier 2: the pre-action recall block (null when the store has no recall, or nothing was recalled). */
+  lessonRecallText: string | null;
   /** Phase D: the pay pin block (pin or NOT-PINNED instruction), loaded whenever the store supports it. */
   payPinText: string | null;
   /** Phase C: the life-phase framing block (pin-aware; his "Life phase" fact overrides). */
@@ -63,9 +65,13 @@ export async function loadContext(store: TelegramStore, chatId: number, text: st
         )
       : null;
     if (store.retrieveFacts && store.loadInstructionMemories) {
-      const [instructions, retrieval] = await Promise.all([
+      const [instructions, retrieval, lessonRecall] = await Promise.all([
         store.loadInstructionMemories(),
         store.retrieveFacts(text),
+        // Frontier 2: pre-action recall rides the Telegram turn
+        // too — his own lessons, before the model answers.
+        // Best-effort: recall never breaks context loading.
+        store.recallLessons ? store.recallLessons(text).catch(() => null) : Promise.resolve(null),
       ]);
       return {
         history,
@@ -73,6 +79,7 @@ export async function loadContext(store: TelegramStore, chatId: number, text: st
         instructions: instructions as BotMemoryRow[],
         relevantMemories: retrieval.facts as BotMemoryRow[],
         memoryReport: retrieval.reportLine,
+        lessonRecallText: lessonRecall?.block ?? null,
         payPinText,
         lifePhaseText,
         openLoopsText,
@@ -87,6 +94,7 @@ export async function loadContext(store: TelegramStore, chatId: number, text: st
       instructions: instructionMemories(memories),
       relevantMemories: pickRelevantMemories(memories, text),
       memoryReport: null,
+      lessonRecallText: null,
       payPinText,
       lifePhaseText,
       openLoopsText,
@@ -105,6 +113,7 @@ export async function loadContext(store: TelegramStore, chatId: number, text: st
       instructions: [],
       relevantMemories: [],
       memoryReport: null,
+      lessonRecallText: null,
       payPinText: null,
       lifePhaseText: null,
       openLoopsText: null,

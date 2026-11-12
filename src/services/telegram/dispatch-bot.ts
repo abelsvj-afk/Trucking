@@ -42,6 +42,7 @@ import { formatDispatchSuggestion, type DispatchSuggestion } from "@/services/ai
 import { formatRecordableOutcome, type StageBundleContext, type StageRecordablesResult } from "@/services/bot/stage-recordables";
 import type { BotChatInput, BotChatOutput } from "@/services/ai/bot-chat";
 import { buildDispatchContext, classifyTelegramText, memoryKindFor, stripCapturePrefix } from "./context";
+import { handleModelCorrection, handleModelRead, isModelReadRequest, parseModelCorrection } from "./model-intent";
 import { type TelegramBurstCollector, type TelegramBurstItem } from "./burst";
 import type { TelegramStore } from "./store";
 import type { FiledPhotoInfo, TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
@@ -411,6 +412,7 @@ async function processTextItems(
         instructions: [],
         relevantMemories: [],
         memoryReport: null,
+        lessonRecallText: null,
         payPinText: null,
         lifePhaseText: null,
         openLoopsText: null,
@@ -563,13 +565,35 @@ async function processTextItems(
 
     // --- the owner's own words: ONE conversation turn ----------
     if (chatItems.length > 0) {
+      // Frontier 2 (/model): a model read or a correct-by-reply is
+      // handled in CODE, never by the model — the read renders the
+      // stored model verbatim, and a correction is STAGED as a
+      // proposal (never auto-applied). These are intent triggers,
+      // not a command system: anything else stays conversation.
+      // Items handled here never reach the agent turn.
+      const modelItems: TelegramBurstItem[] = [];
+      const remainingChatItems: TelegramBurstItem[] = [];
+      for (const item of chatItems) {
+        if (isModelReadRequest(item.text) || parseModelCorrection(item.text)) modelItems.push(item);
+        else remainingChatItems.push(item);
+      }
+      for (const item of modelItems) {
+        if (isModelReadRequest(item.text)) {
+          segments.push(await handleModelRead(store));
+        } else {
+          segments.push(
+            (await handleModelCorrection(store, item.text, { writesRefused: options?.writesRefused })).reply,
+          );
+        }
+      }
+      const chatItemsForTurn = remainingChatItems;
       // A bare yes/no may be answering a staged proposal - it
       // reaches the agent EXACTLY as typed (never wrapped in
       // bundle context), so the pending-batch grammar still
       // parses it. Other owner items combine into one turn; the
       // forwarded bundle rides that turn's context block.
-      const confirmations = chatItems.filter((i) => BARE_CONFIRMATION.test(i.text.trim()));
-      const rest = chatItems.filter((i) => !BARE_CONFIRMATION.test(i.text.trim()));
+      const confirmations = chatItemsForTurn.filter((i) => BARE_CONFIRMATION.test(i.text.trim()));
+      const rest = chatItemsForTurn.filter((i) => !BARE_CONFIRMATION.test(i.text.trim()));
       const calls: { userText: string; includeBundle: boolean }[] = [
         ...confirmations.map((i) => ({ userText: i.text, includeBundle: false })),
         ...(rest.length > 0
@@ -591,6 +615,7 @@ async function processTextItems(
           instructions,
           memories: relevantMemories,
           memoryReport: ctx.memoryReport ?? undefined,
+          lessonRecallText: ctx.lessonRecallText,
           payPinText: ctx.payPinText,
           lifePhaseText: ctx.lifePhaseText,
           openLoopsText: ctx.openLoopsText,

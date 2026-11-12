@@ -53,6 +53,7 @@ import { savedWhere } from "./saved-where";
 import { resolveReferences, type ResolutionOutcome } from "./reference-resolution";
 import { reconcileProposals } from "./reconcile-proposals";
 import { learningBlock, readyLessons, riskNote, signatureOf, summarizeOutcomes, type Outcome, type SignatureStats } from "./learning";
+import { recordActedEpisode, recordErredEpisode } from "./episodes";
 import { expandMaintenancePairings } from "./maintenance-pairing";
 import { annotatePaperLogEdits } from "@/services/fleet/paper-logs";
 import {
@@ -339,7 +340,7 @@ export async function loadBotContext(
   store: BotBrainStore,
   userText: string,
 ): Promise<Omit<BotChatInput, "userText">> {
-  const [history, snapshot, instructions, retrieval, summary, payPin, lifePhaseOverride, openLoops, activeEmployer] = await Promise.all([
+  const [history, snapshot, instructions, retrieval, summary, payPin, lifePhaseOverride, openLoops, activeEmployer, lessonRecall] = await Promise.all([
     store.loadConversationHistory(12),
     store.loadSnapshot(),
     store.loadInstructionMemories(),
@@ -354,6 +355,12 @@ export async function loadBotContext(
     store.loadLifePhaseOverride(),
     store.listThreads({ openOnly: true, unansweredOnly: true, limit: 3 }),
     store.loadActiveEmployer ? store.loadActiveEmployer() : Promise.resolve(null),
+    // Frontier 2: pre-action recall — his own lessons about this
+    // kind of situation, before the model answers. Best-effort:
+    // recall never breaks context assembly.
+    store.recallLessons
+      ? store.recallLessons(userText).catch(() => null)
+      : Promise.resolve(null),
   ]);
   return {
     history,
@@ -361,6 +368,7 @@ export async function loadBotContext(
     instructions: instructions as BotChatInput["instructions"],
     memories: retrieval.facts as BotChatInput["memories"],
     memoryReport: retrieval.reportLine,
+    lessonRecallText: lessonRecall?.block ?? null,
     summaryText: summary
       ? `EARLIER CONVERSATION SUMMARY (week of ${summary.weekStart} - built from his actual past turns, which remain stored in full):\n${summary.summary}`
       : null,
@@ -457,6 +465,13 @@ async function resolvePending(
   try {
     const result = await executeWriteTool(store, pending.tool_name, pending.arguments);
     await logOutcome(store, pending, "approved");
+    // Frontier 2 (hot path, acted, no LLM): an approved + executed
+    // proposal becomes an autobiography episode. Best-effort —
+    // the episode write can never break the turn's reply.
+    await recordActedEpisode(store.client, store.companyId, {
+      tool: pending.tool_name,
+      summary: pending.summary,
+    });
     await indexLoadAfterExecution(store, chatId, executedLoadId(pending.tool_name, pending.arguments, result), pending.arguments);
     // The result is model-facing grounding text; lines addressed to the model ("Show him...",
     // "then call send_email...") are stripped before it is read back to him (leak 2026-11-07).
@@ -997,6 +1012,11 @@ export async function runAgentTurn(
   } catch {
     /* no learning this turn */
   }
+  // Frontier 2: pre-action recall — his own lessons about this
+  // situation, composed before the model answers with a
+  // recommendation. (The block was assembled by loadBotContext /
+  // loadContext; here it just rides into the prompt.)
+  if (input.lessonRecallText) contextBlocks.push(input.lessonRecallText);
   // T-004: a read-only turn is offered read tools ONLY - no write
   // tool is even callable, so nothing can be staged by any path.
   // Dynamic selection (owner requirement, 2026-11-09): the loop also
@@ -1059,6 +1079,17 @@ export async function runAgentTurn(
   if (correctingPending && proposals.some((p) => p.tool === correctingPending!.tool_name)) {
     await store.clearPendingAction(correctingPending.id);
     await logOutcome(store, correctingPending, "corrected");
+    // Frontier 2 (correction path, erred, free): he corrected the
+    // proposal — capture old → new and the lesson it taught.
+    // Best-effort; the corrected proposal itself is unaffected.
+    const replacement = proposals.find((p) => p.tool === correctingPending!.tool_name);
+    if (replacement && replacement.summary !== correctingPending.summary) {
+      await recordErredEpisode(store.client, store.companyId, {
+        oldText: correctingPending.summary,
+        newText: replacement.summary,
+        context: "proposal correction",
+      });
+    }
   }
   // No redundant approvals (owner 2026-11-07): reconcile with what is already waiting and within this turn.
   let reconcileNotes: string[] = [];

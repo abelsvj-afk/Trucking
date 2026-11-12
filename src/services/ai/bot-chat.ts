@@ -58,6 +58,12 @@ export interface BotChatInput {
    * proposal may be staged or executed, however the words land.
    */
   writesRefused?: boolean;
+  /**
+   * Frontier 2: the pre-action recall block ("WHAT I'VE LEARNED
+   * ABOUT WORKING WITH HIM") — assembled in code by loadBotContext
+   * (web) / loadContext (Telegram) before the model sees the turn.
+   */
+  lessonRecallText?: string | null;
 }
 
 import { STYLE_RULES } from "@/services/telegram/format-reply";

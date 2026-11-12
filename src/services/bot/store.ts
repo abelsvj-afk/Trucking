@@ -17,6 +17,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { BOT_CHAT_CAPABILITY } from "@/services/ai/agent-loop";
 import { DISPATCH_HELPER_CAPABILITY } from "@/services/ai/dispatch";
 import { createMemoryStore } from "./store-memory";
+import { createEpisodeStore } from "./store-episodes";
+import type { EpisodeInput, EpisodeRow } from "./episodes";
+import type { LessonRecall } from "./lesson-recall";
+import type { WhatIKnowModel } from "./what-i-know";
+import type { ChainMemoryRow } from "./memory-lifecycle";
 import { createPendingStore } from "./store-pending";
 import { createOutcomesStore } from "./store-outcomes";
 import type { Outcome, OutcomeRow } from "./learning";
@@ -261,6 +266,24 @@ export interface BotBrainStore extends TelegramStore {
   editMemory(id: string, content: string): Promise<string>;
   /** Owner delete = the store's existing soft delete. */
   deleteMemory(id: string): Promise<void>;
+  // --- Frontier 2 (Remember better): the agent_episodes
+  // autobiography namespace (migration 00092) ---
+  /** Current agent episodes (lessons included), plus superseded history when asked. */
+  listEpisodes(options?: { includeHistory?: boolean; limit?: number }): Promise<EpisodeRow[]>;
+  /** Saves one episode; resolves its id (null before migration 00092). */
+  saveEpisode(input: EpisodeInput): Promise<string | null>;
+  /** Owner correction of a lesson: a superseding row at confidence 1.0, provenance owner_stated. Resolves the new row's id. */
+  correctEpisode(id: string, lesson: string): Promise<string>;
+  /** Pre-action recall: top-K lessons for a situation, with the F5 annoyance-term shape. Best-effort — never throws. */
+  recallLessons(situation: string, options?: { category?: string; outcomeRows?: import("./learning").OutcomeRow[]; now?: Date }): Promise<LessonRecall>;
+  /** "What I know about you": beliefs + preferences + lessons with evidence. */
+  getWhatIKnow(): Promise<WhatIKnowModel>;
+  /** The full supersession chain for one episode, oldest first. */
+  episodeChain(id: string): Promise<EpisodeRow[]>;
+  /** The full supersession chain for one memory, oldest first. */
+  memoryChain(id: string): Promise<ChainMemoryRow[]>;
+  /** Stages a lesson correction as a proposal (Telegram /model correct-by-reply) — never auto-applies. */
+  stageLessonCorrection(episodeId: string, lesson: string): Promise<void>;
   // --- Abel Intelligence Upgrade, Phase D (pay truth) ---
   /** The pay pin: the current "Pay structure" business_fact, parsed. UNKNOWN_PIN when none exists - never a guess. */
   loadPayPin(): Promise<PayPin>;
@@ -633,6 +656,9 @@ export function createBotStore(
 
     // --- Lane 2 (Phases A+B): see store-memory.ts ---
     ...createMemoryStore(supabase, company, capabilityEnabled),
+
+    // --- Frontier 2 (Remember better): see store-episodes.ts ---
+    ...createEpisodeStore(supabase, company, channel),
 
     // --- Phase D (pay truth): see store-pay.ts ---
     ...createPayStore(supabase, company),
