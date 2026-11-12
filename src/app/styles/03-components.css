@@ -2685,3 +2685,22 @@ main li:has(> .ds-hub-row) { padding: 0; border: 0; background: transparent; box
 .form-more > summary::after { right: 0; top: 50%; transform: translateY(-50%); }
 .form-more-hint { font-size: 0.8125rem; font-weight: 400; color: var(--color-text-muted); }
 .form-more[open] { padding-bottom: var(--space-4); }
+
+/* --- Claude UI pass 2 (2026-11-12) --- */
+/* Game Plan rows: label over a full-width control that can never be wider than its card. */
+.form-row { display: flex; flex-direction: column; min-width: 0; }
+.form-row > input, .form-row > select, .form-row > textarea { width: 100%; max-width: 100%; min-width: 0; }
+select { max-width: 100%; text-overflow: ellipsis; }
+/* Financial summary: the date range sits above the figures so it cannot squeeze the label column. */
+.summary-range { font-weight: 700; margin: var(--space-4) 0 var(--space-3); }
+/* Research: headings need air above them. */
+.research-page h2, .research-page h3 { margin-top: var(--space-6, 1.5rem); }
+.research-page > form + h2 { margin-top: var(--space-6, 1.5rem); }
+/* Delete: recoverable, but never the main action on the page. */
+button.button-danger-quiet {
+  background-color: transparent;
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  box-shadow: none;
+}
+button.button-danger-quiet:hover { background-color: var(--color-danger-light); box-shadow: none; }

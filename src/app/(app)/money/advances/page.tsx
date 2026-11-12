@@ -190,7 +190,7 @@ export default function CashAdvancesPage() {
                     {formatDay(advance.advance_date)} · {driverName(advance.driver_id)}
                     {advance.note ? ` · ${advance.note}` : ""}
                   </span>{" "}
-                  <button type="button" onClick={() => setPendingDelete(advance)}>
+                  <button type="button" className="button-danger-quiet" onClick={() => setPendingDelete(advance)}>
                     Delete
                   </button>
                 </li>
