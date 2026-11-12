@@ -162,3 +162,12 @@ opens that group at `/more/settings/<pay|hours|connections|look|ai|account>`. Th
 long page held, unchanged. The index cannot change a setting; the AI kill switches (`docs/governance.md`) are changed only on
 the "Abel and AI" page. Old anchors (`/more/settings#settings-pay` and the rest) forward to the matching page. No search in
 this version. A summary that cannot be read is left out, never guessed.
+
+## Money opens on the net (2026-11-12, owner-approved; design note `docs/design/money-hub-net-first.md`)
+
+`/money` shows two blocks above its eight sections. **This pay week:** the expected net, the arithmetic under it (expected
+minus cash advances minus pay deductions), the load count, payday and statement day. **Recent pay weeks:** up to six finished
+pay weeks, newest first, each with its expected amount, a bar scaled to the largest, and whether it was paid, came up short
+or is not paid yet. Rules: the net comes from `payWeekNet()` in `src/lib/money-hub.ts`, the same function Home's pay card
+reads; a range is shown as a range; when advances or deductions fail to load no net is shown and the reason is stated; the
+word "expected" stays on screen and the settlement is named as the final number. The sections and their order are unchanged.
