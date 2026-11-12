@@ -15,7 +15,7 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
-import { formatDate } from "@/lib/time";
+import { formatCalendarDay, formatDate } from "@/lib/time";
 import type { FinancialSummaryDetail } from "@/types/financial-summary";
 
 function formatDollars(cents: number) {
@@ -49,12 +49,12 @@ function rowLabel(component: string, row: Record<string, unknown>): { title: str
     case "revenue":
       return {
         title: `${String(row.origin ?? "")} → ${String(row.destination ?? "")}`,
-        sub: `Delivered ${row.delivery_date ? formatDate(String(row.delivery_date)) : "—"}`,
+        sub: `Delivered ${row.delivery_date ? formatCalendarDay(String(row.delivery_date)) : "—"}`,
       };
     case "expenses":
       return {
         title: String(row.description ?? row.category ?? "Expense"),
-        sub: `${String(row.category ?? "")} · ${row.expense_date ? formatDate(String(row.expense_date)) : ""}`,
+        sub: `${String(row.category ?? "")} · ${row.expense_date ? formatCalendarDay(String(row.expense_date)) : ""}`,
       };
     case "fuel": {
       const adjustment = Number(row.adjustment_cents ?? 0);
@@ -70,7 +70,7 @@ function rowLabel(component: string, row: Record<string, unknown>): { title: str
     case "maintenance":
       return {
         title: String(row.description ?? "Maintenance"),
-        sub: row.service_date ? formatDate(String(row.service_date)) : "",
+        sub: row.service_date ? formatCalendarDay(String(row.service_date)) : "",
       };
     default:
       return { title: String(row.id ?? ""), sub: "" };
