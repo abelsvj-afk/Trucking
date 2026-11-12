@@ -70,6 +70,15 @@ describe("nowBlock (P1-2)", () => {
     expect(block).toContain("Eastern");
     expect(block).not.toMatch(/UTC/);
   });
+  it("states the moment in Central time when the truck is in Central (timezone transitions 2026-11-11)", () => {
+    // 03:30 UTC on Nov 7 is still Nov 6 in Chicago too — but the clock reads Central.
+    const block = nowBlock(new Date("2026-11-07T03:30:00Z"), "America/Chicago");
+    expect(block).toContain("today is 2026-11-06");
+    expect(block).toContain("Central");
+    expect(block).toContain("(America/Chicago)");
+    expect(block).not.toContain("Eastern");
+    expect(block).not.toMatch(/UTC/);
+  });
 });
 
 describe("gateExecutes (P0-6)", () => {

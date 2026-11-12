@@ -262,7 +262,16 @@ export function describeTerms(terms: PayTerms): string {
   return parts.length > 0 ? parts.join(" + ") : "no rate set";
 }
 
-/** "Fri Nov 13" for a YYYY-MM-DD day (calendar day as-is, no timezone shift). */
+/**
+ * "Fri Nov 13" for a YYYY-MM-DD day (calendar day as-is, no timezone shift).
+ *
+ * PAY-DATE RULE (timezone transitions 2026-11-11, lib/display-zone rule 4):
+ * pay dates stay in the HOME zone (America/New_York) — pay weeks and
+ * paydays are home-terminal dates, not where the truck happens to be.
+ * This renders from a noon-UTC instant precisely so the calendar day
+ * cannot shift under any viewer or truck zone; do not "fix" it by
+ * rendering the instant in the display zone.
+ */
 export function formatDay(day: string): string {
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }

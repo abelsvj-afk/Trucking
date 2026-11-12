@@ -14,6 +14,10 @@ import { AUTO_SWITCH_GRACE_MS } from "@/lib/auto-switch";
 import { SUSTAIN_MS } from "@/lib/sustained-motion";
 import { autoSubmissionId, autoSwitchNotice, type AutoMotionResult } from "@/services/fleet/auto-motion";
 import {
+  timeZoneForPosition,
+  zoneCrossingNotice,
+} from "@/lib/display-zone";
+import {
   decideStatusProposal,
   deriveSpeedMph,
   stepEpisode,
@@ -84,13 +88,21 @@ export async function handleLiveLocation(
   atMs: number,
   deps: {
     sendMessage: (text: string) => Promise<void>;
-    formatTime: (ms: number) => string;
+    /**
+     * The proposal label for an instant, in the zone of the fix it
+     * belongs to — the truck's zone, labeled ("7:40 AM CT"). The fix's
+     * coordinates ride along so the formatter never has to guess the
+     * zone from a stale position. Never a raw ISO string.
+     */
+    formatTime: (ms: number, lat: number, lng: number) => string;
     /**
      * The automatic switch to Driving (works with the app closed: Telegram keeps streaming the
      * position). Given the DETECTION time; returns what the shared rules decided. Absent = the
-     * old behavior (a proposal he approves).
+     * old behavior (a proposal he approves). The third argument is the
+     * fix's zone, so the switch row and its note carry the zone where
+     * the motion was detected.
      */
-    autoSwitch?: (detectedAtIso: string, submissionId: string) => Promise<AutoMotionResult>;
+    autoSwitch?: (detectedAtIso: string, submissionId: string, timeZone?: string) => Promise<AutoMotionResult>;
   },
 ): Promise<LiveLocationResult> {
   if (!validLocation(loc) || !Number.isFinite(atMs)) return { kind: "ignored" };
@@ -108,6 +120,24 @@ export async function handleLiveLocation(
 
   const currentStatus = await store.loadCurrentStatus();
 
+  // Timezone transition (owner order 2026-11-11): the display zone
+  // follows the truck. When this fix lands in a different zone than
+  // the stored one, say so plainly ONCE — the next fix in the new zone
+  // has prev == new, so the notice cannot repeat for one crossing.
+  // Best-effort: a failed send must never fail the fix.
+  const fixZone = timeZoneForPosition(fix.lat, fix.lng);
+  if (prev) {
+    const prevZone = timeZoneForPosition(prev.fix.lat, prev.fix.lng);
+    const crossing = zoneCrossingNotice(prevZone, fixZone);
+    if (crossing) {
+      try {
+        await deps.sendMessage(crossing);
+      } catch (err) {
+        console.error("[live-location] zone-crossing notice failed", err);
+      }
+    }
+  }
+
   // Automatic switch (owner order 2026-11-06): moving for SUSTAIN_MS + the grace while the log says
   // otherwise -> switch to Driving, stamped at the DETECTION time (movement start + SUSTAIN_MS),
   // and tell him. The shared rules stand down for a manual choice. When the switch is off (kill
@@ -122,14 +152,14 @@ export async function handleLiveLocation(
   ) {
     const detectedAtMs = episode.movingSinceMs + SUSTAIN_MS;
     try {
-      const res = await deps.autoSwitch(new Date(detectedAtMs).toISOString(), autoSubmissionId(detectedAtMs));
+      const res = await deps.autoSwitch(new Date(detectedAtMs).toISOString(), autoSubmissionId(detectedAtMs), fixZone);
       if (res.switched || res.reason !== "switched_off") autoHandled = true; // a manual choice is also "handled": no nagging proposal on top
       if (res.switched && !res.deduplicated && res.startedAt) {
         await store.savePosition({
           fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
           speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: "start_driving",
         });
-        await deps.sendMessage(autoSwitchNotice(res.startedAt));
+        await deps.sendMessage(autoSwitchNotice(res.startedAt, fixZone));
         return { kind: "recorded", proposed: null };
       }
     } catch (err) {
@@ -149,11 +179,15 @@ export async function handleLiveLocation(
   let lastPromptKind = prev?.lastPromptKind ?? null;
   let proposed: StatusProposal | null = null;
   if (proposal) {
-    const label = deps.formatTime(proposal.sinceMs);
+    const label = deps.formatTime(proposal.sinceMs, fix.lat, fix.lng);
     const text = proposalText(proposal, label);
     const sinceIso = new Date(proposal.sinceMs).toISOString();
     // Stage first, tell him second: a proposal he is told about must exist.
-    await store.stageProposal(proposal, sinceIso, `Duty status: ${proposal.status} starting at ${sinceIso} (paper-log helper)`);
+    // The summary carries the LABELED time in the fix's zone — it is
+    // quoted back to him when the proposal is re-surfaced, and a raw
+    // ISO there is exactly the Nov 11 9:58 PM incident (a Nov 8
+    // proposal quoted as "2026-11-08T13:40:37.858Z"). Never again.
+    await store.stageProposal(proposal, sinceIso, `Duty status: ${proposal.status} starting at ${label} (paper-log helper)`);
     lastPromptAtMs = atMs;
     lastPromptKind = proposal.kind;
     proposed = proposal;

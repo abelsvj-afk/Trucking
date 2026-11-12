@@ -51,6 +51,7 @@ import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
 import { todayEastern } from "@/lib/eastern-date";
+import { formatClock, HOME_TIME_ZONE, loadDisplayZone } from "@/lib/display-zone";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -515,10 +516,24 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       validateArgs: validateWith(logDutyArgs),
       summarize(args) {
         const parsed = logDutyArgs.parse(args);
-        return `Duty status: ${parsed.duty_status} starting ${parsed.started_at ? `at ${parsed.started_at}` : "now"}${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`;
+        // Labeled home time, never a raw ISO: this text is quoted back
+        // to him in the waiting list and in the proposal he approves.
+        // (The live-location path stages its own summary in the FIX's
+        // zone; this agent-originated path has no zone at summarize
+        // time, so it falls back to labeled home time.)
+        return `Duty status: ${parsed.duty_status} starting ${parsed.started_at ? `at ${formatClock(parsed.started_at, HOME_TIME_ZONE)}` : "now"}${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`;
       },
       async run(args) {
         const parsed = logDutyArgs.parse(args);
+        // The zone where it happened (migration 00091): the truck's
+        // zone from its latest fix, home fallback. Best-effort — a
+        // failed lookup never blocks the log itself.
+        let entryZone = HOME_TIME_ZONE;
+        try {
+          entryZone = (await loadDisplayZone(client, companyId)).timeZone;
+        } catch {
+          // Home fallback stands.
+        }
         const baseRow: Record<string, unknown> = {
           company_id: companyId,
           duty_status: parsed.duty_status,
@@ -527,6 +542,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           notes: parsed.notes ?? null,
           odometer: parsed.odometer ?? null,
           load_id: parsed.load_id ?? null,
+          time_zone: entryZone,
         };
         if (parsed.source !== undefined) baseRow.source = parsed.source;
         if (parsed.source_document_id !== undefined) {
@@ -557,13 +573,20 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           baseRow.notes = `${baseRow.notes ? `${baseRow.notes} ` : ""}(Provenance: ${parsed.source} - the source columns haven't landed in the database yet.)`;
           ({ error } = await client.from("duty_logs").insert(baseRow));
         }
+        if (error && isMissingColumnError(error) && /time_zone/i.test(error.message)) {
+          // Pre-00091 database: the entry still lands; the zone is
+          // restated in the note so it is not lost, only uncolumned.
+          delete baseRow.time_zone;
+          baseRow.notes = `${baseRow.notes ? `${baseRow.notes} ` : ""}(Zone: ${entryZone} - the time_zone column hasn't landed in the database yet.)`;
+          ({ error } = await client.from("duty_logs").insert(baseRow));
+        }
         if (error) throw new Error(error.message);
         if (isBackfill) {
           await recordDutyLogEdit(client, {
             companyId,
             dutyLogId: String(baseRow.id),
             kind: "insert",
-            reason: `Duty status: ${parsed.duty_status} starting ${parsed.started_at ? `at ${parsed.started_at}` : "now"}${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`,
+            reason: `Duty status: ${parsed.duty_status} starting ${parsed.started_at ? `at ${formatClock(parsed.started_at, HOME_TIME_ZONE)}` : "now"}${parsed.location ? ` in ${parsed.location}` : ""} (paper-log helper)`,
             before: null,
             after: { ...baseRow },
             source: "conversation",
