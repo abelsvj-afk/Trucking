@@ -20,6 +20,7 @@ import {
   runBusinessCreditWatch,
   type WatchMessage,
 } from "@/services/business-credit/watch";
+import { formatMoney } from "@/lib/money-format";
 
 export { etDate, etHour, etTime } from "./time";
 export const MAX_TRIAGED_PER_POLL = 15;
@@ -61,7 +62,7 @@ export function composeMessageAlert(m: { mailbox?: Mailbox; classification: Mail
   return lines.join("\n");
 }
 
-const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dollars = (cents: number) => formatMoney(cents);
 
 /** The workup shown with a load offer: only what the email stated, absence named, the computed rate labelled computed. */
 export function composeCandidateWorkup(c: Candidate): string {

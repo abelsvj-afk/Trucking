@@ -3,6 +3,7 @@
 // is his own history, with the sample size stated - thin history is said to be thin, never dressed up as a market rate.
 
 import { normalizeState } from "@/lib/fleet/regions";
+import { formatMoney } from "@/lib/money-format";
 
 export interface LaneLoad {
   id?: string;
@@ -65,7 +66,7 @@ export function laneStats(loads: LaneLoad[], origin: string | null, destination:
   };
 }
 
-const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
+const usd = (c: number) => formatMoney(c);
 
 export function formatLaneStats(origin: string | null, destination: string | null, s: LaneStats): string {
   const lane = `${origin ? (stateOf(origin) ?? origin) : "anywhere"} → ${destination ? (stateOf(destination) ?? destination) : "anywhere"}`;

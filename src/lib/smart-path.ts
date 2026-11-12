@@ -11,6 +11,7 @@
 // certifies anything.
 
 import type { HosSummary } from "./hos";
+import { formatMoney } from "@/lib/money-format";
 
 export interface LatLng {
   lat: number;
@@ -1050,11 +1051,11 @@ export function checkRoute(input: RouteCheckInput): RouteCheckResult {
   if (input.rateCents !== null && input.loadMiles !== null && input.loadMiles > 0) {
     const rpm = input.rateCents / 100 / input.loadMiles;
     paidLines.push(
-      `This load pays $${(input.rateCents / 100).toFixed(2)} over ${input.loadMiles} miles - $${rpm.toFixed(2)} a mile, before fuel and the drive back out.`,
+      `This load pays ${formatMoney(input.rateCents)} over ${input.loadMiles} miles - $${rpm.toFixed(2)} a mile, before fuel and the drive back out.`,
     );
   } else if (input.rateCents !== null) {
     paidLines.push(
-      `This load pays $${(input.rateCents / 100).toFixed(2)}; no miles on the load yet, so no per-mile figure.`,
+      `This load pays ${formatMoney(input.rateCents)}; no miles on the load yet, so no per-mile figure.`,
     );
   }
 

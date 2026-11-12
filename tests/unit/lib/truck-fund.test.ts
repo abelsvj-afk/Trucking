@@ -145,7 +145,7 @@ describe("computeSuggestion", () => {
     });
     expect(suggestion?.amountCents).toBe(25_000);
     expect(suggestion?.text).toBe(
-      "$1000.01 settled this week. Your rule sends $250.00 to the Truck Fund.",
+      "$1,000.01 settled this week. Your rule sends $250.00 to the Truck Fund.",
     );
   });
 

@@ -10,13 +10,14 @@ import { formatEastern, type LatLng } from "./smart-path";
 import { formatFuelPriceLine } from "./smart-path-stops";
 import type { SmartPathMapStop } from "@/components/SmartPathMap";
 import type { RouteCheckResponse } from "@/types/smart-path";
+import { formatMoney } from "@/lib/money-format";
 
 function mapsUrlFor(point: LatLng): string {
   return `https://www.google.com/maps/search/?api=1&query=${point.lat},${point.lng}`;
 }
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 export function buildMapStops(

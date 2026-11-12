@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { AgentTool } from "@/services/ai/agent-loop";
 import type { BotBrainStore } from "./store";
 import { fetchLiveRow, insertRow, isMissingColumnError, patchLiveRow, validateWith } from "./tool-helpers";
+import { formatMoney } from "@/lib/money-format";
 
 export type Row = Record<string, unknown>;
 
@@ -200,7 +201,7 @@ export const idParam = (key: string, entity: string) => ({
 /** A saved record in words, for proposals (P0-3 / P2-2): what he would recognise, never a uuid. */
 export function describeRecord(label: string, row: Row): string {
   const money = (c: unknown) =>
-    typeof c === "number" ? `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null;
+    typeof c === "number" ? `${formatMoney(c)}` : null;
   const day = (v: unknown) => (typeof v === "string" ? v.slice(0, 10) : null);
   if (row.origin || row.destination) {
     const bits = [
@@ -227,7 +228,7 @@ export function describeRecord(label: string, row: Row): string {
 }
 
 function shownValue(key: string, v: unknown): string {
-  if (key.endsWith("_cents") && typeof v === "number") return `$${(v / 100).toFixed(2)}`;
+  if (key.endsWith("_cents") && typeof v === "number") return `${formatMoney(v)}`;
   if (v === null) return "(cleared)";
   return String(v).slice(0, 80);
 }

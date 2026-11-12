@@ -62,3 +62,35 @@ describe("app pages and components use the shared formatter", () => {
     expect(offenders.map((f) => f.replace(process.cwd(), ""))).toEqual([]);
   });
 });
+
+// Phase 2 (2026-11-12): Abel and the shared library speak the same format as the app.
+describe("Abel and library code use the shared formatter", () => {
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (/\.ts$/.test(name)) files.push(path);
+    }
+  };
+  walk(join(process.cwd(), "src/services"));
+  walk(join(process.cwd(), "src/lib"));
+  // Business Credit is another lane's code; money-format.ts is the formatter itself.
+  const mine = files.filter((f) => !f.includes("business-credit") && !f.endsWith("money-format.ts"));
+
+  it("no service or library file builds a two-decimal dollar string from cents by hand", () => {
+    const offenders = mine.filter((f) => /`[^`]*\$\$\{\([^`}]*\/ 100\)\.(toFixed\(2\)|toLocaleString\("en-US", \{ minimumFractionDigits: 2)/.test(readFileSync(f, "utf8")));
+    expect(offenders.map((f) => f.replace(process.cwd(), ""))).toEqual([]);
+  });
+
+  it("the older exported helpers are the same function underneath", async () => {
+    const { formatCents } = await import("@/lib/pay-projection");
+    const { formatDollars } = await import("@/lib/truck-fund");
+    const { dollars } = await import("@/services/bot/tool-helpers");
+    for (const cents of [0, 5, 103400, -56894, 123456789]) {
+      expect(formatCents(cents)).toBe(formatMoney(cents));
+      expect(formatDollars(cents)).toBe(formatMoney(cents));
+      expect(dollars(cents)).toBe(formatMoney(cents));
+    }
+  });
+});

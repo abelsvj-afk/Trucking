@@ -21,6 +21,7 @@
 import { PAY_BANDS } from "@/services/ai/job-knowledge";
 import { matching1099Dollars, w2EquivalentDollars } from "./pay-advisor";
 import { isPinned, type PayPin } from "./pay-pin";
+import { formatMoney } from "@/lib/money-format";
 
 export interface SettlementFigures {
   issuerName: string;
@@ -47,7 +48,7 @@ export interface TruePay {
 }
 
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents);
 }
 
 export function computeTruePay(s: SettlementFigures, pin: PayPin): TruePay {
@@ -76,7 +77,7 @@ export function computeTruePay(s: SettlementFigures, pin: PayPin): TruePay {
     const loadedNote =
       s.milesLoaded != null ? ` (${s.milesLoaded} loaded + ${s.milesTotal - s.milesLoaded} empty)` : "";
     lines.push(
-      `Effective pay on ALL ${s.milesTotal} miles${loadedNote}: $${(effectiveCpmCents / 100).toFixed(2)}/mi - ` +
+      `Effective pay on ALL ${s.milesTotal} miles${loadedNote}: ${formatMoney(effectiveCpmCents)}/mi - ` +
         `band for this seat is weak under $${PAY_BANDS.effectiveCpmAllMiles.weakBelow.toFixed(2)}, strong over $${PAY_BANDS.effectiveCpmAllMiles.strongAbove.toFixed(2)} (bands are estimates, ${PAY_BANDS.asOf}).`,
     );
   }
@@ -85,7 +86,7 @@ export function computeTruePay(s: SettlementFigures, pin: PayPin): TruePay {
   if (s.dutyMinutes != null && s.dutyMinutes > 0) {
     effectiveHourlyCents = Math.round(s.driverPayCents / (s.dutyMinutes / 60));
     lines.push(
-      `Effective pay on all duty time (${Math.floor(s.dutyMinutes / 60)}h ${String(s.dutyMinutes % 60).padStart(2, "0")}m on duty): $${(effectiveHourlyCents / 100).toFixed(2)}/hr. Unpaid days and deadhead are already inside this number - that's the point of it.`,
+      `Effective pay on all duty time (${Math.floor(s.dutyMinutes / 60)}h ${String(s.dutyMinutes % 60).padStart(2, "0")}m on duty): ${formatMoney(effectiveHourlyCents)}/hr. Unpaid days and deadhead are already inside this number - that's the point of it.`,
     );
   }
 
@@ -383,11 +384,11 @@ export function buildWeeklyPayReport(input: {
       lines.push(`Spendable: ${dollars(spendableCents)} - saving targets read from THIS number, not the gross.`);
     }
     if (effectiveCpmCents != null && milesTotal != null) {
-      lines.push(`Effective pay: $${(effectiveCpmCents / 100).toFixed(2)} per mile over all ${milesTotal} miles.`);
+      lines.push(`Effective pay: ${formatMoney(effectiveCpmCents)} per mile over all ${milesTotal} miles.`);
     }
     if (dutyMinutes != null && dutyMinutes > 0) {
       const hourly = Math.round(driverPayCents / (dutyMinutes / 60));
-      lines.push(`Effective pay: $${(hourly / 100).toFixed(2)} per duty hour (unpaid days and deadhead included).`);
+      lines.push(`Effective pay: ${formatMoney(hourly)} per duty hour (unpaid days and deadhead included).`);
     }
     const deadheadMiles = sum(settlements.map((s) =>
       s.milesTotal != null && s.milesLoaded != null ? s.milesTotal - s.milesLoaded : null,
