@@ -13,9 +13,10 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePayProjection } from "@/lib/use-pay-projection";
 import PayTermsCard from "@/components/PayTermsCard";
-import { formatCents, formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
+import { formatDay, formatRange, type PeriodProjection } from "@/lib/pay-projection";
 import { advancesForPeriod, netRange, sumAdvances, type AdvanceLike } from "@/lib/cash-advances";
 import { deductionsForPeriod, sumDeductions, type DeductionLike } from "@/lib/expense-buckets";
+import { formatMoney } from "@/lib/money-format";
 
 function PeriodBlock({
   title,
@@ -50,12 +51,12 @@ function PeriodBlock({
       </p>
       {outAvailable && advancesCents > 0 && (
         <p role="status">
-          − {formatCents(advancesCents)} in <Link href="/money/advances">cash advances</Link> already taken out of this pay
+          − {formatMoney(advancesCents)} in <Link href="/money/advances">cash advances</Link> already taken out of this pay
         </p>
       )}
       {outAvailable && deductionsCents > 0 && (
         <p role="status">
-          − {formatCents(deductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out of this pay
+          − {formatMoney(deductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out of this pay
         </p>
       )}
       {outAvailable && (advancesCents > 0 || deductionsCents > 0) && (

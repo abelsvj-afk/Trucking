@@ -16,10 +16,11 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { viewerTimeZone } from "@/lib/time";
 import { zonedDate } from "@/lib/zoned-day";
-import { formatCents, formatDay } from "@/lib/pay-projection";
+import { formatDay } from "@/lib/pay-projection";
 import { groupAdvancesByWeek } from "@/lib/cash-advances";
 import type { PayTermsRow } from "@/lib/paycheck";
 import type { CashAdvance, Driver, EmployerPayProfile } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export default function CashAdvancesPage() {
   usePageTitle("Cash advances");
@@ -116,7 +117,7 @@ export default function CashAdvancesPage() {
       <ConfirmDialog
         open={pendingDelete !== null}
         title="Delete this cash advance?"
-        message={pendingDelete ? `${formatCents(pendingDelete.amount_cents)} taken ${formatDay(pendingDelete.advance_date)} will stop being taken out of that payday, so the net you should get goes UP by that amount. If it was recorded against the wrong week, delete it and record it with the date you actually took it.` : ""}
+        message={pendingDelete ? `${formatMoney(pendingDelete.amount_cents)} taken ${formatDay(pendingDelete.advance_date)} will stop being taken out of that payday, so the net you should get goes UP by that amount. If it was recorded against the wrong week, delete it and record it with the date you actually took it.` : ""}
         confirmLabel="Delete advance"
         onConfirm={() => pendingDelete && void handleDelete(pendingDelete)}
         onCancel={() => setPendingDelete(null)}
@@ -178,14 +179,14 @@ export default function CashAdvancesPage() {
             {week.payday ? ` · comes out of the ${formatDay(week.payday)} payday` : " · payday day not set"}
           </h2>
           <p role="status">
-            <strong>{formatCents(week.totalCents)}</strong> taken out of this week&apos;s pay
+            <strong>{formatMoney(week.totalCents)}</strong> taken out of this week&apos;s pay
           </p>
           <ul>
             {week.advances.map((a) => {
               const advance = a as CashAdvance;
               return (
                 <li key={advance.id}>
-                  <span className="row-title">{formatCents(advance.amount_cents)}</span>
+                  <span className="row-title">{formatMoney(advance.amount_cents)}</span>
                   <span className="row-sub">
                     {formatDay(advance.advance_date)} · {driverName(advance.driver_id)}
                     {advance.note ? ` · ${advance.note}` : ""}

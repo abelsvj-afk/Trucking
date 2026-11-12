@@ -100,7 +100,7 @@ describe("C.7.6b(d) - the fuel DETAIL view renders the legacy adjustment (source
   it("renders the adjustment amount WITH its reason from the purchase's fields", () => {
     expect(detailPage).toContain("purchase.adjustment_cents !== 0");
     expect(detailPage).toContain("purchase.adjustment_reason");
-    expect(detailPage).toContain("formatDollars(purchase.adjustment_cents)");
+    expect(detailPage).toContain("formatMoney(purchase.adjustment_cents)");
   });
 });
 

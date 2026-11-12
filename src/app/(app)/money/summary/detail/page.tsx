@@ -17,10 +17,7 @@ import PageHeader from "@/components/PageHeader";
 import { usePageTitle } from "@/lib/use-page-title";
 import { formatCalendarDay, formatDate } from "@/lib/time";
 import type { FinancialSummaryDetail } from "@/types/financial-summary";
-
-function formatDollars(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+import { formatMoney } from "@/lib/money-format";
 
 const TITLES: Record<string, string> = {
   revenue: "Revenue — loads delivered",
@@ -63,7 +60,7 @@ function rowLabel(component: string, row: Record<string, unknown>): { title: str
         sub:
           `${String(row.gallons ?? "")} gal · ${row.purchased_at ? formatDate(String(row.purchased_at)) : ""}` +
           (adjustment !== 0
-            ? ` · adjustment ${formatDollars(adjustment)}${row.adjustment_reason ? ` — ${String(row.adjustment_reason)}` : ""}`
+            ? ` · adjustment ${formatMoney(adjustment)}${row.adjustment_reason ? ` — ${String(row.adjustment_reason)}` : ""}`
             : ""),
       };
     }
@@ -123,7 +120,7 @@ function DetailContent() {
       <p>
         {detail.range.from} – {detail.range.to} · {detail.row_count}{" "}
         {detail.row_count === 1 ? "record" : "records"} · total{" "}
-        {formatDollars(detail.total_cents)}
+        {formatMoney(detail.total_cents)}
       </p>
       {detail.rows.length === 0 ? (
         <p>No records make up this total for the range.</p>
@@ -136,7 +133,7 @@ function DetailContent() {
               <li key={id}>
                 <Link href={rowHref(detail.component, id)}>
                   <span className="row-title">
-                    {formatDollars(Number(row[amountField] ?? 0))} — {label.title}
+                    {formatMoney(Number(row[amountField] ?? 0))} — {label.title}
                   </span>
                   <span className="row-sub">{label.sub}</span>
                 </Link>

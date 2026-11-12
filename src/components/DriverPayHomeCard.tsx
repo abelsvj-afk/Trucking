@@ -16,9 +16,10 @@
 import Link from "next/link";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { usePayProjection } from "@/lib/use-pay-projection";
-import { describeTerms, formatCents, formatDay, formatRange } from "@/lib/pay-projection";
+import { describeTerms, formatDay, formatRange } from "@/lib/pay-projection";
 import { advancesForPeriod, netRange, sumAdvances } from "@/lib/cash-advances";
 import { deductionsForPeriod, sumDeductions } from "@/lib/expense-buckets";
+import { formatMoney } from "@/lib/money-format";
 
 const hm = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60_000));
@@ -109,13 +110,13 @@ export default function DriverPayHomeCard() {
             </p>
             {weekAdvancesCents > 0 && (
               <p className="row-sub">
-                − {formatCents(weekAdvancesCents)} in <Link href="/money/advances">cash advances</Link> already taken
+                − {formatMoney(weekAdvancesCents)} in <Link href="/money/advances">cash advances</Link> already taken
                 out of this pay
               </p>
             )}
             {weekDeductionsCents > 0 && (
               <p className="row-sub">
-                − {formatCents(weekDeductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out
+                − {formatMoney(weekDeductionsCents)} in <Link href="/money/expenses">pay deductions</Link> coming out
                 of this pay
               </p>
             )}
@@ -162,12 +163,12 @@ export default function DriverPayHomeCard() {
             ? `${totals.unpaidCount} finished, unpaid (~${formatRange(totals.unpaidLowCents, totals.unpaidHighCents)})`
             : ""}
           {totals.unpaidCount > 0 && totals.shortCount > 0 ? " · " : ""}
-          {totals.shortCount > 0 ? `${totals.shortCount} short ${formatCents(totals.shortfallCents)}` : ""}
+          {totals.shortCount > 0 ? `${totals.shortCount} short ${formatMoney(totals.shortfallCents)}` : ""}
         </p>
       )}
       {showUnpaidAdvances && totals && (
         <p>
-          <Link href="/money/advances">Cash advances</Link>: {formatCents(totals.advancesCents)} already taken out of
+          <Link href="/money/advances">Cash advances</Link>: {formatMoney(totals.advancesCents)} already taken out of
           your pay
           {totals.unpaidCount > 0
             ? ` · unpaid loads should net ~${formatRange(totals.unpaidNetLowCents, totals.unpaidNetHighCents)}`

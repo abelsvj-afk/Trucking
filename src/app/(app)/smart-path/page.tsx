@@ -29,6 +29,7 @@ import { formatFuelPriceLine } from "@/lib/smart-path-stops";
 import { buildMapStops } from "@/lib/smart-path-map-stops";
 import type { Load } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
+import { formatMoney } from "@/lib/money-format";
 
 const SmartPathMap = dynamic(() => import("@/components/SmartPathMap"), { ssr: false });
 
@@ -59,10 +60,6 @@ function windowDefault(dateStr: string | null, startHour: number, endHour: numbe
     start: `${y}-${pad(m ?? 1)}-${pad(d ?? 1)}T${pad(startHour)}:00`,
     end: `${y}-${pad(m ?? 1)}-${pad(d ?? 1)}T${pad(endHour)}:00`,
   };
-}
-
-function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 function hourLabel(hour: number): string {
@@ -652,10 +649,10 @@ function SmartPathInner() {
           <p>
             For {result.fuel.assumptions.gallonsToBuy} gallons at {result.fuel.assumptions.avgMpg} mpg,
             counting detour miles and clock time (an hour priced at{" "}
-            {dollars(result.fuel.assumptions.valueOfTimeCentsPerHour)}, plus a{" "}
+            {formatMoney(result.fuel.assumptions.valueOfTimeCentsPerHour)}, plus a{" "}
             {result.fuel.assumptions.stopMinutes}-minute stop).
             {result.fuel.assumptions.baselinePriceCents !== null &&
-              ` Your average price across your fuel log: ${dollars(result.fuel.assumptions.baselinePriceCents)}/gal.`}
+              ` Your average price across your fuel log: ${formatMoney(result.fuel.assumptions.baselinePriceCents)}/gal.`}
             {result.fuel.candidates.some((candidate) => candidate.usedEstimate) &&
               " Prices marked est. are the EIA weekly U.S. average, not that station's price — your fuel log is the only real price here."}
           </p>
@@ -663,7 +660,7 @@ function SmartPathInner() {
             <ul aria-label="Diesel by region">
               {result.fuel.regional.map((r) => (
                 <li key={r.paddCode}>
-                  {r.regionName}: {dollars(r.cents)}/gal — {r.label}
+                  {r.regionName}: {formatMoney(r.cents)}/gal — {r.label}
                   {r.freshness === "aging" && " (getting old)"}
                   {r.freshness === "stale" && " — OLD DATA: shown for reference, not used to rank stops"}
                 </li>
@@ -684,11 +681,11 @@ function SmartPathInner() {
                 {candidate.source === "history" ? "(from your fuel log)" : "(map)"} —{" "}
                 {formatFuelPriceLine(candidate)} · {candidate.detourMiles.toFixed(1)} mi detour ·{" "}
                 {candidate.effectiveCostCents !== null
-                  ? `effective cost ${dollars(candidate.effectiveCostCents)}`
-                  : `detour cost ${dollars(candidate.detourCostCents)}`}
+                  ? `effective cost ${formatMoney(candidate.effectiveCostCents)}`
+                  : `detour cost ${formatMoney(candidate.detourCostCents)}`}
                 {candidate.savingsVsBaselineCents !== null &&
                   candidate.savingsVsBaselineCents !== 0 &&
-                  ` · ${candidate.savingsVsBaselineCents > 0 ? "saves" : "costs"} ${dollars(Math.abs(candidate.savingsVsBaselineCents))} vs your average`}
+                  ` · ${candidate.savingsVsBaselineCents > 0 ? "saves" : "costs"} ${formatMoney(Math.abs(candidate.savingsVsBaselineCents))} vs your average`}
               </li>
             ))}
           </ul>

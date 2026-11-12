@@ -23,10 +23,7 @@ import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { deriveFuelTotal } from "@/lib/fuel-math";
 import type { FuelPurchase, Truck } from "@/types/entities";
-
-function formatDollars(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+import { formatMoney } from "@/lib/money-format";
 
 export default function NewFuelPurchasePage() {
   usePageTitle("Add fuel purchase");
@@ -160,9 +157,9 @@ export default function NewFuelPurchasePage() {
 
         <p aria-live="polite">
           {derived
-            ? `Base ${formatDollars(derived.baseCents)}${
-                adjustmentCents !== 0 ? ` · adjustment ${formatDollars(adjustmentCents)}` : ""
-              } · Total ${formatDollars(derived.totalCents)}`
+            ? `Base ${formatMoney(derived.baseCents)}${
+                adjustmentCents !== 0 ? ` · adjustment ${formatMoney(adjustmentCents)}` : ""
+              } · Total ${formatMoney(derived.totalCents)}`
             : "Total is calculated from gallons and price."}
         </p>
 

@@ -12,8 +12,8 @@ import { formatDate, viewerTimeZone, formatSinceTime } from "@/lib/time";
 import { zonedDate } from "@/lib/zoned-day";
 import { useNowTick } from "@/lib/use-now-tick";
 import type { Load } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
-const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const day = (value: string | null) => (value ? formatDate(dateOnlyToNoon(value)) : null);
 
 export default function ActiveLoadCard() {
@@ -53,7 +53,7 @@ export default function ActiveLoadCard() {
       {window && <p className="row-sub">{window}</p>}
       {load.rate_cents !== null && (
         <p className="row-sub">
-          Rate {dollars(load.rate_cents)} — operational revenue, counted when delivered (not cash received).
+          Rate {formatMoney(load.rate_cents)} — operational revenue, counted when delivered (not cash received).
         </p>
       )}
       {overdue && (

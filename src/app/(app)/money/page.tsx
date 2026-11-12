@@ -22,9 +22,9 @@ import { useApiList } from "@/lib/use-api-list";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { lastDefinitePaycheckCents, thisWeekExpensesCents } from "@/lib/money-hub";
-import { formatCents } from "@/lib/pay-projection";
 import type { Expense } from "@/types/entities";
 import type { ReactNode } from "react";
+import { formatMoney } from "@/lib/money-format";
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/money/expenses", label: "Expenses", desc: "What the business spends — insurance, permits, repairs, the rest." },
@@ -51,14 +51,14 @@ export default function MoneyPage() {
     if (section.href === "/money/expenses" && weekTotal !== null) {
       return (
         <>
-          {section.desc} <strong>This week: {formatCents(weekTotal)}</strong>
+          {section.desc} <strong>This week: {formatMoney(weekTotal)}</strong>
         </>
       );
     }
     if (section.href === "/money/paychecks" && lastPaycheck !== null) {
       return (
         <>
-          {section.desc} <strong>Last definite check: {formatCents(lastPaycheck)}</strong>
+          {section.desc} <strong>Last definite check: {formatMoney(lastPaycheck)}</strong>
         </>
       );
     }

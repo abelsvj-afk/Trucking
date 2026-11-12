@@ -21,6 +21,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import PageHeader from "@/components/PageHeader";
 import { revenueConventionLabel, type FinancialSummary } from "@/types/financial-summary";
+import { formatMoney } from "@/lib/money-format";
 
 const RESTATEMENT_NOTICE_KEY = "unit-c-restatement-notice-dismissed";
 const RESTATEMENT_NOTICE_EVENT = "unit-c-restatement-notice-changed";
@@ -35,11 +36,6 @@ function subscribeRestatementNotice(onChange: () => void) {
 }
 export const RESTATEMENT_NOTICE_TEXT =
   "Past months' operational revenue was restated to count loads when delivered. This changes how this app reports its own figures; it does not change any cash you received or any tax record.";
-
-function formatDollars(cents: number) {
-  const amount = (Math.abs(cents) / 100).toFixed(2);
-  return cents < 0 ? `-$${amount}` : `$${amount}`;
-}
 
 function detailHref(
   component: "revenue" | "expenses" | "fuel" | "maintenance",
@@ -146,40 +142,40 @@ export default function FinancialSummaryPage() {
             <dt>{revenueConventionLabel(summary.revenueConvention)}</dt>
             <dd>
               <Link href={detailHref("revenue", summary)}>
-                {formatDollars(summary.revenue_cents)}
+                {formatMoney(summary.revenue_cents)}
               </Link>
             </dd>
             <dt>Expenses</dt>
             <dd>
               <Link href={detailHref("expenses", summary)}>
-                {formatDollars(summary.expenses_cents)}
+                {formatMoney(summary.expenses_cents)}
               </Link>
             </dd>
             <dt>Fuel</dt>
             <dd>
               <Link href={detailHref("fuel", summary)}>
-                {formatDollars(summary.fuel_cents)}
+                {formatMoney(summary.fuel_cents)}
               </Link>
             </dd>
             <dt>Maintenance</dt>
             <dd>
               <Link href={detailHref("maintenance", summary)}>
-                {formatDollars(summary.maintenance_cents)}
+                {formatMoney(summary.maintenance_cents)}
               </Link>
             </dd>
             <dt>Operating result</dt>
-            <dd>{formatDollars(summary.measures.periodOperatingResult)}</dd>
+            <dd>{formatMoney(summary.measures.periodOperatingResult)}</dd>
             <dt>Contribution margin — loads delivered in this period</dt>
-            <dd>{formatDollars(summary.measures.aggregateContributionMargin)}</dd>
+            <dd>{formatMoney(summary.measures.aggregateContributionMargin)}</dd>
             {summary.measures.fuelNotAssigned !== undefined && (
               <>
                 <dt>Fuel not assigned to a load</dt>
-                <dd>{formatDollars(summary.measures.fuelNotAssigned)}</dd>
+                <dd>{formatMoney(summary.measures.fuelNotAssigned)}</dd>
               </>
             )}
             <dt>Pipeline — booked, not yet delivered</dt>
             <dd>
-              {formatDollars(summary.pipeline.total_cents)} ({summary.pipeline.row_count}{" "}
+              {formatMoney(summary.pipeline.total_cents)} ({summary.pipeline.row_count}{" "}
               {summary.pipeline.row_count === 1 ? "load" : "loads"})
             </dd>
           </dl>
@@ -190,7 +186,7 @@ export default function FinancialSummaryPage() {
                 <>
                   {summary.estimatedPay.loadCount} delivered load{summary.estimatedPay.loadCount === 1 ? " has" : "s have"} no rate recorded, so {summary.estimatedPay.loadCount === 1 ? "it counts" : "they count"} as $0 in the revenue above.
                   At your pay terms times the miles, {summary.estimatedPay.loadCount === 1 ? "it" : "they"} would be about{" "}
-                  <strong>{formatDollars(summary.estimatedPay.cents)}</strong> — an estimate, shown separately and not added to revenue.{" "}
+                  <strong>{formatMoney(summary.estimatedPay.cents)}</strong> — an estimate, shown separately and not added to revenue.{" "}
                 </>
               )}
               {summary.estimatedPay.unvaluedCount > 0 &&

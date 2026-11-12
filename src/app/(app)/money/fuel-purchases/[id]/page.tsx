@@ -16,10 +16,10 @@ import {ListLoading, ListError} from "@/components/ListStates";
 import {DeleteRecordButton} from "@/components/RecordLifecycle";
 import FuelLoadPicker from "@/components/FuelLoadPicker";
 import {usePageTitle} from "@/lib/use-page-title";
-import {formatDollars} from "@/lib/truck-fund";
 import {formatDate} from "@/lib/time";
 import {deriveFuelTotal} from "@/lib/fuel-math";
 import type {FuelPurchase} from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
 export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -66,7 +66,7 @@ export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ i
     <div>
       <PageHeader
         title={purchase.location ? `Fuel at ${purchase.location}` : "Fuel purchase"}
-        purpose={`${formatDollars(purchase.total_cost_cents)} on ${purchaseDate} — its details, and the record controls, in one place.`}
+        purpose={`${formatMoney(purchase.total_cost_cents)} on ${purchaseDate} — its details, and the record controls, in one place.`}
       
         action={
           <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
@@ -83,10 +83,10 @@ export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ i
           <dt>Gallons</dt>
           <dd>{purchase.gallons}</dd>
           <dt>Price per gallon</dt>
-          <dd>{formatDollars(purchase.price_per_gallon_cents)}/gal</dd>
+          <dd>{formatMoney(purchase.price_per_gallon_cents)}/gal</dd>
           <dt>Computed base</dt>
           <dd>
-            {formatDollars(
+            {formatMoney(
               deriveFuelTotal(purchase.gallons, purchase.price_per_gallon_cents).baseCents,
             )}
           </dd>
@@ -94,13 +94,13 @@ export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ i
             <>
               <dt>Adjustment</dt>
               <dd>
-                {formatDollars(purchase.adjustment_cents)}
+                {formatMoney(purchase.adjustment_cents)}
                 {purchase.adjustment_reason ? ` — ${purchase.adjustment_reason}` : ""}
               </dd>
             </>
           )}
           <dt>Total cost</dt>
-          <dd>{formatDollars(purchase.total_cost_cents)}</dd>
+          <dd>{formatMoney(purchase.total_cost_cents)}</dd>
           <dt>Date</dt>
           <dd>{purchaseDate}</dd>
         </dl>
@@ -123,8 +123,8 @@ export default function FuelPurchaseDetailPage({ params }: { params: Promise<{ i
           id={purchase.id}
           recordName={
             purchase.location
-              ? `fuel purchase at ${purchase.location} (${formatDollars(purchase.total_cost_cents)})`
-              : `fuel purchase on ${purchaseDate} (${formatDollars(purchase.total_cost_cents)})`
+              ? `fuel purchase at ${purchase.location} (${formatMoney(purchase.total_cost_cents)})`
+              : `fuel purchase on ${purchaseDate} (${formatMoney(purchase.total_cost_cents)})`
           }
           listHref="/money/fuel-purchases"
           listLabel="fuel purchases"

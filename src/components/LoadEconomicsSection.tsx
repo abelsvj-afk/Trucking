@@ -8,8 +8,8 @@ import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import { useLiveVersion } from "@/lib/use-live";
 import type { LoadEconomics } from "@/lib/load-economics";
+import { formatMoney } from "@/lib/money-format";
 
-const dollars = (cents: number) => `${cents < 0 ? "-" : ""}$${(Math.abs(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function LoadEconomicsSection({ loadId }: { loadId: string }) {
   const version = useLiveVersion(["loads", "expenses", "fuel_purchases"]);
@@ -35,8 +35,8 @@ export default function LoadEconomicsSection({ loadId }: { loadId: string }) {
       ) : (
         <>
           <p>
-            <strong>{dollars(data.contributionMarginCents)}</strong> = {dollars(data.revenueCents ?? 0)} load revenue − {dollars(data.directExpensesCents)} expenses on this load −{" "}
-            {dollars(data.directFuelCents)} fuel assigned to it
+            <strong>{formatMoney(data.contributionMarginCents)}</strong> = {formatMoney(data.revenueCents ?? 0)} load revenue − {formatMoney(data.directExpensesCents)} expenses on this load −{" "}
+            {formatMoney(data.directFuelCents)} fuel assigned to it
           </p>
           {data.provisional && <p className="row-sub">Not delivered yet, so the revenue is still pipeline and this will change.</p>}
           {data.caveat && <p className="row-sub">{data.caveat}</p>}

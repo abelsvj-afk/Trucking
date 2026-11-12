@@ -17,8 +17,8 @@ import { usePageTitle } from "@/lib/use-page-title";
 import { invoiceStatus, summarizeAging } from "@/lib/invoices";
 import { todayEastern } from "@/lib/eastern-date";
 import type { Load, LoadInvoice } from "@/types/entities";
+import { formatMoney } from "@/lib/money-format";
 
-const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const centsFrom = (text: string): number | null => {
   const n = Number.parseFloat(text);
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
@@ -82,8 +82,8 @@ export default function InvoicesPage() {
       {state.status === "error" && <ListError message={state.message} onRetry={retry} />}
       {state.status === "loaded" && (
         <p role="status">
-          Outstanding {dollars(aging.totalOutstandingCents)}
-          {aging.lateCount > 0 ? ` · ${aging.lateCount} late (${dollars(aging.lateOutstandingCents)})` : " · nothing late"}
+          Outstanding {formatMoney(aging.totalOutstandingCents)}
+          {aging.lateCount > 0 ? ` · ${aging.lateCount} late (${formatMoney(aging.lateOutstandingCents)})` : " · nothing late"}
         </p>
       )}
       {state.status === "loaded" && invoices.length === 0 && (
@@ -95,10 +95,10 @@ export default function InvoicesPage() {
             const status = invoiceStatus(inv, today);
             return (
               <li key={inv.id}>
-                <span className="row-title">{dollars(inv.amount_cents)} · {STATUS_LABEL[status]}</span>
+                <span className="row-title">{formatMoney(inv.amount_cents)} · {STATUS_LABEL[status]}</span>
                 <span className="row-sub">
                   Invoiced {inv.invoice_date} · due {inv.due_date}
-                  {inv.paid_amount_cents > 0 ? ` · paid ${dollars(inv.paid_amount_cents)}${inv.paid_on ? ` on ${inv.paid_on}` : ""}` : ""}
+                  {inv.paid_amount_cents > 0 ? ` · paid ${formatMoney(inv.paid_amount_cents)}${inv.paid_on ? ` on ${inv.paid_on}` : ""}` : ""}
                 </span>
                 <span className="row-sub"><Link href={`/loads/${inv.load_id}`}>Open the load</Link></span>
                 {status !== "paid" && <button type="button" onClick={() => void markPaid(inv)}>Mark paid today</button>}
