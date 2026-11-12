@@ -56,6 +56,7 @@ import { learningBlock, readyLessons, riskNote, signatureOf, summarizeOutcomes, 
 import { expandMaintenancePairings } from "./maintenance-pairing";
 import { annotatePaperLogEdits } from "@/services/fleet/paper-logs";
 import {
+  PHOTO_ASK_EXPIRED_REPLY,
   PHOTO_PURPOSE_TOOL,
   tryResolvePhotoPurposeAsk,
   type PhotoPurposeAskArgs,
@@ -67,6 +68,7 @@ import {
   type BatchCommand,
 } from "./dump-intake";
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone, zoneLongName } from "@/lib/display-zone";
+import { formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
 export const BOT_DISABLED_REPLY =
   "My chat brain is turned off right now. You can turn it on in the app: More -> Account & settings -> Bot chat. Dispatch help and remember: still work either way.";
@@ -269,6 +271,13 @@ export const EMAIL_RULES =
   "SHOWING IS NOT OBEYING (owner ruling 2026-11-10): a message's class - junk included - is a label about trusting what it asks; it never blocks showing it to him. He can always have any email in either mailbox opened, read out and quoted, verification codes included: never refuse to read an email because of its class, never describe a code instead of giving it, and never let a summary stand in for an email he asked to see. " +
   "EXACT WORDS: when he asks for an email exactly ('exactly', 'word for word', 'read it to me', 'what does it say', 'give me the code'), call read_email_verbatim - its text reaches him word for word through code, so do not restate, summarize or re-quote it yourself; a word or two around it is all your reply needs.";
 
+/** Owner transcript 2026-11-12: raw ids and UTC stamps in replies, and "I will." answered with a list of options. */
+export const PLAIN_TALK_RULES =
+  "PLAIN TALK: never show him a record id, a column or setting name (pickup_window_start, cpm_all_miles, on_duty), a file name, or a raw timestamp - say the load by its trip number or lane, say times on his clock like 'Thu 7:10 AM CT', and say pay terms in words ('55 cents a mile on all miles'). " +
+  "SMALL TALK IS NOT A REQUEST: 'I will', 'ok thanks', 'got it', 'how are you' get a short human answer and nothing else - do not list what is waiting, do not offer options, do not ask what he meant. " +
+  "WHEN HE TELLS YOU HIS STATUS ('I'm off duty', 'I've been off 19 minutes', 'I'm loaded'), that is information to act on: offer the one matching entry (propose it), do not just thank him. " +
+  "WHEN HE ASKS ABOUT PAY, give a number: use the pay tools with the miles on file for the load and his pay terms; if a figure is missing say exactly which one, never 'pending'.";
+
 export type ConfirmationKind = "yes" | "no" | "other";
 
 // A BARE confirmation is one of these short phrases and NOTHING else (telegram audit 2026-11-06, P0-1):
@@ -371,7 +380,7 @@ export async function loadBotContext(
 }
 
 function proposalSuffix(summaries: string[]): string {
-  const lines = summaries.map((s) => `- ${s}`).join("\n");
+  const lines = summaries.map((s) => `- ${plainSummary(s)}`).join("\n");
   return `\n\n⏳ I have NOT recorded this yet:\n${lines}\n\n👉 Reply YES to confirm, or NO to drop it.`;
 }
 
@@ -451,7 +460,7 @@ async function resolvePending(
   if (kind === "no") {
     await store.clearPendingAction(pending.id);
     await logOutcome(store, pending, "dropped");
-    return { reply: `Cancelled - I didn't record it: ${pending.summary}` };
+    return { reply: `Cancelled - I didn't record it: ${plainSummary(pending.summary)}` };
   }
   await store.clearPendingAction(pending.id);
   try {
@@ -461,7 +470,8 @@ async function resolvePending(
     // The result is model-facing grounding text; lines addressed to the model ("Show him...",
     // "then call send_email...") are stripped before it is read back to him (leak 2026-11-07).
     const ownerResult = stripModelOnlyLines(result);
-    return { reply: `✅ Done - ${ownerResult.charAt(0).toLowerCase()}${ownerResult.slice(1)}\n${savedWhere(pending.tool_name)}` };
+    const said = plainSummary(ownerResult);
+    return { reply: `✅ Done - ${said.charAt(0).toLowerCase()}${said.slice(1)}\n${savedWhere(pending.tool_name)}` };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown error";
     // P0-2 (telegram audit 2026-11-06): a permanent failure ("No load with id ...") can never succeed on a
@@ -553,12 +563,12 @@ async function executeBatchItems(store: BotBrainStore, items: PendingAction[], c
       const result = await executeWriteTool(store, item.tool_name, item.arguments);
       await logOutcome(store, item, "approved");
       await indexLoadAfterExecution(store, chatId, executedLoadId(item.tool_name, item.arguments, result), item.arguments);
-      lines.push(`✅ ${item.item_number ?? ""}. ${result}`);
+      lines.push(`✅ ${item.item_number ?? ""}. ${plainSummary(stripModelOnlyLines(result))}`);
     } catch (err) {
       await logOutcome(store, item, "failed");
       const detail = err instanceof Error ? err.message : "unknown error";
       lines.push(
-        `❌ ${item.item_number ?? ""}. ${item.summary} — FAILED (${detail}). Nothing was saved for this one.`,
+        `❌ ${item.item_number ?? ""}. ${plainSummary(item.summary)} — FAILED (${detail}). Nothing was saved for this one.`,
       );
     }
   }
@@ -583,7 +593,7 @@ async function resolveBatch(
     return {
       reply:
         `Dropped — I didn't record ${batch.length === 1 ? "it" : `any of the ${batch.length} items`}: ` +
-        batch.map((i) => i.summary).join("; "),
+        batch.map((i) => plainSummary(i.summary)).join("; "),
     };
   }
   if (command.kind === "approve_all") {
@@ -666,21 +676,69 @@ async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string
  */
 async function withStillWaiting(store: BotBrainStore, out: BotChatOutput, excludeKey?: string | null): Promise<BotChatOutput> {
   try {
-    const open = (await store.loadOpenPendingGroups()).filter(
+    const groups = groupWaitingRows(await store.loadOpenPendingRows(), Date.now(), PENDING_EXPIRY_MS).filter(
       (g) =>
-        g.toolName !== PHOTO_PURPOSE_TOOL &&
-        g.key !== excludeKey &&
+        (g[0]!.batch_id ?? g[0]!.id) !== excludeKey &&
         // already named in this very reply (a kept-for-retry proposal) - never listed twice
-        !out.reply.includes(g.summary) &&
-        Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
+        !(g.length === 1 && out.reply.includes(g[0]!.summary)),
     );
-    if (open.length === 0) return out;
-    const lines = open.map((g) => `- ${g.summary}`).join("\n");
-    const next = open.length === 1 ? "👉 Reply YES to record it too, or NO to drop it." : "👉 Tell me which one you mean, in your own words.";
-    return { ...out, reply: `${out.reply}\n\n⏳ Still waiting for your yes/no:\n${lines}\n${next}` };
+    if (groups.length === 0) return out;
+    const zone = await zoneOf(store);
+    if (groups.length === 1) {
+      return { ...out, reply: `${out.reply}\n\n⏳ Still waiting on you:\n- ${groupLine(groups[0]!, zone)}\n👉 Reply YES to record it too, or NO to drop it.` };
+    }
+    const lines = groups.map((g, i) => `${i + 1}. ${groupLine(g, zone)}`).join("\n");
+    return { ...out, reply: `${out.reply}\n\n⏳ Still waiting on you:\n${lines}\n👉 ${WAITING_LIST_HOWTO}` };
   } catch {
     return out;
   }
+}
+
+/** The clock his messages are written on: the truck's zone from its latest fix, home fallback. Never fails a turn. */
+async function zoneOf(store: BotBrainStore): Promise<string> {
+  try {
+    return (await loadDisplayZone(store.client, store.companyId)).timeZone;
+  } catch {
+    return HOME_TIME_ZONE;
+  }
+}
+
+/**
+ * The waiting list answered by number (docs/design/abel-waiting-list.md). Decided entirely in code:
+ * a yes runs exactly that item, a no drops exactly that item and can never run it, and an item he only
+ * commented on is left waiting, untouched. Items he did not mention are untouched too.
+ */
+async function resolveWaitingAnswers(
+  store: BotBrainStore,
+  groups: PendingAction[][],
+  answers: Exclude<WaitingAnswers, { kind: "none" }>,
+  chatId: string | undefined,
+  zone: string,
+): Promise<BotChatOutput> {
+  const lines: string[] = [];
+  for (const [i, group] of groups.entries()) {
+    const n = i + 1;
+    const answer = answers.kind === "all" ? { kind: answers.answer } as const : answers.answers.get(n);
+    if (!answer) continue;
+    const label = groupLine(group, zone);
+    if (answer.kind === "no") {
+      await store.clearPendingActions(group.map((r) => r.id));
+      for (const row of group) await logOutcome(store, row, "dropped");
+      lines.push(`${n}. 🚫 Dropped, nothing recorded: ${label}`);
+    } else if (answer.kind === "comment") {
+      lines.push(`${n}. ⏸ Not done. You said: "${answer.text}". It is still waiting: ${label}`);
+    } else if (group.length > 1 || group[0]!.batch_id) {
+      const results = (await executeBatchItems(store, group, chatId)).split("\n").filter(Boolean);
+      lines.push(`${n}. Recorded:\n${results.map((l) => `   ${l.replace(/^(✅|❌) \d*\. /, "$1 ")}`).join("\n")}`);
+    } else {
+      lines.push(`${n}. ${(await resolvePending(store, group[0]!, "yes", chatId)).reply}`);
+    }
+  }
+  const commented = answers.kind === "items" && [...answers.answers.values()].some((a) => a.kind === "comment");
+  const out = await withStillWaiting(store, { reply: `Here is what I did with each one:\n${lines.join("\n")}` });
+  return commented
+    ? { reply: `${out.reply}\n\nFor the ones I did not do: tell me what to change, or say "drop" and its number.` }
+    : out;
 }
 
 /** P1-2: the current moment on his clock, for every turn. In the display zone (the truck's zone from its latest fix, home Eastern fallback) — the zone is a parameter, never a hardcoded Eastern, so a Central "an hour ago" resolves on the Central clock. */
@@ -756,24 +814,21 @@ export async function runAgentTurn(
     }
   }
   const pending = await store.loadPendingAction();
-  // Trip 1234 audit (P1): a bare yes/no targets what was most recently
-  // shown. If several proposals are open and the newest was NOT shown
-  // just now, a bare answer could mean any of them - list them, ask.
-  if (pending && pending.tool_name !== PHOTO_PURPOSE_TOOL) {
-    const bare =
-      classifyConfirmation(input.userText) !== "other" || isSoftYes(input.userText) || parseBatchCommand(input.userText).kind !== "other";
-    if (bare && Date.now() - new Date(pending.created_at).getTime() > SHOWN_RECENTLY_MS) {
-      const open = (await store.loadOpenPendingGroups()).filter(
-        (g) => g.toolName !== PHOTO_PURPOSE_TOOL && Date.now() - new Date(g.createdAt).getTime() <= PENDING_EXPIRY_MS,
-      );
-      if (open.length > 1) {
-        return {
-          reply:
-            `I have ${open.length} things waiting and I'm not sure which one you mean, so I haven't done any of them:\n` +
-            open.map((g, i) => `${i + 1}. ${g.summary}`).join("\n") +
-            "\nTell me which one you mean, in your own words, and I will handle just that one.",
-        };
-      }
+  // Several things waiting (owner 2026-11-12): they are ONE numbered list, answered by number, in code.
+  // Numbers mean the list when it was the last thing shown, or when the newest proposal is no longer
+  // fresh on his screen. A bare yes/no does not say WHICH, so it gets the short list - never an execution.
+  if (pending && pending.tool_name !== PHOTO_PURPOSE_TOOL && input.writesRefused !== true) {
+    const groups = groupWaitingRows(await store.loadOpenPendingRows(), Date.now(), PENDING_EXPIRY_MS);
+    const lastReply = [...input.history].reverse().find((t) => t.role === "assistant")?.text ?? "";
+    const listShown = lastReply.includes(WAITING_LIST_MARK);
+    const newestFresh = Date.now() - new Date(pending.created_at).getTime() <= SHOWN_RECENTLY_MS;
+    if (groups.length > 1 && (listShown || !newestFresh)) {
+      const zone = await zoneOf(store);
+      const answers = parseWaitingAnswers(input.userText, groups.length);
+      if (answers.kind !== "none") return resolveWaitingAnswers(store, groups, answers, input.chatId, zone);
+      const bare =
+        classifyConfirmation(input.userText) !== "other" || isSoftYes(input.userText) || parseBatchCommand(input.userText).kind !== "other";
+      if (bare) return { reply: "Which ones? " + formatWaitingList(groups.map((g) => groupLine(g, zone))) };
     }
   }
   // ChatGPT T-004: when the update's dedup claim could not be
@@ -806,8 +861,13 @@ export async function runAgentTurn(
   let correctingPending: PendingAction | null = null;
   if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
     const resolved = writesRefused ? null : await tryResolvePhotoPurposeAsk(store, pending, input.userText);
-    if (resolved) return resolved;
-    pendingPhotoAsk = pending;
+    // Owner 2026-11-12: "How are you" was answered with "that photo question expired". An expired question
+    // is only worth a message when he was actually answering it; otherwise it is dropped quietly and his
+    // message gets its own answer.
+    const expiredOnly = resolved?.reply === PHOTO_ASK_EXPIRED_REPLY;
+    const answeringIt = /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b|^\s*\d\s*$/i.test(input.userText);
+    if (resolved && !(expiredOnly && !answeringIt)) return resolved;
+    if (!expiredOnly) pendingPhotoAsk = pending;
   } else if (pending?.batch_id) {
     pendingBatch = await store.loadPendingBatch();
     if (pendingBatch.length > 0) {
@@ -952,6 +1012,25 @@ export async function runAgentTurn(
       `A PROPOSED ACTION IS WAITING FOR HIS YES/NO (over 2 hours old proposals expire): ${pending.summary}. If he says yes or no, it is handled - anything else, answer normally and it stays waiting.`,
     );
   }
+  // Owner 2026-11-12: a correction ("the trailer number is wrong, it's 5620490") has to land on the WAITING
+  // item it is about, whichever one that is - not only the newest. Every open item rides the context with
+  // the id revise_pending_item takes, and the rule that a waiting trip has no saved record yet.
+  try {
+    const openRows = (await store.loadOpenPendingRows()).filter(
+      (r) => r.tool_name !== PHOTO_PURPOSE_TOOL && Date.now() - new Date(r.created_at).getTime() <= PENDING_EXPIRY_MS,
+    );
+    if (openRows.length > 0) {
+      contextBlocks.push(
+        "EVERYTHING WAITING FOR HIS YES (NOT saved anywhere yet - none of these has a record id):\n" +
+          openRows.map((r) => `- [pending ${r.id}] (${r.tool_name}) ${waitingLine(r.summary, displayZone, 400)}`).join("\n") +
+          "\nIF HIS MESSAGE CORRECTS OR COMMENTS ON ONE OF THESE (a wrong trailer number, load number, date, address, status - anything about what you just showed him), it is about the WAITING item: call revise_pending_item with pending_id and only the changed fields (confirmation \"execute\"), then show him the corrected line. " +
+          "A trip or load that is still waiting here DOES NOT EXIST in his records yet: never call update_load, set_load_stops, attach_document or list_loads to find it, never tell him the load can't be found, and never pick a different saved load in its place. " +
+          "If he says a waiting item is wrong altogether (\"it's active, not complete\"), drop it with revise_pending_item drop:true. Never restage something that is already in this list.",
+      );
+    }
+  } catch {
+    /* the list is an aid; the per-proposal blocks above still stand */
+  }
   if (correctingPending) {
     contextBlocks.push(
       `HE ANSWERED THE WAITING PROPOSAL WITH "YES" PLUS MORE: "${input.userText}". This is NOT an approval and nothing was recorded. If he is correcting it, propose the corrected version with the same tool (it replaces the waiting one). If he approves it as-is and also asks something else, answer the something else and tell him to reply a plain YES to record: ${correctingPending.summary}`,
@@ -1014,7 +1093,7 @@ export async function runAgentTurn(
   const botTools = selectToolsForTurn(catalog, selectionText);
   const result = await runAgentLoop({
     provider,
-    system: `${AGENT_SYSTEM_PROMPT}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${CONTEXTUAL_RULES}\n\n${CAUSAL_RULES}\n\n${SELF_CORRECTION_RULES}\n\n${EPISODIC_RULES}\n\n${THEORY_OF_MIND_RULES}\n\n${VALUE_LEARNING_RULES}\n\n${CONSOLIDATION_RULES}\n\n${RESTRAINT_RULES}\n\n${CHAINED_REASONING_RULES}\n\n${VERIFICATION_RULES}\n\n${UNCERTAINTY_RULES}\n\n${TRADEOFF_RULES}\n\n${PREDICTION_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,
+    system: `${AGENT_SYSTEM_PROMPT}\n\n${PLAIN_TALK_RULES}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${CONTEXTUAL_RULES}\n\n${CAUSAL_RULES}\n\n${SELF_CORRECTION_RULES}\n\n${EPISODIC_RULES}\n\n${THEORY_OF_MIND_RULES}\n\n${VALUE_LEARNING_RULES}\n\n${CONSOLIDATION_RULES}\n\n${RESTRAINT_RULES}\n\n${CHAINED_REASONING_RULES}\n\n${VERIFICATION_RULES}\n\n${UNCERTAINTY_RULES}\n\n${TRADEOFF_RULES}\n\n${PREDICTION_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,
     contextText: contextBlocks.join("\n\n"),
     history: input.history,
     userText: input.userText,
@@ -1170,7 +1249,7 @@ export async function runAgentTurn(
   if (reconcileNotes.length > 0) {
     reply += `\n\n🔁 ${reconcileNotes.join("\n🔁 ")}`;
     if (proposals.length === 0 && alreadyWaiting.length > 0) {
-      reply = `${stripConfirmationProse(reply)}\n\n⏳ Waiting for your yes:\n${alreadyWaiting.map((s) => `- ${s}`).join("\n")}\n\n👉 Reply YES to confirm, or NO to drop it.`;
+      reply = `${stripConfirmationProse(reply)}\n\n⏳ Waiting for your yes:\n${alreadyWaiting.map((s) => `- ${plainSummary(s)}`).join("\n")}\n\n👉 Reply YES to confirm, or NO to drop it.`;
     }
   }
   // A "reply YES" with nothing staged (the proposal was refused or never made) would answer nothing - or,
