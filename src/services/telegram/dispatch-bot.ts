@@ -19,6 +19,24 @@
 
 import { parseDispatchTrip } from "@/lib/dispatch-trip";
 import { formatReply } from "@/services/telegram/format-reply";
+import {
+  buildCardKeyboard,
+  cardRows,
+  detectCard,
+  formatCardHtml,
+  getTelegramAppUrl,
+  TELEGRAM_CAPTION_LIMIT,
+  TELEGRAM_MESSAGE_LIMIT,
+  type DetectedCard,
+  type InlineKeyboard,
+} from "./cards";
+import {
+  CARD_EDIT_MAX_AGE_MS,
+  forgetCardMessage,
+  lookupCardMessage,
+  recordCardMessage,
+} from "./card-messages";
+import type { EditMessageResult, RichTelegramMessage } from "./bot-api";
 import { describeIncomingMedia, extractFlair, type Flair } from "@/services/telegram/flair";
 import { formatDispatchSuggestion, type DispatchSuggestion } from "@/services/ai/dispatch";
 import { formatRecordableOutcome, type StageBundleContext, type StageRecordablesResult } from "@/services/bot/stage-recordables";
@@ -216,6 +234,46 @@ export interface TelegramDeps {
    * whose tap needs Telegram to deliver a separate callback_query update. Absent = plain text.
    */
   sendYesNoMessage?: (chatId: number, text: string) => Promise<void>;
+  /**
+   * Rich cards (owner 2026-11-11): sends ONE structured card -
+   * an HTML text card, or a photo card whose caption IS the full
+   * card text - with its inline keyboard, and resolves the sent
+   * message's Telegram id (the edit-in-place registry's key).
+   * Absent = the reply goes out as plain text, exactly as today.
+   * A throw means "could not send" - the caller falls back to
+   * plain text, never to silence.
+   */
+  sendRichMessage?: (chatId: number, msg: RichTelegramMessage) => Promise<number | void>;
+  /**
+   * Rich cards: edits a sent card's text in place. "unchanged"
+   * means the card already shows this content (send nothing new);
+   * "failed" means send fresh instead. Never throws by contract.
+   * Absent = no editing; every card sends fresh.
+   */
+  editMessageText?: (
+    chatId: number,
+    messageId: number,
+    html: string,
+    keyboard?: InlineKeyboard,
+  ) => Promise<EditMessageResult>;
+  /**
+   * Rich cards: edits only a message's inline keyboard - the
+   * Dismiss tap and the proposal-resolution cleanup. An empty
+   * keyboard removes the buttons. Never throws by contract.
+   */
+  editMessageReplyMarkup?: (
+    chatId: number,
+    messageId: number,
+    keyboard: InlineKeyboard,
+  ) => Promise<EditMessageResult>;
+  /**
+   * Rich cards: renders a summary card as a PNG (sharp, already in
+   * deps). Null = render failed; the HTML text card goes out
+   * instead. Absent = no photo cards, text cards only.
+   */
+  renderCardImage?: (title: string, rows: Array<[string, string]>) => Promise<Buffer | null>;
+  /** Rich cards: the live app's base URL for Open-in-app buttons. Absent = the default live domain. */
+  appUrl?: string;
   /** Personality: sends a sticker for an emoji (looked up in the configured sticker set). Best-effort; absent = none. */
   sendSticker?: (chatId: number, emoji: string) => Promise<void>;
   /** Personality: sends a GIF meme for a few search words. Best-effort; absent (or no provider key) = none. */
@@ -781,6 +839,8 @@ export async function handleTelegramUpdate(
 }
 
 const CALLBACK_DATA_PATTERN = /^pp:([0-9a-fA-F-]{36}):([a-z_]+)$/;
+/** A card's Dismiss tap: "dismiss:<card key>" - hides the buttons, settles nothing, writes nothing. */
+const DISMISS_DATA_PATTERN = /^dismiss:([a-z]+:[A-Za-z0-9-]+)$/;
 /** A proposal's tap-to-answer buttons: the tap is exactly the typed "yes" / "no" (same code path, same rules). */
 const YES_NO_DATA_PATTERN = /^yn:(yes|no)$/;
 /** A tap on an old message is refused - the same freshness window a casual "ok" gets. */
@@ -791,11 +851,90 @@ export function asksForYesNo(text: string): boolean {
 }
 
 /**
+ * Rich cards (owner 2026-11-11): sends one summary card - HTML
+ * text, or a photo whose caption IS the full card text - with its
+ * buttons, editing the live card for the same thing in place when
+ * there is one. Returns true when the card went out (sent, edited,
+ * or already showing this content); false when the caller should
+ * fall back to the plain path. A proposal card NEVER edits in
+ * place: a pending yes must stay visible as sent, not be replaced
+ * under him. The words are never changed - only <b> tags and
+ * buttons are added, and the timeline still stores the plain text.
+ */
+async function sendCardReply(
+  deps: TelegramDeps,
+  chatId: number,
+  text: string,
+  card: DetectedCard,
+): Promise<boolean> {
+  if (!deps.sendRichMessage) return false;
+  const appUrl = deps.appUrl ?? getTelegramAppUrl();
+  const proposal = asksForYesNo(text);
+  const keyboard = buildCardKeyboard(card, { appUrl, proposal });
+  const html = formatCardHtml(text);
+
+  // Edit-in-place: the same thing already has a live card.
+  if (!proposal) {
+    const existing = lookupCardMessage(chatId, card.key);
+    if (existing && deps.editMessageText && Date.now() - existing.sentAtMs < CARD_EDIT_MAX_AGE_MS) {
+      if (existing.html === html) return true; // already showing exactly this - send nothing new
+      let result: EditMessageResult;
+      try {
+        result = await deps.editMessageText(chatId, existing.messageId, html, keyboard);
+      } catch (err) {
+        console.error("[telegram] card edit failed; sending fresh", err instanceof Error ? err.message : err);
+        result = "failed";
+      }
+      if (result === "edited") {
+        recordCardMessage(chatId, card.key, existing.messageId, html);
+        return true;
+      }
+      if (result === "unchanged") return true;
+      forgetCardMessage(chatId, card.key); // fall through to a fresh send
+    }
+  }
+
+  // Fresh send: a photo card when the whole card fits in a caption
+  // (the image adds nothing the caption lacks), else an HTML card.
+  if (html.length <= TELEGRAM_CAPTION_LIMIT && deps.renderCardImage) {
+    const { title, rows } = cardRows(text);
+    let png: Buffer | null = null;
+    try {
+      png = await deps.renderCardImage(title, rows);
+    } catch (err) {
+      console.error("[telegram] card image render failed; sending the text card", err instanceof Error ? err.message : err);
+    }
+    if (png) {
+      try {
+        const id = await deps.sendRichMessage(chatId, { kind: "photo", html, photoPng: png, keyboard });
+        if (typeof id === "number") recordCardMessage(chatId, card.key, id, html);
+        return true;
+      } catch (err) {
+        console.error("[telegram] photo card send failed; sending the text card", err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  if (html.length > TELEGRAM_MESSAGE_LIMIT) return false; // too long for one HTML message - plain chunked text
+  try {
+    const id = await deps.sendRichMessage(chatId, { kind: "text", html, keyboard });
+    if (typeof id === "number") recordCardMessage(chatId, card.key, id, html);
+    return true;
+  } catch (err) {
+    console.error("[telegram] rich card send failed; sending plain text", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+/**
  * Sends a reply; when it asks for a yes/no, big Yes / No keys ride along (gloves, a truck). A key press is an
  * ordinary "Yes" / "No" message, so it needs no special webhook setting. Keys failing or unsupported degrade to
  * the same text - he can always just type it. (Inline "yn:" taps from older messages are still handled below.)
+ * A load / pay / HOS summary goes out as ONE rich card instead (same words, bold headers, Open-in-app + Dismiss),
+ * with the plain path as the fallback for every failure.
  */
 async function sendReply(deps: TelegramDeps, chatId: number, text: string): Promise<void> {
+  const card = detectCard(text);
+  if (card && (await sendCardReply(deps, chatId, text, card))) return;
   if (deps.sendYesNoMessage && asksForYesNo(text)) {
     try {
       await deps.sendYesNoMessage(chatId, text);
@@ -840,9 +979,39 @@ async function handleCallbackQuery(
     const item: TelegramBurstItem = { text: yesNo[1]!, isForwarded: false, voiceNote: false };
     const outcome = await processTextItems([item], chatId, deps);
     await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+    // The tap settled the proposal - take its buttons off the
+    // message so a later tap can't answer the same question twice.
+    // Best-effort: the outcome reply already went out.
+    if (query.message?.message_id !== undefined && deps.editMessageReplyMarkup) {
+      try {
+        await deps.editMessageReplyMarkup(chatId, query.message.message_id, []);
+      } catch (err) {
+        console.error("[telegram] clearing proposal buttons failed (the answer already went out)", err instanceof Error ? err.message : err);
+      }
+    }
     if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair);
     if (outcome.afterSend) await outcome.afterSend();
     if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
+    return "callback_replied";
+  }
+  // Rich cards: Dismiss hides the buttons and settles nothing -
+  // a pending proposal (if any) stays pending for a typed answer,
+  // and the card leaves the edit registry so a later refresh sends
+  // fresh instead of resurrecting a dismissed card.
+  const dismiss = typeof query.data === "string" ? query.data.match(DISMISS_DATA_PATTERN) : null;
+  if (dismiss) {
+    const key = dismiss[1]!;
+    if (query.message?.message_id !== undefined && deps.editMessageReplyMarkup) {
+      await answer();
+      try {
+        await deps.editMessageReplyMarkup(chatId, query.message.message_id, []);
+      } catch (err) {
+        console.error("[telegram] dismiss button-clear failed", err instanceof Error ? err.message : err);
+      }
+      forgetCardMessage(chatId, key);
+    } else {
+      await answer("Dismissed.");
+    }
     return "callback_replied";
   }
   const match = typeof query.data === "string" ? query.data.match(CALLBACK_DATA_PATTERN) : null;

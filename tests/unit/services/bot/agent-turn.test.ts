@@ -1692,8 +1692,11 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     const { buildBotTools } = await import("@/services/bot/tools");
     const { client } = fakeClient(baseSeed(true));
     const store = telegramStore(client);
-    // Measured on main da5bcea before this branch: 146 tools. Instruction-layer only - no new tools.
-    expect(buildBotTools(store)).toHaveLength(146);
+    // Measured on main 7cfac3d2 (2026-11-11): 148 tools - the 146 pin
+    // went stale at the #59/#60 merges, which added 2 tools without
+    // updating it. Deliberately re-pinned here with that measurement;
+    // this lane adds NO tools (rich cards are presentation code).
+    expect(buildBotTools(store)).toHaveLength(148);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
