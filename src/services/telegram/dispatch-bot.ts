@@ -686,21 +686,35 @@ async function processTextItems(
   }
 }
 
-/** Persists a worked text turn: each original item once as his message, the ONE reply once as Abel's. */
+/** D12: one line when a turn's persist failed after its retry + dead letter. */
+const PERSIST_FAILED_WARNING = "I couldn't save that to your record — still done, just not stored";
+
+/** Persists a worked text turn: each original item once as his message, the ONE reply once as Abel's. Returns false when the persist failed (the store retried + dead-lettered first) so the caller can warn him. */
 async function persistTextTurn(
   store: TelegramStore | null,
   chatId: number,
   items: TelegramBurstItem[],
   assistantText: string,
-): Promise<void> {
-  if (!store) return;
+): Promise<boolean> {
+  if (!store) return true;
   try {
     for (const item of items) {
       await store.saveMessage(chatId, "user", item.voiceNote ? `[voice] ${item.text}` : item.text);
     }
     await store.saveMessage(chatId, "assistant", assistantText);
+    return true;
   } catch (err) {
     console.error("[telegram] failed to persist conversation turn", err);
+    return false;
+  }
+}
+
+/** Best-effort: the warning itself must never break a turn that already went out. */
+async function warnPersistFailed(deps: TelegramDeps, chatId: number): Promise<void> {
+  try {
+    await sendReply(deps, chatId, PERSIST_FAILED_WARNING);
+  } catch (err) {
+    console.error("[telegram] persist-failed warning send failed", err);
   }
 }
 
@@ -772,7 +786,10 @@ async function flushBundleTurn(
         }
         await store.saveMessage(chatId, "assistant", reply);
       } catch (err) {
+        // D12: the store retried + dead-lettered; say so instead of
+        // silently holding the only copy in memory.
         console.error("[telegram] failed to persist photo bundle turn", err);
+        await sendPhotoReply(deps, chatId, PERSIST_FAILED_WARNING);
       }
     }
     return;
@@ -793,7 +810,8 @@ async function flushBundleTurn(
         console.error("[telegram] failed to persist bundle photo markers", err);
       }
     }
-    await persistTextTurn(store, chatId, textItems, outcome.reply);
+    const saved = await persistTextTurn(store, chatId, textItems, outcome.reply);
+    if (!saved) await warnPersistFailed(deps, chatId);
   }
 }
 
@@ -1074,7 +1092,10 @@ async function handleCallbackQuery(
     }
     if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair);
     if (outcome.afterSend) await outcome.afterSend();
-    if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
+    if (outcome.persist) {
+      const saved = await persistTextTurn(store, chatId, [item], outcome.reply);
+      if (!saved) await warnPersistFailed(deps, chatId);
+    }
     return "callback_replied";
   }
   // Rich cards: Dismiss hides the buttons and settles nothing -
@@ -1520,6 +1541,9 @@ async function processTelegramUpdate(
   await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
   if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, item.messageId);
   if (outcome.afterSend) await outcome.afterSend();
-  if (outcome.persist) await persistTextTurn(store, chatId, [item], outcome.reply);
+  if (outcome.persist) {
+    const saved = await persistTextTurn(store, chatId, [item], outcome.reply);
+    if (!saved) await warnPersistFailed(deps, chatId);
+  }
   return outcome.result;
 }

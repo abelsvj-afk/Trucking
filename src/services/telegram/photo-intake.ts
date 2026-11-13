@@ -45,6 +45,7 @@ import {
   processUploadedDocument,
 } from "@/services/documents/process-document";
 import { formatExtractedFieldsForReply } from "@/services/ai/document-extraction";
+import { documentDisplayName } from "@/services/documents/document-naming";
 
 export interface ExtractedDocumentRead {
   docType: string | null;
@@ -391,9 +392,10 @@ export async function handleTelegramPhoto(
   }
 
   // --- reply: what was stored, then the extraction state -------------
-  const lines = [
-    `Saved that photo as a document in your app (${fileName}) — filed under your company, not attached to a specific load or truck yet. You can file it against a record from More → Documents, and I can find it either way.`,
-  ];
+  // The saved line is built AFTER the read below: the document's name
+  // comes from its content (Telegram review D8), so the reply never
+  // shows the telegram-photo-* storage key.
+  const lines: string[] = [];
   const getStatus =
     deps.extractionStatus ??
     (async (id: string): Promise<DocumentExtractionStatus> =>
@@ -432,6 +434,41 @@ export async function handleTelegramPhoto(
   } catch (err) {
     console.error("[telegram] photo extraction status failed", err);
     lines.push("I couldn't check whether its text was read — the photo itself is saved either way.");
+  }
+  // --- the name: from content + context, or one question (D8) -------
+  const displayName = documentDisplayName({
+    docType: status?.state === "done" ? status.docType : null,
+    summary: status?.state === "done" ? status.summary : null,
+    caption,
+  });
+  if (displayName) {
+    // Rename the ROW so every surface (Documents page, timeline,
+    // recent-docs block) shows the same name. The storage key keeps
+    // the telegram-photo-* file name. Best-effort: a failed rename
+    // never costs him the reply or the photo.
+    try {
+      const { error: renameError } = await deps.client
+        .from("documents")
+        .update({ file_name: `${displayName}.jpg` })
+        .eq("id", documentId)
+        .eq("company_id", deps.companyId);
+      if (renameError) console.error("[telegram] document rename failed", renameError.message);
+    } catch (err) {
+      console.error("[telegram] document rename failed", err);
+    }
+    lines.unshift(
+      `Saved that photo as "${displayName}" in your app — filed under your company, not attached to a specific load or truck yet. You can file it against a record from More → Documents, and I can find it either way.`,
+    );
+  } else {
+    // Genuinely unknown kind: ask ONCE, with the vision description,
+    // instead of silently filing it unnamed.
+    const seen =
+      status?.state === "done" && status.summary
+        ? ` — it looks like ${status.summary.length > 120 ? `${status.summary.slice(0, 120).trimEnd()}…` : status.summary}`
+        : " — I couldn't read its text yet";
+    lines.unshift(
+      `I saved that photo, but I couldn't tell what it is yet${seen}. It's filed under your company for now. Is it a BOL, a seal photo, or something else? Tell me and I'll name it that.`,
+    );
   }
   // GAP-01: the read document becomes the record it describes —
   // staged as a proposal batch for his yes, never recorded silently.

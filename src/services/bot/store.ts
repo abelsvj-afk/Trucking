@@ -28,6 +28,7 @@ import type { Outcome, OutcomeRow } from "./learning";
 import { createPayStore } from "./store-pay";
 import { createThreadStore } from "./store-threads";
 import { createThreadMemoryStore, type ThreadEntityRow } from "./store-entities";
+import { saveDeadLetterRow } from "./dead-letter";
 import { isMissingColumnError } from "./tool-helpers";
 import { getEmbeddingProvider, toVectorLiteral, tryEmbed } from "./embeddings";
 import { applySupersession } from "./memory-lifecycle";
@@ -378,6 +379,32 @@ export function createBotStore(
 ): BotBrainStore {
   const company = companyId;
 
+  // D12: a message insert gets ONE retry, then a dead-letter row, then
+  // the throw (the throw contract is unchanged - callers that swallow
+  // persist failures log + warn the owner; the dead letter is the
+  // durable copy so the turn is never only in memory).
+  async function insertMessageWithRetry(row: {
+    company_id: string;
+    chat_id: number | null;
+    channel: BotChannel;
+    role: "user" | "assistant";
+    text: string;
+  }): Promise<void> {
+    let { error } = await supabase.from("telegram_messages").insert(row);
+    if (!error) return;
+    ({ error } = await supabase.from("telegram_messages").insert(row));
+    if (!error) return;
+    await saveDeadLetterRow(
+      supabase,
+      company,
+      "message",
+      { role: row.role, text: row.text, channel: row.channel, chat_id: row.chat_id },
+      error.message,
+      row.chat_id,
+    );
+    throw new Error(error.message);
+  }
+
   async function contacts(table: "brokers" | "customers" | "drivers") {
     const [rows, countResult] = await Promise.all([
       supabase.from(table).select("name").eq("company_id", company).is("deleted_at", null).limit(25),
@@ -418,14 +445,13 @@ export function createBotStore(
     },
 
     async saveMessage(chatId, role, text) {
-      const { error } = await supabase.from("telegram_messages").insert({
+      await insertMessageWithRetry({
         company_id: company,
         chat_id: chatId,
         channel,
         role,
         text,
       });
-      if (error) throw new Error(error.message);
     },
 
     async loadMemories() {
@@ -597,14 +623,13 @@ export function createBotStore(
     },
 
     async saveConversationMessage(role, text) {
-      const { error } = await supabase.from("telegram_messages").insert({
+      await insertMessageWithRetry({
         company_id: company,
         chat_id: null,
         channel,
         role,
         text,
       });
-      if (error) throw new Error(error.message);
     },
 
     // --- pending actions: see store-pending.ts ---

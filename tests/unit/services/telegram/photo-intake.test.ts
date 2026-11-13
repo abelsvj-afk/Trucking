@@ -96,7 +96,11 @@ describe("handleTelegramPhoto", () => {
   it("downloads the largest rendition and stores it under the company via the shared pipeline", async () => {
     const d = deps();
     const reply = await handleTelegramPhoto(d, PHOTOS);
-    expect(reply).toContain("Saved that photo as a document");
+    // D8: the raw storage key is never shown - with no read and no
+    // caption the kind is unknown, so the reply asks once instead.
+    expect(reply).toContain("I saved that photo, but I couldn't tell what it is yet");
+    expect(reply).toContain("Is it a BOL, a seal photo, or something else?");
+    expect(reply).not.toContain("telegram-photo-");
     expect(reply).toContain("filed under your company");
     // getFile was asked for the LARGEST rendition, not the first.
     const fetchFn = d.fetchFn as unknown as ReturnType<typeof vi.fn>;
@@ -110,6 +114,7 @@ describe("handleTelegramPhoto", () => {
       size: 4,
     });
     // DH-7: the stamp is Eastern now - 04:30:12Z is 12:30:12 AM in New York.
+    // The telegram-photo-* name stays ONLY as the stored-file key.
     expect(storeArgs[1].fileName).toBe("telegram-photo-20261101003012.jpg");
   });
 
@@ -223,12 +228,36 @@ describe("handleTelegramPhoto", () => {
     expect(reply).toContain("nothing was stored");
   });
 
+  it("D8: names the document from its content + caption, never the storage key", async () => {
+    const d = deps({
+      extractionStatus: vi
+        .fn()
+        .mockResolvedValue({ state: "done", docType: "bol", summary: "BILL OF LADING, seal SL-004417" }),
+    });
+    const reply = await handleTelegramPhoto(d, PHOTOS, "Bol for trip 1874");
+    expect(reply).toContain('Saved that photo as "Trip 1874 — BOL (seal photo)"');
+    expect(reply).not.toContain("telegram-photo-");
+  });
+
+  it("D8: an unknown kind asks once with the vision description instead of filing unnamed", async () => {
+    const d = deps({
+      extractionStatus: vi
+        .fn()
+        .mockResolvedValue({ state: "done", docType: "other", summary: "A close-up of a trailer seal" }),
+    });
+    const reply = await handleTelegramPhoto(d, PHOTOS);
+    expect(reply).toContain("I saved that photo, but I couldn't tell what it is yet — it looks like A close-up of a trailer seal");
+    expect(reply).toContain("Is it a BOL, a seal photo, or something else?");
+    expect(reply).not.toContain("telegram-photo-");
+  });
+
   it("still confirms the save when the extraction check itself fails", async () => {
     const d = deps({
       extractionStatus: vi.fn().mockRejectedValue(new Error("db down")),
     });
     const reply = await handleTelegramPhoto(d, PHOTOS);
-    expect(reply).toContain("Saved that photo as a document");
+    expect(reply).toContain("I saved that photo, but I couldn't tell what it is yet");
     expect(reply).toContain("couldn't check whether its text was read");
+    expect(reply).not.toContain("telegram-photo-");
   });
 });

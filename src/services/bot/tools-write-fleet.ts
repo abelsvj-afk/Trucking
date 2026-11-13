@@ -91,7 +91,7 @@ export function pushFleetTools(store: BotBrainStore, tools: AgentTool[]): void {
           .extend({ mileage_source: z.enum(MILEAGE_SOURCES as [MileageSource, ...MileageSource[]]).optional() }),
       ),
       summarize: (args) =>
-        `Update truck ${args.truck_id}: ${changedFields(args as Row, "truck_id", ["mileage_source"])}` +
+        `Update the truck: ${changedFields(args as Row, "truck_id", ["mileage_source"])}` +
         `${Array.isArray((args as Row).appliances) ? ` — appliances: ${((args as Row).appliances as string[]).join(", ")}` : ""}`,
       async run(args) {
         const schema = updateTruckSchema
@@ -152,7 +152,7 @@ export function pushFleetTools(store: BotBrainStore, tools: AgentTool[]): void {
             : ` Mileage NOT changed: ${Math.round(mileageValue).toLocaleString("en-US")} would move the truck backwards from ${outcome.previousMiles?.toLocaleString("en-US") ?? "its recorded mileage"} - if the recorded number is wrong, say so and it gets corrected openly.`;
         }
         const changed = changedFields(parsed, "truck_id", ["mileage_source"]);
-        return `Updated truck ${id} (${changed}).${mileageNote}`;
+        return `Updated the truck (${changed}).${mileageNote}`;
       },
     },
     makeCreateTool(store, {
@@ -197,8 +197,8 @@ export function pushFleetTools(store: BotBrainStore, tools: AgentTool[]): void {
       idKey: "trailer_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateTrailerSchema,
-      summarize: (args) => `Update trailer ${args.trailer_id}: ${changedFields(args, "trailer_id")}`,
-      confirm: (args) => `Updated trailer ${args.trailer_id} (${changedFields(args, "trailer_id")}).`,
+      summarize: (args) => `Update the trailer: ${changedFields(args, "trailer_id")}`,
+      confirm: (args) => `Updated the trailer (${changedFields(args, "trailer_id")}).`,
     }),
   );
 

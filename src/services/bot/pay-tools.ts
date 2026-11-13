@@ -478,7 +478,7 @@ export function buildPayTools(store: BotBrainStore): AgentTool[] {
           })),
         });
         const out = [
-          `Recorded settlement ${parsed.issuer_name} ${parsed.period_start} to ${parsed.period_end}: gross ${dollars(cents(parsed.gross_dollars))}, his pay ${dollars(cents(parsed.driver_pay_dollars))}. Record id ${recorded.id}.`,
+          `Recorded settlement ${parsed.issuer_name} ${parsed.period_start} to ${parsed.period_end}: gross ${dollars(cents(parsed.gross_dollars))}, his pay ${dollars(cents(parsed.driver_pay_dollars))}.`,
           `Pin check: ${recorded.pinCheck}${recorded.pinCheckDetail ? ` - ${recorded.pinCheckDetail}` : ""}`,
           ...recorded.truePayLines,
         ];

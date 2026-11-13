@@ -3,6 +3,10 @@
 Status: built on `fix/abel-pending-answers`, 2026-11-12. Owner instruction: "Fix it properly make it better and actually work",
 after a chat transcript from 2026-11-11/12. No migration, no API contract change. Names and figures below are fictional.
 
+Follow-up: Telegram review fix, built 2026-11-12 on `feat/telegram-review-fixes-2026-11-12` (record:
+`~/workspace/builds/gates/telegram-review-2026-11-12.md`). Migration 00093 (`telegram_dead_letters`) authored, NOT applied —
+apply before deploy. Guard test: `tests/unit/services/bot/telegram-review-guard.test.ts` replays the exact transcript.
+
 ## What went wrong (from the transcript)
 
 1. Four proposals were waiting. A plain "Yes" got the same long list back, twice.
@@ -14,6 +18,10 @@ after a chat transcript from 2026-11-11/12. No migration, no API contract change
 5. Waiting items were shown with record ids, column names, file names and UTC timestamps, and one item repeated its stops
    three times.
 6. "How are you" was answered with a notice about an expired photo question.
+7. Abel said "I'll pause it" about a proposal — but no pause state exists, so the complete-load proposal reappeared twice,
+   and a duty proposal from Nov 8 rendered on Nov 11 despite the 2-hour expiry.
+8. A days-old location fix could drive a fresh duty proposal, presenting a stale timestamp as current.
+9. The model executed a pending write mid-turn (the duty write he had answered "not sure, no" to) instead of waiting.
 
 ## Rules
 
@@ -25,6 +33,23 @@ after a chat transcript from 2026-11-11/12. No migration, no API contract change
   - A number that is not on the list voids the whole reply; nothing is guessed.
   - An item answered no is cleared and can never run. Items he did not mention are untouched.
 - A bare yes/no with several items waiting does not say which, so it gets the short list once, with how to answer.
+- A comment that CONTRADICTS the proposal IS a no (review fix, `commentContradicts` in `waiting-list.ts`): "not complete" /
+  "still active" against a complete-load proposal, or a different duty status named against a duty proposal. The proposal
+  is dropped for good — declined is terminal, it never renders again. A comment that does not contradict leaves the item
+  waiting, quoted back. There is no "pause" state and Abel never says "pause" — an item is waiting until he answers, or
+  dropped.
+- Freshness (review fix): a location fix older than 15 minutes never drives a duty proposal; the reply says "I don't have
+  a fresh location — last fix [age]" and stages nothing. A feed gap restarts the motion episode, so a stop from before the
+  gap cannot drive a proposal on arrival. An identical duty proposal is never re-staged while one is already waiting.
+  (Root cause of the Nov 8 proposal rendering on Nov 11: re-staging, not unenforced expiry — live-location staged
+  directly via `savePendingAction`, bypassing proposal reconciliation. Expiry was already enforced at render.)
+- Model-execute guard (review fix): a write the model tries to execute immediately while the identical write (same tool +
+  arguments) is already waiting for his yes is refused in the loop (`isWriteAlreadyPending` on the agent-loop input,
+  wired in `agent-turn.ts` to the live pending rows). A guard-check failure never blocks a write.
+- Persist failures (review fix, D12): a message save retries once, then writes a dead-letter row (`telegram_dead_letters`,
+  migration 00093), then throws; a pending-burst save retries once, then dead-letters and stays best-effort. A failed
+  turn persist also sends him one line: "I couldn't save that to your record — still done, just not stored". A dead
+  letter is evidence for a human to re-file, never auto-replayed.
 - Numbers refer to the list when the list was the last thing Abel showed, or when the newest proposal is older than
   10 minutes. Otherwise the existing rules stand: a bare yes answers the proposal just shown, and batch item numbers work
   as before.
@@ -42,4 +67,5 @@ after a chat transcript from 2026-11-11/12. No migration, no API contract change
   rules only here (`PLAIN_TALK_RULES`); they need their own work and tests.
 - The wrong trailer number read from a photo and a garbled broker name are reading errors, not handled here beyond making
   the correction land.
-- Why a duty entry dated 2026-11-08 was still being offered on 2026-11-11 needs the live records.
+- Quote resolution (replying to a message to answer the proposal it quoted) is still absent from the Telegram code — the
+  review's D4. Left open for a follow-up design.

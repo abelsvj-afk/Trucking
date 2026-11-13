@@ -169,6 +169,15 @@ export interface AgentLoopInput {
   toolSpecLimit?: number;
   maxSteps?: number;
   onToolLog?: (entry: AgentToolLogEntry) => void;
+  /**
+   * Model-execute guard (Telegram review D3 path): when a write the
+   * model wants to execute immediately is already waiting as a live
+   * pending proposal with the same tool + arguments, the loop refuses
+   * instead of recording it twice. Callers that stage proposals
+   * (agent-turn) supply it; other callers pass nothing and the loop
+   * behaves exactly as before. A hook failure never blocks a write.
+   */
+  isWriteAlreadyPending?: (toolName: string, args: Record<string, unknown>) => Promise<boolean> | boolean;
 }
 
 export interface AgentLoopOutput {
@@ -663,6 +672,30 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
 
       const { confirmation: _dropped, ...runArgs } = args;
       void _dropped;
+      // Model-execute guard: a write that is already waiting for his
+      // yes must never be executed by the model mid-turn - the "not
+      // sure, no" failure was exactly this (the model executed the
+      // pending duty write instead of waiting for his answer).
+      if (tool.access === "write" && input.isWriteAlreadyPending) {
+        let alreadyPending = false;
+        try {
+          alreadyPending = await input.isWriteAlreadyPending(tool.name, runArgs);
+        } catch {
+          alreadyPending = false;
+        }
+        if (alreadyPending) {
+          log({ tool: tool.name, access: "write", outcome: "error", detail: "already pending approval" });
+          messages.push({
+            role: "tool",
+            toolCallId: call.id,
+            content:
+              `NOT EXECUTED - that exact write is already waiting for his yes as a proposal. ` +
+              "Do not record it again: tell him it is already on the waiting list and ask which items he wants done. " +
+              "If he just answered it, wait for his answer instead of executing it yourself.",
+          });
+          continue;
+        }
+      }
       try {
         const result = await tool.run(runArgs);
         groundingParts.push(result);

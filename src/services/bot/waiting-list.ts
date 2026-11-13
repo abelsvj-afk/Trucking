@@ -92,6 +92,43 @@ export function waitingLine(summary: string, timeZone?: string, max = 220): stri
 
 export type ItemAnswer = { kind: "yes" } | { kind: "no" } | { kind: "comment"; text: string };
 
+const DUTY_WORDS: [RegExp, string][] = [
+  [/\bdriving\b/i, "driving"],
+  [/\boff[\s-]?duty\b/i, "off_duty"],
+  [/\bsleeper\b/i, "sleeper"],
+  [/\bon[\s-]?duty\b/i, "on_duty"],
+];
+
+/**
+ * A comment that CONTRADICTS the proposal it answers (Telegram review
+ * D2, 2026-11-12): "It's active not complete" against a complete-load
+ * proposal, or naming a different duty status than a duty proposal
+ * offers. A contradiction is a NO in substance - the proposal is
+ * wrong, so it is declined, never left waiting to resurface. A plain
+ * comment ("the date is wrong", "check the miles") is not a
+ * contradiction: the item stays waiting for a correction.
+ */
+export function commentContradicts(
+  group: { tool_name: string; arguments?: Record<string, unknown> }[],
+  text: string,
+): boolean {
+  const row = group[0];
+  if (!row) return false;
+  const said = text.trim();
+  if (row.tool_name === "complete_load") {
+    return /\bnot\s+(complete|completed|done|finished)\b/i.test(said) || /\bstill\s+active\b/i.test(said) || /\bactive,?\s+not\s+complete\b/i.test(said);
+  }
+  if (row.tool_name === "log_duty_status") {
+    const proposed = typeof row.arguments?.duty_status === "string" ? String(row.arguments.duty_status) : null;
+    if (!proposed) return false;
+    const named = DUTY_WORDS.find(([re]) => re.test(said))?.[1];
+    if (named && named !== proposed) return true;
+    if (proposed !== "driving" && /\btruck'?s?\s+(is\s+)?moving\b/i.test(said)) return true;
+    return false;
+  }
+  return false;
+}
+
 export type WaitingAnswers =
   | { kind: "all"; answer: "yes" | "no" }
   | { kind: "items"; answers: Map<number, ItemAnswer> }

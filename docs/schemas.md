@@ -753,6 +753,23 @@ The per-thread entity index (Telegram fix round, fixes 10/11/11A): the records o
 - `created_at` / `updated_at` timestamptz not null default now()
 - `deleted_at` timestamptz — soft delete
 
+### `telegram_dead_letters` — created in 00093
+
+The durable copy of a message or pending burst the bot could not store in its normal table (Telegram review fix, defect D12):
+a persist retries once, then lands here with the payload verbatim and the error that stopped the write. A dead letter is
+evidence for a human to re-file, never auto-replayed — replaying a stale burst could double-send. Written best-effort by
+the bot: when this migration is not applied yet (or the database is down) the write fails, is logged, and the owner still
+gets the one-line warning.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `chat_id` text — null for the shared-brain (non-chat) message save
+- `kind` text not null — message | pending_burst
+- `payload` jsonb not null default '{}'::jsonb — a message row {role, text, channel} or a pending burst {items, due_at}
+- `error` text not null — the error that stopped the normal write, in the database's words
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz — soft delete
+
 ### `research_knowledge` — created in 00084
 
 The durable knowledge layer (docs/design/autonomous-research.md): the research tick distills fresh watcher signals and a daily own-business snapshot (from the company's own records) into citable rows — every row carries its source and observed date; freshness is computed in code per standing topic (`src/lib/watch-topics.ts`), never stored as a flag that could rot.

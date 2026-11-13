@@ -1,6 +1,30 @@
 // The waiting list (docs/design/abel-waiting-list.md). Fictional data throughout.
 import { describe, expect, it } from "vitest";
-import { formatWaitingList, groupWaitingRows, parseWaitingAnswers, plainSummary, WAITING_LIST_MARK } from "@/services/bot/waiting-list";
+import { commentContradicts, formatWaitingList, groupWaitingRows, parseWaitingAnswers, plainSummary, WAITING_LIST_MARK } from "@/services/bot/waiting-list";
+
+describe("commentContradicts: a correction that contradicts the proposal IS a no (D2)", () => {
+  const complete = [{ tool_name: "complete_load" }];
+  const duty = (status: string) => [{ tool_name: "log_duty_status", arguments: { duty_status: status } }];
+
+  it("the 2026-11-11 answer: 'It's active not complete' drops the complete-load proposal", () => {
+    expect(commentContradicts(complete, "It's active not complete")).toBe(true);
+    expect(commentContradicts(complete, "not complete yet")).toBe(true);
+    expect(commentContradicts(complete, "still active")).toBe(true);
+  });
+
+  it("naming a different duty status contradicts the duty proposal; naming the same one does not", () => {
+    expect(commentContradicts(duty("on_duty"), "I'm driving")).toBe(true);
+    expect(commentContradicts(duty("on_duty"), "the truck is moving")).toBe(true);
+    expect(commentContradicts(duty("on_duty"), "I'm on duty")).toBe(false);
+    expect(commentContradicts(duty("driving"), "the truck is moving")).toBe(false);
+  });
+
+  it("a plain comment is not a contradiction: it stays waiting", () => {
+    expect(commentContradicts(complete, "the date is wrong")).toBe(false);
+    expect(commentContradicts(duty("on_duty"), "check the miles")).toBe(false);
+    expect(commentContradicts([{ tool_name: "update_load" }], "not complete")).toBe(false);
+  });
+});
 
 describe("parseWaitingAnswers: his reply to a numbered list, read in code", () => {
   it("an answer per number - the reply that went wrong on 2026-11-11", () => {

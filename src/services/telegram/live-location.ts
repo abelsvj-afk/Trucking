@@ -20,6 +20,10 @@ import {
 import {
   decideStatusProposal,
   deriveSpeedMph,
+  describeFixAge,
+  FRESH_FIX_MAX_AGE_MS,
+  MAX_SPEED_INTERVAL_MS,
+  NO_EPISODE,
   stepEpisode,
   type MotionEpisode,
   type PositionFix,
@@ -51,6 +55,15 @@ export interface LiveLocationStore {
   loadCurrentStatus(): Promise<DutyStatus | null>;
   /** Stages the proposal as a pending action awaiting his yes. */
   stageProposal(proposal: StatusProposal, sinceIso: string, summary: string): Promise<void>;
+  /**
+   * Telegram review D2: is this exact duty proposal already waiting
+   * for his yes? The live-location path stages directly (it never
+   * passes through reconcileProposals), so without this check every
+   * cooldown window staged a FRESH identical row - the Nov 8 duty
+   * proposal resurfacing on Nov 11. Optional: a store without it
+   * stages as before.
+   */
+  hasWaitingDutyProposal?(status: DutyStatus, sinceIso: string): Promise<boolean>;
 }
 
 export type LiveLocationResult =
@@ -63,6 +76,9 @@ const STATUS_WORDS: Record<DutyStatus, string> = {
   off_duty: "Off duty",
   sleeper: "Sleeper",
 };
+
+/** Mirrors PENDING_EXPIRY_MS in src/services/bot/agent-turn.ts (2h): a proposal older than this is dead. */
+const PENDING_PROPOSAL_EXPIRY_MS = 2 * 60 * 60 * 1000;
 
 /**
  * The duty proposal as a labeled card, not a wall of prose
@@ -125,6 +141,8 @@ export async function handleLiveLocation(
      */
     autoSwitch?: (detectedAtIso: string, submissionId: string, timeZone?: string) => Promise<AutoMotionResult>;
   },
+  /** Test seam: the "now" the fix's age is judged against (default: real now). */
+  opts?: { nowMs?: number },
 ): Promise<LiveLocationResult> {
   if (!validLocation(loc) || !Number.isFinite(atMs)) return { kind: "ignored" };
   const prev = await store.loadPosition();
@@ -137,7 +155,14 @@ export async function handleLiveLocation(
     accuracyM: typeof loc.horizontal_accuracy === "number" ? loc.horizontal_accuracy : null,
   };
   const speedMph = deriveSpeedMph(prev?.fix ?? null, fix);
-  const episode = stepEpisode(prev?.episode ?? { movingSinceMs: null, stoppedSinceMs: null }, speedMph, atMs);
+  // Telegram review D6: a feed gap breaks the episode's continuity.
+  // Fixes more than the speed window apart say nothing about what
+  // happened in between - the truck may have moved and stopped
+  // again - so an episode that "began hours ago" restarts here
+  // instead of driving a proposal from a stale start time.
+  const episodeBase =
+    prev && atMs - prev.fix.atMs > MAX_SPEED_INTERVAL_MS ? NO_EPISODE : (prev?.episode ?? NO_EPISODE);
+  const episode = stepEpisode(episodeBase, speedMph, atMs);
 
   const currentStatus = await store.loadCurrentStatus();
 
@@ -203,6 +228,32 @@ export async function handleLiveLocation(
     const label = deps.formatTime(proposal.sinceMs, fix.lat, fix.lng);
     const text = proposalText(proposal, label);
     const sinceIso = new Date(proposal.sinceMs).toISOString();
+    // Telegram review D6: a stale fix never drives a proposal. The
+    // movement may be real, but the fix is old - say so plainly,
+    // with its age, instead of presenting a days-old timestamp as
+    // current. The cooldown still holds so the notice says it once.
+    const fixAgeMs = (opts?.nowMs ?? Date.now()) - atMs;
+    if (fixAgeMs > FRESH_FIX_MAX_AGE_MS) {
+      await store.savePosition({
+        fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+        speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: proposal.kind,
+      });
+      await deps.sendMessage(
+        `I don't have a fresh location — last fix ${describeFixAge(fixAgeMs)}. I won't guess your duty status from that.`,
+      );
+      return { kind: "recorded", proposed: null };
+    }
+    // Telegram review D2: this exact proposal is already waiting
+    // for his yes - stage nothing, say nothing new. The waiting
+    // list surfaces it; a fresh row per cooldown window is how the
+    // Nov 8 duty proposal kept resurfacing on Nov 11.
+    if (await store.hasWaitingDutyProposal?.(proposal.status, sinceIso)) {
+      await store.savePosition({
+        fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+        speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: proposal.kind,
+      });
+      return { kind: "recorded", proposed: null };
+    }
     // Stage first, tell him second: a proposal he is told about must exist.
     // The summary carries the LABELED time in the fix's zone — it is
     // quoted back to him when the proposal is re-surfaced, and a raw
@@ -293,6 +344,28 @@ export function createLiveLocationStore(
     async stageProposal(proposal, sinceIso, summary) {
       await stage({ duty_status: proposal.status, started_at: sinceIso }, summary);
     },
+    async hasWaitingDutyProposal(status, sinceIso) {
+      try {
+        const { data, error } = await client
+          .from("bot_pending_actions")
+          .select("id, arguments, created_at")
+          .eq("company_id", companyId)
+          .eq("tool_name", "log_duty_status")
+          .is("deleted_at", null);
+        if (error || !data) return false;
+        // An expired row is already dead (the turn-start sweep drops
+        // it) - it must not block a fresh proposal for the same duty.
+        const cutoff = Date.now() - PENDING_PROPOSAL_EXPIRY_MS;
+        return ((data as { arguments?: Record<string, unknown>; created_at?: string }[]) ?? []).some(
+          (row) =>
+            row.arguments?.duty_status === status &&
+            row.arguments?.started_at === sinceIso &&
+            (!row.created_at || Date.parse(row.created_at) >= cutoff),
+        );
+      } catch {
+        return false; // a lookup failure never blocks staging
+      }
+    },
   };
 }
 
@@ -303,10 +376,31 @@ export function createLiveLocationStore(
  */
 export function createBrainLiveLocationStore(brain: BotBrainStore, source: PositionSource = "telegram"): LiveLocationStore {
   const tool = buildBotTools(brain).find((t) => t.name === "log_duty_status");
-  return createLiveLocationStore(brain.client, brain.companyId, async (args, summary) => {
+  const store = createLiveLocationStore(brain.client, brain.companyId, async (args, summary) => {
     if (!tool) throw new Error("log_duty_status tool missing");
     const checked = tool.validateArgs ? tool.validateArgs(args) : { ok: true as const, args };
     if (!checked.ok) throw new Error("proposal did not validate");
     await brain.savePendingAction({ toolName: "log_duty_status", args: checked.args as Record<string, unknown>, summary });
   }, source);
+  // The brain's own pending rows are the source of truth here (the
+  // raw client query above would see the same rows, but the store
+  // method keeps the check in one place and testable).
+  return {
+    ...store,
+    async hasWaitingDutyProposal(status, sinceIso) {
+      try {
+        const rows = await brain.loadOpenPendingRows();
+        const cutoff = Date.now() - PENDING_PROPOSAL_EXPIRY_MS;
+        return rows.some(
+          (row) =>
+            row.tool_name === "log_duty_status" &&
+            (row.arguments as Record<string, unknown>)?.duty_status === status &&
+            (row.arguments as Record<string, unknown>)?.started_at === sinceIso &&
+            Date.parse(row.created_at) >= cutoff,
+        );
+      } catch {
+        return false; // a lookup failure never blocks staging
+      }
+    },
+  };
 }

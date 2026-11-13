@@ -1892,7 +1892,7 @@ describe("the waiting list is answered by number, in code (owner 2026-11-12)", (
     expect((db.expenses ?? []).map((e) => e.amount_cents).sort()).toEqual([1100, 2200]);
     expect(db.bot_memories ?? []).toHaveLength(0);
     expect(live(db)).toEqual(["c"]);
-    expect(out.reply).toContain("3. ⏸ Not done");
+    expect(out.reply).toContain('3. Still waiting — you said: "It\'s active not complete"');
     expect(out.reply).toContain("It's active not complete");
     expect(out.reply).toContain("4. 🚫 Dropped, nothing recorded");
     expect(out.reply).not.toMatch(/\d{4}-\d{2}-\d{2}T/);

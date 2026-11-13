@@ -51,7 +51,7 @@ import { withAge } from "@/lib/staleness";
 import { FLAIR_RULES } from "@/services/telegram/flair";
 import { savedWhere } from "./saved-where";
 import { resolveReferences, type ResolutionOutcome } from "./reference-resolution";
-import { reconcileProposals } from "./reconcile-proposals";
+import { reconcileProposals, sameArgs } from "./reconcile-proposals";
 import { learningBlock, readyLessons, riskNote, signatureOf, summarizeOutcomes, type Outcome, type SignatureStats } from "./learning";
 import { recordActedEpisode, recordErredEpisode } from "./episodes";
 import { expandMaintenancePairings } from "./maintenance-pairing";
@@ -69,7 +69,8 @@ import {
   type BatchCommand,
 } from "./dump-intake";
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone, zoneLongName } from "@/lib/display-zone";
-import { formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
+import { displayFileName } from "@/services/documents/document-naming";
+import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
 export const BOT_DISABLED_REPLY =
   "My chat brain is turned off right now. You can turn it on in the app: More -> Account & settings -> Bot chat. Dispatch help and remember: still work either way.";
@@ -277,6 +278,7 @@ export const PLAIN_TALK_RULES =
   "PLAIN TALK: never show him a record id, a column or setting name (pickup_window_start, cpm_all_miles, on_duty), a file name, or a raw timestamp - say the load by its trip number or lane, say times on his clock like 'Thu 7:10 AM CT', and say pay terms in words ('55 cents a mile on all miles'). " +
   "SMALL TALK IS NOT A REQUEST: 'I will', 'ok thanks', 'got it', 'how are you' get a short human answer and nothing else - do not list what is waiting, do not offer options, do not ask what he meant. " +
   "WHEN HE TELLS YOU HIS STATUS ('I'm off duty', 'I've been off 19 minutes', 'I'm loaded'), that is information to act on: offer the one matching entry (propose it), do not just thank him. " +
+  "NEVER SAY YOU WILL 'PAUSE' A PROPOSAL: there is no paused state - a proposal is waiting until he answers it, or dropped when he says no (or corrects it away). Say 'dropped' or 'still waiting', never 'paused'. " +
   "WHEN HE ASKS ABOUT PAY, give a number: use the pay tools with the miles on file for the load and his pay terms; if a figure is missing say exactly which one, never 'pending'.";
 
 export type ConfirmationKind = "yes" | "no" | "other";
@@ -653,7 +655,10 @@ async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string
     for (const request of pending) {
       let loadLabel = "";
       if (request.load_id) {
-        loadLabel = ` for load ${request.load_id}`;
+        // The id is never shown to him: if the lane lookup fails,
+        // the ask is still "for the load" - the model has list tools
+        // for the id itself.
+        loadLabel = " for the load";
         try {
           const { data } = await store.client
             .from("loads")
@@ -672,7 +677,7 @@ async function loadPendingResearchAskBlock(store: BotBrainStore): Promise<string
       }
       const reason = requestReason(request);
       lines.push(
-        `- [${request.id}] photograph: ${requestPhotoItems(request).join(", ")}${loadLabel}${reason ? ` - why: ${reason}` : ""}`,
+        `- photograph: ${requestPhotoItems(request).join(", ")}${loadLabel}${reason ? ` - why: ${reason}` : ""} (internal ask id ${request.id} — never show this to him)`,
       );
     }
     return (
@@ -740,8 +745,15 @@ async function resolveWaitingAnswers(
       await store.clearPendingActions(group.map((r) => r.id));
       for (const row of group) await logOutcome(store, row, "dropped");
       lines.push(`${n}. 🚫 Dropped, nothing recorded: ${label}`);
+    } else if (answer.kind === "comment" && commentContradicts(group, answer.text)) {
+      // Telegram review D2: a correction that contradicts the proposal ("it's active, not complete"
+      // against marking it complete) IS a no - the proposal was wrong, so it is dropped for good and
+      // never renders again. There is no "paused" state: it is waiting until he answers, or dropped.
+      await store.clearPendingActions(group.map((r) => r.id));
+      for (const row of group) await logOutcome(store, row, "dropped");
+      lines.push(`${n}. 🚫 Dropped — you said "${answer.text}", so I dropped it: ${label}`);
     } else if (answer.kind === "comment") {
-      lines.push(`${n}. ⏸ Not done. You said: "${answer.text}". It is still waiting: ${label}`);
+      lines.push(`${n}. Still waiting — you said: "${answer.text}". It stays on the list: ${label}`);
     } else if (group.length > 1 || group[0]!.batch_id) {
       const results = (await executeBatchItems(store, group, chatId)).split("\n").filter(Boolean);
       lines.push(`${n}. Recorded:\n${results.map((l) => `   ${l.replace(/^(✅|❌) \d*\. /, "$1 ")}`).join("\n")}`);
@@ -777,20 +789,20 @@ async function loadRecentDocumentsBlock(store: BotBrainStore, timeZone: string =
     const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
     const { data, error } = await store.client
       .from("documents")
-      .select("id, file_name, related_entity_type, related_entity_id, created_at")
+      .select("id, file_name, doc_type, related_entity_type, related_entity_id, created_at")
       .eq("company_id", store.companyId)
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(5);
     if (error || !data || data.length === 0) return null;
-    const rows = data as { id: string; file_name: string; related_entity_type: string; related_entity_id: string; created_at: string }[];
+    const rows = data as { id: string; file_name: string; doc_type: string | null; related_entity_type: string; related_entity_id: string; created_at: string }[];
     const when = (iso: string) => formatClock(iso, timeZone);
     const lines = rows.map(
       (d) =>
-        `- [${d.id}] "${d.file_name}" at ${when(d.created_at)} - ${d.related_entity_type === "company" ? "NOT attached to anything yet" : `attached to ${d.related_entity_type} ${d.related_entity_id}`}`,
+        `- "${displayFileName(d.file_name, d.doc_type)}" at ${when(d.created_at)} - ${d.related_entity_type === "company" ? "NOT attached to anything yet" : `attached to ${d.related_entity_type} ${d.related_entity_id}`} (internal id ${d.id} — never show this to him)`,
     );
     return (
-      "RECENT PHOTOS / DOCUMENTS HE SENT (newest first; ids are real):\n" +
+      "RECENT PHOTOS / DOCUMENTS HE SENT (newest first; internal ids are for tool calls only - never show one to him):\n" +
       lines.join("\n") +
       "\nWhen he says \"that's the BOL\", \"this goes with that\", \"that image\", he means the newest one unless he says otherwise: attach it with attach_document to the load he means (list_loads for its id). Never change a load's status to attach a photo."
     );
@@ -1121,6 +1133,27 @@ export async function runAgentTurn(
     toolCatalog: catalog,
     toolSpecLimit: TOOL_BUDGET,
     onToolLog: hooks.onToolLog,
+    // Model-execute guard: a write the model tries to execute
+    // immediately while the identical write is already waiting for
+    // his yes is refused in the loop. Live rows only (created within
+    // the 2h proposal window); declined rows are soft-deleted so they
+    // never block a fresh order of the same write. A check failure
+    // never blocks a write.
+    isWriteAlreadyPending: async (toolName, args) => {
+      try {
+        const open = await store.loadOpenPendingRows();
+        const now = Date.now();
+        return open.some(
+          (row) =>
+            row.tool_name === toolName &&
+            now - Date.parse(row.created_at) <= PENDING_EXPIRY_MS &&
+            sameArgs(row.arguments, args),
+        );
+      } catch (err) {
+        console.error("[bot] pending-write guard check failed (allowing the write)", err);
+        return false;
+      }
+    },
   });
 
   let reply = result.reply;

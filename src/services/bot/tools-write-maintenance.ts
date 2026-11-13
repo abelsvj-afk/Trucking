@@ -157,8 +157,8 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
         return patch;
       },
       patchSchema: updateMaintenanceEventSchema,
-      summarize: (args) => `Update maintenance event ${args.event_id}: ${changedFields(args, "event_id")}`,
-      confirm: (args) => `Updated maintenance event ${args.event_id} (${changedFields(args, "event_id")}).`,
+      summarize: (args) => `Update the maintenance event: ${changedFields(args, "event_id")}`,
+      confirm: (args) => `Updated the maintenance event (${changedFields(args, "event_id")}).`,
     }),
     makeCreateTool(store, {
       name: "create_maintenance_schedule",
@@ -219,8 +219,8 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
       toPatch: (args) => definedOnly(args),
       patchSchema: updateMaintenanceScheduleSchema,
       mergedSchema: createMaintenanceScheduleSchema,
-      summarize: (args) => `Update maintenance schedule ${args.schedule_id}: ${changedFields(args, "schedule_id")}`,
-      confirm: (args) => `Updated maintenance schedule ${args.schedule_id} (${changedFields(args, "schedule_id")}).`,
+      summarize: (args) => `Update the maintenance schedule: ${changedFields(args, "schedule_id")}`,
+      confirm: (args) => `Updated the maintenance schedule (${changedFields(args, "schedule_id")}).`,
     }),
     {
       name: "complete_maintenance_schedule",
@@ -239,7 +239,7 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
       validateArgs: validateWith(
         z.object({ schedule_id: uuid, done_date: dateString.optional(), done_mileage: z.number().int().nonnegative().optional() }),
       ),
-      summarize: (args) => `Mark maintenance schedule ${args.schedule_id} done${args.done_date ? ` on ${args.done_date}` : " today"}`,
+      summarize: (args) => `Mark the maintenance schedule done${args.done_date ? ` on ${args.done_date}` : " today"}`,
       async run(args) {
         const parsed = z
           .object({ schedule_id: uuid, done_date: dateString.optional(), done_mileage: z.number().int().nonnegative().optional() })
@@ -310,7 +310,7 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
           maintenance_event_id: uuid.optional(),
         }),
       ),
-      summarize: (args) => `Defect ${args.defect_id}: mark ${args.status}`,
+      summarize: (args) => `Mark a defect ${args.status}`,
       async run(args) {
         const parsed = z
           .object({
@@ -341,7 +341,7 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
       },
       access: "write",
       validateArgs: validateWith(z.object({ truck_id: uuid })),
-      summarize: (args) => `Propose the standard maintenance pack for truck ${args.truck_id}`,
+      summarize: (args) => `Propose the standard maintenance pack for the truck`,
       async run(args) {
         const parsed = z.object({ truck_id: uuid }).parse(args);
         const outcome = await stageMaintenancePack(store, parsed.truck_id);
@@ -405,8 +405,8 @@ export function pushMaintenanceTools(store: BotBrainStore, tools: AgentTool[]): 
       },
       patchSchema: updateEquipmentChecklistItemSchema,
       summarize: (args) =>
-        `Update checklist item ${args.item_id}: ${changedFields(args, "item_id")}${args.mark_checked ? " (mark checked today)" : ""}`,
-      confirm: (args) => `Updated checklist item ${args.item_id} (${changedFields(args, "item_id")}).`,
+        `Update the checklist item: ${changedFields(args, "item_id")}${args.mark_checked ? " (mark checked today)" : ""}`,
+      confirm: (args) => `Updated the checklist item (${changedFields(args, "item_id")}).`,
     }),
     makeCreateTool(store, {
       name: "log_pretrip_inspection",

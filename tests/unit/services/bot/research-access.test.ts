@@ -320,7 +320,7 @@ describe("research_requests from conversation", () => {
 
     const id = String(db.research_requests![0]!.id);
     const dismissed = await tool(s, "dismiss_research_request").run({ request_id: id });
-    expect(dismissed).toContain("Dismissed photo ask");
+    expect(dismissed).toContain("Dismissed the photo ask");
     expect(db.research_requests![0]!.status).toBe("dismissed");
     expect(await tool(s, "list_research_requests").run({})).toContain(
       "No pre-trip photo asks are waiting",
