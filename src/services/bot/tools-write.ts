@@ -237,9 +237,9 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       patchSchema: updateLoadSchema,
       mergedSchema: createLoadSchema,
       summarize: (args) =>
-        `Update load ${args.load_id}: ${changedFields(args, "load_id")}` +
+        `Update the load: ${changedFields(args, "load_id")}` +
         `${typeof args.status === "string" ? ` (status → ${args.status})` : ""}`,
-      confirm: (args) => `Updated load ${args.load_id} (${changedFields(args, "load_id")}).`,
+      confirm: (args) => `Updated the load (${changedFields(args, "load_id")}).`,
     }),
   );
 
@@ -264,7 +264,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     },
     access: "write",
     validateArgs: validateWith(completeLoadBot),
-    summarize: (args) => `Mark load ${args.load_id} COMPLETED, delivered ${args.delivery_date ?? easternToday()}`,
+    summarize: (args) => `Mark the load COMPLETED, delivered ${args.delivery_date ?? easternToday()}`,
     async verifyProposal(args) {
       const parsed = completeLoadBot.safeParse(args);
       if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "invalid arguments" };
@@ -342,8 +342,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
         return patch;
       },
       patchSchema: updateExpenseSchema,
-      summarize: (args) => `Update expense ${args.expense_id}: ${changedFields(args, "expense_id")}`,
-      confirm: (args) => `Updated expense ${args.expense_id} (${changedFields(args, "expense_id")}).`,
+      summarize: (args) => `Update the expense: ${changedFields(args, "expense_id")}`,
+      confirm: (args) => `Updated the expense (${changedFields(args, "expense_id")}).`,
     }),
   );
 
@@ -376,7 +376,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     },
     access: "write",
     validateArgs: validateWith(updateFuelBot),
-    summarize: (args) => `Update fuel purchase ${args.fuel_purchase_id}: ${changedFields(args as Row, "fuel_purchase_id")}`,
+    summarize: (args) => `Update the fuel purchase: ${changedFields(args as Row, "fuel_purchase_id")}`,
     async run(args) {
       const parsed = updateFuelBot.parse(args) as Row;
       const { client, companyId } = store;
@@ -398,7 +398,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       if (parsed.load_id !== undefined) patch.load_id = parsed.load_id;
       updateFuelPurchaseSchema.parse(patch);
       await patchLiveRow(client, "fuel_purchases", companyId, String(parsed.fuel_purchase_id), patch);
-      return `Updated fuel purchase ${parsed.fuel_purchase_id} (${changedFields(parsed, "fuel_purchase_id")}).`;
+      return `Updated the fuel purchase (${changedFields(parsed, "fuel_purchase_id")}).`;
     },
   });
 
@@ -441,8 +441,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       idKey: "broker_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateBrokerSchema,
-      summarize: (args) => `Update broker ${args.broker_id}: ${changedFields(args, "broker_id")}`,
-      confirm: (args) => `Updated broker ${args.broker_id} (${changedFields(args, "broker_id")}).`,
+      summarize: (args) => `Update the broker: ${changedFields(args, "broker_id")}`,
+      confirm: (args) => `Updated the broker (${changedFields(args, "broker_id")}).`,
     }),
     makeCreateTool(store, {
       name: "create_customer",
@@ -470,8 +470,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       idKey: "customer_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateCustomerSchema,
-      summarize: (args) => `Update customer ${args.customer_id}: ${changedFields(args, "customer_id")}`,
-      confirm: (args) => `Updated customer ${args.customer_id} (${changedFields(args, "customer_id")}).`,
+      summarize: (args) => `Update the customer: ${changedFields(args, "customer_id")}`,
+      confirm: (args) => `Updated the customer (${changedFields(args, "customer_id")}).`,
     }),
   );
 
@@ -520,8 +520,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       idKey: "facility_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateFacilitySchema,
-      summarize: (args) => `Update facility ${args.facility_id}: ${changedFields(args, "facility_id")}`,
-      confirm: (args) => `Updated facility ${args.facility_id} (${changedFields(args, "facility_id")}).`,
+      summarize: (args) => `Update the facility: ${changedFields(args, "facility_id")}`,
+      confirm: (args) => `Updated the facility (${changedFields(args, "facility_id")}).`,
     }),
   );
 
@@ -885,14 +885,14 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       // Same topic bounds the app route enforces (researchNowSchema).
       researchNowSchema.parse({ topic: parsed.topic });
       const { client, companyId } = store;
-      const id = await insertRow(client, "research_runs", companyId, {
+      await insertRow(client, "research_runs", companyId, {
         trigger_kind: "manual",
         topic: parsed.topic,
         trigger_detail: { reason: "Owner requested this research in conversation with Abel." },
         status: "queued",
       });
       return (
-        `Queued a Deep Research run on "${parsed.topic}" (run id ${id}). ` +
+        `Queued a Deep Research run on "${parsed.topic}". ` +
         "The engine runs it on its next tick under its normal caps - when the briefing is ready it shows in list_research_briefings and the app's Research page, and the engine's delivery rules decide whether it also buzzes his phone."
       );
     },
@@ -925,12 +925,12 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     validateArgs: validateWith(requestPhotosBot),
     summarize: (args) => {
       const items = Array.isArray(args.items) && args.items.length > 0 ? args.items : PRETRIP_PHOTO_DEFAULT_ITEMS;
-      return `Ask him for pre-trip photos (${items.join(", ")})${args.load_id ? ` for load ${String(args.load_id)}` : ""}`;
+      return `Ask him for pre-trip photos (${items.join(", ")})${args.load_id ? ` for the load` : ""}`;
     },
     async run(args) {
       const parsed = requestPhotosBot.parse(args);
       const { client, companyId } = store;
-      const id = await requestPretripPhotos(client, companyId, {
+      await requestPretripPhotos(client, companyId, {
         loadId: parsed.load_id ?? null,
         checklistKind: parsed.checklist_kind,
         items: parsed.items,
@@ -938,8 +938,8 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
       });
       const items = parsed.items ?? [...PRETRIP_PHOTO_DEFAULT_ITEMS];
       return (
-        `Recorded the pre-trip photo ask (request id ${id}): photograph ${items.join(", ")}` +
-        `${parsed.load_id ? ` for load ${parsed.load_id}` : ""}. ` +
+        `Recorded the pre-trip photo ask: photograph ${items.join(", ")}` +
+        `${parsed.load_id ? ` for the load` : ""}. ` +
         "It stays pending until his photos are filed; ask him for them when the pre-trip moment comes."
       );
     },
@@ -957,14 +957,14 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     },
     access: "write",
     validateArgs: validateWith(dismissRequestBot),
-    summarize: (args) => `Dismiss pre-trip photo ask ${String(args.request_id ?? "")}`,
+    summarize: (args) => `Dismiss the pre-trip photo ask`,
     async run(args) {
       const parsed = dismissRequestBot.parse(args);
       const { client, companyId } = store;
       const dismissed = await dismissResearchRequest(client, companyId, parsed.request_id);
       return dismissed
-        ? `Dismissed photo ask ${parsed.request_id} - it won't be raised again.`
-        : `Photo ask ${parsed.request_id} wasn't pending (already fulfilled, dismissed, or not his) - nothing changed.`;
+        ? `Dismissed the photo ask - it won't be raised again.`
+        : `That photo ask wasn't pending (already fulfilled, dismissed, or not his) - nothing changed.`;
     },
   });
 
@@ -983,7 +983,7 @@ export function buildExtendedWriteTools(store: BotBrainStore): AgentTool[] {
     access: "write",
     alwaysPropose: true,
     validateArgs: validateWith(deleteBot),
-    summarize: (args) => `DELETE ${args.entity} record ${args.record_id}`,
+    summarize: (args) => `DELETE a ${args.entity} record`,
     // P0-3: the record must exist in his books before he is asked, and he sees WHAT would be deleted.
     async verifyProposal(args) {
       const parsed = deleteBot.safeParse(args);

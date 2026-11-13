@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BotBrainStore, BotChannel } from "./store";
+import { saveDeadLetterRow } from "./dead-letter";
 
 export type ThreadEntityStoreMethods = Pick<
   BotBrainStore,
@@ -35,19 +36,25 @@ export function createThreadMemoryStore(
   return {
     // --- durable pending bursts -----------------------------------
     async savePendingBurst(chatId, items, dueAtIso) {
-      const { error } = await supabase.from("telegram_pending_bursts").upsert(
-        {
-          company_id: company,
-          chat_id: chatId,
-          items,
-          due_at: dueAtIso,
-          claimed_at: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "company_id,chat_id" },
-      );
+      const row = {
+        company_id: company,
+        chat_id: chatId,
+        items,
+        due_at: dueAtIso,
+        claimed_at: null,
+        updated_at: new Date().toISOString(),
+      };
+      const save = () => supabase.from("telegram_pending_bursts").upsert(row, { onConflict: "company_id,chat_id" });
+      let { error } = await save();
       if (error && !missingTable(error, "telegram_pending_bursts")) {
-        console.error("[bot] pending burst save failed (in-memory copy still holds it)", error.message);
+        // D12: one retry, then a dead letter. The in-memory copy still
+        // holds the bundle for this process, but the dead letter is the
+        // durable copy - a restart no longer loses it silently.
+        ({ error } = await save());
+      }
+      if (error && !missingTable(error, "telegram_pending_bursts")) {
+        await saveDeadLetterRow(supabase, company, "pending_burst", { items, due_at: dueAtIso }, error.message, chatId);
+        console.error("[bot] pending burst save failed (dead-lettered; in-memory copy still holds it)", error.message);
       }
     },
 

@@ -123,7 +123,7 @@ describe("handleTelegramPhotoIntelligent — the §3 beats", () => {
       PHOTOS,
     );
     expect(typeof reply).toBe("string");
-    expect(reply as string).toContain("Saved that photo as a document in your app");
+    expect(reply as string).toContain("I saved that photo, but I couldn't tell what it is yet");
     expect(reply as string).toContain("Document text extraction is off");
     expect(vision.create).not.toHaveBeenCalled();
     // No purpose was stamped on the legacy path.

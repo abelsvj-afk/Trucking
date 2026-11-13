@@ -599,7 +599,7 @@ describe("dump intake (§9)", () => {
 
     expect(out.reply).toContain("NOT recorded any of this yet");
     expect(out.reply).toContain("1. Load: Melbourne → Atlanta");
-    expect(out.reply).toContain("2. Update truck");
+    expect(out.reply).toContain("2. Update the truck");
     expect(out.reply).toContain("3. Memory (fact)");
     // Nothing written anywhere.
     expect(db.loads).toHaveLength(1);

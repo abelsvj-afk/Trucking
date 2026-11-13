@@ -57,7 +57,7 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       idKey: "credential_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateCredentialSchema,
-      summarize: (args) => `Update credential ${args.credential_id}: ${changedFields(args, "credential_id")}`,
+      summarize: (args) => `Update the credential: ${changedFields(args, "credential_id")}`,
       confirm: (args) => `Updated the credential (${changedFields(args, "credential_id")}).`,
     }),
   );
@@ -127,7 +127,7 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       label: "invoice",
       toRow: invoiceToRow,
       rowSchema: createLoadInvoiceSchema,
-      summarize: (args) => `Invoice for load ${args.load_id}: $${args.amount_dollars} due ${args.due_date}`,
+      summarize: (args) => `Invoice: $${args.amount_dollars} due ${args.due_date}`,
       confirm: (args) => `Invoiced — $${args.amount_dollars} due ${args.due_date}. I'll age it from here.`,
     }),
     makeUpdateTool(store, {
@@ -144,7 +144,7 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       idKey: "invoice_id",
       toPatch: invoiceToRow,
       patchSchema: updateLoadInvoiceSchema,
-      summarize: (args) => `Update invoice ${args.invoice_id}: ${changedFields(args, "invoice_id")}`,
+      summarize: (args) => `Update the invoice: ${changedFields(args, "invoice_id")}`,
       confirm: (args) => `Updated the invoice (${changedFields(args, "invoice_id")}).`,
     }),
   );
@@ -212,7 +212,7 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       idKey: "obligation_id",
       toPatch: obligationToRow,
       patchSchema: updateRecurringObligationSchema,
-      summarize: (args) => `Update obligation ${args.obligation_id}: ${changedFields(args, "obligation_id")}`,
+      summarize: (args) => `Update the obligation: ${changedFields(args, "obligation_id")}`,
       confirm: (args) => `Updated the obligation (${changedFields(args, "obligation_id")}).`,
     }),
   );
@@ -234,7 +234,7 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       label: "follow-up",
       toRow: (args) => definedOnly(args),
       rowSchema: createBrokerFollowupSchema,
-      summarize: (args) => `Follow-up for broker ${args.broker_id} on ${args.due_on}: ${args.note}`,
+      summarize: (args) => `Follow-up on ${args.due_on}: ${args.note}`,
       confirm: (args) => `Follow-up set for ${args.due_on} — I'll surface it in the day-wrap.`,
     }),
     makeUpdateTool(store, {
@@ -251,7 +251,7 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       idKey: "followup_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateBrokerFollowupSchema,
-      summarize: (args) => `Update follow-up ${args.followup_id}: ${changedFields(args, "followup_id")}`,
+      summarize: (args) => `Update the follow-up: ${changedFields(args, "followup_id")}`,
       confirm: (args) => `Updated the follow-up (${changedFields(args, "followup_id")}).`,
     }),
   );
@@ -290,8 +290,8 @@ export function pushRecordTools(store: BotBrainStore, tools: AgentTool[]): void 
       idKey: "driver_id",
       toPatch: (args) => definedOnly(args),
       patchSchema: updateDriverSchema,
-      summarize: (args) => `Update driver ${args.driver_id}: ${changedFields(args, "driver_id")}`,
-      confirm: (args) => `Updated driver ${args.driver_id} (${changedFields(args, "driver_id")}).`,
+      summarize: (args) => `Update the driver: ${changedFields(args, "driver_id")}`,
+      confirm: (args) => `Updated the driver (${changedFields(args, "driver_id")}).`,
     }),
   );
 

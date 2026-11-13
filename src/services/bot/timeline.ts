@@ -5,6 +5,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { daysBetween, relativeTo } from "@/lib/temporal";
 import { formatMoney } from "@/lib/money-format";
+import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
+import { displayFileName } from "@/services/documents/document-naming";
 
 export type TimelineTopic = "loads" | "money" | "fuel" | "maintenance" | "documents" | "duty";
 export const TIMELINE_TOPICS: readonly TimelineTopic[] = ["loads", "money", "fuel", "maintenance", "documents", "duty"];
@@ -22,7 +24,10 @@ export interface TimelineEvent {
 const MAX_LINES = 80;
 const dollars = (cents: number) => formatMoney(cents);
 const easternDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-const easternTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+// Telegram review D5: times carry their zone label ("9:15 AM ET"),
+// never a bare clock. Days stay grouped on the home clock by design
+// (see the header comment); only the time-of-day render was unlabeled.
+const easternTime = (iso: string) => formatClock(iso, HOME_TIME_ZONE);
 const dayHeader = (day: string, today: string) =>
   `📅 ${new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })} (${relativeTo(today, day)})`;
 
@@ -114,7 +119,7 @@ export async function loadTimelineEvents(
   if (!docs) unreadable.push("documents");
   for (const d of docs ?? []) {
     const at = d.uploaded_at as string;
-    if (inRange(easternDay(at))) events.push({ day: easternDay(at), at, time: easternTime(at), topic: "documents", text: `📄 Filed: ${d.file_name}` });
+    if (inRange(easternDay(at))) events.push({ day: easternDay(at), at, time: easternTime(at), topic: "documents", text: `📄 Filed: ${displayFileName(String(d.file_name ?? ""), typeof d.doc_type === "string" ? d.doc_type : null)}` });
   }
 
   const duty = await rows(base("duty_logs").gte("started_at", fromTs).lte("started_at", toTs).order("started_at", { ascending: true }).limit(120));

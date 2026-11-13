@@ -8,6 +8,7 @@
 export const FLAIR_RULES =
   "PERSONALITY: you can be warm and a little fun - use emojis freely in your text. Now and then (not every message) you may add ONE sticker by writing {{sticker:🎉}} on its own line, " +
   "or react to his message by writing {{react:👍}} (reactions: 👍 ❤ 🔥 👏 😁 🎉 🤩 🙏 👌 💯 🤝 🫡 😎 🤣 ⚡ 🏆 👀), or - rarely - send ONE GIF meme by writing {{gif:two or three search words}} (for example {{gif:celebration dance}}). Use them for wins (a load delivered, a paycheck landed, good news), thanks, and friendly banter. " +
+  "A done-confirmation (all documents attached, a load recorded) or a mismatch you caught is a good moment for one too. " +
   "NEVER on errors, warnings, safety or hours-of-service limits, money problems, or when you are asking him to approve something. Stickers and GIFs he sends arrive as [sticker 😂] / [GIF] - answer in kind lightly; they are never commands.";
 
 /** Telegram's standard reaction emoji that suit this bot (without variation selectors). */
@@ -33,8 +34,33 @@ const stripVariation = (s: string) => s.replace(/️/g, "").trim();
 /** One emoji (possibly a ZWJ sequence) and nothing else. */
 const looksLikeEmoji = (s: string) => /^\p{Extended_Pictographic}[\p{Extended_Pictographic}‍️\u{1F3FB}-\u{1F3FF}]*$/u.test(s) && s.length <= 12;
 
+/** Money problems, safety, or hours-of-service content: flair stays off, whatever else the message is. */
+const FLAIR_OFF_TOPICS = /\$|¢|cents|fuel|owed|overdue|short by|balance|debt|payment failed|driving|HOS|hours|tire|brake|safety|injur|crash|over the limit/i;
+
+/**
+ * Telegram review D9: the moments where life belongs. A done-confirmation
+ * ("all three attached ✅") or a mismatch Abel caught are exactly where
+ * a sticker or reaction earns its keep - the old blanket null in
+ * isSeriousMessage() silenced flair on every proposal-adjacent message,
+ * which is why the owner had never seen one (the session was almost
+ * entirely proposals). The moment wins over a trailing approval footer
+ * ("Still waiting... Reply YES"): the flair rides the done/mismatch
+ * news, the footer still asks the question. Money problems, safety and
+ * HOS win over the moment. No meme library or sticker set is invented
+ * here - the owner-approved set is a separate owner step.
+ */
+export function isFlairMoment(text: string): boolean {
+  if (FLAIR_OFF_TOPICS.test(text)) return false;
+  return /✅.*(attached|recorded|delivered|done|saved)|all three .* attached|attached to Trip \d+|mismatch|doesn'?t add up|kept .* figures|figures .* don'?t match/i.test(text);
+}
+
 /** A message that must stay serious: a warning, a failure, a refusal, or an approval request. */
 export function isSeriousMessage(text: string): boolean {
+  if (isFlairMoment(text)) return false;
+  // Money problems, safety and HOS stay flair-free even when the old
+  // patterns below would not have caught them (a "$412 fuel" done-line
+  // is money content, not a celebration).
+  if (FLAIR_OFF_TOPICS.test(text)) return true;
   return /⚠|❌|🛑|🚨|🗑|NOT recorded|Reply YES|couldn't|could not|FAILED|failed|refused|can't|error|expired|over the limit|violation|short by|SHORT\b/i.test(text);
 }
 

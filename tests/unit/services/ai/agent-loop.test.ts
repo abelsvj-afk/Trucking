@@ -323,3 +323,89 @@ describe("runAgentLoop - self-verification pass (think deeper, Frontier 1)", () 
     expect(out.verificationMs).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("model-execute guard (Telegram review D3 path)", () => {
+  // The exact write is already waiting for his yes: the model must
+  // NOT execute it mid-turn (the "not sure, no" failure was the
+  // model executing the pending duty write instead of waiting).
+  const pendingExpense = async (toolName: string, args: Record<string, unknown>) =>
+    toolName === "create_expense" && args.category === "repairs" && args.amount_dollars === 45;
+
+  it("refuses to execute a write that is already waiting for his yes", async () => {
+    const run = vi.fn(async () => "Recorded.");
+    const { provider, calls } = scriptedProvider([
+      toolCall("c1", "create_expense", { category: "repairs", amount_dollars: 45, confirmation: "execute" }),
+      textTurn("It's already on your waiting list - say YES to record it."),
+    ]);
+
+    const out = await runAgentLoop({
+      ...baseInput,
+      provider,
+      tools: [expenseTool(run)],
+      isWriteAlreadyPending: pendingExpense,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(out.proposals).toEqual([]);
+    expect(out.toolLog).toContainEqual({ tool: "create_expense", access: "write", outcome: "error", detail: "already pending approval" });
+    expect(out.reply).toBe("It's already on your waiting list - say YES to record it.");
+    // The refusal reaches the model as a tool message, so it can answer from it.
+    const toolMessages = calls[1]!.messages.filter((m) => m.role === "tool");
+    expect(toolMessages[0]?.content).toContain("NOT EXECUTED - that exact write is already waiting for his yes");
+  });
+
+  it("executes the same write when nothing is waiting", async () => {
+    const run = vi.fn(async () => "Recorded expense $45.00 (repairs).");
+    const { provider } = scriptedProvider([
+      toolCall("c1", "create_expense", { category: "repairs", amount_dollars: 45, confirmation: "execute" }),
+      textTurn("Recorded."),
+    ]);
+
+    const out = await runAgentLoop({
+      ...baseInput,
+      provider,
+      tools: [expenseTool(run)],
+      isWriteAlreadyPending: async () => false,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith({ category: "repairs", amount_dollars: 45 });
+    expect(out.reply).toBe("Recorded.");
+  });
+
+  it("a different write is not blocked by an unrelated pending row", async () => {
+    const run = vi.fn(async () => "Recorded.");
+    const { provider } = scriptedProvider([
+      toolCall("c1", "create_expense", { category: "fuel", amount_dollars: 120, confirmation: "execute" }),
+      textTurn("Recorded."),
+    ]);
+
+    await runAgentLoop({
+      ...baseInput,
+      provider,
+      tools: [expenseTool(run)],
+      isWriteAlreadyPending: pendingExpense,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("a guard-check failure never blocks a write", async () => {
+    const run = vi.fn(async () => "Recorded.");
+    const { provider } = scriptedProvider([
+      toolCall("c1", "create_expense", { category: "repairs", amount_dollars: 45, confirmation: "execute" }),
+      textTurn("Recorded."),
+    ]);
+
+    await runAgentLoop({
+      ...baseInput,
+      provider,
+      tools: [expenseTool(run)],
+      isWriteAlreadyPending: async () => {
+        throw new Error("db down");
+      },
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});

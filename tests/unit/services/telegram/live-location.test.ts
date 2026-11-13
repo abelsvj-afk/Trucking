@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleLiveLocation, proposalText, type LiveLocationStore, type StoredPosition } from "@/services/telegram/live-location";
-import { MOVING_PROPOSAL_AFTER_MS, PROPOSAL_COOLDOWN_MS } from "@/lib/live-motion";
+import { describeFixAge, MOVING_PROPOSAL_AFTER_MS, PROPOSAL_COOLDOWN_MS } from "@/lib/live-motion";
 import type { DutyStatus } from "@/types/entities";
 
 const miles = (m: number) => m / 69.05;
@@ -12,6 +12,7 @@ function memStore(status: DutyStatus | null) {
     savePosition: async (p) => void (pos = p),
     loadCurrentStatus: async () => status,
     stageProposal: async (proposal, sinceIso) => void staged.push({ sinceIso, status: proposal.status }),
+    hasWaitingDutyProposal: async (s, sinceIso) => staged.some((p) => p.status === s && p.sinceIso === sinceIso),
   };
   return { store, staged, get pos() { return pos; } };
 }
@@ -74,6 +75,55 @@ describe("handleLiveLocation", () => {
     const d = deps();
     for (let i = 0; i <= 10; i++) await handleLiveLocation(m.store, { latitude: 28 + i * 1e-6, longitude: -81.7, horizontal_accuracy: 8 }, T0 + i * 30_000, d);
     expect(m.staged).toHaveLength(0);
+  });
+
+  it("D6: a stale fix never drives a proposal - it says so with the fix age", async () => {
+    const m = memStore("off_duty");
+    const d = deps();
+    for (let i = 0; i <= 5; i++) {
+      // The last fix arrives 20 minutes late: the movement is real, the fix is not fresh.
+      const opts = i === 5 ? { nowMs: T0 + 5 * 30_000 + 20 * 60_000 } : undefined;
+      await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d, opts);
+    }
+    expect(m.staged).toHaveLength(0);
+    expect(d.sendMessage).toHaveBeenCalledTimes(1);
+    expect(d.sendMessage.mock.calls[0]![0]).toContain("I don't have a fresh location — last fix 20 min ago");
+    expect(d.sendMessage.mock.calls[0]![0]).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("D6: a feed gap restarts the episode - a stop from before the gap cannot propose on arrival", async () => {
+    const m = memStore("driving");
+    const d = deps();
+    const still = { latitude: 28, longitude: -81.7, horizontal_accuracy: 8 };
+    for (let i = 0; i <= 11; i++) await handleLiveLocation(m.store, still, T0 + i * 30_000, d);
+    expect(m.staged).toHaveLength(1); // stopped 5+ min while logged driving
+    // No fixes for an hour, then the same spot: the old stop is not continuous evidence.
+    await handleLiveLocation(m.store, still, T0 + 60 * 60_000 + 11 * 30_000, d);
+    expect(m.staged).toHaveLength(1);
+    // A fresh 5-minute stop after the gap proposes again (cooldown long past).
+    for (let i = 1; i <= 11; i++) await handleLiveLocation(m.store, still, T0 + 60 * 60_000 + 11 * 30_000 + i * 30_000, d);
+    expect(m.staged).toHaveLength(2);
+  });
+
+  it("D2: an identical duty proposal already waiting is never staged again", async () => {
+    const m = memStore("off_duty");
+    const d = deps();
+    for (let i = 0; i <= 6; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(m.staged).toHaveLength(1);
+    // Past the 30-min cooldown, still moving, same movement start: the
+    // same proposal would fire again - it must not stage a second row.
+    for (let i = 7; i <= 70; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(m.staged).toHaveLength(1);
+    expect(d.sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("describeFixAge", () => {
+  it("words an age, never a timestamp", () => {
+    expect(describeFixAge(30_000)).toBe("just now");
+    expect(describeFixAge(5 * 60_000)).toBe("5 min ago");
+    expect(describeFixAge(2 * 60 * 60_000)).toBe("2 hours ago");
+    expect(describeFixAge(3 * 24 * 60 * 60_000)).toBe("3 days ago");
   });
 });
 

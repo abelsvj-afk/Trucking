@@ -91,7 +91,7 @@ export function buildEpisodeTools(store: BotBrainStore): AgentTool[] {
           provenance: "model_inferred_unconfirmed",
         });
         if (!id) throw new Error("The lesson couldn't be saved yet - migration 00092 hasn't been applied to the database.");
-        return `Saved lesson: "${parsed.lesson}". Record id ${id}.`;
+        return `Saved lesson: "${parsed.lesson}".`;
       },
     },
     {
@@ -114,8 +114,8 @@ export function buildEpisodeTools(store: BotBrainStore): AgentTool[] {
       },
       async run(args) {
         const parsed = correctLessonArgs.parse(args);
-        const newId = await store.correctEpisode(parsed.episode_id, parsed.lesson);
-        return `Corrected the lesson to: "${parsed.lesson}". The old wording stays in history. Record id ${newId}.`;
+        await store.correctEpisode(parsed.episode_id, parsed.lesson);
+        return `Corrected the lesson to: "${parsed.lesson}". The old wording stays in history.`;
       },
     },
   ];

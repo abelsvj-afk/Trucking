@@ -1,7 +1,7 @@
 // Stickers and reactions: Abel asks with markers, code decides (owner 2026-11-07).
 
 import { describe, expect, it } from "vitest";
-import { describeIncomingMedia, extractFlair, isSeriousMessage, FLAIR_RULES } from "@/services/telegram/flair";
+import { describeIncomingMedia, extractFlair, isFlairMoment, isSeriousMessage, FLAIR_RULES } from "@/services/telegram/flair";
 
 describe("extractFlair", () => {
   it("pulls out one sticker and one reaction and removes the markers from the text", () => {
@@ -37,6 +37,30 @@ describe("extractFlair", () => {
   it("isSeriousMessage", () => {
     expect(isSeriousMessage("🎉 Load delivered, paycheck landed")).toBe(false);
     expect(isSeriousMessage("⚠️ heads up")).toBe(true);
+  });
+});
+
+describe("D9: the flair gate has an allow-list (done-confirmations, mismatch flags)", () => {
+  it("a done-confirmation carries life even with a waiting footer riding along", () => {
+    expect(isFlairMoment("🚚 All three documents have been attached to Trip 1874 ✅")).toBe(true);
+    const f = extractFlair("✅ Done - all three attached to Trip 1874\n\n⏳ Still waiting for your yes/no:\n👉 Reply YES to confirm {{sticker:🎉}}");
+    expect(f.sticker).toBe("🎉");
+    expect(f.text).not.toMatch(/\{\{/);
+  });
+  it("a mismatch Abel caught carries life", () => {
+    expect(isFlairMoment("deadhead + loaded = 1,111.27 mi, total printed = 1,178.27 mi. I kept all three figures exactly as dispatch printed them.")).toBe(true);
+    const f = extractFlair("Mismatch: deadhead + loaded = 1,111.27 mi, total printed = 1,178.27 mi {{react:👀}}");
+    expect(f.reaction).toBe("👀");
+  });
+  it("money, safety and HOS stay flair-free even on a done line", () => {
+    expect(isFlairMoment("✅ Done - recorded fuel purchase $412.10")).toBe(false);
+    expect(isSeriousMessage("✅ Done - recorded fuel purchase $412.10 {{sticker:🎉}}")).toBe(true);
+    expect(extractFlair("✅ Done - recorded fuel purchase $412.10 {{sticker:🎉}}").sticker).toBeNull();
+    expect(isSeriousMessage("You have 3h 10m of driving left {{react:🔥}}")).toBe(true);
+  });
+  it("a bare approval ask with no done/mismatch moment stays flair-free", () => {
+    expect(isFlairMoment("I have NOT recorded this yet.\n👉 Reply YES to confirm")).toBe(false);
+    expect(extractFlair("I have NOT recorded this yet.\n👉 Reply YES to confirm {{react:👍}}").reaction).toBeNull();
   });
 });
 

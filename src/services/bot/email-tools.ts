@@ -368,10 +368,10 @@ export function buildEmailTools(
         if (!isSendEnabled(original.mailbox)) return { ok: false as const, error: DISPATCH_SEND_OFF_REASON };
         return {
           ok: true as const,
-          summary: `SEND this email from ${MAILBOX_LABEL[original.mailbox]} - To: ${d.toAddress} - Subject: ${d.subject} - Text: """${d.body}""" (draft ${d.id}, fingerprint ${bodyFingerprint(d.body)})`,
+          summary: `SEND this email from ${MAILBOX_LABEL[original.mailbox]} - To: ${d.toAddress} - Subject: ${d.subject} - Text: """${d.body}""" (fingerprint ${bodyFingerprint(d.body)})`,
         };
       },
-      summarize: (args) => `Send draft ${String(args.draft_id ?? "")} (fingerprint ${String(args.fingerprint ?? "")})`,
+      summarize: (args) => `Send the saved draft`,
       async run(args) {
         const p = sendSchema.safeParse(args);
         if (!p.success) return `Not sent: ${p.error.issues[0]?.message ?? "invalid arguments"}`;

@@ -159,7 +159,7 @@ describe("handleTelegramPhoto — §13 processing wiring", () => {
     const fake = fakeClient({ enabled: true });
     const reply = await handleTelegramPhoto(deps(fake.client), PHOTOS);
 
-    expect(reply).toContain("Saved that photo as a document");
+    expect(reply).toContain("I saved that photo, but I couldn't tell what it is yet");
     // Two uploads: the photo itself, then its scan rendition.
     expect(fake.uploads).toHaveLength(2);
     expect(fake.uploads[1]).toContain("-scan-");
@@ -178,7 +178,7 @@ describe("handleTelegramPhoto — §13 processing wiring", () => {
     const fake = fakeClient(null);
     const reply = await handleTelegramPhoto(deps(fake.client), PHOTOS);
 
-    expect(reply).toContain("Saved that photo as a document");
+    expect(reply).toContain("I saved that photo, but I couldn't tell what it is yet");
     expect(fake.uploads).toHaveLength(1);
     expect(fake.updates).toHaveLength(0);
     const row = fake.row() as Record<string, unknown>;
@@ -223,7 +223,7 @@ describe("handleTelegramPhoto — §13 processing wiring", () => {
     });
     const reply = await handleTelegramPhoto(d, PHOTOS);
 
-    expect(reply).toContain("Saved that photo as a document");
+    expect(reply).toContain("I saved that photo, but I couldn't tell what it is yet");
     expect(reply).toContain("still pending");
     expect(reply).not.toContain("I read it");
   });

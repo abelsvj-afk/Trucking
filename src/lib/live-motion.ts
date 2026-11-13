@@ -96,6 +96,25 @@ export const MOVING_PROPOSAL_AFTER_MS = 2 * 60_000;
 export const STOPPED_PROPOSAL_AFTER_MS = 5 * 60_000;
 /** Never prompt more often than this, whatever the traffic does. */
 export const PROPOSAL_COOLDOWN_MS = 30 * 60_000;
+/**
+ * Telegram review D6: a position fix older than this cannot support a
+ * motion claim. The feed may have stalled, the phone may be off - a
+ * "hasn't moved since 8:40 AM" built on a fix from hours ago is a
+ * stale fact dressed as a current one. Mirrors the 10-min auto-switch
+ * age gate (lib/auto-motion-rules.ts), with room for webhook delay.
+ */
+export const FRESH_FIX_MAX_AGE_MS = 15 * 60_000;
+
+/** "just now" / "5 min ago" / "2 hours ago" / "3 days ago" - for stale-fix messages, never a raw timestamp. */
+export function describeFixAge(ageMs: number): string {
+  if (ageMs < 60_000) return "just now";
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export type ProposalKind = "start_driving" | "stop_driving";
 

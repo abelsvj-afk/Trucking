@@ -408,8 +408,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
           );
         }
         if (result.error) throw new Error(result.error.message);
-        const data = result.data;
-        return `Recorded expense ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category}) on ${expenseDate}${parsed.bucket === "pay_deduction" ? " as a PAY DEDUCTION - it will come out of his check for that pay week" : ""}. Record id ${(data as { id: string }).id}.`;
+        return `Recorded expense ${dollars(Math.round(parsed.amount_dollars * 100))} (${parsed.category}) on ${expenseDate}${parsed.bucket === "pay_deduction" ? " as a PAY DEDUCTION - it will come out of his check for that pay week" : ""}.`;
       },
     },
     {
@@ -472,7 +471,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         // say the reading itself wasn't saved (§5.3 honesty).
         let odometerUnsaved = false;
         if (parsed.odometer !== undefined) baseRow.odometer = parsed.odometer;
-        let { data, error } = await client
+        let { error } = await client
           .from("fuel_purchases")
           .insert(baseRow)
           .select("id")
@@ -480,7 +479,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         if (error && parsed.odometer !== undefined && isMissingColumnError(error)) {
           delete baseRow.odometer;
           odometerUnsaved = true;
-          ({ data, error } = await client.from("fuel_purchases").insert(baseRow).select("id").single());
+          ({ error } = await client.from("fuel_purchases").insert(baseRow).select("id").single());
         }
         if (error) throw new Error(error.message);
         let mileageNote = "";
@@ -496,7 +495,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         } else if (odometerUnsaved) {
           mileageNote = " The odometer reading wasn't saved - the mileage column hasn't landed in the database yet; the fuel entry itself is recorded.";
         }
-        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}. Record id ${(data as { id: string }).id}.${mileageNote}`;
+        return `Recorded fuel purchase ${dollars(totalCents)} for ${parsed.gallons} gal on truck ${truck.unit_number}.${mileageNote}`;
       },
     },
     {
@@ -656,7 +655,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       validateArgs: validateWith(stampDetentionArgs),
       summarize(args) {
         const parsed = stampDetentionArgs.parse(args);
-        return `Detention stamp: ${parsed.stamp_type} (${parsed.stop_kind ?? "delivery"}) on load ${parsed.load_id}`;
+        return `Detention stamp: ${parsed.stamp_type} (${parsed.stop_kind ?? "delivery"})`;
       },
       async run(args) {
         const parsed = stampDetentionArgs.parse(args);
@@ -1055,7 +1054,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       validateArgs: validateWith(addLoadNoteArgs),
       summarize(args) {
         const parsed = addLoadNoteArgs.parse(args);
-        return `Note on load ${parsed.load_id}: "${parsed.note}"`;
+        return `Note on the load: "${parsed.note}"`;
       },
       async run(args) {
         const parsed = addLoadNoteArgs.parse(args);
