@@ -11,7 +11,10 @@ function memStore(status: DutyStatus | null) {
     loadPosition: async () => pos,
     savePosition: async (p) => void (pos = p),
     loadCurrentStatus: async () => status,
-    stageProposal: async (proposal, sinceIso) => void staged.push({ sinceIso, status: proposal.status }),
+    stageProposal: async (proposal, sinceIso) => {
+      staged.push({ sinceIso, status: proposal.status });
+      return null;
+    },
     hasWaitingDutyProposal: async (s, sinceIso) => staged.some((p) => p.status === s && p.sinceIso === sinceIso),
   };
   return { store, staged, get pos() { return pos; } };

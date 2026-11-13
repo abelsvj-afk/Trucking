@@ -51,6 +51,14 @@ export interface TelegramBurstItem {
   /** Telegram's id of his message, so Abel can react to it. */
   messageId?: number;
   /**
+   * D4 (Telegram review 2026-11-12): the Telegram id of the
+   * message this one quotes (`message.reply_to_message`), when
+   * the owner replied to / quoted one of Abel's messages. The
+   * quote IS the pointer - it rides the turn into the agent,
+   * which resolves it against the quote mapping first.
+   */
+  replyToMessageId?: number;
+  /**
    * Telegram fix round (brief fixes 7-9): a photo that arrived as
    * part of the burst. The photo is NOT filed on arrival - its
    * filing decision waits for the flush, so a photo forwarded

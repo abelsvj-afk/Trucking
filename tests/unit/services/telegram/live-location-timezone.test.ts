@@ -24,7 +24,10 @@ function memStore(status: DutyStatus | null) {
     loadPosition: async () => pos,
     savePosition: async (p) => void (pos = p),
     loadCurrentStatus: async () => status,
-    stageProposal: async (proposal, sinceIso, summary) => void staged.push({ sinceIso, status: proposal.status, summary }),
+    stageProposal: async (proposal, sinceIso, summary) => {
+      staged.push({ sinceIso, status: proposal.status, summary });
+      return null;
+    },
   };
   return { store, staged, get pos() { return pos; } };
 }

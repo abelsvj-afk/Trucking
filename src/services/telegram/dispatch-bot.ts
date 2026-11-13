@@ -88,6 +88,13 @@ export interface TelegramUpdate {
     text?: string;
     /** A sticker he sent: it reaches Abel as "[sticker 😂]", never as a command. */
     sticker?: { emoji?: string; set_name?: string };
+    /**
+     * D4 (Telegram review 2026-11-12): the message this one
+     * replies to / quotes, when the owner quoted one of Abel's
+     * messages. The quote IS the pointer - its id resolves
+     * against the quote mapping before the newest-group binding.
+     */
+    reply_to_message?: { message_id?: number };
     /** A GIF he sent: it reaches Abel as "[GIF]" plus any caption. */
     animation?: { file_id?: string };
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
@@ -151,7 +158,13 @@ export interface TelegramDeps {
    * ignored. Failures are logged and never reply into the chat.
    */
   handleLocation?: (loc: TelegramLocationFix, atMs: number) => Promise<void>;
-  sendMessage: (chatId: number, text: string) => Promise<void>;
+  /**
+   * D4: returns the Telegram ids of the messages sent (one per
+   * chunk for a split plain reply) - the quote mapping records
+   * them, so quoting any chunk resolves. A dep that reports no
+   * ids returns void, and the reply simply goes unmapped.
+   */
+  sendMessage: (chatId: number, text: string) => Promise<number[] | void>;
   getSuggestion: (message: string, context?: string) => Promise<DispatchSuggestion>;
   runChat: (input: BotChatInput) => Promise<BotChatOutput>;
   /**
@@ -234,8 +247,19 @@ export interface TelegramDeps {
    * Sends a reply with a Yes / No REPLY KEYBOARD. A reply-keyboard press arrives as an ordinary text message
    * ("Yes" / "No"), so it works whatever update types the webhook is registered for - unlike an inline button,
    * whose tap needs Telegram to deliver a separate callback_query update. Absent = plain text.
+   * D4: returns the sent message's id when the sender reports one (null/void when it doesn't).
    */
-  sendYesNoMessage?: (chatId: number, text: string) => Promise<void>;
+  sendYesNoMessage?: (chatId: number, text: string) => Promise<number | null | void>;
+  /**
+   * D4 (Telegram review 2026-11-12): records that Abel's messages
+   * `messageIds` (in `chatId`) rendered the proposal groups
+   * `groupKeys`, in that order - the quote mapping. Wired from the
+   * brain store by the webhook; absent = no mapping is recorded
+   * (quotes then get the honest one-line answer, never a wrong
+   * execution). Best-effort by contract: a failure is logged and
+   * never fails the turn.
+   */
+  recordQuoteTargets?: (chatId: number, messageIds: number[], groupKeys: string[]) => Promise<void>;
   /**
    * Rich cards (owner 2026-11-11): sends ONE structured card -
    * an HTML text card, or a photo card whose caption IS the full
@@ -351,6 +375,13 @@ interface ProcessedTextTurn {
   afterSend?: () => Promise<void>;
   /** A sticker / reaction Abel asked for (already vetted: none on a serious message). */
   flair?: Flair;
+  /**
+   * D4: the proposal-group keys this turn's reply rendered, in
+   * rendered order (agent-turn groups + any dispatch-workup
+   * staged groups) - the caller records them against the sent
+   * message id(s) so a quoted reply resolves to them.
+   */
+  renderedGroups?: string[];
 }
 
 /** True only when Abel actually asked for a sticker or a reaction - the normal reply awaits nothing extra. */
@@ -439,6 +470,11 @@ async function processTextItems(
           : null;
 
     const segments: string[] = [];
+    // D4: the proposal-group keys this turn's ONE reply renders, in
+    // rendered order - the dispatch workup's staged groups first,
+    // the agent turn's after. The caller records them against the
+    // sent message id(s).
+    const renderedGroups: string[] = [];
     let afterSend: (() => Promise<void>) | undefined;
     let dispatchDisabled = false;
     /** The trip a forwarded dispatch in this turn parsed to (null when none did) — the card header keys off it. */
@@ -535,6 +571,13 @@ async function processTextItems(
               documents: options?.documents,
             });
             reply += formatRecordableOutcome(outcome);
+            // D4: the workup's staged groups are rendered in this
+            // reply too, so they join its mapping (in rendered
+            // order - the dispatch list first, the agent turn's
+            // groups after, merged below).
+            for (const key of outcome.stagedGroupKeys ?? []) {
+              if (!renderedGroups.includes(key)) renderedGroups.push(key);
+            }
           } catch (err) {
             console.error("[telegram] failed to stage dispatch recordables", err);
           }
@@ -598,10 +641,20 @@ async function processTextItems(
       // forwarded bundle rides that turn's context block.
       const confirmations = chatItemsForTurn.filter((i) => BARE_CONFIRMATION.test(i.text.trim()));
       const rest = chatItemsForTurn.filter((i) => !BARE_CONFIRMATION.test(i.text.trim()));
-      const calls: { userText: string; includeBundle: boolean }[] = [
-        ...confirmations.map((i) => ({ userText: i.text, includeBundle: false })),
+      // D4: a bare YES/NO is always its own turn, so its quote
+      // rides exactly. A quoted correction joined with other text
+      // in one bundle carries the quote only when every item in
+      // the joined call quotes the SAME message - otherwise the
+      // quote is dropped and the unquoted behavior applies (no
+      // wrong execution either way).
+      const restQuote =
+        rest.length > 0 && rest.every((i) => i.replyToMessageId === rest[0]!.replyToMessageId)
+          ? rest[0]!.replyToMessageId
+          : undefined;
+      const calls: { userText: string; includeBundle: boolean; replyToMessageId?: number }[] = [
+        ...confirmations.map((i) => ({ userText: i.text, includeBundle: false, replyToMessageId: i.replyToMessageId })),
         ...(rest.length > 0
-          ? [{ userText: rest.map((i) => i.text).join("\n"), includeBundle: forwardItems.length > 0 }]
+          ? [{ userText: rest.map((i) => i.text).join("\n"), includeBundle: forwardItems.length > 0, replyToMessageId: restQuote }]
           : []),
       ];
       const replies: string[] = [];
@@ -628,10 +681,16 @@ async function processTextItems(
           // read-only when the dedup claim failed.
           chatId: String(chatId),
           writesRefused: options?.writesRefused,
+          // D4: the quote this turn answers, when the owner
+          // quoted one of Abel's messages.
+          replyToMessageId: call.replyToMessageId,
         };
         if (deps.runAgent && store) {
           const agentOutput = await deps.runAgent(chatInput);
           replies.push(agentOutput.reply);
+          for (const key of agentOutput.renderedGroups ?? []) {
+            if (!renderedGroups.includes(key)) renderedGroups.push(key);
+          }
           continue;
         }
         const output = await deps.runChat(chatInput);
@@ -647,6 +706,9 @@ async function processTextItems(
           }
         } else if (output.memory && !store) {
           reply += "\n\n(I'd save that to memory, but memory isn't configured on the server yet.)";
+        }
+        for (const key of output.renderedGroups ?? []) {
+          if (!renderedGroups.includes(key)) renderedGroups.push(key);
         }
         replies.push(reply);
       }
@@ -673,7 +735,15 @@ async function processTextItems(
     // Yes/No buttons) instead of a wall of text. The words below
     // the header are untouched.
     const headed = ensureLoadCardHeader(flair.text, dispatchTrip, chatItems.length === 0);
-    return { result, reply: formatReply(headed), degraded: ctx.degraded, persist: true, afterSend, flair };
+    return {
+      result,
+      reply: formatReply(headed),
+      degraded: ctx.degraded,
+      persist: true,
+      afterSend,
+      flair,
+      ...(renderedGroups.length > 0 ? { renderedGroups } : {}),
+    };
   } catch (err) {
     console.error("[telegram] bot turn failed", err);
     return {
@@ -796,7 +866,13 @@ async function flushBundleTurn(
   }
 
   const outcome = await processTextItems(textItems, chatId, deps, { documents, photoReplies });
-  await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+  const sentIds = await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+  // D4: the bundle's one reply rendered this turn's groups.
+  // Fire-and-forget on purpose - the mapping is best-effort
+  // bookkeeping (it never throws) and must not add an await to
+  // the turn: the reply is already out, and one extra tick here
+  // starved the flush's final persist (burst test).
+  void recordRenderedGroups(deps, chatId, sentIds, outcome.renderedGroups);
   const lastItem = textItems[textItems.length - 1] ?? mediaItems[mediaItems.length - 1];
   if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, lastItem?.messageId);
   if (outcome.afterSend) await outcome.afterSend();
@@ -952,20 +1028,23 @@ export type CardSendDeps = Pick<
  * Rich cards (owner 2026-11-11): sends one summary card - HTML
  * text, or a photo whose caption IS the full card text - with its
  * buttons, editing the live card for the same thing in place when
- * there is one. Returns true when the card went out (sent, edited,
- * or already showing this content); false when the caller should
- * fall back to the plain path. A proposal card NEVER edits in
+ * there is one. Returns whether the card went out (sent, edited,
+ * or already showing this content) plus its Telegram message id
+ * when the sender reported one (null when the card went out but
+ * no id was reported - the caller must NOT fall back then, or
+ * the owner gets the card twice). A proposal card NEVER edits in
  * place: a pending yes must stay visible as sent, not be replaced
  * under him. The words are never changed - only <b> tags and
  * buttons are added, and the timeline still stores the plain text.
+ * D4: the returned id is what the quote mapping records.
  */
 async function sendCardReply(
   deps: CardSendDeps,
   chatId: number,
   text: string,
   card: DetectedCard,
-): Promise<boolean> {
-  if (!deps.sendRichMessage) return false;
+): Promise<{ sent: boolean; messageId: number | null }> {
+  if (!deps.sendRichMessage) return { sent: false, messageId: null };
   const appUrl = deps.appUrl ?? getTelegramAppUrl();
   const proposal = asksForYesNo(text);
   const keyboard = buildCardKeyboard(card, { appUrl, proposal });
@@ -975,7 +1054,7 @@ async function sendCardReply(
   if (!proposal) {
     const existing = lookupCardMessage(chatId, card.key);
     if (existing && deps.editMessageText && Date.now() - existing.sentAtMs < CARD_EDIT_MAX_AGE_MS) {
-      if (existing.html === html) return true; // already showing exactly this - send nothing new
+      if (existing.html === html) return { sent: true, messageId: existing.messageId }; // already showing exactly this - send nothing new
       let result: EditMessageResult;
       try {
         result = await deps.editMessageText(chatId, existing.messageId, html, keyboard);
@@ -985,9 +1064,9 @@ async function sendCardReply(
       }
       if (result === "edited") {
         recordCardMessage(chatId, card.key, existing.messageId, html);
-        return true;
+        return { sent: true, messageId: existing.messageId };
       }
-      if (result === "unchanged") return true;
+      if (result === "unchanged") return { sent: true, messageId: existing.messageId };
       forgetCardMessage(chatId, card.key); // fall through to a fresh send
     }
   }
@@ -1006,20 +1085,20 @@ async function sendCardReply(
       try {
         const id = await deps.sendRichMessage(chatId, { kind: "photo", html, photoPng: png, keyboard });
         if (typeof id === "number") recordCardMessage(chatId, card.key, id, html);
-        return true;
+        return { sent: true, messageId: typeof id === "number" ? id : null };
       } catch (err) {
         console.error("[telegram] photo card send failed; sending the text card", err instanceof Error ? err.message : err);
       }
     }
   }
-  if (html.length > TELEGRAM_MESSAGE_LIMIT) return false; // too long for one HTML message - plain chunked text
+  if (html.length > TELEGRAM_MESSAGE_LIMIT) return { sent: false, messageId: null }; // too long for one HTML message - plain chunked text
   try {
     const id = await deps.sendRichMessage(chatId, { kind: "text", html, keyboard });
     if (typeof id === "number") recordCardMessage(chatId, card.key, id, html);
-    return true;
+    return { sent: true, messageId: typeof id === "number" ? id : null };
   } catch (err) {
     console.error("[telegram] rich card send failed; sending plain text", err instanceof Error ? err.message : err);
-    return false;
+    return { sent: false, messageId: null };
   }
 }
 
@@ -1032,19 +1111,49 @@ async function sendCardReply(
  *
  * Exported: the webhook routes non-conversational sends (live-location duty proposals) through this same
  * detection, so a structured notice cards instead of arriving as a wall of plain text.
+ *
+ * D4: returns the Telegram ids of the message(s) actually sent
+ * (the card's id, the yes/no message's id, or one id per plain
+ * chunk) - the caller records them against the reply's rendered
+ * groups so quoting it resolves. An empty array means the reply
+ * went out but no id was reported; it never means "not sent".
  */
-export async function sendReply(deps: CardSendDeps, chatId: number, text: string): Promise<void> {
+export async function sendReply(deps: CardSendDeps, chatId: number, text: string): Promise<number[]> {
   const card = detectCard(text);
-  if (card && (await sendCardReply(deps, chatId, text, card))) return;
+  if (card) {
+    const sent = await sendCardReply(deps, chatId, text, card);
+    if (sent.sent) return sent.messageId ? [sent.messageId] : [];
+  }
   if (deps.sendYesNoMessage && asksForYesNo(text)) {
     try {
-      await deps.sendYesNoMessage(chatId, text);
-      return;
+      const id = await deps.sendYesNoMessage(chatId, text);
+      return typeof id === "number" ? [id] : [];
     } catch (err) {
       console.error("[telegram] yes/no keyboard send failed; sending plain text", err);
     }
   }
-  await deps.sendMessage(chatId, text);
+  const ids = await deps.sendMessage(chatId, text);
+  return Array.isArray(ids) ? ids : [];
+}
+
+/**
+ * D4: records that the messages `messageIds` rendered the
+ * proposal groups `groupKeys`. Best-effort by contract - a
+ * failure is logged and never fails the turn, and a reply that
+ * rendered no groups (or reported no ids) records nothing.
+ */
+async function recordRenderedGroups(
+  deps: Pick<TelegramDeps, "recordQuoteTargets">,
+  chatId: number,
+  messageIds: number[],
+  groupKeys: string[] | undefined,
+): Promise<void> {
+  if (!deps.recordQuoteTargets || messageIds.length === 0 || !groupKeys || groupKeys.length === 0) return;
+  try {
+    await deps.recordQuoteTargets(chatId, messageIds, groupKeys);
+  } catch (err) {
+    console.error("[telegram] failed to record quote targets", err instanceof Error ? err.message : err);
+  }
 }
 
 /**
@@ -1079,7 +1188,11 @@ async function handleCallbackQuery(
     await answer();
     const item: TelegramBurstItem = { text: yesNo[1]!, isForwarded: false, voiceNote: false };
     const outcome = await processTextItems([item], chatId, deps);
-    await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+    const sentIds = await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+    // D4: a tap's reply can render the next groups too.
+    // Fire-and-forget - best-effort bookkeeping (never throws);
+    // the reply is already out, so it must not add an await.
+    void recordRenderedGroups(deps, chatId, sentIds, outcome.renderedGroups);
     // The tap settled the proposal - take its buttons off the
     // message so a later tap can't answer the same question twice.
     // Best-effort: the outcome reply already went out.
@@ -1519,6 +1632,10 @@ async function processTelegramUpdate(
     sourceLabel: forwardSourceLabel(update.message),
     voiceNote,
     messageId: update.message?.message_id,
+    // D4: the message this one quotes, when the owner replied to
+    // one of Abel's messages. (The voice path above preserves it
+    // via the {...update.message, text} spread.)
+    replyToMessageId: update.message?.reply_to_message?.message_id,
   };
 
   // Telegram repairs (2026-11-03): with the burst collector wired,
@@ -1538,7 +1655,11 @@ async function processTelegramUpdate(
   // flush could outlive the failure and write later) - the turn is
   // worked immediately, read-only.
   const outcome = await processTextItems([item], chatId, deps, { writesRefused: claimFailed });
-  await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+  const sentIds = await sendReply(deps, chatId, outcome.degraded ? outcome.reply + CONTEXT_DEGRADED_NOTE : outcome.reply);
+  // D4: the solo turn's reply rendered this turn's groups.
+  // Fire-and-forget - best-effort bookkeeping (never throws);
+  // the reply is already out, so it must not add an await.
+  void recordRenderedGroups(deps, chatId, sentIds, outcome.renderedGroups);
   if (wantsFlair(outcome.flair)) await sendFlair(deps, chatId, outcome.flair, item.messageId);
   if (outcome.afterSend) await outcome.afterSend();
   if (outcome.persist) {

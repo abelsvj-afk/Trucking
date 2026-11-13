@@ -770,6 +770,19 @@ gets the one-line warning.
 - `created_at` timestamptz not null default now()
 - `deleted_at` timestamptz — soft delete
 
+### `telegram_quote_targets` — created in 00095
+
+The quote IS the pointer (Telegram review fix, defect D4; owner rule 2026-11-11): when Abel sends a message that renders one or more proposal groups, the bot records (Telegram message id → the group keys rendered in that message) here. A quoted reply resolves `reply_to_message_id` against this table FIRST, before the existing newest-group binding; a quoted YES/NO/correction applies to those groups only. A group key is a dump batch's `batch_id` or a lone single proposal's pending-row id; `position` is the group's order as rendered in that message. Rows are resolved only against groups that are still open, so a settled or expired group yields the one-line "already settled" answer. Written best-effort by the bot: when this migration is not applied yet (or the database is down) the write fails, is logged, and a quote fails closed instead of executing the wrong group.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `chat_id` text not null
+- `message_id` bigint not null — Telegram's id of Abel's sent message
+- `group_key` text not null — a batch_id, or a single proposal's `bot_pending_actions` row id
+- `position` int not null default 0 — the group's order as rendered in that message
+- `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz — soft delete
+
 ### `research_knowledge` — created in 00084
 
 The durable knowledge layer (docs/design/autonomous-research.md): the research tick distills fresh watcher signals and a daily own-business snapshot (from the company's own records) into citable rows — every row carries its source and observed date; freshness is computed in code per standing topic (`src/lib/watch-topics.ts`), never stored as a flag that could rot.
