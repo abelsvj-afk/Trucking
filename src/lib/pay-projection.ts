@@ -23,6 +23,10 @@ export interface PayTerms {
   /** 0 = no mile part (percent-only pay needs no miles basis). */
   rate_cents_per_mile: number;
   mile_basis: "loaded" | "all" | "practical" | null;
+  /** "1099" / "w2" / null = UNSET (migration 00063). Only '1099' shows a tax set-aside. */
+  worker_type?: "w2" | "1099" | null;
+  /** Migration 00094: tax set-aside percent in basis points; null = the 25% default. */
+  tax_set_aside_bps?: number | null;
   /** Basis points of the load's rate (8500 = 85%); null/0 = no percent part. */
   percent_of_load_bps?: number | null;
   /** 0 = Sunday .. 6 = Saturday; null/undefined = UNSET (Monday-Sunday shown). */

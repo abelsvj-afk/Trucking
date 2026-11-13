@@ -873,6 +873,8 @@ export interface EmployerPayProfile extends BaseRow {
   fuel_paid_by: "employer" | "driver" | null;
   /** Migration 00074: basis points of the load's rate (8500 = 85%); null = no percent part. */
   percent_of_load_bps?: number | null;
+  /** Migration 00094: tax set-aside percent in basis points (2500 = 25%); null = the 25% default, shown only for 1099 contractors. */
+  tax_set_aside_bps?: number | null;
   /** Migration 00074: 0 = Sunday .. 6 = Saturday; null = UNSET. */
   pay_week_ends_on?: number | null;
   /** Migration 00074: the weekday the pay statement comes out; null = UNSET. */

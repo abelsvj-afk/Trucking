@@ -17,6 +17,7 @@ import Link from "next/link";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { usePayProjection } from "@/lib/use-pay-projection";
 import { describeTerms, formatDay, formatRange } from "@/lib/pay-projection";
+import { describeTaxSetAside, taxSetAsideFor, TAX_SET_ASIDE_DEFAULT_NOTE, workerTypeLabel } from "@/lib/tax-set-aside";
 import { payWeekNet } from "@/lib/money-hub";
 import { formatMoney } from "@/lib/money-format";
 
@@ -66,6 +67,14 @@ export default function DriverPayHomeCard() {
   const outUnavailable = week?.outUnavailable ?? false;
 
   const period = projection?.period ?? null;
+  // Tax set-aside (migration 00094): only for a 1099 contractor, on
+  // this week's gross. Display only - never subtracted from the net,
+  // never moved. A NULL worker_type or a W2 profile shows nothing.
+  const weekSetAside =
+    projection && period
+      ? taxSetAsideFor(period.lowCents, period.highCents, projection.terms.worker_type ?? null, projection.terms.tax_set_aside_bps ?? null)
+      : null;
+  const workerLabel = projection ? workerTypeLabel(projection.terms.worker_type ?? null) : null;
   const weekAdvancesCents = week?.advancesCents ?? 0;
   const weekDeductionsCents = week?.deductionsCents ?? 0;
   const weekOutCents = week?.outCents ?? 0;
@@ -122,6 +131,12 @@ export default function DriverPayHomeCard() {
                 {weekNet.highCents < 0 ? " — more taken out than this week is expected to pay so far" : ""}
               </p>
             )}
+            {weekSetAside && period && (
+              <p className="row-sub">
+                {describeTaxSetAside(weekSetAside, period.lowCents, period.highCents)}
+                {weekSetAside.isDefault ? ` — ${TAX_SET_ASIDE_DEFAULT_NOTE}` : ""}
+              </p>
+            )}
             <p className="row-sub">
               {period.rows.length} load{period.rows.length === 1 ? "" : "s"} ·{" "}
               {projection ? describeTerms(projection.terms) : ""}
@@ -138,7 +153,8 @@ export default function DriverPayHomeCard() {
                     ? "loaded miles only"
                     : projection.terms.mile_basis === "practical"
                       ? "practical miles"
-                      : "miles basis not set"}{" "}
+                      : "miles basis not set"}
+                {workerLabel ? ` · ${workerLabel}` : ""}{" "}
                 — <Link href="/money/pay">see or change terms</Link>
               </p>
             )}

@@ -15,6 +15,8 @@ export const createPayProfileSchema = z.object({
   worker_type: worker.nullable().optional(),
   fuel_paid_by: fuel.nullable().optional(),
   percent_of_load_bps: bps.nullable().optional(),
+  /** Migration 00094: tax set-aside percent in basis points; null = the 25% default (labelled as such in the UI). */
+  tax_set_aside_bps: bps.nullable().optional(),
   pay_week_ends_on: weekday.nullable().optional(),
   statement_weekday: weekday.nullable().optional(),
   payday_weekday: weekday.nullable().optional(),
@@ -29,6 +31,8 @@ export const updatePayProfileSchema = z.object({
   worker_type: worker.nullable().optional(),
   fuel_paid_by: fuel.nullable().optional(),
   percent_of_load_bps: bps.nullable().optional(),
+  /** Migration 00094: tax set-aside percent in basis points; null = the 25% default. */
+  tax_set_aside_bps: bps.nullable().optional(),
   pay_week_ends_on: weekday.nullable().optional(),
   statement_weekday: weekday.nullable().optional(),
   payday_weekday: weekday.nullable().optional(),

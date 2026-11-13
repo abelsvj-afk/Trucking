@@ -16,8 +16,10 @@ const summary = buildPaySummary({
   hos: null,
   now: new Date("2026-11-07T15:00:00Z"),
 });
+const mockState = vi.hoisted(() => ({ summary: null as unknown }));
+mockState.summary = summary;
 
-vi.mock("@/lib/use-pay-summary", () => ({ usePaySummary: () => ({ status: "ready", summary }) }));
+vi.mock("@/lib/use-pay-summary", () => ({ usePaySummary: () => ({ status: "ready", summary: mockState.summary }) }));
 vi.mock("@/lib/use-page-title", () => ({ usePageTitle: () => {} }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 
@@ -37,6 +39,26 @@ describe("Paychecks page by payday", () => {
     const loads = within(article).getByRole("list", { name: /Loads in/ });
     expect(within(loads).getAllByRole("listitem")).toHaveLength(2);
     expect(within(loads).getByText(/Dallas, TX/)).toBeTruthy();
+    // Worker type UNSET on these terms: no tax set-aside line.
+    expect(within(article).queryByText("Set aside for taxes")).toBeNull();
+  });
+
+  it("for a 1099 contractor each paycheck shows the set-aside on its expected gross, labelled as the default", () => {
+    mockState.summary = buildPaySummary({
+      loads: [load({ id: "a" }), load({ id: "b", origin: "Dallas, TX", delivery_date: "2026-10-27", pickup_date: "2026-10-26" })],
+      terms: [{ ...terms[0]!, worker_type: "1099" as const }],
+      receivedByLoad: new Map([[ "a", 60000 ]]),
+      advances: [{ amount_cents: 25000, advance_date: "2026-10-28" }],
+      hos: null,
+      now: new Date("2026-11-07T15:00:00Z"),
+    });
+    render(<PaychecksPage />);
+    const article = screen.getByRole("article", { name: /Payday Fri, Nov 6/ });
+    expect(within(article).getByText("Set aside for taxes")).toBeTruthy();
+    // $1,200.00 expected gross at the default 25% is $300.00.
+    expect(within(article).getByText(/Set aside for taxes: \$300\.00 \(25% of \$1,200\.00 gross\)/)).toBeTruthy();
+    expect(within(article).getByText(/Default 25% — change it in Settings → Pay/)).toBeTruthy();
+    mockState.summary = summary;
   });
 });
 
