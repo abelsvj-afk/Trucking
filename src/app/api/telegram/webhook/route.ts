@@ -45,6 +45,7 @@ import {
   type PhotoPurposeChoice,
 } from "@/services/telegram/photo-purpose";
 import { runAgentTurn } from "@/services/bot/agent-turn";
+import { recordQuoteTargets } from "@/services/bot/quote-targets";
 import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
 import { createRateLimiter } from "@/services/telegram/rate-limit";
@@ -220,6 +221,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 chatId,
                 text,
               ),
+            // D4: the duty proposal's sent message maps to its
+            // staged group, so quoting it answers it. The chat id
+            // is the allowed chat; absent in reduced mode.
+            recordQuoteTargets: brainStore
+              ? async (messageIds, groupKeys) => {
+                  await recordQuoteTargets(
+                    brainStore.client,
+                    brainStore.companyId,
+                    chatId,
+                    messageIds,
+                    groupKeys,
+                  );
+                }
+              : undefined,
             autoSwitch: (detectedAtIso, submissionId, timeZone) =>
               applyAutoMotionSwitch({
                 client: brainStore.client,
@@ -235,6 +250,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       : undefined,
     sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
+    // D4: the quote mapping — records (sent message id -> the
+    // proposal groups the reply rendered) so a quoted reply
+    // resolves to them. Wired from the brain store; absent in
+    // reduced mode (brainStore null), so quotes then get the honest
+    // one-line answer, never a wrong execution.
+    recordQuoteTargets: brainStore
+      ? async (chatId, messageIds, groupKeys) => {
+          await recordQuoteTargets(brainStore.client, brainStore.companyId, chatId, messageIds, groupKeys);
+        }
+      : undefined,
     // Lazy provider construction: bootstrap/ignored updates must work
     // even if the AI key is missing, and must never pay for a provider
     // they don't use.

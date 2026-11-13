@@ -22,7 +22,16 @@ export const botChatOutputSchema = z.object({
     .optional(),
 });
 
-export type BotChatOutput = z.infer<typeof botChatOutputSchema>;
+export type BotChatOutput = z.infer<typeof botChatOutputSchema> & {
+  /**
+   * D4 (Telegram review 2026-11-12): the proposal-group keys
+   * this turn's reply rendered, in rendered order - set in code
+   * by the agent turn (never by the model), so the dispatch layer
+   * can record the quote mapping (message id -> groups) at send
+   * time. Absent when the reply rendered no proposal.
+   */
+  renderedGroups?: string[];
+};
 
 export interface BotChatTurn {
   role: "user" | "assistant";
@@ -58,6 +67,15 @@ export interface BotChatInput {
    * proposal may be staged or executed, however the words land.
    */
   writesRefused?: boolean;
+  /**
+   * D4 (Telegram review 2026-11-12): the Telegram id of the
+   * message this turn quotes (`message.reply_to_message`), when
+   * the owner replied to / quoted one of Abel's messages. The
+   * agent turn resolves it against the quote mapping FIRST,
+   * before the newest-group binding - the quote IS the pointer.
+   * Absent on the web surface, where there is nothing to quote.
+   */
+  replyToMessageId?: number;
   /**
    * Frontier 2: the pre-action recall block ("WHAT I'VE LEARNED
    * ABOUT WORKING WITH HIM") — assembled in code by loadBotContext

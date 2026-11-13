@@ -39,6 +39,14 @@ export interface StageRecordablesResult {
   earlierPending?: string;
   /** A readable review of a parsed trip assignment (stops, appointments, miles, tasks), when the message was one. */
   review?: string;
+  /**
+   * D4: the proposal-group keys this staging rendered, in rendered
+   * order (batch ids, or the fresh row ids of lone singles) - plus
+   * the earlier pending group's key when the reply names it too.
+   * The dispatch layer records them against the sent message id,
+   * so a quoted YES to the workup reply binds to them.
+   */
+  stagedGroupKeys: string[];
 }
 
 /** The clean review the owner sees before his one yes: everything read, and what is missing. */
@@ -97,7 +105,7 @@ export async function stageRecordables(
     (item) => !(tripArgs && (item as { tool_name?: unknown } | null)?.tool_name === "create_load"),
   );
   if (!tripArgs && modelItems.length === 0) {
-    return { proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false };
+    return { proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false, stagedGroupKeys: [] };
   }
 
   const pending = await store.loadPendingAction();
@@ -188,9 +196,14 @@ export async function stageRecordables(
     }
   }
 
+  // D4: the groups this staging renders, in order - batch ids for
+  // batches, fresh row ids for lone singles (the save reports
+  // them, so a quoted YES to the workup reply binds to them).
+  const stagedGroupKeys: string[] = [];
   let itemNumber = 0;
   for (const proposal of proposals) {
     itemNumber += 1;
+    const key = proposal.batchId ?? randomUUID();
     await store.savePendingAction({
       toolName: proposal.tool,
       args: proposal.args,
@@ -199,12 +212,19 @@ export async function stageRecordables(
       itemNumber,
       sourceQuote: proposal.sourceQuote,
       confidence: proposal.confidence,
+      ...(proposal.batchId ? {} : { id: key }),
     });
+    if (!stagedGroupKeys.includes(key)) stagedGroupKeys.push(key);
   }
 
   // What was waiting before may just have been replaced by this forward - only name it if it is still open.
   const stillOpen = pending ? (await store.loadOpenPendingRows()).some((r) => r.id === pending.id) : false;
-  return { proposals, rejected, blockedByPending: false, queuedBehindPending: stillOpen, review, earlierPending: stillOpen ? pending?.summary : undefined };
+  // D4: the earlier pending proposal is named in the reply too (after the list), so it joins the mapping last.
+  if (stillOpen && pending) {
+    const earlierKey = pending.batch_id ?? pending.id;
+    if (!stagedGroupKeys.includes(earlierKey)) stagedGroupKeys.push(earlierKey);
+  }
+  return { proposals, rejected, blockedByPending: false, queuedBehindPending: stillOpen, review, earlierPending: stillOpen ? pending?.summary : undefined, stagedGroupKeys };
 }
 
 /** Drops waiting create_load proposals for this trip number, with the rest of their batch. Returns how many trips were replaced. */

@@ -52,6 +52,7 @@ import { FLAIR_RULES } from "@/services/telegram/flair";
 import { savedWhere } from "./saved-where";
 import { resolveReferences, type ResolutionOutcome } from "./reference-resolution";
 import { reconcileProposals, sameArgs } from "./reconcile-proposals";
+import { lookupQuoteTargets } from "./quote-targets";
 import { learningBlock, readyLessons, riskNote, signatureOf, summarizeOutcomes, type Outcome, type SignatureStats } from "./learning";
 import { recordActedEpisode, recordErredEpisode } from "./episodes";
 import { expandMaintenancePairings } from "./maintenance-pairing";
@@ -395,6 +396,22 @@ function proposalSuffix(summaries: string[]): string {
 }
 
 /**
+ * D4: a pending row's group key - a dump batch's batch_id, else
+ * the row's own id. The same key the quote mapping records and
+ * the waiting list numbers by.
+ */
+function groupKeyOf(row: PendingAction): string {
+  return row.batch_id ?? row.id;
+}
+
+/** D4: union group keys into an output's renderedGroups (the groups its reply rendered). */
+function markRendered(out: BotChatOutput, keys: string[]): BotChatOutput {
+  const merged = [...(out.renderedGroups ?? [])];
+  for (const key of keys) if (!merged.includes(key)) merged.push(key);
+  return { ...out, renderedGroups: merged };
+}
+
+/**
  * Telegram fix round (fix 11A): after a load write EXECUTES, the
  * thread index learns the record - by trip number, broker reference
  * and lane - and it becomes the thread's current subject, so a
@@ -465,12 +482,13 @@ async function resolvePending(
       reply:
         `That proposal expired - it was over 2 hours old, so I dropped it instead of recording something late: ${pending.summary}. ` +
         "Tell me again if you still want it logged.",
+      renderedGroups: [groupKeyOf(pending)],
     };
   }
   if (kind === "no") {
     await store.clearPendingAction(pending.id);
     await logOutcome(store, pending, "dropped");
-    return { reply: `Cancelled - I didn't record it: ${plainSummary(pending.summary)}` };
+    return { reply: `Cancelled - I didn't record it: ${plainSummary(pending.summary)}`, renderedGroups: [groupKeyOf(pending)] };
   }
   await store.clearPendingAction(pending.id);
   try {
@@ -488,7 +506,10 @@ async function resolvePending(
     // "then call send_email...") are stripped before it is read back to him (leak 2026-11-07).
     const ownerResult = stripModelOnlyLines(result);
     const said = plainSummary(ownerResult);
-    return { reply: `✅ Done - ${said.charAt(0).toLowerCase()}${said.slice(1)}\n${savedWhere(pending.tool_name)}` };
+    return {
+      reply: `✅ Done - ${said.charAt(0).toLowerCase()}${said.slice(1)}\n${savedWhere(pending.tool_name)}`,
+      renderedGroups: [groupKeyOf(pending)],
+    };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown error";
     // P0-2 (telegram audit 2026-11-06): a permanent failure ("No load with id ...") can never succeed on a
@@ -500,13 +521,18 @@ async function resolvePending(
         reply:
           `That couldn't be recorded (${detail}), so I dropped it - nothing was saved: ${pending.summary}. ` +
           "Tell me again what you want and I'll look up the right record first.",
+        renderedGroups: [groupKeyOf(pending)],
       };
     }
     // Transient (database/network): put the proposal back WITH its original time, so it keeps its place
-    // in line and its 2-hour expiry, and doesn't jump ahead of what he saw last.
+    // in line and its 2-hour expiry, and doesn't jump ahead of what he saw last. D4: the put-back row
+    // gets a FRESH id (the cleared row still exists soft-deleted, so reusing its id would violate the
+    // key) - and the reply renders THAT row, so its fresh id is the rendered group.
     let kept = false;
+    let restageId: string | null = null;
     try {
-      await store.savePendingAction({ toolName: pending.tool_name, args: pending.arguments, summary: pending.summary, createdAt: pending.created_at });
+      restageId = randomUUID();
+      await store.savePendingAction({ toolName: pending.tool_name, args: pending.arguments, summary: pending.summary, createdAt: pending.created_at, id: restageId });
       kept = true;
     } catch (restageErr) {
       console.error("[bot] could not re-stage a failed proposal:", restageErr);
@@ -515,6 +541,7 @@ async function resolvePending(
       reply: kept
         ? `I couldn't record it just now (${detail}) - that looks like a connection problem, not a problem with the entry. Nothing was saved and I've kept it: ${pending.summary}. Reply YES to try again, or NO to drop it.`
         : `I tried to record it and it failed (${detail}). Nothing was saved: ${pending.summary}. Tell me how you'd like to fix it and I'll try again.`,
+      renderedGroups: kept && restageId ? [restageId] : [groupKeyOf(pending)],
     };
   }
 }
@@ -541,19 +568,24 @@ export async function stageEmailSendIfAsked(store: BotBrainStore, userText: stri
       return {
         reply:
           `That send is already lined up and waiting for your yes:\n\n${already.summary}\n\n👉 Reply YES to send it, or NO to drop it.`,
+        renderedGroups: [groupKeyOf(already)],
       };
     }
     if (waiting.length > 0) return null; // something else is awaiting his yes/no - that grammar owns the turn
     const prepared = await prepareEmailSendProposal(store);
     if (!prepared) return null; // no saved, sendable draft - the model handles the turn (and can say why)
+    // D4: the send row's id is its group key, generated here so the reply's mapping knows it.
+    const sendId = randomUUID();
     await store.savePendingAction({
       toolName: "send_email",
       args: { draft_id: prepared.draftId, fingerprint: prepared.fingerprint },
       summary: prepared.summary,
+      id: sendId,
     });
     return {
       reply:
         `Here's the exact email your yes would send:\n\n${prepared.summary}\n\n👉 Reply YES to send it, or NO to drop it.`,
+      renderedGroups: [sendId],
     };
   } catch (err) {
     console.error("[bot] email send staging failed (falling through to the model):", err);
@@ -604,6 +636,7 @@ async function resolveBatch(
   command: Exclude<BatchCommand, { kind: "other" }>,
   chatId?: string,
 ): Promise<BotChatOutput> {
+  const batchKey = batch[0]!.batch_id ?? batch[0]!.id;
   if (command.kind === "drop_all" || command.kind === "drop_rest") {
     await store.clearPendingActions(batch.map((i) => i.id));
     for (const item of batch) await logOutcome(store, item, "dropped");
@@ -611,11 +644,12 @@ async function resolveBatch(
       reply:
         `Dropped — I didn't record ${batch.length === 1 ? "it" : `any of the ${batch.length} items`}: ` +
         batch.map((i) => plainSummary(i.summary)).join("; "),
+      renderedGroups: [batchKey],
     };
   }
   if (command.kind === "approve_all") {
     const results = await executeBatchItems(store, batch, chatId);
-    return { reply: `Done — recorded all ${batch.length}:\n${results}` };
+    return { reply: `Done — recorded all ${batch.length}:\n${results}`, renderedGroups: [batchKey] };
   }
   // approve_some
   const chosen = batch.filter(
@@ -626,6 +660,7 @@ async function resolveBatch(
       reply:
         `None of those numbers match the waiting items (${batch.map((i) => i.item_number).join(", ")}). ` +
         "Nothing was recorded — the batch is still waiting for your call.",
+      renderedGroups: [batchKey],
     };
   }
   const results = await executeBatchItems(store, chosen, chatId);
@@ -636,7 +671,7 @@ async function resolveBatch(
       `\n\nStill waiting:\n${remaining.map(batchItemLine).join("\n")}\n\n` +
       'Reply YES to record the rest, correct any of them by number, or say "drop the rest".';
   }
-  return { reply };
+  return { reply, renderedGroups: [batchKey] };
 }
 
 /**
@@ -704,11 +739,19 @@ async function withStillWaiting(store: BotBrainStore, out: BotChatOutput, exclud
     );
     if (groups.length === 0) return out;
     const zone = await zoneOf(store);
+    // D4: the groups appended here are rendered in this reply too, so they join its mapping.
+    const appendedKeys = groups.map((g) => groupKeyOf(g[0]!));
     if (groups.length === 1) {
-      return { ...out, reply: `${out.reply}\n\n⏳ Still waiting on you:\n- ${groupLine(groups[0]!, zone)}\n👉 Reply YES to record it too, or NO to drop it.` };
+      return markRendered(
+        { ...out, reply: `${out.reply}\n\n⏳ Still waiting on you:\n- ${groupLine(groups[0]!, zone)}\n👉 Reply YES to record it too, or NO to drop it.` },
+        appendedKeys,
+      );
     }
     const lines = groups.map((g, i) => `${i + 1}. ${groupLine(g, zone)}`).join("\n");
-    return { ...out, reply: `${out.reply}\n\n⏳ Still waiting on you:\n${lines}\n👉 ${WAITING_LIST_HOWTO}` };
+    return markRendered(
+      { ...out, reply: `${out.reply}\n\n⏳ Still waiting on you:\n${lines}\n👉 ${WAITING_LIST_HOWTO}` },
+      appendedKeys,
+    );
   } catch {
     return out;
   }
@@ -736,10 +779,15 @@ async function resolveWaitingAnswers(
   zone: string,
 ): Promise<BotChatOutput> {
   const lines: string[] = [];
+  // D4: every group this reply names (answered, dropped, or
+  // commented on) is rendered in it, so it joins the mapping -
+  // quoting this message and answering binds to these groups.
+  const touchedKeys: string[] = [];
   for (const [i, group] of groups.entries()) {
     const n = i + 1;
     const answer = answers.kind === "all" ? { kind: answers.answer } as const : answers.answers.get(n);
     if (!answer) continue;
+    touchedKeys.push(groupKeyOf(group[0]!));
     const label = groupLine(group, zone);
     if (answer.kind === "no") {
       await store.clearPendingActions(group.map((r) => r.id));
@@ -762,9 +810,12 @@ async function resolveWaitingAnswers(
     }
   }
   const commented = answers.kind === "items" && [...answers.answers.values()].some((a) => a.kind === "comment");
-  const out = await withStillWaiting(store, { reply: `Here is what I did with each one:\n${lines.join("\n")}` });
+  const out = await withStillWaiting(store, {
+    reply: `Here is what I did with each one:\n${lines.join("\n")}`,
+    renderedGroups: touchedKeys,
+  });
   return commented
-    ? { reply: `${out.reply}\n\nFor the ones I did not do: tell me what to change, or say "drop" and its number.` }
+    ? { ...out, reply: `${out.reply}\n\nFor the ones I did not do: tell me what to change, or say "drop" and its number.` }
     : out;
 }
 
@@ -815,6 +866,158 @@ export interface AgentTurnHooks {
   onToolLog?: (entry: AgentToolLogEntry) => void;
 }
 
+// ---------------------------------------------------------------------------
+// D4 (Telegram review 2026-11-12): the quote IS the pointer.
+// ---------------------------------------------------------------------------
+
+/** What a quoted message resolves to, before any other resolution runs. */
+type QuoteScope =
+  | { kind: "groups"; groups: PendingAction[][]; keys: string[]; openGroups: PendingAction[][] }
+  | { kind: "noMapping"; openGroups: PendingAction[][] }
+  | { kind: "stale"; openGroups: PendingAction[][] }
+  | { kind: "lookupFailed" };
+
+/**
+ * Resolves a quoted Telegram message id to the proposal groups it
+ * rendered, in rendered order - intersected with the groups that
+ * are still open, so a settled or expired group never resolves.
+ * `openGroups` is every live group (for the "which ones?" list
+ * when the quote points at nothing live). Photo-purpose asks are
+ * never in here: groupWaitingRows excludes them, and their own
+ * button/number grammar binds by pending id instead.
+ */
+async function resolveQuoteScope(
+  store: BotBrainStore,
+  chatId: string,
+  messageId: number,
+): Promise<QuoteScope> {
+  let keys: string[];
+  try {
+    keys = await lookupQuoteTargets(store.client, store.companyId, chatId, messageId);
+  } catch (err) {
+    console.error("[bot] quote lookup failed (failing closed - a quoted yes/no executes nothing)", err);
+    return { kind: "lookupFailed" };
+  }
+  const openGroups = groupWaitingRows(await store.loadOpenPendingRows(), Date.now(), PENDING_EXPIRY_MS);
+  if (keys.length === 0) return { kind: "noMapping", openGroups };
+  const byKey = new Map(openGroups.map((g) => [groupKeyOf(g[0]!), g]));
+  const groups = keys.map((k) => byKey.get(k)).filter((g): g is PendingAction[] => Boolean(g));
+  if (groups.length === 0) return { kind: "stale", openGroups };
+  return { kind: "groups", groups, keys: groups.map((g) => groupKeyOf(g[0]!)), openGroups };
+}
+
+/** What resolving a quote returns: a finished reply, or the turn continuing to the model. */
+interface QuotedResolution {
+  /** A finished reply (return it); null when the turn continues to the model, quote-scoped. */
+  output: BotChatOutput | null;
+  /** A suggestion the owner just cancelled with a leading "No …"; rides the model turn's context. */
+  cancelledSuggestion?: string | null;
+  /** The quoted proposal his "yes, but…" corrects; rides the model turn's context. */
+  correctingPending?: PendingAction | null;
+}
+
+/**
+ * Resolves his reply to the QUOTED groups, in code - the same
+ * grammars as the unquoted path (bare yes/no, batch grammar,
+ * numbered waiting-list answers, leading "No …"), but scoped to
+ * the quoted groups only. A bare yes/no with several quoted
+ * groups never guesses: it asks which, naming them. Returns null
+ * when the text is a correction or a question about the quoted
+ * group(s) - the turn then goes to the model, quote-scoped.
+ */
+async function resolveQuotedGroups(
+  store: BotBrainStore,
+  groups: PendingAction[][],
+  input: BotChatInput,
+  zone: string,
+): Promise<QuotedResolution> {
+  const no: QuotedResolution = { output: null };
+  if (input.writesRefused) return no;
+  if (groups.length > 1) {
+    const answers = parseWaitingAnswers(input.userText, groups.length);
+    if (answers.kind !== "none") {
+      return { output: await resolveWaitingAnswers(store, groups, answers, input.chatId, zone) };
+    }
+    // One quoted batch: a batch command ("approve 1, 3", "drop the
+    // rest") addresses ITS items - the only batch in the quote.
+    // With zero or several batches the command is ambiguous, so it
+    // falls through to the "which one?" question below.
+    const batchGroups = groups.filter((g) => g.length > 1 || g[0]!.batch_id);
+    const command = parseBatchCommand(input.userText);
+    if (batchGroups.length === 1 && command.kind !== "other") {
+      const batch = batchGroups[0]!;
+      return {
+        output: await withStillWaiting(
+          store,
+          await resolveBatch(store, batch, command, input.chatId),
+          batch[0]!.batch_id,
+        ),
+      };
+    }
+    const bare =
+      classifyConfirmation(input.userText) !== "other" ||
+      isSoftYes(input.userText) ||
+      command.kind !== "other";
+    if (bare) {
+      return {
+        output: {
+          reply: "Which one? " + formatWaitingList(groups.map((g) => groupLine(g, zone))),
+          renderedGroups: groups.map((g) => groupKeyOf(g[0]!)),
+        },
+      };
+    }
+    return no;
+  }
+  const group = groups[0]!;
+  const row = group[0]!;
+  // A quoted dump batch keeps its own grammar, against THAT batch (never the oldest batch).
+  // parseBatchCommand already covers a bare yes/no and "ok"/"sure" for a batch (approve/drop all).
+  if (group.length > 1 || row.batch_id) {
+    const command = parseBatchCommand(input.userText);
+    if (command.kind !== "other") {
+      return {
+        output: await withStillWaiting(
+          store,
+          await resolveBatch(store, group, command, input.chatId),
+          row.batch_id,
+        ),
+      };
+    }
+    // The batch as one waiting-list line: "1 yes" approves it all, "1 no" drops it.
+    const answers = parseWaitingAnswers(input.userText, 1);
+    if (answers.kind !== "none") {
+      return { output: await resolveWaitingAnswers(store, groups, answers, input.chatId, zone) };
+    }
+    return no;
+  }
+  const kind = classifyConfirmation(input.userText);
+  if (kind !== "other") {
+    return { output: await withStillWaiting(store, await resolvePending(store, row, kind, input.chatId)) };
+  }
+  // P1-10, quoted: "ok" / "sure" is a yes only for a proposal shown just now that isn't a delete.
+  if (isSoftYes(input.userText)) {
+    const fresh = Date.now() - new Date(row.created_at).getTime() <= SHOWN_RECENTLY_MS;
+    if (fresh && row.tool_name !== "delete_record") {
+      return { output: await withStillWaiting(store, await resolvePending(store, row, "yes", input.chatId)) };
+    }
+    return {
+      output: {
+        reply: `Just to be sure - do you want me to record this? ${plainSummary(row.summary)}\nReply YES to record it, or NO to drop it.`,
+        renderedGroups: [groupKeyOf(row)],
+      },
+    };
+  }
+  if (isYesWithMore(input.userText)) return { output: null, correctingPending: row };
+  // "No. Remove that. Add this..." - a leading no answers the QUOTED proposal (it is cancelled, in code)
+  // and the rest of the message is a NEW request. The cancel can never become a delete of a saved record.
+  if (/^no\b[.,!]?\s+\S/i.test(input.userText.trim())) {
+    await store.clearPendingAction(row.id);
+    await logOutcome(store, row, "dropped");
+    return { output: null, cancelledSuggestion: row.summary };
+  }
+  return no;
+}
+
 export async function runAgentTurn(
   provider: AiProvider,
   store: BotBrainStore,
@@ -841,10 +1044,96 @@ export async function runAgentTurn(
     }
   }
   const pending = await store.loadPendingAction();
+  // D4: a quote IS the pointer. The quote branch runs FIRST, before
+  // the waiting-list / batch / single blocks below: when he replies
+  // quoting one of Abel's messages, the quoted groups replace the
+  // newest-group target for this turn. `quoteScoped` means a quote
+  // was present, so the unquoted resolution blocks must not also
+  // fire on `pending` - a quote that points at nothing never
+  // executes anything.
+  let quotedGroups: PendingAction[][] | null = null;
+  let quoteNote: string | null = null;
+  let quoteScoped = false;
+  // D4: the group keys this turn's reply renders, in rendered
+  // order - attached to the final model-turn return below (the
+  // code-resolution returns above attach their own).
+  let renderedGroups: string[] = [];
+  // P0-1: "yes but make it 3100" - the waiting proposal is NOT executed; a corrected proposal replaces it.
+  let correctingPending: PendingAction | null = null;
+  let cancelledSuggestion: string | null = null;
+  if (input.replyToMessageId !== undefined && input.chatId) {
+    // A photo-purpose ask answers by content, not by quote: it
+    // resolves here first (exactly like the unquoted path below),
+    // so the ask grammar never regresses under a quote.
+    if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
+      const resolved = input.writesRefused === true ? null : await tryResolvePhotoPurposeAsk(store, pending, input.userText);
+      const expiredOnly = resolved?.reply === PHOTO_ASK_EXPIRED_REPLY;
+      const answeringIt = /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b|^\s*\d\s*$/i.test(input.userText);
+      if (resolved && !(expiredOnly && !answeringIt)) return resolved;
+    }
+    quoteScoped = true;
+    const scope = await resolveQuoteScope(store, input.chatId, input.replyToMessageId);
+    if (scope.kind === "groups") {
+      quotedGroups = scope.groups;
+      const zone = await zoneOf(store);
+      const quoted = await resolveQuotedGroups(store, scope.groups, input, zone);
+      if (quoted.output) return quoted.output;
+      if (quoted.cancelledSuggestion) cancelledSuggestion = quoted.cancelledSuggestion;
+      if (quoted.correctingPending) correctingPending = quoted.correctingPending;
+      // A correction / question about the quoted group(s): fall
+      // through to the model turn, quote-scoped (context block +
+      // guard below). The unquoted blocks must not fire.
+    } else if (scope.kind !== "lookupFailed") {
+      // No live group behind this quote. A bare yes/no executes
+      // NOTHING - the quote pointed at nothing, and executing the
+      // newest group would be the D3 wrong-execution shape again.
+      const note =
+        scope.kind === "stale"
+          ? "That one's already settled — nothing is waiting on it anymore."
+          : "That message didn't have anything waiting on it.";
+      const openGroups = scope.openGroups;
+      const answers = parseWaitingAnswers(input.userText, openGroups.length);
+      if (answers.kind !== "none" && openGroups.length > 0) {
+        // The numbers mean the waiting list he last saw - the quote
+        // itself binds nothing, so this falls back to that list.
+        const zone = await zoneOf(store);
+        const resolved = await resolveWaitingAnswers(store, openGroups, answers, input.chatId, zone);
+        return { ...resolved, reply: `${note}\n\n${resolved.reply}` };
+      }
+      const bare =
+        classifyConfirmation(input.userText) !== "other" ||
+        isSoftYes(input.userText) ||
+        parseBatchCommand(input.userText).kind !== "other";
+      if (bare) {
+        const zone = await zoneOf(store);
+        const list =
+          openGroups.length > 0
+            ? `\n\nWhich ones? ${formatWaitingList(openGroups.map((g) => groupLine(g, zone)))}`
+            : "\n\nNothing is waiting right now.";
+        return {
+          reply: `${note}${list}`,
+          renderedGroups: openGroups.map((g) => groupKeyOf(g[0]!)),
+        };
+      }
+      quoteNote = note;
+    } else {
+      // The mapping lookup itself failed: fail closed. A bare
+      // answer executes nothing and gets the one line; anything
+      // else goes to the model with the guard on.
+      const bare =
+        classifyConfirmation(input.userText) !== "other" ||
+        isSoftYes(input.userText) ||
+        parseBatchCommand(input.userText).kind !== "other";
+      if (bare) {
+        return { reply: "I couldn't check what that message was about — tell me which one you mean." };
+      }
+      quoteNote = "I couldn't check what that message was about — tell me which proposal you meant if this isn't it.";
+    }
+  }
   // Several things waiting (owner 2026-11-12): they are ONE numbered list, answered by number, in code.
   // Numbers mean the list when it was the last thing shown, or when the newest proposal is no longer
   // fresh on his screen. A bare yes/no does not say WHICH, so it gets the short list - never an execution.
-  if (pending && pending.tool_name !== PHOTO_PURPOSE_TOOL && input.writesRefused !== true) {
+  if (!quoteScoped && pending && pending.tool_name !== PHOTO_PURPOSE_TOOL && input.writesRefused !== true) {
     const groups = groupWaitingRows(await store.loadOpenPendingRows(), Date.now(), PENDING_EXPIRY_MS);
     const lastReply = [...input.history].reverse().find((t) => t.role === "assistant")?.text ?? "";
     const listShown = lastReply.includes(WAITING_LIST_MARK);
@@ -855,7 +1144,7 @@ export async function runAgentTurn(
       if (answers.kind !== "none") return resolveWaitingAnswers(store, groups, answers, input.chatId, zone);
       const bare =
         classifyConfirmation(input.userText) !== "other" || isSoftYes(input.userText) || parseBatchCommand(input.userText).kind !== "other";
-      if (bare) return { reply: "Which ones? " + formatWaitingList(groups.map((g) => groupLine(g, zone))) };
+      if (bare) return { reply: "Which ones? " + formatWaitingList(groups.map((g) => groupLine(g, zone))), renderedGroups: groups.map((g) => groupKeyOf(g[0]!)) };
     }
   }
   // ChatGPT T-004: when the update's dedup claim could not be
@@ -883,10 +1172,7 @@ export async function runAgentTurn(
   // honest expiry reply. Anything else leaves it open - noted in
   // the context blocks below - and the turn proceeds normally.
   let pendingPhotoAsk: PendingAction | null = null;
-  let cancelledSuggestion: string | null = null;
-  // P0-1: "yes but make it 3100" - the waiting proposal is NOT executed; a corrected proposal replaces it.
-  let correctingPending: PendingAction | null = null;
-  if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
+  if (!quoteScoped && pending?.tool_name === PHOTO_PURPOSE_TOOL) {
     const resolved = writesRefused ? null : await tryResolvePhotoPurposeAsk(store, pending, input.userText);
     // Owner 2026-11-12: "How are you" was answered with "that photo question expired". An expired question
     // is only worth a message when he was actually answering it; otherwise it is dropped quietly and his
@@ -895,7 +1181,7 @@ export async function runAgentTurn(
     const answeringIt = /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b|^\s*\d\s*$/i.test(input.userText);
     if (resolved && !(expiredOnly && !answeringIt)) return resolved;
     if (!expiredOnly) pendingPhotoAsk = pending;
-  } else if (pending?.batch_id) {
+  } else if (!quoteScoped && pending?.batch_id) {
     pendingBatch = await store.loadPendingBatch();
     if (pendingBatch.length > 0) {
       const oldest = pendingBatch[0]!;
@@ -906,6 +1192,7 @@ export async function runAgentTurn(
           reply:
             `That batch proposal expired — it was over 2 hours old, so I dropped all ${pendingBatch.length} item(s) instead of recording something late. ` +
             "Dump it again if you still want it filed.",
+          renderedGroups: [pendingBatch[0]!.batch_id ?? pendingBatch[0]!.id],
         };
       }
       const command = parseBatchCommand(input.userText);
@@ -915,7 +1202,7 @@ export async function runAgentTurn(
       // "other" (typically a correction) falls through to the model
       // with the batch in context - see the context block below.
     }
-  } else if (pending) {
+  } else if (!quoteScoped && pending) {
     const kind = classifyConfirmation(input.userText);
     if (kind !== "other" && !writesRefused) {
       return withStillWaiting(store, await resolvePending(store, pending, kind, input.chatId));
@@ -926,6 +1213,7 @@ export async function runAgentTurn(
       if (fresh && pending.tool_name !== "delete_record") return withStillWaiting(store, await resolvePending(store, pending, "yes", input.chatId));
       return {
         reply: `Just to be sure - do you want me to record this? ${pending.summary}\nReply YES to record it, or NO to drop it.`,
+        renderedGroups: [groupKeyOf(pending)],
       };
     }
     if (isYesWithMore(input.userText)) correctingPending = pending;
@@ -947,7 +1235,10 @@ export async function runAgentTurn(
   // A provider without tool-calling support degrades to the v1
   // single-completion chat rather than failing the turn.
   if (!isAgentCapableProvider(provider)) {
-    return runBotChat(provider, input);
+    const out = await runBotChat(provider, input);
+    // D4: the quote note rides this reply too - the v1 path stages
+    // nothing, so there are no rendered groups to attach.
+    return quoteNote ? { ...out, reply: `${quoteNote}\n\n${out.reply}` } : out;
   }
 
   // "Send it" about a waiting email draft is staged in code, before the
@@ -973,7 +1264,8 @@ export async function runAgentTurn(
     }
   }
   if (resolution?.kind === "ambiguous" && !pending && pendingBatch.length === 0 && !pendingPhotoAsk) {
-    return { reply: resolution.question };
+    // D4: the quote note rides the question when the quote pointed at nothing live.
+    return { reply: quoteNote ? `${quoteNote}\n\n${resolution.question}` : resolution.question };
   }
 
   const contextBlocks: string[] = [];
@@ -1057,6 +1349,21 @@ export async function runAgentTurn(
     }
   } catch {
     /* the list is an aid; the per-proposal blocks above still stand */
+  }
+  // D4: he QUOTED one of Abel's messages - his words are about the proposal(s) in THAT message, not the
+  // newest thing waiting. Corrections land on the quoted group(s) via revise_pending_item; nothing else
+  // waiting is approved or executed on this turn (the guard hook below is the code backstop).
+  if (quotedGroups) {
+    contextBlocks.push(
+      `HE QUOTED ONE OF YOUR MESSAGES - HIS WORDS ARE ABOUT THE PROPOSAL(S) IN THAT MESSAGE, NOT THE NEWEST THING WAITING:\n${quotedGroups
+        .map(
+          (g) =>
+            `- [pending ${g[0]!.id}] (${g[0]!.tool_name}) ${waitingLine(g[0]!.summary, displayZone, 400)}${g.length > 1 ? ` (+${g.length - 1} more items in the same batch)` : ""}`,
+        )
+        .join("\n")}\n` +
+        "If he is correcting one of these, call revise_pending_item with ITS pending id and only the changed fields (confirmation \"execute\"), then show him the corrected line. " +
+        "Never approve, execute, or stage a write for any OTHER waiting proposal this turn - his quote pins this turn to the proposal(s) above.",
+    );
   }
   if (correctingPending) {
     contextBlocks.push(
@@ -1228,6 +1535,10 @@ export async function runAgentTurn(
       proposals = rec.stage;
       reconcileNotes = rec.notes;
       alreadyWaiting = rec.alreadyWaiting;
+      // D4: the already-waiting proposals are named in the reply too, so they join its mapping.
+      for (const w of waiting) {
+        if (rec.alreadyWaiting.includes(w.summary)) renderedGroups.push(groupKeyOf(w));
+      }
     } catch (err) {
       console.error("[bot] proposal reconcile failed (staging as proposed):", err);
     }
@@ -1256,11 +1567,15 @@ export async function runAgentTurn(
       batches.set(proposal.batchId, group);
     }
     for (const proposal of singles) {
+      // D4: the single's row id is its group key, generated here so the reply's mapping knows it.
+      const singleId = randomUUID();
       await store.savePendingAction({
         toolName: proposal.tool,
         args: proposal.args,
         summary: proposal.summary,
+        id: singleId,
       });
+      renderedGroups.push(singleId);
       // Fix 11A: the thread index learns the staged load now (id
       // filled in when the yes executes it), so references resolve
       // to it from the very next message on.
@@ -1269,6 +1584,8 @@ export async function runAgentTurn(
       }
     }
     for (const [batchId, items] of batches) {
+      // D4: the batch id is the group key - one entry per batch, not per item.
+      renderedGroups.push(batchId);
       let itemNumber = 0;
       for (const proposal of items) {
         itemNumber += 1;
@@ -1327,5 +1644,11 @@ export async function runAgentTurn(
   if (writesRefused) {
     reply += "\n\n(Heads up: I hit a storage hiccup verifying that message, so this turn was read-only — I haven't recorded or changed anything.)";
   }
-  return { reply };
+  // D4: the one-line quote note rides the model-turn reply when
+  // the quote pointed at nothing live; the rendered groups ride
+  // it so the dispatch layer can record the quote mapping.
+  return {
+    reply: quoteNote ? `${quoteNote}\n\n${reply}` : reply,
+    renderedGroups: renderedGroups.length > 0 ? renderedGroups : undefined,
+  };
 }

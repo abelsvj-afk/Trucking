@@ -185,7 +185,7 @@ describe("stageRecordables", () => {
   it("is a no-op for an empty extraction", async () => {
     const { store, rows } = makeStore();
     const result = await stageRecordables(store, MESSAGE, []);
-    expect(result).toEqual({ proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false });
+    expect(result).toEqual({ proposals: [], rejected: [], blockedByPending: false, queuedBehindPending: false, stagedGroupKeys: [] });
     expect(rows).toHaveLength(0);
   });
 

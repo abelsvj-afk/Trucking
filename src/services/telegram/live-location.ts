@@ -7,6 +7,7 @@
 // never books anything: the proposal waits for his yes (bot_pending_actions).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import type { DutyStatus } from "@/types/entities";
 import { buildBotTools } from "@/services/bot/tools";
 import type { BotBrainStore } from "@/services/bot/store";
@@ -53,8 +54,8 @@ export interface LiveLocationStore {
   savePosition(p: StoredPosition): Promise<void>;
   /** His latest logged duty status, or null if none. */
   loadCurrentStatus(): Promise<DutyStatus | null>;
-  /** Stages the proposal as a pending action awaiting his yes. */
-  stageProposal(proposal: StatusProposal, sinceIso: string, summary: string): Promise<void>;
+  /** Stages the proposal as a pending action awaiting his yes. Returns the proposal's group key (its pending row id), or null when the store could not report one - the caller maps the sent message to that key. */
+  stageProposal(proposal: StatusProposal, sinceIso: string, summary: string): Promise<string | null>;
   /**
    * Telegram review D2: is this exact duty proposal already waiting
    * for his yes? The live-location path stages directly (it never
@@ -124,7 +125,20 @@ export async function handleLiveLocation(
   loc: TelegramLocation,
   atMs: number,
   deps: {
-    sendMessage: (text: string) => Promise<void>;
+    /**
+     * D4: returns the Telegram ids of the message(s) sent (the
+     * card's id, or one id per plain chunk) - the proposal send
+     * site maps them to the staged group key. A dep that reports
+     * no ids returns void, and the proposal goes unmapped.
+     */
+    sendMessage: (text: string) => Promise<number[] | void>;
+    /**
+     * D4: records that the sent message(s) rendered the staged
+     * duty proposal. Absent = no mapping (the device feed's
+     * notifier reports no ids, so its proposals stay unmapped -
+     * quoting one gets the honest one-line answer).
+     */
+    recordQuoteTargets?: (messageIds: number[], groupKeys: string[]) => Promise<void>;
     /**
      * The proposal label for an instant, in the zone of the fix it
      * belongs to — the truck's zone, labeled ("7:40 AM CT"). The fix's
@@ -259,7 +273,7 @@ export async function handleLiveLocation(
     // quoted back to him when the proposal is re-surfaced, and a raw
     // ISO there is exactly the Nov 11 9:58 PM incident (a Nov 8
     // proposal quoted as "2026-11-08T13:40:37.858Z"). Never again.
-    await store.stageProposal(proposal, sinceIso, `Duty status: ${proposal.status} starting at ${label} (paper-log helper)`);
+    const groupKey = await store.stageProposal(proposal, sinceIso, `Duty status: ${proposal.status} starting at ${label} (paper-log helper)`);
     lastPromptAtMs = atMs;
     lastPromptKind = proposal.kind;
     proposed = proposal;
@@ -268,7 +282,17 @@ export async function handleLiveLocation(
       fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
       speedMph, episode, lastPromptAtMs, lastPromptKind,
     });
-    await deps.sendMessage(text);
+    const sentIds = await deps.sendMessage(text);
+    // D4: quoting the duty proposal answers it - the quoted
+    // message in the D4 evidence IS one of these. Best-effort:
+    // a recording failure never fails the fix.
+    if (groupKey && deps.recordQuoteTargets && Array.isArray(sentIds) && sentIds.length > 0) {
+      try {
+        await deps.recordQuoteTargets(sentIds, [groupKey]);
+      } catch (err) {
+        console.error("[live-location] failed to record quote targets", err instanceof Error ? err.message : err);
+      }
+    }
     return { kind: "recorded", proposed };
   }
 
@@ -294,7 +318,7 @@ export type PositionSource = "telegram" | "device";
 export function createLiveLocationStore(
   client: SupabaseClient,
   companyId: string,
-  stage: (args: Record<string, unknown>, summary: string) => Promise<void>,
+  stage: (args: Record<string, unknown>, summary: string) => Promise<string | null>,
   /** Which feed this is: Telegram Live Location, or the native shell's device feed. Each keeps its own latest row. */
   source: PositionSource = "telegram",
 ): LiveLocationStore {
@@ -342,7 +366,9 @@ export function createLiveLocationStore(
       return row?.duty_status ?? null;
     },
     async stageProposal(proposal, sinceIso, summary) {
-      await stage({ duty_status: proposal.status, started_at: sinceIso }, summary);
+      // D4: the group key is the pending row's id - the caller
+      // maps the sent duty proposal to it.
+      return stage({ duty_status: proposal.status, started_at: sinceIso }, summary);
     },
     async hasWaitingDutyProposal(status, sinceIso) {
       try {
@@ -380,7 +406,12 @@ export function createBrainLiveLocationStore(brain: BotBrainStore, source: Posit
     if (!tool) throw new Error("log_duty_status tool missing");
     const checked = tool.validateArgs ? tool.validateArgs(args) : { ok: true as const, args };
     if (!checked.ok) throw new Error("proposal did not validate");
-    await brain.savePendingAction({ toolName: "log_duty_status", args: checked.args as Record<string, unknown>, summary });
+    // D4: the row id is generated here so the caller can map the
+    // sent duty proposal to this group (savePendingAction reports
+    // no id of its own).
+    const id = randomUUID();
+    await brain.savePendingAction({ id, toolName: "log_duty_status", args: checked.args as Record<string, unknown>, summary });
+    return id;
   }, source);
   // The brain's own pending rows are the source of truth here (the
   // raw client query above would see the same rows, but the store

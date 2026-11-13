@@ -36,25 +36,32 @@ async function postTelegram(
   return { ...parsed, ok: res.ok && parsed.ok !== false };
 }
 
-export async function sendTelegramMessage(botToken: string, chatId: number, rawText: string): Promise<void> {
+/**
+ * D4 (Telegram review 2026-11-12): returns the Telegram message
+ * id of EVERY chunk sent, in order - the quote mapping records
+ * them all, so quoting any chunk of a split reply resolves to the
+ * groups that reply rendered. Throws on the first failed chunk,
+ * exactly as before (ids of earlier chunks are then unrecorded -
+ * a partial send's mapping is best-effort).
+ */
+export async function sendTelegramMessage(botToken: string, chatId: number, rawText: string): Promise<number[]> {
   // Backstop: whatever reaches Telegram is clean plain text (idempotent - already-formatted text is unchanged).
   const text = formatReply(rawText);
   // Telegram caps a message at 4096 characters - split on line breaks, and
   // hard-split any single line that is over the limit on its own (T-006).
   const chunks = splitTelegramMessage(text);
 
+  const sentIds: number[] = [];
   for (const chunk of chunks) {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: chunk }),
-    });
-    if (!res.ok) {
+    const res = await postTelegram(botToken, "sendMessage", { chat_id: chatId, text: chunk });
+    if (!res.ok || typeof res.result?.message_id !== "number") {
       // Server log only - never surface provider detail to any client.
-      console.error("[telegram] sendMessage failed", res.status);
+      console.error("[telegram] sendMessage failed");
       throw new Error("Telegram sendMessage failed.");
     }
+    sentIds.push(res.result.message_id);
   }
+  return sentIds;
 }
 
 /**
@@ -87,25 +94,24 @@ export async function sendTelegramAskMessage(
 /**
  * A Yes / No reply keyboard under a proposal. Pressing a key sends the plain message "Yes" / "No" through the
  * normal text path (no callback_query needed), and one_time_keyboard hides it again after use.
+ * D4: returns the sent message's Telegram id (null when Telegram
+ * answered without one) so the quote mapping can record it.
  */
-export async function sendTelegramYesNoMessage(botToken: string, chatId: number, text: string): Promise<void> {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_markup: {
-        keyboard: [[{ text: "Yes" }, { text: "No" }]],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      },
-    }),
+export async function sendTelegramYesNoMessage(botToken: string, chatId: number, text: string): Promise<number | null> {
+  const res = await postTelegram(botToken, "sendMessage", {
+    chat_id: chatId,
+    text,
+    reply_markup: {
+      keyboard: [[{ text: "Yes" }, { text: "No" }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
   });
-  if (!res.ok) {
-    console.error("[telegram] sendMessage (yes/no keyboard) failed", res.status);
+  if (!res.ok || typeof res.result?.message_id !== "number") {
+    console.error("[telegram] sendMessage (yes/no keyboard) failed");
     throw new Error("Telegram sendMessage failed.");
   }
+  return res.result.message_id;
 }
 
 /** §3.3: stops the button-tap spinner. Never throws - a failed ack must not fail the turn. */

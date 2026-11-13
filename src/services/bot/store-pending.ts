@@ -108,6 +108,7 @@ async function loadPendingRows(): Promise<PendingAction[]> {
         tool_name: action.toolName,
         arguments: action.args,
         summary: action.summary,
+        ...(action.id ? { id: action.id } : {}),
         ...(action.createdAt ? { created_at: action.createdAt } : {}),
       };
       if (action.batchId === undefined) {
