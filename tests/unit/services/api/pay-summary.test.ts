@@ -177,6 +177,37 @@ describe("paychecks organised by payday", () => {
   });
 });
 
+describe("tax set-aside per paycheck (migration 00094)", () => {
+  const deal1099 = [{ ...terms[0]!, worker_type: "1099" as const, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
+  const loads = [
+    load({ id: "a", delivery_date: "2026-10-31", pickup_date: "2026-10-30" }), // week Oct 25-31, payday Fri Nov 6
+    load({ id: "b", delivery_date: "2026-10-27", pickup_date: "2026-10-26" }), // same week / payday
+  ];
+
+  it("a 1099 paycheck carries 25% of its expected gross while no percent is stored (and the net is untouched)", () => {
+    const s = buildPaySummary({ loads, terms: deal1099, receivedByLoad: new Map(), hos: null, now });
+    const p = s.paydays[0]!;
+    expect(p.expectedLowCents).toBe(120000);
+    expect(p.taxSetAside).toEqual({ bps: 2500, isDefault: true, lowCents: 30000, highCents: 30000, grossLowCents: 120000, grossHighCents: 120000 });
+    expect(p.netLowCents).toBe(120000); // the set-aside is display only: never subtracted from the net
+  });
+
+  it("a stored custom percent is respected", () => {
+    const s = buildPaySummary({ loads, terms: [{ ...deal1099[0]!, tax_set_aside_bps: 3000 }], receivedByLoad: new Map(), hos: null, now });
+    expect(s.paydays[0]!.taxSetAside).toEqual({ bps: 3000, isDefault: false, lowCents: 36000, highCents: 36000, grossLowCents: 120000, grossHighCents: 120000 });
+  });
+
+  it("a W2 paycheck carries no set-aside", () => {
+    const s = buildPaySummary({ loads, terms: [{ ...deal1099[0]!, worker_type: "w2" as const }], receivedByLoad: new Map(), hos: null, now });
+    expect(s.paydays[0]!.taxSetAside).toBeNull();
+  });
+
+  it("a paycheck with worker_type still NULL carries no set-aside", () => {
+    const s = buildPaySummary({ loads, terms: [{ ...deal1099[0]!, worker_type: null }], receivedByLoad: new Map(), hos: null, now });
+    expect(s.paydays[0]!.taxSetAside).toBeNull();
+  });
+});
+
 describe("Projected Pay and Paychecks agree (owner's live numbers: $1,308.95 - $400.00 = $908.95)", () => {
   const t = [{ employer_name: "Acme", rate_cents_per_mile: 55, mile_basis: "all" as const, effective_from: "2026-01-01", effective_to: null, pay_week_ends_on: 6, statement_weekday: 4, payday_weekday: 5 }];
   // Rate $0.00 on the load (the live root cause): pay comes from miles x $0.55. 2,379.91 miles -> $1,308.95.

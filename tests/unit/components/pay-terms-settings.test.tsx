@@ -58,6 +58,28 @@ describe("PayTermsSettings", () => {
     expect(calls[1]).toContain('"worker_type":null');
   });
 
+  it("saves a 1099 tax set-aside percent as basis points on the profile (Settings → Pay round-trip)", async () => {
+    render(<PayTermsSettings />);
+    await screen.findByText("Acme Freight");
+    const form = within(screen.getByRole("form", { name: "Pay terms for Acme Freight" }));
+    fireEvent.change(form.getByLabelText("Tax status"), { target: { value: "1099" } });
+    fireEvent.change(form.getByLabelText(/Tax set-aside/), { target: { value: "30" } });
+    fireEvent.click(form.getByText("Save correction"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toContain('"worker_type":"1099"');
+    expect(calls[0]).toContain('"tax_set_aside_bps":3000');
+  });
+
+  it("leaving the tax set-aside empty sends null, so the labelled 25% default applies", async () => {
+    render(<PayTermsSettings />);
+    await screen.findByText("Acme Freight");
+    const form = within(screen.getByRole("form", { name: "Pay terms for Acme Freight" }));
+    expect((form.getByLabelText(/Tax set-aside/) as HTMLInputElement).value).toBe("");
+    fireEvent.click(form.getByText("Save correction"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toContain('"tax_set_aside_bps":null');
+  });
+
   it("with nothing stored it asks for the owner's terms and pre-fills nothing", async () => {
     listMock.mockResolvedValue({ data: [] });
     render(<PayTermsSettings />);

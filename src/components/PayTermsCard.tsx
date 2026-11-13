@@ -14,6 +14,7 @@ import Card from "@/components/Card";
 import Sheet from "@/components/Sheet";
 import PayTermsSettings from "@/components/settings/PayTermsSettings";
 import { describeTerms, type PayTerms } from "@/lib/pay-projection";
+import { isContractor, taxSetAsideBps, TAX_SET_ASIDE_DEFAULT_NOTE, workerTypeLabel } from "@/lib/tax-set-aside";
 
 export function basisLabel(terms: PayTerms): string {
   switch (terms.mile_basis) {
@@ -30,11 +31,22 @@ export function basisLabel(terms: PayTerms): string {
 
 export default function PayTermsCard({ terms }: { terms: PayTerms | null }) {
   const [editOpen, setEditOpen] = useState(false);
+  // The set-aside has no gross to price here - the card names the rate
+  // and the default; the dollar figure lives on the Home card and the
+  // Paychecks page, where a gross exists.
+  const workerLabel = terms ? workerTypeLabel(terms.worker_type ?? null) : null;
+  const setAsideBps = terms && isContractor(terms.worker_type ?? null) ? taxSetAsideBps(terms.tax_set_aside_bps ?? null) : null;
+  const setAsideDefault = terms?.tax_set_aside_bps == null;
   return (
     <Card ariaLabel="Your pay terms" className="pay-terms-card">
       {terms ? (
         <p>
-          Your pay terms — {describeTerms(terms)}, {basisLabel(terms)} ({terms.employer_name}).{" "}
+          Your pay terms — {describeTerms(terms)}, {basisLabel(terms)} ({terms.employer_name})
+          {workerLabel ? ` · ${workerLabel}` : " · tax status not set"}
+          {setAsideBps !== null
+            ? ` · set aside ${setAsideBps / 100}% of each check for taxes${setAsideDefault ? ` (${TAX_SET_ASIDE_DEFAULT_NOTE})` : ""}`
+            : ""}
+          .{" "}
           <button type="button" className="page-action" onClick={() => setEditOpen(true)}>
             Edit pay terms
           </button>
