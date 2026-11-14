@@ -53,7 +53,7 @@ export default function RoadsidePage() {
 
   return (
     <main className="roadside-page">
-      <PageHeader title="Roadside inspection" purpose="Your log packet, ready to show an officer." />
+      <PageHeader title="Roadside inspection" purpose="Your hours packet, ready to show alongside the carrier ELD." />
       <p className="roadside-framing" role="note">
         {PACKET_FRAMING}
       </p>
