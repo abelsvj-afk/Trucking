@@ -12,6 +12,7 @@
 
 import type { DutyStatus } from "@/types/entities";
 import { SUSTAIN_MS } from "./sustained-motion";
+import { STOP_PROPOSAL_EXPIRY_MS, STOP_SILENCE_MS } from "./stopped-vehicle";
 
 export const MAX_DETECTION_AGE_MS = 10 * 60_000;
 export const MAX_CLOCK_SKEW_MS = 60_000;
@@ -32,5 +33,54 @@ export function judgeAutoMotion(
   if (!latest) return { ok: false, reason: "no_status" };
   if (latest.duty_status === "driving") return { ok: false, reason: "already_driving" };
   if (Date.parse(latest.started_at) >= detected - SUSTAIN_MS) return { ok: false, reason: "manual_change_won" };
+  return { ok: true };
+}
+
+// ---- the stop side (ELD stopped vehicle, App. A §4.4.1.2) --------------------
+//
+// The mirror of judgeAutoMotion, for the switch OUT of Driving: prompt at
+// 5 minutes stopped, auto-switch to On Duty Not Driving at minute 6 on
+// silence. It only ever ADDS an On Duty row backdated to the stop start
+// (the last movement time), never edits or deletes anything, never
+// auto-switches to Off Duty or Sleeper (§4.4.1.3 forbids it), and never
+// touches in-motion driving time: the backdate covers only time after
+// the last detected movement.
+
+export type AutoStopVerdict =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | "no_status"
+        | "not_driving"
+        | "manual_change_won"
+        | "stop_in_future"
+        | "stop_too_old"
+        | "never_prompted"
+        | "silence_not_elapsed"
+        | "bad_time";
+    };
+
+export function judgeAutoStop(
+  latest: { duty_status: DutyStatus; started_at: string } | null,
+  stopStartIso: string,
+  nowMs: number,
+  /** When the 5-minute prompt was shown for this episode — null means never prompted: never auto-switch blind. */
+  promptedAtMs: number | null,
+): AutoStopVerdict {
+  const stopStart = Date.parse(stopStartIso);
+  if (!Number.isFinite(stopStart)) return { ok: false, reason: "bad_time" };
+  if (stopStart > nowMs + MAX_CLOCK_SKEW_MS) return { ok: false, reason: "stop_in_future" };
+  // A stop older than the proposal expiry is a long stop: the hourly
+  // re-prompt proposal covers it, not a silent switch hours later.
+  if (nowMs - stopStart > STOP_PROPOSAL_EXPIRY_MS) return { ok: false, reason: "stop_too_old" };
+  if (!latest) return { ok: false, reason: "no_status" };
+  if (latest.duty_status !== "driving") return { ok: false, reason: "not_driving" };
+  // A row started at/after the stop start means the Driving segment is
+  // already capped (a correction applied) or the driver chose a status
+  // after the stop — the automatic one stands down.
+  if (Date.parse(latest.started_at) >= stopStart) return { ok: false, reason: "manual_change_won" };
+  if (promptedAtMs === null) return { ok: false, reason: "never_prompted" };
+  if (nowMs - promptedAtMs < STOP_SILENCE_MS) return { ok: false, reason: "silence_not_elapsed" };
   return { ok: true };
 }

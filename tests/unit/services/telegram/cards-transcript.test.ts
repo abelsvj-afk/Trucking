@@ -268,14 +268,14 @@ describe("cards: the owner's 2026-11-11 transcript, all 15 messages", () => {
     expect(detectCard(STILLNESS_PROSE_OLD)).toBeNull();
     // The new shape, built by the real proposalText: labeled card.
     const stopped = proposalText(
-      { kind: "stop_driving", status: "on_duty", sinceMs: 0 },
+      { kind: "stop_driving", status: "on_duty", sinceMs: 0, episodeKey: "stop:0" },
       "8:40 AM CT",
     );
     const card = detectCard(stopped, new Date("2026-11-12T13:40:00Z"));
     expect(card?.kind).toBe("hos");
     expect(card?.key).toBe("hos:2026-11-12");
     const moving = proposalText(
-      { kind: "start_driving", status: "driving", sinceMs: 0 },
+      { kind: "start_driving", status: "driving", sinceMs: 0, episodeKey: "move:0" },
       "9:14 AM CT",
     );
     expect(detectCard(moving, new Date("2026-11-12T14:14:00Z"))?.kind).toBe("hos");

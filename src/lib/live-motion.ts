@@ -8,6 +8,7 @@
 // movement actually began.
 
 import type { DutyStatus } from "@/types/entities";
+import { episodeKey } from "./stopped-vehicle";
 
 type LatLng = { lat: number; lng: number };
 
@@ -118,12 +119,28 @@ export function describeFixAge(ageMs: number): string {
 
 export type ProposalKind = "start_driving" | "stop_driving";
 
+/**
+ * What the last prompt was. "feed_stale" is not a proposal: it marks
+ * the feed-health tell (ELD stopped vehicle §3.1) — a stale-feed tell
+ * must never count as a prompt for the proposal cooldown, or a dead
+ * feed would delay the first real proposal by 30 minutes once it
+ * recovers.
+ */
+export type LastPromptKind = ProposalKind | "feed_stale";
+
+/** Stable identity of a movement episode (the mirror of the stop key in lib/stopped-vehicle.ts). */
+export function moveEpisodeKey(movingSinceMs: number): string {
+  return `move:${movingSinceMs}`;
+}
+
 export interface StatusProposal {
   kind: ProposalKind;
   /** The status to offer. */
   status: DutyStatus;
   /** When the movement/stop actually began - the time the logged row should carry. */
   sinceMs: number;
+  /** Stop-episode / movement-episode identity (stop:<start> / move:<start>) — dedupe is by episode, not by exact millisecond. */
+  episodeKey: string;
 }
 
 export function decideStatusProposal(input: {
@@ -132,23 +149,26 @@ export function decideStatusProposal(input: {
   /** His latest logged status, or null if he has never logged one. */
   currentStatus: DutyStatus | null;
   lastPromptAtMs: number | null;
-  lastPromptKind: ProposalKind | null;
+  lastPromptKind: LastPromptKind | null;
 }): StatusProposal | null {
-  const { episode, nowMs, currentStatus, lastPromptAtMs } = input;
-  if (lastPromptAtMs !== null && nowMs - lastPromptAtMs < PROPOSAL_COOLDOWN_MS) return null;
+  const { episode, nowMs, currentStatus, lastPromptAtMs, lastPromptKind } = input;
+  // A feed-stale tell is not a prompt: it must never hold the cooldown.
+  const effectiveLastPromptAtMs = lastPromptKind === "feed_stale" ? null : lastPromptAtMs;
+  if (effectiveLastPromptAtMs !== null && nowMs - effectiveLastPromptAtMs < PROPOSAL_COOLDOWN_MS) return null;
 
   if (episode.movingSinceMs !== null && nowMs - episode.movingSinceMs >= MOVING_PROPOSAL_AFTER_MS) {
     // Already driving: nothing to propose. Otherwise the truck is moving
     // and his log says he is not.
     if (currentStatus === "driving") return null;
-    return { kind: "start_driving", status: "driving", sinceMs: episode.movingSinceMs };
+    return { kind: "start_driving", status: "driving", sinceMs: episode.movingSinceMs, episodeKey: moveEpisodeKey(episode.movingSinceMs) };
   }
 
   if (episode.stoppedSinceMs !== null && nowMs - episode.stoppedSinceMs >= STOPPED_PROPOSAL_AFTER_MS) {
     // Only when the log still says driving: the truck has not moved for a
     // long time. On duty (not driving) is the safe offer - he can say
     // otherwise (off duty, sleeper) in his reply.
-    if (currentStatus === "driving") return { kind: "stop_driving", status: "on_duty", sinceMs: episode.stoppedSinceMs };
+    if (currentStatus === "driving")
+      return { kind: "stop_driving", status: "on_duty", sinceMs: episode.stoppedSinceMs, episodeKey: episodeKey(episode.stoppedSinceMs) };
   }
   return null;
 }

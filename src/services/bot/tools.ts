@@ -1271,6 +1271,11 @@ const logDutyArgs = z.object({
   // pass source 'conversation'. Ordinary app logging omits both.
   source: z.enum(["app", "paper_photo", "conversation"]).optional(),
   source_document_id: z.string().uuid().optional(),
+  // ELD stopped vehicle: the stop-episode identity of a staged
+  // stop proposal ("stop:<stop-start-ms>"), so dedupe and replace
+  // are by episode, not by exact millisecond. Carried, never acted
+  // on by the tool itself.
+  episode_key: z.string().min(1).optional(),
 });
 
 // GAP-04/05 (Fresh-Eyes Register 2026-11-02).

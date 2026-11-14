@@ -13,7 +13,13 @@ import { buildBotTools } from "@/services/bot/tools";
 import type { BotBrainStore } from "@/services/bot/store";
 import { AUTO_SWITCH_GRACE_MS } from "@/lib/auto-switch";
 import { SUSTAIN_MS } from "@/lib/sustained-motion";
-import { autoSubmissionId, autoSwitchNotice, type AutoMotionResult } from "@/services/fleet/auto-motion";
+import {
+  autoStopSubmissionId,
+  autoSubmissionId,
+  autoSwitchNotice,
+  type AutoMotionResult,
+  type AutoStopResult,
+} from "@/services/fleet/auto-motion";
 import {
   timeZoneForPosition,
   zoneCrossingNotice,
@@ -23,14 +29,25 @@ import {
   deriveSpeedMph,
   describeFixAge,
   FRESH_FIX_MAX_AGE_MS,
+  haversineMiles,
+  JITTER_FLOOR_MILES,
   MAX_SPEED_INTERVAL_MS,
+  moveEpisodeKey,
   NO_EPISODE,
   stepEpisode,
+  type LastPromptKind,
   type MotionEpisode,
   type PositionFix,
   type ProposalKind,
   type StatusProposal,
 } from "@/lib/live-motion";
+import {
+  decideFeedHealthTell,
+  episodeKey,
+  movedDuringCorrection,
+  stopAutoSwitchDue,
+  stopRepromptAllowed,
+} from "@/lib/stopped-vehicle";
 
 export interface TelegramLocation {
   latitude: number;
@@ -46,7 +63,18 @@ export interface StoredPosition {
   speedMph: number | null;
   episode: MotionEpisode;
   lastPromptAtMs: number | null;
-  lastPromptKind: ProposalKind | null;
+  /** "feed_stale" marks the feed-health tell, not a proposal (it never holds the proposal cooldown). */
+  lastPromptKind: LastPromptKind | null;
+}
+
+/** One staged (or expired) stop proposal, as the episode-dedupe reads it. */
+export interface StopProposalRow {
+  id: string;
+  status: DutyStatus;
+  startedAtIso: string;
+  episodeKey: string;
+  createdAtMs: number;
+  expired: boolean;
 }
 
 export interface LiveLocationStore {
@@ -63,8 +91,38 @@ export interface LiveLocationStore {
    * cooldown window staged a FRESH identical row - the Nov 8 duty
    * proposal resurfacing on Nov 11. Optional: a store without it
    * stages as before.
+   *
+   * ELD stopped vehicle: matching is by STOP-EPISODE identity
+   * (episodeKey) when one is given, falling back to the exact
+   * duty_status + started_at match for legacy rows without a key.
    */
-  hasWaitingDutyProposal?(status: DutyStatus, sinceIso: string): Promise<boolean>;
+  hasWaitingDutyProposal?(status: DutyStatus, sinceIso: string, episodeKey?: string): Promise<boolean>;
+  /**
+   * ELD stopped vehicle: the latest OPEN stop proposal (a
+   * log_duty_status row carrying an episode_key), or null. Lets a
+   * re-staged proposal for the same physical stop REPLACE the
+   * waiting one — carrying its ORIGINAL stop start — instead of
+   * cloning it (PR #69 residual 1). Optional: absent = no replace.
+   */
+  findWaitingStopProposal?(): Promise<StopProposalRow | null>;
+  /**
+   * ELD stopped vehicle: the latest stop proposal for this episode
+   * key, open OR soft-deleted (expired) — the hourly re-prompt's
+   * ORIGINAL stop start after the 2-hour expiry. Optional: absent
+   * = the re-prompt carries the current episode's stop start.
+   */
+  findLatestStopProposal?(episodeKey: string): Promise<StopProposalRow | null>;
+  /**
+   * ELD stopped vehicle: replace a waiting stop proposal with a new
+   * one for the same stop (old row soft-deleted, new row staged),
+   * returning the new row's group key. Optional: absent = the
+   * caller stages a fresh proposal instead.
+   */
+  replaceStopProposal?(oldId: string, proposal: StatusProposal, sinceIso: string, summary: string): Promise<string | null>;
+  /** ELD stopped vehicle: soft-delete every open stop proposal for this episode key (the auto-switch applied it — nothing left to ask). */
+  clearStopProposal?(episodeKey: string): Promise<void>;
+  /** ELD stopped vehicle: the newest duty row (for the moved-during-correction flag). Optional: absent = no flag. */
+  loadLatestDutyRow?(): Promise<{ duty_status: DutyStatus; started_at: string; source: string | null; notes: string | null } | null>;
 }
 
 export type LiveLocationResult =
@@ -104,7 +162,7 @@ export function proposalText(p: StatusProposal, timeLabel: string): string {
     "Status: log still says Driving",
     `Stopped since: ${timeLabel}`,
     `Proposed: log ${STATUS_WORDS[p.status]} from ${timeLabel}`,
-    "Reply YES to confirm, or tell me what it should be (off duty, sleeper...).",
+    "Reply YES to apply — drafted from then until now — or tell me off duty / sleeper instead.",
   ].join("\n");
 }
 
@@ -154,6 +212,20 @@ export async function handleLiveLocation(
      * the motion was detected.
      */
     autoSwitch?: (detectedAtIso: string, submissionId: string, timeZone?: string) => Promise<AutoMotionResult>;
+    /**
+     * The automatic switch OUT of Driving (ELD stopped vehicle, App. A
+     * §4.4.1.2): stopped 6 minutes, 5-minute prompt unanswered for a
+     * minute -> switch to On Duty, backdated to the stop start.
+     * promptedAtMs is when the prompt was shown for this episode;
+     * the server refuses without it. Absent = prompt-only (no
+     * auto-switch from the feed path).
+     */
+    autoStop?: (
+      stoppedSinceIso: string,
+      submissionId: string,
+      promptedAtMs: number | null,
+      timeZone?: string,
+    ) => Promise<AutoStopResult>;
   },
   /** Test seam: the "now" the fix's age is judged against (default: real now). */
   opts?: { nowMs?: number },
@@ -180,6 +252,15 @@ export async function handleLiveLocation(
 
   const currentStatus = await store.loadCurrentStatus();
 
+  // The fix's age, judged once: a fresh fix clears the feed-stale
+  // marker (the next stale period tells again); a stale fix never
+  // drives a proposal (D6 below). A feed-stale tell is not a prompt,
+  // so it never holds the proposal cooldown.
+  const fixAgeMs = (opts?.nowMs ?? Date.now()) - atMs;
+  const feedRecovered = prev?.lastPromptKind === "feed_stale" && fixAgeMs <= FRESH_FIX_MAX_AGE_MS;
+  let lastPromptAtMs = feedRecovered ? null : (prev?.lastPromptAtMs ?? null);
+  let lastPromptKind: LastPromptKind | null = feedRecovered ? null : (prev?.lastPromptKind ?? null);
+
   // Timezone transition (owner order 2026-11-11): the display zone
   // follows the truck. When this fix lands in a different zone than
   // the stored one, say so plainly ONCE — the next fix in the new zone
@@ -194,6 +275,45 @@ export async function handleLiveLocation(
         await deps.sendMessage(crossing);
       } catch (err) {
         console.error("[live-location] zone-crossing notice failed", err);
+      }
+    }
+  }
+
+  // ELD stopped vehicle: the correction was wrong if the truck moved
+  // inside the window it marked stopped. The move hides inside a fix
+  // gap (no derivable speed), so the evidence is the position jump:
+  // the last known fix was already inside the corrected window and
+  // the truck is now somewhere else. Flag it to the driver — never
+  // silently keep a correction the feed contradicts. Best-effort: a
+  // failed lookup never fails the fix. Fires once per stop→move
+  // transition (the episode stops being "stopped" after the first
+  // moving fix, so later fixes cannot repeat it).
+  if (prev && prev.episode.stoppedSinceMs !== null && store.loadLatestDutyRow) {
+    const displacementMiles = haversineMiles(prev.fix, fix);
+    if (displacementMiles > JITTER_FLOOR_MILES) {
+      try {
+        const latestRow = await store.loadLatestDutyRow();
+        const isAutoStopCorrection =
+          latestRow?.duty_status === "on_duty" &&
+          (latestRow.source === "auto_motion" || (latestRow.notes ?? "").includes("Auto-stop correction"));
+        if (
+          isAutoStopCorrection &&
+          latestRow &&
+          movedDuringCorrection({
+            prevFixAtMs: prev.fix.atMs,
+            displacementMiles,
+            wasStopped: true,
+            correctionStartMs: Date.parse(latestRow.started_at),
+          })
+        ) {
+          const stopLabel = deps.formatTime(Date.parse(latestRow.started_at), fix.lat, fix.lng);
+          await deps.sendMessage(
+            `Flag: the truck seems to have moved during ${stopLabel}–now, which I marked On Duty (not driving). ` +
+              `That correction may be wrong — check the log before you drive on it. (Mirror — not the legal ELD.)`,
+          );
+        }
+      } catch (err) {
+        console.error("[live-location] moved-during-correction check failed", err);
       }
     }
   }
@@ -227,56 +347,168 @@ export async function handleLiveLocation(
     }
   }
 
+  // ELD stopped vehicle (owner call 2026-11-14, ON): stopped 6
+  // minutes, 5-minute prompt unanswered for a minute -> auto-switch
+  // to On Duty Not Driving, backdated to the stop start. The prompt
+  // is the staged stop proposal for THIS episode: without a waiting
+  // proposal carrying this stop start, there was no prompt to be
+  // silent about, so no switch — the proposal path below asks
+  // instead. After the switch the waiting proposal is moot and is
+  // cleared, so a later YES cannot double-book the same window.
+  if (deps.autoStop && currentStatus === "driving" && episode.stoppedSinceMs !== null) {
+    const stoppedSinceMs = episode.stoppedSinceMs;
+    const stopSinceIso = new Date(stoppedSinceMs).toISOString();
+    let promptedAtMs: number | null = null;
+    let waitingKey: string | null = null;
+    try {
+      const waiting = await store.findWaitingStopProposal?.();
+      if (waiting && waiting.startedAtIso === stopSinceIso) {
+        promptedAtMs = lastPromptKind === "stop_driving" ? lastPromptAtMs : null;
+        waitingKey = waiting.episodeKey;
+      }
+    } catch {
+      // A lookup failure never blocks the proposal path below.
+    }
+    if (promptedAtMs !== null && stopAutoSwitchDue({ stoppedSinceMs, nowMs: atMs, currentStatus, promptedAtMs })) {
+      try {
+        const res = await deps.autoStop(stopSinceIso, autoStopSubmissionId(stoppedSinceMs), promptedAtMs, fixZone);
+        if (res.switched) {
+          if (waitingKey) {
+            try {
+              await store.clearStopProposal?.(waitingKey);
+            } catch {
+              // The correction landed; a stale waiting row is cleaned up by the expiry sweep.
+            }
+          }
+          await store.savePosition({
+            fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+            speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: "stop_driving",
+          });
+          if (!res.deduplicated && res.message) await deps.sendMessage(res.message);
+          return { kind: "recorded", proposed: null };
+        }
+      } catch (err) {
+        console.error("[live-location] auto stop failed", err);
+      }
+    }
+  }
+
   const proposal = autoHandled && episode.movingSinceMs !== null ? null : decideStatusProposal({
     episode,
     nowMs: atMs,
     currentStatus,
-    lastPromptAtMs: prev?.lastPromptAtMs ?? null,
-    lastPromptKind: prev?.lastPromptKind ?? null,
+    lastPromptAtMs,
+    lastPromptKind,
   });
 
-  let lastPromptAtMs = prev?.lastPromptAtMs ?? null;
-  let lastPromptKind = prev?.lastPromptKind ?? null;
   let proposed: StatusProposal | null = null;
   if (proposal) {
-    const label = deps.formatTime(proposal.sinceMs, fix.lat, fix.lng);
-    const text = proposalText(proposal, label);
     const sinceIso = new Date(proposal.sinceMs).toISOString();
     // Telegram review D6: a stale fix never drives a proposal. The
     // movement may be real, but the fix is old - say so plainly,
     // with its age, instead of presenting a days-old timestamp as
-    // current. The cooldown still holds so the notice says it once.
-    const fixAgeMs = (opts?.nowMs ?? Date.now()) - atMs;
+    // current. While the log says Driving the tell is the brief's
+    // feed-health wording (zone-labelled last-fix time); otherwise
+    // the old honest line. Once per stale period: the feed_stale
+    // marker (cleared by a fresh fix) stops repeats, and it never
+    // holds the proposal cooldown.
     if (fixAgeMs > FRESH_FIX_MAX_AGE_MS) {
+      const alreadyTold = prev?.lastPromptKind === "feed_stale";
       await store.savePosition({
         fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
-        speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: proposal.kind,
+        speedMph, episode, lastPromptAtMs: alreadyTold ? lastPromptAtMs : atMs, lastPromptKind: "feed_stale",
       });
-      await deps.sendMessage(
-        `I don't have a fresh location — last fix ${describeFixAge(fixAgeMs)}. I won't guess your duty status from that.`,
-      );
+      if (!alreadyTold) {
+        await deps.sendMessage(
+          currentStatus === "driving"
+            ? `I haven't had a location fix since ${deps.formatTime(atMs, fix.lat, fix.lng)} — I can't tell whether you've stopped. Check the app or share live location again.`
+            : `I don't have a fresh location — last fix ${describeFixAge(fixAgeMs)}. I won't guess your duty status from that.`,
+        );
+      }
       return { kind: "recorded", proposed: null };
     }
     // Telegram review D2: this exact proposal is already waiting
     // for his yes - stage nothing, say nothing new. The waiting
     // list surfaces it; a fresh row per cooldown window is how the
-    // Nov 8 duty proposal kept resurfacing on Nov 11.
-    if (await store.hasWaitingDutyProposal?.(proposal.status, sinceIso)) {
+    // Nov 8 duty proposal kept resurfacing on Nov 11. ELD stopped
+    // vehicle: matching is by stop-episode identity, not by exact
+    // millisecond (PR #69 residual 1).
+    //
+    // The save keeps the ORIGINAL prompt time: lastPromptAtMs is
+    // "when he was last prompted" (the staging), not "the last fix
+    // that saw the waiting proposal" — the 30-minute cooldown and
+    // the hourly re-prompt are both measured from the prompt, so
+    // refreshing it here would push the post-expiry re-prompt an
+    // hour later with every passing fix.
+    if (await store.hasWaitingDutyProposal?.(proposal.status, sinceIso, proposal.episodeKey)) {
       await store.savePosition({
         fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
-        speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: proposal.kind,
+        speedMph, episode, lastPromptAtMs, lastPromptKind,
       });
       return { kind: "recorded", proposed: null };
+    }
+    // ELD stopped vehicle: same physical stop, new episode key
+    // (a creep restarted the episode) while the earlier proposal
+    // is still waiting — REPLACE it, carrying the ORIGINAL stop
+    // start, never clone it. Guard: no start_driving prompt has
+    // intervened, so the truck has not driven in between.
+    // After an expiry, re-prompt at most once an hour for the
+    // SAME episode (the expired row's start is the original start).
+    let effectiveProposal = proposal;
+    let effectiveSinceIso = sinceIso;
+    let replacedId: string | null = null;
+    if (proposal.kind === "stop_driving") {
+      let waiting: StopProposalRow | null = null;
+      try {
+        waiting = await store.findWaitingStopProposal?.() ?? null;
+      } catch {
+        waiting = null;
+      }
+      if (waiting && waiting.episodeKey !== proposal.episodeKey && lastPromptKind === "stop_driving") {
+        effectiveProposal = { ...proposal, sinceMs: Date.parse(waiting.startedAtIso) };
+        effectiveSinceIso = waiting.startedAtIso;
+        replacedId = waiting.id;
+      } else if (!waiting && lastPromptKind === "stop_driving" && lastPromptAtMs !== null) {
+        let previous: StopProposalRow | null = null;
+        try {
+          previous = await store.findLatestStopProposal?.(proposal.episodeKey) ?? null;
+        } catch {
+          previous = null;
+        }
+        if (
+          previous &&
+          previous.startedAtIso === sinceIso &&
+          !stopRepromptAllowed({
+            nowMs: atMs,
+            lastPromptAtMs,
+            lastPromptKind,
+            previousSinceMs: proposal.sinceMs,
+            currentSinceMs: proposal.sinceMs,
+          })
+        ) {
+          await store.savePosition({
+            fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+            speedMph, episode, lastPromptAtMs, lastPromptKind,
+          });
+          return { kind: "recorded", proposed: null };
+        }
+      }
     }
     // Stage first, tell him second: a proposal he is told about must exist.
     // The summary carries the LABELED time in the fix's zone — it is
     // quoted back to him when the proposal is re-surfaced, and a raw
     // ISO there is exactly the Nov 11 9:58 PM incident (a Nov 8
     // proposal quoted as "2026-11-08T13:40:37.858Z"). Never again.
-    const groupKey = await store.stageProposal(proposal, sinceIso, `Duty status: ${proposal.status} starting at ${label} (paper-log helper)`);
+    const label = deps.formatTime(effectiveProposal.sinceMs, fix.lat, fix.lng);
+    const text = proposalText(effectiveProposal, label);
+    const summary = `Duty status: ${effectiveProposal.status} starting at ${label} (paper-log helper)`;
+    const groupKey =
+      replacedId && store.replaceStopProposal
+        ? await store.replaceStopProposal(replacedId, effectiveProposal, effectiveSinceIso, summary)
+        : await store.stageProposal(effectiveProposal, effectiveSinceIso, summary);
     lastPromptAtMs = atMs;
-    lastPromptKind = proposal.kind;
-    proposed = proposal;
+    lastPromptKind = effectiveProposal.kind;
+    proposed = effectiveProposal;
     // The cooldown must hold even if the send fails, so save before sending.
     await store.savePosition({
       fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
@@ -336,7 +568,7 @@ export function createLiveLocationStore(
         speedMph: r.speed_mph,
         episode: { movingSinceMs: ms(r.moving_since), stoppedSinceMs: ms(r.stopped_since) },
         lastPromptAtMs: ms(r.last_prompt_at),
-        lastPromptKind: (r.last_prompt_kind as ProposalKind | null) ?? null,
+        lastPromptKind: (r.last_prompt_kind as LastPromptKind | null) ?? null,
       };
     },
     async savePosition(p) {
@@ -367,10 +599,12 @@ export function createLiveLocationStore(
     },
     async stageProposal(proposal, sinceIso, summary) {
       // D4: the group key is the pending row's id - the caller
-      // maps the sent duty proposal to it.
-      return stage({ duty_status: proposal.status, started_at: sinceIso }, summary);
+      // maps the sent duty proposal to it. The episode key rides
+      // in arguments so dedupe is by stop episode, not by exact
+      // millisecond (ELD stopped vehicle; no new column needed).
+      return stage({ duty_status: proposal.status, started_at: sinceIso, episode_key: proposal.episodeKey }, summary);
     },
-    async hasWaitingDutyProposal(status, sinceIso) {
+    async hasWaitingDutyProposal(status, sinceIso, key) {
       try {
         const { data, error } = await client
           .from("bot_pending_actions")
@@ -382,16 +616,131 @@ export function createLiveLocationStore(
         // An expired row is already dead (the turn-start sweep drops
         // it) - it must not block a fresh proposal for the same duty.
         const cutoff = Date.now() - PENDING_PROPOSAL_EXPIRY_MS;
-        return ((data as { arguments?: Record<string, unknown>; created_at?: string }[]) ?? []).some(
-          (row) =>
-            row.arguments?.duty_status === status &&
-            row.arguments?.started_at === sinceIso &&
-            (!row.created_at || Date.parse(row.created_at) >= cutoff),
-        );
+        return ((data as { arguments?: Record<string, unknown>; created_at?: string }[]) ?? []).some((row) => {
+          if (row.created_at && Date.parse(row.created_at) < cutoff) return false;
+          // Same stop episode (key) counts even when the stop start
+          // moved by a millisecond; otherwise the exact legacy match.
+          if (key && row.arguments?.episode_key === key) return true;
+          return row.arguments?.duty_status === status && row.arguments?.started_at === sinceIso;
+        });
       } catch {
         return false; // a lookup failure never blocks staging
       }
     },
+    async findWaitingStopProposal() {
+      try {
+        const { data, error } = await client
+          .from("bot_pending_actions")
+          .select("id, arguments, created_at")
+          .eq("company_id", companyId)
+          .eq("tool_name", "log_duty_status")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (error || !data) return null;
+        const nowMs = Date.now();
+        for (const row of data as PendingDutyRow[]) {
+          const parsed = toStopProposalRow(row, nowMs);
+          if (parsed && !parsed.expired) return parsed;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    async findLatestStopProposal(key) {
+      try {
+        // No deleted_at filter: an EXPIRED row is the re-prompt's
+        // original stop start.
+        const { data, error } = await client
+          .from("bot_pending_actions")
+          .select("id, arguments, created_at, deleted_at")
+          .eq("company_id", companyId)
+          .eq("tool_name", "log_duty_status")
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (error || !data) return null;
+        const nowMs = Date.now();
+        for (const row of data as PendingDutyRow[]) {
+          const parsed = toStopProposalRow(row, nowMs);
+          if (parsed && parsed.episodeKey === key) return parsed;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    async replaceStopProposal(oldId, proposal, sinceIso, summary) {
+      await client
+        .from("bot_pending_actions")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", oldId);
+      return stage(
+        { duty_status: proposal.status, started_at: sinceIso, episode_key: proposal.episodeKey },
+        summary,
+      );
+    },
+    async clearStopProposal(key) {
+      try {
+        const { data, error } = await client
+          .from("bot_pending_actions")
+          .select("id, arguments")
+          .eq("company_id", companyId)
+          .eq("tool_name", "log_duty_status")
+          .is("deleted_at", null);
+        if (error || !data) return;
+        const ids = (data as PendingDutyRow[])
+          .filter((row) => (row.arguments as Record<string, unknown> | undefined)?.episode_key === key)
+          .map((row) => row.id);
+        if (ids.length === 0) return;
+        await client
+          .from("bot_pending_actions")
+          .update({ deleted_at: new Date().toISOString() })
+          .in("id", ids);
+      } catch {
+        // The correction landed; a stale waiting row is cleaned up by the expiry sweep.
+      }
+    },
+    async loadLatestDutyRow() {
+      try {
+        const { data, error } = await client
+          .from("duty_logs")
+          .select("duty_status, started_at, source, notes")
+          .eq("company_id", companyId)
+          .is("deleted_at", null)
+          .order("started_at", { ascending: false })
+          .limit(1);
+        if (error || !data) return null;
+        const row = (data as { duty_status: DutyStatus; started_at: string; source: string | null; notes: string | null }[] | null)?.[0];
+        return row ?? null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+/** A bot_pending_actions row carrying a stop proposal, or null when it is not one. */
+interface PendingDutyRow {
+  id: string;
+  arguments?: Record<string, unknown>;
+  created_at?: string;
+  deleted_at?: string | null;
+}
+
+function toStopProposalRow(row: PendingDutyRow, nowMs: number): StopProposalRow | null {
+  const args = row.arguments ?? {};
+  const key = typeof args.episode_key === "string" ? args.episode_key : null;
+  if (!key || !key.startsWith("stop:")) return null;
+  if (typeof args.started_at !== "string" || typeof args.duty_status !== "string") return null;
+  const createdAtMs = row.created_at ? Date.parse(row.created_at) : 0;
+  return {
+    id: row.id,
+    status: args.duty_status as DutyStatus,
+    startedAtIso: args.started_at,
+    episodeKey: key,
+    createdAtMs,
+    expired: Number.isFinite(createdAtMs) && nowMs - createdAtMs > PENDING_PROPOSAL_EXPIRY_MS,
   };
 }
 
@@ -418,20 +767,89 @@ export function createBrainLiveLocationStore(brain: BotBrainStore, source: Posit
   // method keeps the check in one place and testable).
   return {
     ...store,
-    async hasWaitingDutyProposal(status, sinceIso) {
+    async hasWaitingDutyProposal(status, sinceIso, key) {
       try {
         const rows = await brain.loadOpenPendingRows();
         const cutoff = Date.now() - PENDING_PROPOSAL_EXPIRY_MS;
-        return rows.some(
-          (row) =>
-            row.tool_name === "log_duty_status" &&
-            (row.arguments as Record<string, unknown>)?.duty_status === status &&
-            (row.arguments as Record<string, unknown>)?.started_at === sinceIso &&
-            Date.parse(row.created_at) >= cutoff,
-        );
+        return rows.some((row) => {
+          if (row.tool_name !== "log_duty_status") return false;
+          if (Date.parse(row.created_at) < cutoff) return false;
+          const args = row.arguments as Record<string, unknown>;
+          // Same stop episode (key) counts even when the stop start
+          // moved by a millisecond; otherwise the exact legacy match.
+          if (key && args?.episode_key === key) return true;
+          return args?.duty_status === status && args?.started_at === sinceIso;
+        });
       } catch {
         return false; // a lookup failure never blocks staging
       }
     },
   };
+}
+
+/**
+ * The feed-health tell for a DEAD feed (ELD stopped vehicle §3.1):
+ * no fix at all has arrived for 15 minutes while the log says
+ * Driving. There is no scheduler in this codebase to fire it on a
+ * timer, so the caller runs it best-effort on his next inbound
+ * Telegram interaction (webhook route) — one message per stale
+ * period, marked on the newest position row so it never repeats
+ * until a fresh fix arrives. A tell, never an invented stop.
+ * Returns true when a tell was sent. Never throws.
+ */
+export async function maybeSendFeedStaleTell(opts: {
+  client: SupabaseClient;
+  companyId: string;
+  sendMessage: (text: string) => Promise<unknown>;
+  formatTime: (ms: number, lat: number, lng: number) => string;
+  nowMs?: number;
+}): Promise<boolean> {
+  const nowMs = opts.nowMs ?? Date.now();
+  try {
+    const [{ data: dutyRows }, { data: posRows }] = await Promise.all([
+      opts.client
+        .from("duty_logs")
+        .select("duty_status")
+        .eq("company_id", opts.companyId)
+        .is("deleted_at", null)
+        .order("started_at", { ascending: false })
+        .limit(1),
+      opts.client
+        .from("driver_positions")
+        .select("source, lat, lng, recorded_at, last_prompt_at, last_prompt_kind")
+        .eq("company_id", opts.companyId)
+        .order("recorded_at", { ascending: false })
+        .limit(1),
+    ]);
+    const latest = (dutyRows as { duty_status: DutyStatus }[] | null)?.[0];
+    const pos = (
+      posRows as
+        | { source: string; lat: number; lng: number; recorded_at: string; last_prompt_at: string | null; last_prompt_kind: string | null }[]
+        | null
+    )?.[0];
+    if (!latest || !pos) return false;
+    const lastFixAtMs = Date.parse(pos.recorded_at);
+    if (
+      !decideFeedHealthTell({
+        lastFixAtMs,
+        nowMs,
+        currentStatus: latest.duty_status,
+        alreadyTold: pos.last_prompt_kind === "feed_stale",
+      })
+    ) {
+      return false;
+    }
+    await opts.sendMessage(
+      `I haven't had a location fix since ${opts.formatTime(lastFixAtMs, pos.lat, pos.lng)} — I can't tell whether you've stopped. Check the app or share live location again.`,
+    );
+    await opts.client
+      .from("driver_positions")
+      .update({ last_prompt_at: new Date(nowMs).toISOString(), last_prompt_kind: "feed_stale" })
+      .eq("company_id", opts.companyId)
+      .eq("source", pos.source);
+    return true;
+  } catch (err) {
+    console.error("[live-location] feed-stale tell failed", err);
+    return false;
+  }
 }

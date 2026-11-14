@@ -85,6 +85,12 @@ describe("decideAuto", () => {
     expect(decideAuto("driving", s, STATIONARY_PROMPT_MS).kind).toBe("still_driving_prompt");
     expect(decideAuto("driving", run(every5(0, 240_000, (t) => stopped(t))), 240_000).kind).toBe("none");
   });
+  it("ELD stopped vehicle: Driving + stationary 6 min -> auto-switch out to On Duty, stamped at the stop start", () => {
+    const s = run(every5(0, 6 * 60_000, (t) => stopped(t)));
+    expect(decideAuto("driving", s, 6 * 60_000)).toEqual({ kind: "auto_switch_stop", stoppedSinceMs: 0 });
+    // 5:59 is still prompt-only — the switch waits for the full six minutes.
+    expect(decideAuto("driving", s, 6 * 60_000 - 1_000).kind).toBe("still_driving_prompt");
+  });
   it("a non-driving status that is stationary gets no stationary prompt", () => {
     const s = run(every5(0, STATIONARY_PROMPT_MS, (t) => stopped(t)));
     expect(decideAuto("off_duty", s, STATIONARY_PROMPT_MS).kind).toBe("none");

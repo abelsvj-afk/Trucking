@@ -20,6 +20,9 @@ import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
 import { decideLock, type DutyKnowledge } from "@/lib/motion-lock-policy";
 import { decideAuto } from "@/lib/auto-switch";
 import { useNowTick } from "@/lib/use-now-tick";
+import { FEED_STALE_MS, STOP_SILENCE_MS } from "@/lib/stopped-vehicle";
+import { STATIONARY_PROMPT_MS } from "@/lib/sustained-motion";
+import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import type { DutyStatus } from "@/types/entities";
 
 const STATUS_WORDS: Record<Exclude<DutyStatus, "driving">, string> = {
@@ -137,8 +140,14 @@ function Watcher() {
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [autoNotice, setAutoNotice] = useState<string | null>(null);
   const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
-  const [stationaryDismissedFor, setStationaryDismissedFor] = useState<number | null>(null);
+  const [stationaryDismissed, setStationaryDismissed] = useState<{ episodeStart: number; atMs: number } | null>(null);
   const attempt = useRef<AutoAttempt | null>(null);
+  // ELD stopped vehicle: the minute-6 auto-switch out of Driving.
+  // The prompt must have been SHOWN for a minute of silence first
+  // (App. A §4.4.1.2: prompt at 5, switch at 6) — the ref records
+  // when this showing of the prompt began; a dismiss resets it.
+  const stopPromptShownAtRef = useRef<number | null>(null);
+  const stopAttempt = useRef<AutoAttempt | null>(null);
 
   // Derived reset (React's "adjust state during render" pattern): once the mismatch ends, forget the dismissal.
   if (mismatchStatus === null && dismissedFor !== null) setDismissedFor(null);
@@ -201,11 +210,83 @@ function Watcher() {
       });
   }, [autoKey, nowMs, refresh]);
 
-  async function logStatus(status: DutyStatus) {
+  // ELD stopped vehicle: is the stop prompt showing? "Still driving"
+  // dismisses it for this episode only and restarts the 5-minute
+  // timer — it never deletes the stop fact, and the prompt comes
+  // back 5 minutes later if the truck is still stopped.
+  const stopPromptKind = auto.kind === "still_driving_prompt" || auto.kind === "auto_switch_stop" ? auto.kind : null;
+  const stopDismissed =
+    stationaryDismissed !== null &&
+    stationaryDismissed.episodeStart === sustained.stoppedSinceMs &&
+    nowMs - stationaryDismissed.atMs < STATIONARY_PROMPT_MS;
+  const showStopPrompt = stopPromptKind !== null && !stopDismissed;
+
+  // When this showing of the prompt began (a dismiss resets it, so a
+  // re-shown prompt gets its own minute of silence). Declared before
+  // the auto-stop effect so that effect reads the fresh value.
+  useEffect(() => {
+    if (showStopPrompt) {
+      if (stopPromptShownAtRef.current === null) stopPromptShownAtRef.current = nowMs;
+    } else {
+      stopPromptShownAtRef.current = null;
+    }
+  }, [showStopPrompt, nowMs]);
+
+  // ELD stopped vehicle: the minute-6 auto-switch OUT of Driving to
+  // On Duty Not Driving. Fires only once the prompt has been shown
+  // for a minute of silence; the server backdates the row to the
+  // stop start, records the trail entry, and returns the
+  // confirmation (14-hour window NOT rewound). A failed call retries
+  // a few times, never loops; a tap on the prompt still wins.
+  const autoStopKey = auto.kind === "auto_switch_stop" ? auto.stoppedSinceMs : null;
+  useEffect(() => {
+    if (autoStopKey === null || !showStopPrompt) return;
+    const shownAt = stopPromptShownAtRef.current;
+    if (shownAt === null || nowMs - shownAt < STOP_SILENCE_MS) return;
+    const cur =
+      stopAttempt.current && stopAttempt.current.key === autoStopKey
+        ? stopAttempt.current
+        : { key: autoStopKey, tries: 0, inFlight: false, done: false };
+    stopAttempt.current = cur;
+    if (cur.done || cur.inFlight || cur.tries >= MAX_AUTO_TRIES) return;
+    cur.inFlight = true;
+    cur.tries += 1;
+    apiClient
+      .autoStopSwitch(new Date(autoStopKey).toISOString(), autoStopSubmissionId(autoStopKey), shownAt)
+      .then((res) => {
+        cur.done = true;
+        if (res.data.switched) {
+          setAutoNotice(
+            res.data.message ??
+              `Switched to On duty (not driving) from ${clockLabel(Date.parse(res.data.startedAt ?? new Date(autoStopKey).toISOString()))} — truck stopped.`,
+          );
+        }
+        refresh();
+      })
+      .catch(() => {
+        // Retried on the next tick (up to MAX_AUTO_TRIES); the prompt stays on screen meanwhile.
+      })
+      .finally(() => {
+        cur.inFlight = false;
+      });
+  }, [autoStopKey, nowMs, refresh, showStopPrompt]);
+
+  async function logStatus(status: DutyStatus, backdateToMs?: number) {
     setSwitching(true);
     setSwitchError(null);
     try {
-      await apiClient.create("duty-logs", { duty_status: status, started_at: new Date().toISOString(), submission_id: crypto.randomUUID() });
+      // A stop-prompt tap is a CORRECTION back to the stop start
+      // (last movement time), never tap-time: the row carries the
+      // stop start and the reason rides along so the duty-log edit
+      // trail records it. A live switch (to Driving) stays now.
+      const body: Record<string, unknown> = { duty_status: status, submission_id: crypto.randomUUID() };
+      if (backdateToMs !== undefined) {
+        body.started_at = new Date(backdateToMs).toISOString();
+        body.edit_reason = `Truck stopped since ${clockLabel(backdateToMs)}; status corrected back to the stop (mirror — not the legal ELD).`;
+      } else {
+        body.started_at = new Date().toISOString();
+      }
+      await apiClient.create("duty-logs", body);
       refresh();
     } catch {
       setSwitchError("Couldn't switch your status. Try again.");
@@ -231,6 +312,22 @@ function Watcher() {
         <button type="button" onClick={() => setUnknownDismissed(true)}>OK</button>
       </div>
     ) : null;
+
+  // ELD stopped vehicle §3.1: no fix for 15 minutes while the log
+  // says Driving — a tell, never an invented stop. Zone-labelled,
+  // from the latest duty row's zone (the truck's zone where it
+  // happened); home Eastern when the log carries no zone.
+  const latestRow = hos.status === "loaded" && hos.data.length > 0 ? hos.data[hos.data.length - 1]! : null;
+  const feedStale =
+    duty === "driving" && sustained.lastFixAtMs !== null && nowMs - sustained.lastFixAtMs > FEED_STALE_MS;
+  const staleBanner = feedStale ? (
+    <div role="status" className="motion-lock-banner motion-lock-slim" data-motion-exempt data-testid="location-stale-banner">
+      <p>
+        Location stale since {formatClock(sustained.lastFixAtMs!, latestRow?.time_zone ?? HOME_TIME_ZONE)} — I can&apos;t tell
+        whether you&apos;ve stopped. Check the app or share live location again.
+      </p>
+    </div>
+  ) : null;
 
   const notice = autoNotice ? (
     <div role="status" className="motion-lock-banner" data-motion-exempt>
@@ -259,16 +356,36 @@ function Watcher() {
       </>
     );
   }
-  if (auto.kind === "still_driving_prompt" && stationaryDismissedFor !== sustained.stoppedSinceMs) {
+  if (showStopPrompt) {
+    // Every tap here is backdated to the stop start (last movement
+    // time) — tapping at 5:07 must not log 5:07 as the change. "Still
+    // driving" dismisses for this episode only and restarts the
+    // 5-minute timer; the prompt comes back if still stopped. At
+    // minute 6 the app switches to On Duty by itself (see the effect
+    // above) unless he answers first.
+    const stopStartMs = sustained.stoppedSinceMs ?? undefined;
     return (
       <>
         {notice}
         {cantTellBanner}
         <div role="alert" className="motion-lock-banner" data-motion-exempt>
           <p>You&apos;ve been stopped for 5 minutes but your log says <strong>Driving</strong>. Still driving?</p>
-          <button type="button" onClick={() => void logStatus("on_duty")} disabled={switching}>On duty (not driving)</button>{" "}
-          <button type="button" onClick={() => void logStatus("off_duty")} disabled={switching}>Off duty</button>{" "}
-          <button type="button" onClick={() => setStationaryDismissedFor(sustained.stoppedSinceMs)}>Still driving</button>
+          {auto.kind === "auto_switch_stop" && (
+            <p>Still stopped — I&apos;ll switch you to On duty (not driving) in a moment, backdated to when you stopped.</p>
+          )}
+          <button type="button" onClick={() => void logStatus("on_duty", stopStartMs)} disabled={switching}>On duty (not driving)</button>{" "}
+          <button type="button" onClick={() => void logStatus("off_duty", stopStartMs)} disabled={switching}>Off duty</button>{" "}
+          <button type="button" onClick={() => void logStatus("sleeper", stopStartMs)} disabled={switching}>Sleeper</button>{" "}
+          <button
+            type="button"
+            onClick={() =>
+              setStationaryDismissed(
+                sustained.stoppedSinceMs === null ? null : { episodeStart: sustained.stoppedSinceMs, atMs: nowMs },
+              )
+            }
+          >
+            Still driving
+          </button>
           {switchError && <p role="alert">{switchError}</p>}
         </div>
       </>
@@ -310,6 +427,7 @@ function Watcher() {
     <>
       {notice}
       {cantTellBanner}
+      {staleBanner}
     </>
   );
 }
@@ -318,6 +436,12 @@ function Watcher() {
 function autoSubmissionId(detectedAtMs: number): string {
   const hex = detectedAtMs.toString(16).padStart(12, "0").slice(-12);
   return `00000000-0000-4000-8000-${hex}`;
+}
+
+/** One stable id per stop episode — the twin of the server's autoStopSubmissionId (different namespace, so a stop and a move can never collide on one id). */
+function autoStopSubmissionId(stoppedSinceMs: number): string {
+  const hex = stoppedSinceMs.toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4001-8000-${hex}`;
 }
 
 type Permission = "granted" | "denied" | "prompt" | "unknown";
