@@ -104,7 +104,14 @@ describe("summarizeHos", () => {
     expect(result.warnings.some((w) => w.includes("Driving limit"))).toBe(true);
   });
 
-  it("sums driving + on-duty across the last 8 days and warns at 70 hours", () => {
+  it("carries no cycle math any more: 70h+ in 8 days produces no cycle total and no cycle warning", () => {
+    // The retired simple-engine behavior used to sum driving +
+    // on-duty across a rolling 8 days, hardcode the 70-hour limit,
+    // and warn. That second engine disagreed with the cycle engine
+    // after a 34-hour restart and under 60/7, so it was removed
+    // (federal compliance audit §6 item #5): the weekly figure lives
+    // only in lib/hos-cycle.ts now. This test pins the removal - if
+    // a cycle total or warning ever reappears here, it fails.
     const logs: DutySegmentInput[] = [];
     // 6 days of 10h on-duty each = 60h, then a 10h driving day = 70h.
     for (let day = 25; day <= 30; day++) {
@@ -115,8 +122,13 @@ describe("summarizeHos", () => {
     logs.push(log("off_duty", "2026-11-01T16:00:00Z"));
 
     const result = summarizeHos(logs, NOW);
-    expect(result.onDutyMinutesLast8Days).toBe(70 * 60);
-    expect(result.warnings.some((w) => w.includes("70-hour"))).toBe(true);
+    expect(result).not.toHaveProperty("onDutyMinutesLast8Days");
+    expect(result.warnings.some((w) => w.includes("70-hour"))).toBe(false);
+    expect(result.warnings.some((w) => w.includes("8-day"))).toBe(false);
+    // The only warning left is a genuine short-term one: the last
+    // window ran its full 14 hours with driving in it.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("14-hour window is used up");
   });
 
   it("ignores logs that start in the future", () => {

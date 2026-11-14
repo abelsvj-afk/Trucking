@@ -61,7 +61,7 @@ export default function DutyHud() {
 
   // Focus and data-change refreshes come from the live layer
   // (LiveDataProvider). This interval is only the safety net that
-  // keeps the server's cycle total fresh across carrier-period
+  // keeps the server's cycle total fresh across period
   // rollovers on a page left open for a long time.
   const refreshIfVisible = useCallback(() => {
     if (!document.hidden) refresh();
@@ -148,8 +148,8 @@ export default function DutyHud() {
           )}
           {provisional && (
             <p className="hud-note">
-              Cycle uses provisional carrier settings (70/8, 00:00, America/New_York) — set your carrier&apos;s
-              real rules in Settings.
+              Cycle uses the default hours settings (70/8, 00:00, America/New_York) — pick your own
+              cycle in Settings.
             </p>
           )}
         </>

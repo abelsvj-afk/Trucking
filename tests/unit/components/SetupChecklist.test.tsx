@@ -56,12 +56,12 @@ describe("SetupChecklist", () => {
 });
 
 describe("HOS rules item", () => {
-  it("appears (optional) while the carrier settings still equal the placeholder defaults, and is left out when unknown", async () => {
+  it("appears (optional) while the hours settings still equal the placeholder defaults, and is left out when unknown", async () => {
     const { PROVISIONAL_HOS_CONFIG } = await import("@/lib/hos-periods");
     answer({});
     hos.mockResolvedValue({ hos_cycle: PROVISIONAL_HOS_CONFIG.cycle, hos_period_anchor: PROVISIONAL_HOS_CONFIG.periodAnchor, hos_restart_enabled: PROVISIONAL_HOS_CONFIG.restartEnabled, hos_carrier_timezone: PROVISIONAL_HOS_CONFIG.carrierTimeZone });
     render(<SetupChecklist />);
-    expect(await screen.findByText(/Confirm your carrier's hours-of-service rules/)).toBeTruthy();
+    expect(await screen.findByText(/Pick your hours-of-service cycle/)).toBeTruthy();
     cleanup();
     hos.mockResolvedValue(null);
     render(<SetupChecklist />);

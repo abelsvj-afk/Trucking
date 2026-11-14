@@ -94,7 +94,7 @@ describe("B.4.6 / F-014: the non-ELD boundary survives at full strength", () => 
   it("the HOS summary is wired to the window fetch and states its cycle basis", () => {
     const page = read("src/app/(app)/fleet/hos/page.tsx");
     expect(page).toContain("useHosWindow");
-    expect(page).toContain("carrier periods");
+    expect(page).toContain("Cycle basis: current + previous");
     expect(page).toContain("hos.carrierTimeZone");
   });
 });

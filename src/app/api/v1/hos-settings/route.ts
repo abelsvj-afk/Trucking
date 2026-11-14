@@ -1,13 +1,13 @@
-// HOS carrier configuration (Reliability Unit B - design B.5, F-015),
+// HOS hours settings (Reliability Unit B - design B.5, F-015),
 // per docs/api-contracts.md. Read/write from the normal authenticated
 // owner session, mirroring the ai-settings route's shape.
 //
-// The values are CARRIER-SPECIFIED: the cycle, the period anchor, the
-// restart policy, and the timezone the anchor is read in. Until the
-// carrier's actual rules are entered, the stored values are the
-// owner-approved provisional defaults (migration 00042) and the UI
-// labels them as such - they are never presented as verified carrier
-// facts.
+// The values are THE DRIVER'S OWN CHOICE: the cycle, the period
+// anchor, the restart policy, and the timezone the anchor is read
+// in, picked by him in Settings -> Hours and changeable any time.
+// Until he picks his own, the stored values are the owner-approved
+// provisional defaults (migration 00042) and the UI labels them as
+// such - they are never presented as anyone else's rules.
 
 import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";

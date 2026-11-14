@@ -1,8 +1,9 @@
-// Shared loader for a company's HOS carrier configuration
+// Shared loader for a company's HOS hours configuration
 // (Reliability Unit B - design B.2.5/B.5), used by both the
 // hos-settings route and the duty-log window route so the settings a
 // driver edits and the configuration the engine computes with can
-// never diverge.
+// never diverge. The configuration is the driver's own pick
+// (Settings -> Hours, default 70/8), never a carrier fact.
 //
 // Columns live on companies (migration 00042). Reads tolerate the
 // pre-migration state: if Postgres reports the columns do not exist
@@ -59,7 +60,7 @@ export async function loadHosConfig(
     throw new ApiError(
       500,
       "HOS_CONFIG_UNAVAILABLE",
-      "The carrier HOS configuration could not be loaded.",
+      "The hours settings could not be loaded.",
     );
   }
 

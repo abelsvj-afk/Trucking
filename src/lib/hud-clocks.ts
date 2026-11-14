@@ -1,5 +1,5 @@
 // Driver HUD clocks (docs/design/driver-hud.md §2). Pure: given the
-// duty rows already fetched, the server's carrier-anchored cycle
+// duty rows already fetched, the server's settings-anchored cycle
 // summary and "now", return what each ring shows. Ticking is the
 // caller advancing `now` once a second - no network, no timers here.
 //
@@ -162,7 +162,7 @@ export function computeHudClocks(
     clocks.push(
       withReset(
         clock("cycle", `${cycle.cycle} cycle`, limitMs, cycle.onDutyMinutesInCycle * MINUTE_MS + sinceFetch),
-        // Only a carrier that allows the 34-hour restart has a time-based reset; otherwise hours return as old days fall off.
+        // Only when the 34-hour restart is switched on in the driver's hours settings does the cycle have a time-based reset; otherwise hours return as old days fall off.
         cycle.restartEnabled ? 34 * HOUR_MS : null,
         restSoFarMs,
         "34 straight hours off duty (the restart)",

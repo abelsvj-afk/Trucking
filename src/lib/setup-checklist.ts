@@ -8,7 +8,7 @@ export interface SetupFacts {
   truckWithProfileCount: number;
   loadCount: number;
   driverCount: number;
-  /** True when the HOS carrier settings still equal the app's placeholder defaults; null/undefined = unknown (the item is then left out). */
+  /** True when the HOS hours settings still equal the app's placeholder defaults; null/undefined = unknown (the item is then left out). */
   hosProvisional?: boolean | null;
 }
 
@@ -33,7 +33,7 @@ export function buildSetupChecklist(f: SetupFacts): SetupItem[] {
     { key: "truck-profile", label: "Fill in your truck profile (height, length, weight)", why: "Smart Path plans legal, truck-safe routes from it.", href: "/fleet/truck-profile", essential: false, done: f.truckCount > 0 && f.truckWithProfileCount > 0 },
     ...(f.hosProvisional == null
       ? []
-      : [{ key: "hos-rules", label: "Confirm your carrier's hours-of-service rules", why: "Your cycle, period start and time zone still match the app's placeholder values, so the clocks are provisional until you confirm or change them.", href: "/more/settings", essential: false, done: !f.hosProvisional }]),
+      : [{ key: "hos-rules", label: "Pick your hours-of-service cycle", why: "Your cycle, period start and time zone still match the app's placeholder values, so the clocks are provisional until you pick your own.", href: "/more/settings", essential: false, done: !f.hosProvisional }]),
     { key: "driver", label: "Add yourself as a driver", why: "Lets advances and loads be assigned to a driver.", href: "/fleet/drivers/new", essential: false, done: f.driverCount > 0 },
   ];
 }

@@ -1,12 +1,12 @@
-// Carrier-anchored HOS period math (Reliability Unit B - design docs/
+// Driver-settings HOS period math (Reliability Unit B - design docs/
 // reliability-wave1-design-package.md B.2.4/B.2.5, F-015).
 //
 // FMCSA's 60/7 and 70/8 limits run over rolling periods of 7 or 8
 // consecutive 24-hour periods that begin at the time of day specified
-// by the motor carrier (the anchor). This module divides time into
-// those periods. Two properties are the whole point:
+// by the driver's chosen settings (the anchor). This module divides
+// time into those periods. Two properties are the whole point:
 //
-// - The anchor is a wall-clock time IN THE CARRIER'S TIMEZONE
+// - The anchor is a wall-clock time IN THE SETTINGS TIMEZONE
 //   (hos_carrier_timezone), never the viewer's: period boundaries are
 //   computed in that zone regardless of where the driver or the phone
 //   currently is (package timezone rule 1; Rev 3 / R2-05). Crossing a
@@ -14,7 +14,7 @@
 // - A period is the span from one anchor wall time to the next day's:
 //   boundaries are derived per local date, so a period spanning a DST
 //   transition is 23 or 25 elapsed hours - the same way a paper log
-//   day starting at the carrier's start time behaves - rather than a
+//   day starting at the chosen start time behaves - rather than a
 //   fixed 24h chain drifting off the anchor.
 //
 // Pure functions over Intl - no I/O, identical on server and client.
@@ -25,7 +25,7 @@ export type HosCycle = "70/8" | "60/7";
 
 export interface HosCarrierConfig {
   cycle: HosCycle;
-  /** Local time-of-day "HH:MM" at which each carrier period begins. */
+  /** Local time-of-day "HH:MM" at which each period begins. */
   periodAnchor: string;
   restartEnabled: boolean;
   /** IANA timezone the anchor is interpreted in. */
@@ -33,10 +33,10 @@ export interface HosCarrierConfig {
 }
 
 /**
- * The owner-approved PROVISIONAL carrier configuration (design B.2.5 /
- * decision register): defaults that stand until the carrier's actual
- * anchor, cycle, restart policy, and timezone are learned. They are
- * configuration, never verified carrier facts, and the UI labels them
+ * The owner-approved PROVISIONAL hours configuration (design B.2.5 /
+ * decision register): defaults that stand until the driver picks his
+ * own anchor, cycle, restart policy, and timezone. They are
+ * configuration, never anyone else's rules, and the UI labels them
  * as provisional wherever they are shown.
  */
 export const PROVISIONAL_HOS_CONFIG: HosCarrierConfig = {
@@ -48,9 +48,9 @@ export const PROVISIONAL_HOS_CONFIG: HosCarrierConfig = {
 
 /** "HH:MM" 24-hour wall time - mirrors migration 00042's CHECK. */
 /**
- * True while a carrier configuration is still the labeled PROVISIONAL
+ * True while an hours configuration is still the labeled PROVISIONAL
  * defaults (all four fields equal them) - the one test every surface
- * uses before it words the settings as the carrier's real rules.
+ * uses before it words the settings as the driver's chosen rules.
  */
 export function isProvisionalCarrierConfig(config: HosCarrierConfig): boolean {
   return (
@@ -183,8 +183,8 @@ function shiftLocalDate(
 }
 
 /**
- * The start instant of the carrier period containing `instantMs`: the
- * most recent anchor wall time in the carrier zone at or before it.
+ * The start instant of the period containing `instantMs`: the
+ * most recent anchor wall time in the settings zone at or before it.
  */
 export function hosPeriodStartMs(instantMs: number, config: HosCarrierConfig): number {
   const { hour, minute } = anchorParts(config.periodAnchor);
@@ -216,7 +216,7 @@ export function shiftHosPeriodStartMs(
 
 /**
  * The B.2.4 calculation window: it opens at the start of the
- * carrier-anchored period that begins (cycle periods + 2) periods
+ * settings-anchored period that begins (cycle periods + 2) periods
  * before the current period - 10 periods back for 70/8, 9 for 60/7.
  * The two extra periods let the cycle engine evaluate a 34-hour
  * restart whose qualifying interval began before the counted periods,

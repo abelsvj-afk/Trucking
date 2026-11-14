@@ -94,7 +94,7 @@ export default function HomePage() {
   // view; hidden unless the owner switches it on in Settings
   // (src/lib/home-display.ts, owner order 2026-11-07).
   const showBusinessSummary = useShowBusinessSummary();
-  // The full carrier-anchored window (never a newest-200 page that could
+  // The full settings-anchored window (never a newest-200 page that could
   // truncate the history the cycle depends on) - the same read as the HUD
   // and the Hours page; live via the live layer.
   const hosWindow = useHosWindow();
@@ -106,17 +106,15 @@ export default function HomePage() {
   const paperLabel =
     documents.state.status === "loaded" ? homeHosPaperLabel(logs, documents.state.result.data) : null;
   const summaryRaw = hosWindow.state.status === "loaded" ? summarizeHos(logs) : null;
-  // hos.ts's rolling 8-day warning is superseded by the carrier-anchored
-  // cycle (its own warning comes from the window endpoint); showing both
-  // would state two different weekly totals.
+  // Short-term clocks come from lib/hos.ts; the cycle clock comes
+  // from the window's cycle summary (lib/hos-cycle.ts, the one
+  // engine). summarizeHos carries no cycle math any more, so there
+  // is no second weekly total to reconcile or filter out.
   const summary =
     summaryRaw && hosWindow.state.status === "loaded"
       ? {
           ...summaryRaw,
-          warnings: [
-            ...summaryRaw.warnings.filter((w) => !w.includes("8-day on-duty limit")),
-            ...hosWindow.state.hos.warnings,
-          ],
+          warnings: [...summaryRaw.warnings, ...hosWindow.state.hos.warnings],
         }
       : null;
   const latest = [...logs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null;

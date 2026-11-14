@@ -259,9 +259,9 @@ export async function runRouteCheck(
   // Provenance rides along when migration 00047 has landed (§7.7:
   // the math never changes - only the labeling). Pre-00047 the
   // wide select errors and the narrow one runs, unlabeled.
-  // King review D-1: the same full-window read + carrier-cycle engine
+  // King review D-1: the same full-window read + cycle engine
   // as every other surface. With a company id (both real callers) the
-  // carrier's settings apply; the RLS-only path uses the labeled
+  // driver's own hours settings apply; the RLS-only path uses the labeled
   // provisional defaults over the same window.
   let hosSnapshot: HosWindowSnapshot;
   if (companyId) {
@@ -290,7 +290,7 @@ export async function runRouteCheck(
   );
   if (hosSnapshot.provisional) {
     warnings.push(
-      `The week clock uses the provisional carrier settings (${hosSnapshot.cycle.cycle}, period start ${hosSnapshot.cycle.periodAnchor}) - set your carrier's real rules in Settings.`,
+      `The week clock uses the default hours settings (${hosSnapshot.cycle.cycle}, period start ${hosSnapshot.cycle.periodAnchor}) - pick your own cycle in Settings → Hours.`,
     );
   }
   // Trust labeling (§7.7.1): clocks built on paper rows say so,

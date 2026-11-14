@@ -110,11 +110,11 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     {
       name: "hos_summary",
       description:
-        "His current hours-of-service picture from his duty logs (the paper-log helper - not the ELD): current duty status, driving used in the 14-hour window, driving since the last 30-minute break, on-duty in the carrier-anchored cycle (70/8 or 60/7 per his carrier settings, labeled provisional until he confirms them), and warnings.",
+        "His current hours-of-service picture from his duty logs (the paper-log helper - not the ELD): current duty status, driving used in the 14-hour window, driving since the last 30-minute break, on-duty in the cycle (70/8 or 60/7 per his own hours settings, labeled provisional until he picks them), and warnings.",
       parameters: { type: "object", properties: {} },
       access: "read",
       async run() {
-        // King review D-1: the same full-window read + carrier-cycle
+        // King review D-1: the same full-window read + cycle
         // engine as the Hours page (services/api/hos-window.ts).
         const snapshot = await loadHosWindow(client, companyId);
         const rows = snapshot.rows;

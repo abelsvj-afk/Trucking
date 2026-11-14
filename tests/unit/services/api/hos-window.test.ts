@@ -30,7 +30,7 @@ function fakeClient(rows: unknown[], company: Record<string, unknown> | null = n
 }
 
 describe("hos-window", () => {
-  it("reads the company's full carrier window and computes the carrier cycle", async () => {
+  it("reads the company's full window and computes the cycle from the driver's settings", async () => {
     const rows = [row("a", "off_duty", NOW.getTime() - 40 * H), row("b", "driving", NOW.getTime() - 5 * H)];
     const { client, calls } = fakeClient(rows);
     const snap = await loadHosWindow(client, "co-1", NOW);
@@ -50,7 +50,7 @@ describe("hos-window", () => {
     await expect(loadHosWindow(client, "co-1", NOW)).rejects.toThrow(/cannot be computed completely/);
   });
 
-  it("uses the carrier's own settings when they're set, and stops saying provisional", async () => {
+  it("uses the driver's own settings when they're set, and stops saying provisional", async () => {
     const { client } = fakeClient([row("a", "driving", NOW.getTime() - H)], {
       hos_cycle: "60/7",
       hos_period_anchor: "06:00",
@@ -59,11 +59,12 @@ describe("hos-window", () => {
     });
     const snap = await loadHosWindow(client, "co-1", NOW);
     expect(snap.provisional).toBe(false);
-    expect(cycleLine(snap)).toContain("60/7 cycle (carrier-anchored at 06:00 America/Chicago)");
+    expect(cycleLine(snap)).toContain("60/7 cycle (your hours setting: periods start at 06:00 America/Chicago)");
     expect(cycleLine(snap)).not.toContain("PROVISIONAL");
+    expect(cycleLine(snap)).not.toContain("carrier");
   });
 
-  it("never states the superseded rolling 8-day warning", () => {
+  it("never states a rolling 8-day warning - the simple engine's cycle math is retired, the cycle warning comes only from the cycle engine", () => {
     // 75h on duty across the last 8 days, all inside one cycle.
     const rows: DutyLog[] = [];
     for (let d = 7; d >= 1; d--) {
