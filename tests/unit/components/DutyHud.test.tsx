@@ -103,13 +103,13 @@ describe("DutyHud", () => {
     expect(vi.mocked(apiClient.dutyLogWindow)).toHaveBeenCalledTimes(1);
   });
 
-  it("labels the carrier settings as provisional when they are the defaults", async () => {
+  it("says the cycle uses the default hours settings when they are the defaults", async () => {
     const now = Date.now();
     await renderHud(windowResult([{ duty_status: "driving", started_at: new Date(now - H).toISOString() }]));
-    expect(screen.getByText(/provisional carrier settings/)).toBeTruthy();
+    expect(screen.getByText(/default hours settings/)).toBeTruthy();
   });
 
-  it("does not claim provisional once the carrier's own rules are set", async () => {
+  it("does not claim defaults once the driver picks his own rules", async () => {
     const now = Date.now();
     await renderHud(
       windowResult([{ duty_status: "driving", started_at: new Date(now - H).toISOString() }], {
@@ -118,7 +118,7 @@ describe("DutyHud", () => {
         periodAnchor: "06:00",
       }),
     );
-    expect(screen.queryByText(/provisional carrier settings/)).toBeNull();
+    expect(screen.queryByText(/default hours settings/)).toBeNull();
   });
 
   it("on a failed load shows no clocks and says so, with retry", async () => {

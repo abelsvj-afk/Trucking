@@ -167,7 +167,7 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
   const attachedLoad: Load | null = inferred !== null && inferred !== "ambiguous" ? inferred : null;
   const ambiguousLoads = inferred === "ambiguous";
 
-  // Cycle backfill effect (§7.6): before vs after on the carrier-
+  // Cycle backfill effect (§7.6): before vs after on the settings-
   // anchored cycle (King review D-1: the same full-window read and
   // engine as every other surface), computed - never asserted.
   const window = await loadHosWindow(client, companyId);
@@ -193,7 +193,7 @@ export async function stagePaperLogDay(deps: StagePaperLogDeps): Promise<{ lines
   ];
   const afterRowsSorted = [...afterRows].sort((x, y) => x.started_at.localeCompare(y.started_at));
   const afterMinutes = snapshotFromRows(afterRowsSorted, window.config, new Date()).cycle.onDutyMinutesInCycle;
-  const cycleLabel = `${window.cycle.cycle} cycle${window.provisional ? " (provisional carrier settings)" : ""}`;
+  const cycleLabel = `${window.cycle.cycle} cycle${window.provisional ? " (default settings)" : ""}`;
   const cycleLimitText = formatHours(window.cycle.cycleLimitMinutes);
 
   // ---- Stage the batch (deletes first, then the paper's rows) --

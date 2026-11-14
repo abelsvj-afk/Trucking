@@ -6,14 +6,15 @@
 //
 // Reliability Unit B (design B.2.4/B.2.5, F-013/F-015): the summary is
 // computed from the dedicated duty-log WINDOW fetch (every log in the
-// carrier-anchored calculation window, ascending - never the capped,
+// settings-anchored calculation window, ascending - never the capped,
 // newest-first display list). The weekly figure is the
-// carrier-anchored cycle (lib/hos-cycle.ts): current + previous
-// carrier periods from the carrier's configured anchor and timezone,
-// with the basis stated on the surface. The short-term figures
+// settings-anchored cycle (lib/hos-cycle.ts): current + previous
+// periods from the driver's chosen anchor and timezone, with the
+// basis stated on the surface. The short-term figures
 // (14-hour window, 11-hour driving, 30-minute break) still come from
 // lib/hos.ts, fed the same window rows so both engines segment the
-// same history.
+// same history. The cycle is the driver's own setting (Settings ->
+// Hours, default 70/8), never a carrier fact.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -64,14 +65,13 @@ export default function HosPage() {
   }, []);
 
   // Short-term summary over the WINDOW rows (complete history), not
-  // the display list. hos.ts's own rolling 8-day figure and warning
-  // are superseded by the carrier-anchored cycle below and filtered
-  // out - showing both would state two different weekly totals.
+  // the display list. The weekly figure is the settings-anchored
+  // cycle below (lib/hos-cycle.ts, the one engine); lib/hos.ts
+  // carries only the 11h/14h/break clocks, so there is no second
+  // weekly total to filter out any more.
   const shortTerm =
     hosWindow.state.status === "loaded" ? summarizeHos(hosWindow.state.data) : null;
-  const shortTermWarnings = (shortTerm?.warnings ?? []).filter(
-    (warning) => !warning.includes("8-day on-duty limit"),
-  );
+  const shortTermWarnings = shortTerm?.warnings ?? [];
   const hos = hosWindow.state.status === "loaded" ? hosWindow.state.hos : null;
   const hasAnyLogs =
     hosWindow.state.status === "loaded" ? hosWindow.state.data.length > 0 : state.status === "loaded" && state.result.data.length > 0;
@@ -144,17 +144,17 @@ export default function HosPage() {
             </li>
           </ul>
           <p>
-            Cycle basis: current + previous {hos.cycle === "70/8" ? 7 : 6} carrier periods
+            Cycle basis: current + previous {hos.cycle === "70/8" ? 7 : 6} periods
             (the {hos.cycle} cycle), each starting at {hos.periodAnchor} {hos.carrierTimeZone}
             {isProvisionalCarrierConfig(hos) ? (
               <>
                 {" "}
-                — <strong>provisional default settings</strong>, not your carrier&apos;s confirmed rules.
-                Enter your carrier&apos;s real cycle, period start and time zone in{" "}
+                — <strong>provisional default settings</strong>, not your own picked rules yet.
+                Pick your cycle, period start and time zone in{" "}
                 <Link href="/more/settings/hours">Settings</Link>.
               </>
             ) : (
-              " — your carrier's specified period start, not calendar days."
+              " — your chosen period start, not calendar days."
             )}
           </p>
           {hos.restartApplied && (
@@ -204,7 +204,7 @@ export default function HosPage() {
       {state.status === "loaded" && state.result.data.length === 0 && (
         <TeachingEmpty
           title="No duty statuses logged yet"
-          message="Tap Log duty status each time your status changes — off duty, sleeper, driving, on duty. From those taps this screen computes your 11-hour drive limit, 14-hour window, 8-hour break, and 70-hour week, and warns you before you run past one."
+          message="Tap Log duty status each time your status changes — off duty, sleeper, driving, on duty. From those taps this screen computes your 11-hour drive limit, 14-hour window, 8-hour break, and weekly cycle, and warns you before you run past one."
           action={<Link href="/fleet/hos/new">Log your first status</Link>}
         />
       )}

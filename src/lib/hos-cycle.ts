@@ -1,4 +1,4 @@
-// Carrier-anchored HOS cycle engine (Reliability Unit B - design
+// Driver-settings HOS cycle engine (Reliability Unit B - design
 // docs/reliability-wave1-design-package.md B.2.5, F-015).
 //
 // PAPER-LOG HELPER, NOT AN ELD - the same boundary as lib/hos.ts: these
@@ -6,10 +6,13 @@
 // certified, and never replace the truck's ELD or official paper logs,
 // which remain the legal record. This engine makes the helper's
 // WEEKLY arithmetic match the rule it names (FMCSA 60/7 and 70/8 over
-// carrier-anchored consecutive 24-hour periods) - nothing more.
+// settings-anchored consecutive 24-hour periods) - nothing more. The
+// cycle is a setting the driver picks himself in Settings -> Hours
+// (default 70/8, changeable any time); it is never sourced from a
+// carrier (owner order 2026-11-14).
 //
 // Replaces the pre-Unit-B continuous rolling-192h sum, which had no
-// carrier anchor and no period boundaries, so hours fell out
+// settings anchor and no period boundaries, so hours fell out
 // minute-by-minute instead of period-by-period. Here the oldest
 // counted period drops out WHOLE when a new period begins: the cycle
 // total is the on-duty time in the current period plus the previous
@@ -50,16 +53,16 @@ export interface HosCycleSummary {
   cycle: HosCarrierConfig["cycle"];
   /** On-duty limit for the cycle in minutes (4200 for 70/8, 3600 for 60/7). */
   cycleLimitMinutes: number;
-  /** The carrier anchor used, "HH:MM" - rendered on the surface (B.3). */
+  /** The period anchor used, "HH:MM" - rendered on the surface (B.3). */
   periodAnchor: string;
-  /** The carrier timezone the periods were computed in (B.3). */
+  /** The timezone the periods were computed in (B.3). */
   carrierTimeZone: string;
   onDutyMinutesInCycle: number;
-  /** ISO start of the counted span (a carrier period boundary). */
+  /** ISO start of the counted span (a period boundary). */
   windowStart: string;
   /** ISO end of the counted span (the evaluation instant). */
   windowEnd: string;
-  /** ISO start of the current carrier period. */
+  /** ISO start of the current period. */
   currentPeriodStart: string;
   /**
    * Set when a qualifying 34-hour restart was observed and applied:

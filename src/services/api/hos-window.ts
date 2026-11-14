@@ -2,13 +2,20 @@
 // 2026-11-04). Every surface that states his hours - the Hours page,
 // Abel's answers and context, the paper-log "cycle picture", Smart
 // Path's clocks - reads the SAME data the SAME way:
-//   - every non-deleted duty row in the carrier-anchored calculation
+//   - every non-deleted duty row in the settings-anchored calculation
 //     window, ascending (never a newest-N page: that truncation was
 //     F-013), failing loudly past the row tripwire;
-//   - the cycle from lib/hos-cycle.ts (rolling carrier periods, never
-//     a private rolling 8-day sum);
-//   - the short-term clocks (11/14/break) from lib/hos.ts, with its
-//     superseded rolling 8-day warning removed.
+//   - the cycle from lib/hos-cycle.ts (rolling settings-anchored
+//     periods, never a private rolling 8-day sum);
+//   - the short-term clocks (11/14/break) from lib/hos.ts, which no
+//     longer carries any cycle math of its own (the retired rolling
+//     8-day figure used to be filtered out here by string match;
+//     there is nothing left to filter).
+//
+// The cycle is a setting the driver picks himself in Settings ->
+// Hours (60 hours / 7 days or 70 hours / 8 days, default 70/8,
+// changeable any time). It is never sourced from a carrier: no
+// carrier name, DOT/MC number, or carrier rule enters this read.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { summarizeHos, type HosSummary } from "@/lib/hos";
@@ -67,7 +74,7 @@ export function snapshotFromRows(rows: DutyLog[], config: HosCarrierConfig, now:
     config,
     provisional: isProvisionalCarrierConfig(config),
     cycle: summarizeHosCycle(rows, now, config),
-    short: { ...rawShort, warnings: rawShort.warnings.filter((w) => !w.includes("8-day on-duty limit")) },
+    short: rawShort,
   };
 }
 
@@ -75,13 +82,13 @@ export function formatHosMinutes(minutes: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-/** One plain line for the cycle, with its basis and any restart labels - never stated as a carrier fact when provisional. */
+/** One plain line for the cycle, with its basis and any restart labels - the cycle is the driver's own setting, never stated as a carrier fact. */
 export function cycleLine(snapshot: HosWindowSnapshot): string {
   const { cycle } = snapshot;
   const left = Math.max(0, cycle.cycleLimitMinutes - cycle.onDutyMinutesInCycle);
   const parts = [
-    `${cycle.cycle} cycle (carrier-anchored at ${cycle.periodAnchor} ${cycle.carrierTimeZone}${
-      snapshot.provisional ? ", PROVISIONAL default settings - not the carrier's confirmed rules" : ""
+    `${cycle.cycle} cycle (your hours setting: periods start at ${cycle.periodAnchor} ${cycle.carrierTimeZone}${
+      snapshot.provisional ? ", PROVISIONAL default settings - pick your own cycle in Settings → Hours" : ""
     }): on duty ${formatHosMinutes(cycle.onDutyMinutesInCycle)} of ${formatHosMinutes(cycle.cycleLimitMinutes)}, ${formatHosMinutes(left)} left.`,
   ];
   if (cycle.restartApplied) parts.push(`A 34-hour restart was applied (ended ${cycle.restartApplied.endedAt}).`);

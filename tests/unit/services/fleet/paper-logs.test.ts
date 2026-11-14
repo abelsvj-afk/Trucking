@@ -267,7 +267,7 @@ describe("stagePaperLogDay", () => {
     expect(db.duty_logs![0]!.deleted_at).toBeNull();
   });
 
-  it("E5: a sheet backfilled 5 days late names the carrier-cycle change it makes", async () => {
+  it("E5: a sheet backfilled 5 days late names the cycle change it makes", async () => {
     const dayMs = 86_400_000;
     const now = Date.now();
     const isoDaysAgo = (days: number, hourUtc: number) =>
@@ -298,7 +298,7 @@ describe("stagePaperLogDay", () => {
     // Before: 4 x 9h = 36h on duty in the carrier cycle.
     // After: + 8h of paper driving = 44h. The reply names the cycle
     // and says the settings are the provisional defaults.
-    expect(text).toContain("70/8 cycle (provisional carrier settings)");
+    expect(text).toContain("70/8 cycle (default settings)");
     expect(text).toContain("from 36h to 44h of 70h");
   });
 

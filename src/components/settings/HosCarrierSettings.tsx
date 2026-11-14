@@ -1,16 +1,19 @@
 "use client";
 
-// Carrier HOS configuration editor (Reliability Unit B - design B.5,
+// Hours-of-service settings editor (Reliability Unit B - design B.5,
 // F-015), rendered inside More > Account & settings.
 //
-// These values are CARRIER-SPECIFIED: the cycle, the time of day the
-// carrier's periods start (the anchor), whether the carrier allows
-// the 34-hour restart, and the timezone the anchor is read in. The
-// Hours screen's cycle math is computed from them. What ships by
-// default - anchor 00:00, 70/8, restart on, America/New_York - is
-// PROVISIONAL configuration chosen so the app works before the
-// carrier's real rules are known; it is labeled as such here and must
-// never be mistaken for verified carrier facts.
+// These values are THE DRIVER'S OWN CHOICE, picked by him in this
+// app and changeable any time: the cycle (60 hours / 7 days or 70
+// hours / 8 days), the time of day his periods start (the anchor),
+// whether the 34-hour restart applies, and the timezone the anchor
+// is read in. The Hours screen's cycle math is computed from them.
+// What ships by default - anchor 00:00, 70/8, restart on,
+// America/New_York - is PROVISIONAL configuration chosen so the app
+// works before he picks his own; it is labeled as such here and must
+// never be mistaken for anyone else's rules. Nothing here is sourced
+// from a carrier: no carrier name, DOT/MC number, or carrier rule
+// enters this screen (owner order 2026-11-14).
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
@@ -98,18 +101,19 @@ export default function HosCarrierSettings() {
       : TIME_ZONE_OPTIONS;
 
   return (
-    <section aria-label="Carrier hours-of-service rules">
-      <h2>Day log — carrier rules (hours of service)</h2>
+    <section aria-label="Hours-of-service settings">
+      <h2>Day log — your hours settings</h2>
       <p>
-        <strong>Carrier-specified (set to match your carrier&apos;s HOS rules).</strong>{" "}
-        Your weekly cycle on the Hours screen is computed from these: the cycle, the time
-        of day your carrier&apos;s periods start, whether the 34-hour restart applies, and
-        the timezone that start time is read in.
+        <strong>You pick these yourself — they are your settings, not your carrier&apos;s.</strong>{" "}
+        Your weekly cycle on the Hours screen is computed from them: the cycle, the time
+        of day your periods start, whether the 34-hour restart applies, and
+        the timezone that start time is read in. Change them any time; the
+        clocks follow.
       </p>
       <p>
         The starting values are <strong>provisional defaults</strong> — period start 00:00,
-        70/8 cycle, restart on, America/New_York — chosen so the app works before your
-        carrier&apos;s actual rules are entered. They are not verified carrier facts.
+        70/8 cycle, restart on, America/New_York — chosen so the app works before you
+        pick your own. They are not anyone else&apos;s rules.
       </p>
 
       {state.status === "loading" && <ListLoading />}
@@ -133,7 +137,7 @@ export default function HosCarrierSettings() {
             </select>
           </div>
           <div>
-            <label htmlFor="hos_period_anchor">Period start time (carrier time)</label>
+            <label htmlFor="hos_period_anchor">Period start time</label>
             <input
               id="hos_period_anchor"
               type="time"
@@ -142,7 +146,7 @@ export default function HosCarrierSettings() {
             />
           </div>
           <div>
-            <label htmlFor="hos_carrier_timezone">Carrier timezone</label>
+            <label htmlFor="hos_carrier_timezone">Timezone for the period start</label>
             <select
               id="hos_carrier_timezone"
               value={draft.hos_carrier_timezone}
@@ -169,7 +173,7 @@ export default function HosCarrierSettings() {
           {saveError && <p role="alert">{saveError}</p>}
           {saved && <p role="status">Saved — the Hours screen now uses these rules.</p>}
           <button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save carrier rules"}
+            {saving ? "Saving…" : "Save hours settings"}
           </button>
         </form>
       )}

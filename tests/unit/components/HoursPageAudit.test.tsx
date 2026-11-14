@@ -40,19 +40,22 @@ function hos(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Hours page (visual audit F2, F3)", () => {
-  it("F2: with the provisional defaults it does NOT call the settings the carrier's specified rules", () => {
+  it("F2: with the provisional defaults it does NOT call the settings anyone else's rules", () => {
     windowHolder.hos = hos();
     render(<HoursPage />);
     expect(screen.getByText(/provisional default settings/)).toBeTruthy();
-    expect(document.body.textContent).not.toContain("your carrier's specified period start");
+    expect(document.body.textContent).not.toContain("your chosen period start");
+    expect(document.body.textContent).toContain("Pick your cycle, period start and time zone");
     expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/more/settings/hours");
   });
 
-  it("F2: once the carrier's own rules are set it states them as the carrier's", () => {
+  it("F2: once the driver picks his own rules it states them as his chosen period start", () => {
     windowHolder.hos = hos({ periodAnchor: "06:00" });
     render(<HoursPage />);
     expect(screen.queryByText(/provisional default settings/)).toBeNull();
-    expect(document.body.textContent).toContain("your carrier's specified period start");
+    expect(document.body.textContent).toContain("your chosen period start");
+    expect(document.body.textContent).not.toContain("your carrier's specified period start");
+    expect(document.body.textContent).not.toContain("your carrier's real cycle");
   });
 
   it("F3: Log duty status is the page's primary action button, and Deleted is the quiet toggle", () => {

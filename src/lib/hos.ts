@@ -8,6 +8,18 @@
 // early enough that the driver can plan - the same reason it's worth
 // unit-testing: a wrong warning (in either direction) is a real-world
 // problem, not a cosmetic one.
+//
+// SHORT-TERM CLOCKS ONLY (11h driving / 14h window / 30-minute
+// break). The weekly cycle - 60/7 vs 70/8, period boundaries, and the
+// 34-hour restart - lives in ONE place, lib/hos-cycle.ts, and every
+// surface reads it from the same window snapshot
+// (services/api/hos-window.ts). This file used to compute its own
+// rolling 8-day, hardcoded-70-hour cycle figure; that second engine
+// disagreed with the cycle engine after a restart and under 60/7, so
+// it was retired (federal compliance audit §6 item #5, 2026-11-14).
+// Shared segment helpers (buildSegments, sumMs, findWindowStartMs,
+// drivingSinceBreakMs) stay here because both engines tile the same
+// status-start event sequence.
 
 import type { DutyStatus } from "@/types/entities";
 
@@ -22,7 +34,6 @@ export interface HosSummary {
   drivingMinutesInWindow: number;
   windowElapsedMinutes: number;
   drivingMinutesSinceBreak: number;
-  onDutyMinutesLast8Days: number;
   warnings: string[];
 }
 
@@ -32,10 +43,8 @@ const WINDOW_LIMIT_MIN = 14 * 60;
 const BREAK_REQUIRED_AFTER_MIN = 8 * 60;
 const BREAK_LENGTH_MIN = 30;
 const RESET_REST_MIN = 10 * 60;
-const EIGHT_DAY_ON_DUTY_LIMIT_MIN = 70 * 60;
-const EIGHT_DAYS_MS = 8 * 24 * 60 * MINUTE_MS;
 
-// Segment construction is shared with the carrier-anchored cycle
+// Segment construction is shared with the settings-anchored cycle
 // engine (lib/hos-cycle.ts, Reliability Unit B): both engines read the
 // same status-start event sequence, so the tiling must not diverge.
 export interface Segment {
@@ -156,7 +165,6 @@ export function summarizeHos(logs: DutySegmentInput[], now: Date = new Date()): 
       drivingMinutesInWindow: 0,
       windowElapsedMinutes: 0,
       drivingMinutesSinceBreak: 0,
-      onDutyMinutesLast8Days: 0,
       warnings: [],
     };
   }
@@ -164,7 +172,6 @@ export function summarizeHos(logs: DutySegmentInput[], now: Date = new Date()): 
   const drivingInWindow = sumMinutes(segments, windowStartMs, nowMs, ["driving"]);
   const windowElapsed = Math.max(0, Math.round((nowMs - windowStartMs) / MINUTE_MS));
   const sinceBreak = drivingSinceBreakMinutes(segments, windowStartMs, nowMs);
-  const onDuty8Days = sumMinutes(segments, nowMs - EIGHT_DAYS_MS, nowMs, ["driving", "on_duty"]);
 
   const warnings: string[] = [];
   if (drivingInWindow >= DRIVING_LIMIT_MIN) {
@@ -182,18 +189,12 @@ export function summarizeHos(logs: DutySegmentInput[], now: Date = new Date()): 
       `${formatHours(sinceBreak)} of driving since your last 30-minute break - a break is due before driving more.`,
     );
   }
-  if (onDuty8Days >= EIGHT_DAY_ON_DUTY_LIMIT_MIN) {
-    warnings.push(
-      `70-hour / 8-day on-duty limit reached (${formatHours(onDuty8Days)}). A 34-hour reset or waiting for hours to roll off is required - check the ELD/official log.`,
-    );
-  }
 
   return {
     windowStart: new Date(windowStartMs).toISOString(),
     drivingMinutesInWindow: drivingInWindow,
     windowElapsedMinutes: windowElapsed,
     drivingMinutesSinceBreak: sinceBreak,
-    onDutyMinutesLast8Days: onDuty8Days,
     warnings,
   };
 }
