@@ -204,7 +204,7 @@ describe("NewsBanner", () => {
     expect(container.querySelector(".branded-tile")!.textContent).toContain("RL");
   });
 
-  it("rotates items every 6 seconds and links each into the in-app tab", async () => {
+  it("rotates items every 12 seconds and links each into the in-app tab", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.listResearchBriefings).mockResolvedValue(
       page({
@@ -219,7 +219,7 @@ describe("NewsBanner", () => {
     expect(screen.getByRole("link").getAttribute("href")).toBe("/more/research?briefing=b1");
 
     act(() => {
-      vi.advanceTimersByTime(6000);
+      vi.advanceTimersByTime(12000);
     });
     expect(screen.getByText("Second story")).toBeTruthy();
     expect(screen.getByRole("link").getAttribute("href")).toBe("/more/research?briefing=b2");
@@ -237,9 +237,18 @@ describe("NewsBanner", () => {
     );
     await renderBanner();
     Object.defineProperty(document, "hidden", { value: true, configurable: true });
-    act(() => {
+    // Let the visibility change land before time moves: with fake timers
+    // the banner only learns it is hidden once React flushes the update,
+    // and advancing time in the same synchronous block would fire the old
+    // interval first. 30000ms covers two 12s rotations, so one stray
+    // rotation could not accidentally land back on the first item either
+    // (the old 12000ms advance was exactly two 6s rotations, which did
+    // exactly that - the test passed without ever testing the pause).
+    await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
-      vi.advanceTimersByTime(12000);
+    });
+    act(() => {
+      vi.advanceTimersByTime(30000);
     });
     expect(screen.getByText("First story")).toBeTruthy();
     Object.defineProperty(document, "hidden", { value: false, configurable: true });
