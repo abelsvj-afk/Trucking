@@ -148,7 +148,7 @@ describe("black-and-gold identity (owner ruling 2026-11-07, option A)", () => {
 
 describe("touch targets (audit rank 7)", () => {
   it("the news pagination dots keep a 44px hit area through an invisible extension", () => {
-    expect(css).toMatch(/\.news-banner-dot::after \{[^}]*inset: -17px/);
-    expect(css).toMatch(/\.news-banner-dot \{[^}]*width: 0\.625rem/);
+    expect(css).toMatch(/\.news-banner-dot::after \{[^}]*inset: -16px/);
+    expect(css).toMatch(/\.news-banner-dot \{[^}]*width: 0\.75rem/);
   });
 });

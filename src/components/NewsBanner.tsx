@@ -21,7 +21,7 @@ import { FEED_OFF_TEXT, FEED_SETUP_TEXT } from "@/lib/feed-status";
 import type { ResearchPageData } from "@/types/entities";
 import { formatDateTime } from "@/lib/time";
 
-const ROTATE_MS = 6000;
+const ROTATE_MS = 12000;
 const MANUAL_PAUSE_MS = 12000;
 const RESULT_MS = 10000;
 const COOLDOWN_FALLBACK_MINUTES = 30;
