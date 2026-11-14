@@ -43,6 +43,9 @@ const summary = {
   asOf: "",
 };
 
+// Set per test: the pay-profile row's worker_type (null = UNSET, "1099" = contractor).
+const mockState = vi.hoisted(() => ({ workerType: null as string | null }));
+
 vi.mock("@/lib/api-client", () => ({
   apiClient: {
     list: vi.fn(async (r: string) => ({
@@ -54,7 +57,7 @@ vi.mock("@/lib/api-client", () => ({
                 employer_name: "Acme",
                 rate_cents_per_mile: 55,
                 mile_basis: "all",
-                worker_type: null,
+                worker_type: mockState.workerType,
                 fuel_paid_by: null,
                 effective_from: "2026-10-01",
                 effective_to: null,
@@ -92,6 +95,7 @@ vi.mock("next/link", () => ({
 import DriverPayHomeCard from "@/components/DriverPayHomeCard";
 
 beforeEach(() => {
+  mockState.workerType = null;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-05T15:00:00Z")); // Thursday, Nov 5 (week 2026-11-02..08)
 });
@@ -116,5 +120,18 @@ describe("Home driver pay: one section, one story", () => {
     expect(screen.getByText(/This pay week:/)).toBeTruthy();
     expect(screen.getByText(/2 finished, unpaid/)).toBeTruthy();
     expect(screen.getAllByText("$550.00").length).toBeGreaterThanOrEqual(1);
+    // Worker type UNSET: no tax set-aside line anywhere.
+    expect(screen.queryByText(/Set aside for taxes/)).toBeNull();
+  });
+
+  it("for a 1099 contractor shows the set-aside on this week's gross, labelled as the default, and names the worker type", async () => {
+    mockState.workerType = "1099";
+    render(<DriverPayHomeCard />);
+
+    await screen.findByLabelText("Driver pay");
+    // This pay week is $550.00 (1,000 miles at $0.55, all miles); 25% is $137.50.
+    expect(screen.getByText(/Set aside for taxes: \$137\.50 \(25% of \$550\.00 gross\)/)).toBeTruthy();
+    expect(screen.getByText(/Default 25% — change it in Settings → Pay/)).toBeTruthy();
+    expect(screen.getByText(/1099 contractor/)).toBeTruthy();
   });
 });

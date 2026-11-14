@@ -12,6 +12,7 @@ import { ListLoading, ListError } from "@/components/ListStates";
 import { usePageTitle } from "@/lib/use-page-title";
 import { usePaySummary } from "@/lib/use-pay-summary";
 import { formatDay, formatRange } from "@/lib/pay-projection";
+import { describeTaxSetAside, TAX_SET_ASIDE_DEFAULT_NOTE } from "@/lib/tax-set-aside";
 import type { PaycheckStatus } from "@/lib/paycheck";
 import { paydayTitle, stillOwedWords } from "@/lib/payday-text";
 import type { PaySummaryLoad } from "@/services/api/pay-summary";
@@ -117,6 +118,15 @@ export default function PaychecksPage() {
                         {g.netHighCents < 0 ? " (more taken out than this payday is expected to pay)" : ""}
                       </dd>
                     </div>
+                    {g.taxSetAside && (
+                      <div>
+                        <dt>Set aside for taxes</dt>
+                        <dd>
+                          {describeTaxSetAside(g.taxSetAside, g.taxSetAside.grossLowCents, g.taxSetAside.grossHighCents)}
+                          {g.taxSetAside.isDefault ? ` — ${TAX_SET_ASIDE_DEFAULT_NOTE}` : ""}
+                        </dd>
+                      </div>
+                    )}
                     <div>
                       <dt>Received so far</dt>
                       <dd>{formatMoney(g.receivedCents)}</dd>

@@ -92,6 +92,8 @@ export function usePayProjection(): PayProjectionState {
             employer_name: p.employer_name,
             rate_cents_per_mile: p.rate_cents_per_mile,
             mile_basis: p.mile_basis,
+            worker_type: p.worker_type ?? null,
+            tax_set_aside_bps: p.tax_set_aside_bps ?? null,
             percent_of_load_bps: p.percent_of_load_bps ?? null,
             pay_week_ends_on: p.pay_week_ends_on ?? null,
             statement_weekday: p.statement_weekday ?? null,

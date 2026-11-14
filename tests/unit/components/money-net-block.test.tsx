@@ -69,6 +69,7 @@ function payday(over: Partial<PaydayGroup>): PaydayGroup {
     unpaidCount: 0,
     overdue: false,
     loads: [],
+    taxSetAside: null,
     ...over,
   };
 }

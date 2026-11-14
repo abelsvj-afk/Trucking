@@ -11,6 +11,7 @@ import { COUNTED_STATUSES, paydayAfter, weekBounds } from "@/lib/pay-projection"
 import { groupAdvancesByWeek, netRange, type AdvanceLike } from "@/lib/cash-advances";
 import { groupDeductionsByWeek, type DeductionLike, type DeductionLine } from "@/lib/expense-buckets";
 import { computeHudClocks } from "@/lib/hud-clocks";
+import { taxSetAsideFor, type TaxSetAside } from "@/lib/tax-set-aside";
 import { loadHosCost, type HosGlance, type LoadHosCost } from "@/lib/hos-cost";
 import { todayEastern } from "@/lib/eastern-date";
 import { loadHosWindow, toWindowSummary, type HosWindowSnapshot } from "@/services/api/hos-window";
@@ -92,6 +93,14 @@ export interface PaydayGroup {
   /** Payday has passed (Eastern) and money is still owed - worth a look. */
   overdue: boolean;
   loads: PaySummaryLoad[];
+  /**
+   * Tax set-aside recommendation for this paycheck (migration 00094):
+   * the % of the expected gross a 1099 contractor should set aside.
+   * Null when the terms in force are not a 1099 contractor (W2, or
+   * worker_type still UNSET) - then no line shows. Display only; it
+   * never moves money and is never subtracted from the net.
+   */
+  taxSetAside: (TaxSetAside & { grossLowCents: number; grossHighCents: number }) | null;
 }
 
 export interface PaySummary {
@@ -276,8 +285,8 @@ export function mergeDeductionWeeks(
   return merged;
 }
 
-/** Regroups pay weeks by the payday they land on. Pure; the per-load rows come from the same `completed` list the page already shows. */
-export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[], today: string): PaydayGroup[] {
+/** Regroups pay weeks by the payday they land on. Pure; the per-load rows come from the same `completed` list the page already shows. The optional `terms` let each payday carry its tax set-aside (migration 00094): the terms in force on the group's first week decide the worker type and percent - a terms change mid-payday keeps the opening terms for the recommendation, and the % shown is the one applied. */
+export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[], today: string, terms?: PayTermsRow[]): PaydayGroup[] {
   const byId = new Map(completed.map((c) => [c.loadId, c]));
   const groups = new Map<string, PaydayGroup>();
   for (const w of weeks) {
@@ -288,7 +297,7 @@ export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[]
         payday: w.payday, statement: w.statement, periodStart: w.start, periodEnd: w.end, weekStarts: [],
         loadCount: 0, unpricedCount: 0, expectedLowCents: 0, expectedHighCents: 0, advancesCents: 0, netLowCents: 0, netHighCents: 0,
         receivedCents: 0, stillOwedLowCents: 0, stillOwedHighCents: 0, shortCount: 0, shortfallCents: 0, unpaidCount: 0, overdue: false, loads: [],
-        deductionsCents: 0, deductionLines: [],
+        deductionsCents: 0, deductionLines: [], taxSetAside: null,
       };
     g.weekStarts.push(w.start);
     if (w.start < g.periodStart) g.periodStart = w.start;
@@ -317,6 +326,13 @@ export function groupByPayday(weeks: PayWeekGroup[], completed: PaySummaryLoad[]
     g.stillOwedHighCents = g.netHighCents - g.receivedCents;
     g.overdue = g.payday !== null && g.payday < today && g.stillOwedHighCents > 0;
     g.loads.sort((a, b) => (b.deliveryDate ?? "").localeCompare(a.deliveryDate ?? ""));
+    if (terms) {
+      const picked = termsForDate(terms, g.periodStart)?.terms;
+      const setAside = picked
+        ? taxSetAsideFor(g.expectedLowCents, g.expectedHighCents, picked.worker_type ?? null, picked.tax_set_aside_bps ?? null)
+        : null;
+      g.taxSetAside = setAside ? { ...setAside, grossLowCents: g.expectedLowCents, grossHighCents: g.expectedHighCents } : null;
+    }
   }
   return [...groups.values()].sort((a, b) => (b.payday ?? b.periodStart).localeCompare(a.payday ?? a.periodStart));
 }
@@ -395,7 +411,7 @@ export function buildPaySummary(input: {
       totals.unpaidNetHighCents += net.highCents;
     }
   }
-  const paydays = groupByPayday(weeks, counted, todayEastern(now));
+  const paydays = groupByPayday(weeks, counted, todayEastern(now), terms);
   return { hasTerms: terms.length > 0, active, completed, weeks, paydays, totals, hos, asOf: now.toISOString() };
 }
 
@@ -425,7 +441,7 @@ async function loadPayDeductions(
 export async function loadPaySummary(client: SupabaseClient, companyId: string, now: Date = new Date()): Promise<PaySummary> {
   const [loadsRes, termsRes, linesRes, advancesRes, deductions, snapshot] = await Promise.all([
     client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "completed"]).order("delivery_date", { ascending: false, nullsFirst: false }).limit(300),
-    client.from("employer_pay_profiles").select("employer_name, rate_cents_per_mile, mile_basis, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to").eq("company_id", companyId).is("deleted_at", null),
+    client.from("employer_pay_profiles").select("employer_name, rate_cents_per_mile, mile_basis, worker_type, tax_set_aside_bps, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to").eq("company_id", companyId).is("deleted_at", null),
     client.from("settlement_lines").select("load_id, amount_cents").eq("company_id", companyId).eq("kind", "load_pay").not("load_id", "is", null).is("deleted_at", null),
     // An advances error is NOT swallowed: expected pay with zero advances deducted would present as final while part of its inputs
     // failed to load. It fails visibly like loads, terms and settlement lines (00079 is applied; the old bridge's reason is gone).

@@ -42,7 +42,14 @@ export interface PaycheckLine {
   loadId: string;
   expected: LoadProjection;
   /** Which terms priced it, and whether a row actually covered the date. */
-  termsUsed: { employer_name: string; rate_cents_per_mile: number; mile_basis: PayTerms["mile_basis"]; inForce: boolean };
+  termsUsed: {
+    employer_name: string;
+    rate_cents_per_mile: number;
+    mile_basis: PayTerms["mile_basis"];
+    worker_type: PayTerms["worker_type"];
+    tax_set_aside_bps: PayTerms["tax_set_aside_bps"];
+    inForce: boolean;
+  };
   receivedCents: number | null;
   status: PaycheckStatus;
   /** Cents below the expected LOW end when short; 0 otherwise. */
@@ -53,7 +60,14 @@ export function checkLoad(load: ProjectableLoad, rows: PayTermsRow[], receivedCe
   const picked = termsForDate(rows, load.delivery_date ?? load.pickup_date);
   if (!picked) return null;
   const expected = projectLoad(picked.terms, load);
-  const termsUsed = { employer_name: picked.terms.employer_name, rate_cents_per_mile: picked.terms.rate_cents_per_mile, mile_basis: picked.terms.mile_basis, inForce: picked.inForce };
+  const termsUsed = {
+    employer_name: picked.terms.employer_name,
+    rate_cents_per_mile: picked.terms.rate_cents_per_mile,
+    mile_basis: picked.terms.mile_basis,
+    worker_type: picked.terms.worker_type ?? null,
+    tax_set_aside_bps: picked.terms.tax_set_aside_bps ?? null,
+    inForce: picked.inForce,
+  };
   const base = { loadId: load.id, expected, termsUsed, receivedCents };
   if (expected.lowCents === null || expected.highCents === null) return { ...base, status: "unknown", shortfallCents: 0 };
   if (receivedCents === null) return { ...base, status: "unpaid", shortfallCents: 0 };

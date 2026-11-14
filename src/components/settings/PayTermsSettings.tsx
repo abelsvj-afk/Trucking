@@ -59,17 +59,20 @@ interface PayFieldValues {
   basis: string;
   worker: string;
   fuel: string;
+  /** Tax set-aside percent (1099 only), as typed: "" = unset, so the 25% default applies. */
+  taxSetAside: string;
   weekEnd: string;
   statement: string;
   payday: string;
 }
-const EMPTY_FIELDS: PayFieldValues = { rate: "", percent: "", basis: "", worker: "", fuel: "", weekEnd: "", statement: "", payday: "" };
+const EMPTY_FIELDS: PayFieldValues = { rate: "", percent: "", basis: "", worker: "", fuel: "", taxSetAside: "", weekEnd: "", statement: "", payday: "" };
 const fieldsOf = (p: EmployerPayProfile): PayFieldValues => ({
   rate: p.rate_cents_per_mile > 0 ? dollarsFromCents(p.rate_cents_per_mile) : "",
   percent: percentFromBps(p.percent_of_load_bps),
   basis: p.mile_basis ?? "",
   worker: p.worker_type ?? "",
   fuel: p.fuel_paid_by ?? "",
+  taxSetAside: p.tax_set_aside_bps == null ? "" : String(Number((p.tax_set_aside_bps / 100).toFixed(2))),
   weekEnd: p.pay_week_ends_on == null ? "" : String(p.pay_week_ends_on),
   statement: p.statement_weekday == null ? "" : String(p.statement_weekday),
   payday: p.payday_weekday == null ? "" : String(p.payday_weekday),
@@ -81,6 +84,8 @@ function bodyOf(f: PayFieldValues): { ok: true; body: Record<string, unknown> } 
   if (cents === null) return { ok: false, error: "Enter the per-mile pay as dollars, for example 0.55 - or leave it empty if you are paid a percent." };
   const bps = bpsFromPercent(f.percent);
   if (bps === undefined) return { ok: false, error: "Enter the percent of the load as a number from 0 to 100, for example 85." };
+  const setAsideBps = bpsFromPercent(f.taxSetAside);
+  if (setAsideBps === undefined) return { ok: false, error: "Enter the tax set-aside as a number from 0 to 100, for example 25 - or leave it empty for the default 25%." };
   return {
     ok: true,
     body: {
@@ -89,6 +94,7 @@ function bodyOf(f: PayFieldValues): { ok: true; body: Record<string, unknown> } 
       mile_basis: f.basis || null,
       worker_type: f.worker || null,
       fuel_paid_by: f.fuel || null,
+      tax_set_aside_bps: setAsideBps,
       pay_week_ends_on: f.weekEnd === "" ? null : Number(f.weekEnd),
       statement_weekday: f.statement === "" ? null : Number(f.statement),
       payday_weekday: f.payday === "" ? null : Number(f.payday),
@@ -121,6 +127,13 @@ function PayFields({ idp, value, onChange }: { idp: string; value: PayFieldValue
       {(mileOnly || value.basis !== "") && <Select id={`${idp}-basis`} label="Which miles are paid" value={value.basis} onChange={(v) => set({ basis: v })} options={BASIS} />}
       {!mileOnly && value.basis === "" && <p className="row-sub">(The miles basis only matters once a per-mile rate is entered.)</p>}
       <Select id={`${idp}-worker`} label="Tax status" value={value.worker} onChange={(v) => set({ worker: v })} options={WORKER} />
+      <label htmlFor={`${idp}-tax-set-aside`}>Tax set-aside percent (for example 25) — leave empty for the default 25%</label>
+      <input id={`${idp}-tax-set-aside`} inputMode="decimal" value={value.taxSetAside} onChange={(e) => set({ taxSetAside: e.target.value })} />
+      <p className="row-sub">
+        Only applies when Tax status is 1099 contractor: each paycheck then shows how much to set aside for taxes
+        ({value.taxSetAside === "" ? "default 25%" : `${value.taxSetAside}%`} of the gross). It never moves money — a
+        reminder only.
+      </p>
       <Select id={`${idp}-fuel`} label="Fuel" value={value.fuel} onChange={(v) => set({ fuel: v })} options={FUEL} />
       <Select id={`${idp}-weekend`} label="Your pay week ends on" value={value.weekEnd} onChange={(v) => set({ weekEnd: v })} options={DAY_OPTIONS} />
       <Select id={`${idp}-statement`} label="Your statement comes out on" value={value.statement} onChange={(v) => set({ statement: v })} options={DAY_OPTIONS} />
