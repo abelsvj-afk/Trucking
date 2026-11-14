@@ -88,7 +88,7 @@ describe("decideStatusProposal - proposes, with the time the movement really beg
 
   it("moving for 2+ minutes while logged off duty -> propose Driving since the movement began", () => {
     const p = decideStatusProposal({ ...base, episode: { movingSinceMs: NOW - MOVING_PROPOSAL_AFTER_MS, stoppedSinceMs: null }, nowMs: NOW, currentStatus: "off_duty" });
-    expect(p).toEqual({ kind: "start_driving", status: "driving", sinceMs: NOW - MOVING_PROPOSAL_AFTER_MS });
+    expect(p).toEqual({ kind: "start_driving", status: "driving", sinceMs: NOW - MOVING_PROPOSAL_AFTER_MS, episodeKey: `move:${NOW - MOVING_PROPOSAL_AFTER_MS}` });
   });
 
   it("not before 2 minutes (a quick move across a lot isn't a drive)", () => {
@@ -107,7 +107,7 @@ describe("decideStatusProposal - proposes, with the time the movement really beg
 
   it("stopped 20+ minutes while logged driving -> propose On duty since the stop began", () => {
     const p = decideStatusProposal({ ...base, episode: { movingSinceMs: null, stoppedSinceMs: NOW - STOPPED_PROPOSAL_AFTER_MS }, nowMs: NOW, currentStatus: "driving" });
-    expect(p).toEqual({ kind: "stop_driving", status: "on_duty", sinceMs: NOW - STOPPED_PROPOSAL_AFTER_MS });
+    expect(p).toEqual({ kind: "stop_driving", status: "on_duty", sinceMs: NOW - STOPPED_PROPOSAL_AFTER_MS, episodeKey: `stop:${NOW - STOPPED_PROPOSAL_AFTER_MS}` });
   });
 
   it("a short stop (fuel, a light) is not a change of status; and a stop while NOT logged driving is not proposed", () => {

@@ -13,6 +13,7 @@ const motionHolder: { state: "moving" | "stopped" | "unknown"; speed: number | n
 const motionHookCalls = vi.fn();
 const createCalls: unknown[] = [];
 const autoCalls: { detectedAt: string; id: string }[] = [];
+const autoStopCalls: { stoppedSince: string; id: string; promptedAtMs: number | null }[] = [];
 vi.mock("@/lib/use-vehicle-motion", () => ({
   useVehicleMotionDetail: () => {
     motionHookCalls();
@@ -32,6 +33,10 @@ vi.mock("@/lib/api-client", () => ({
   apiClient: {
     create: vi.fn(async (r: string, b: unknown) => (createCalls.push({ r, b }), {})),
     autoMotionSwitch: vi.fn(async (detectedAt: string, id: string) => (autoCalls.push({ detectedAt, id }), { data: { switched: true, startedAt: detectedAt } })),
+    autoStopSwitch: vi.fn(async (stoppedSince: string, id: string, promptedAtMs: number | null) => {
+      autoStopCalls.push({ stoppedSince, id, promptedAtMs });
+      return { data: { switched: true, startedAt: stoppedSince, message: "Driving time fixed. Your 14-hour window still ends at 9:00 PM ET — only rest moves that." } };
+    }),
   },
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/money/expenses/new" }));
@@ -78,6 +83,7 @@ beforeEach(() => {
   motionHookCalls.mockClear();
   createCalls.length = 0;
   autoCalls.length = 0;
+  autoStopCalls.length = 0;
   motionHolder.sustained = undefined;
 });
 
@@ -360,6 +366,101 @@ describe("Block A - duty status can never trap the driver", () => {
       screen.getByRole("button", { name: "Still driving" }).click();
     });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("ELD stopped vehicle - the open-app stop path (brief §3)", () => {
+  it("a stop-prompt tap logs BACKDATED to the stop start, with a reason for the trail", async () => {
+    setPermission("granted");
+    motionHolder.state = "stopped";
+    motionHolder.duty = "driving";
+    const stopStart = Date.now() - 5 * 60_000 - 30_000;
+    motionHolder.sustained = { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: stopStart, lastFixAtMs: Date.now() - 1_000 };
+    await mount(<Page />);
+    await act(async () => {
+      screen.getByRole("button", { name: "On duty (not driving)" }).click();
+    });
+    expect(createCalls).toHaveLength(1);
+    // Not tap-time: the row carries the stop start (last movement time).
+    expect(createCalls[0]).toMatchObject({
+      r: "duty-logs",
+      b: { duty_status: "on_duty", started_at: new Date(stopStart).toISOString() },
+    });
+    expect((createCalls[0] as { b: Record<string, unknown> }).b.edit_reason).toMatch(/corrected back to the stop/);
+  });
+
+  it("'Still driving' restarts the 5-minute timer: the prompt comes back if still stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      setPermission("granted");
+      motionHolder.state = "stopped";
+      motionHolder.duty = "driving";
+      const stopStart = Date.now() - 5 * 60_000 - 30_000;
+      motionHolder.sustained = { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: stopStart, lastFixAtMs: Date.now() - 1_000 };
+      await mount(<Page />);
+      expect(screen.getByRole("alert").textContent).toContain("stopped for 5 minutes");
+      await act(async () => {
+        screen.getByRole("button", { name: "Still driving" }).click();
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+      // The mocked fix time is frozen: keep it fresh as the clock
+      // advances, the way live GPS would, or the signal reads gone.
+      await act(async () => {
+        vi.advanceTimersByTime(5 * 60_000);
+      });
+      motionHolder.sustained = { ...motionHolder.sustained!, lastFixAtMs: Date.now() };
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(screen.getByRole("alert").textContent).toContain("stopped for 5 minutes");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("at minute 6, after a minute of prompt silence, it auto-switches to On Duty (backdated) and says the 14-hour window is not rewound", async () => {
+    vi.useFakeTimers();
+    try {
+      setPermission("granted");
+      motionHolder.state = "stopped";
+      motionHolder.duty = "driving";
+      const stopStart = Date.now() - 6 * 60_000;
+      motionHolder.sustained = { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: stopStart, lastFixAtMs: Date.now() - 1_000 };
+      await mount(<Page />);
+      expect(screen.getByRole("alert").textContent).toContain("stopped for 5 minutes");
+      expect(autoStopCalls).toHaveLength(0); // the prompt has only just been shown
+      // The mocked fix time is frozen: keep it fresh as the clock
+      // advances, the way live GPS would, or the signal reads gone
+      // before the minute of silence elapses.
+      await act(async () => {
+        for (let i = 0; i < 5; i++) {
+          vi.advanceTimersByTime(15_000);
+          motionHolder.sustained = { ...motionHolder.sustained!, lastFixAtMs: Date.now() };
+        }
+      });
+      expect(autoStopCalls).toHaveLength(1);
+      expect(autoStopCalls[0]!.stoppedSince).toBe(new Date(stopStart).toISOString());
+      expect(autoStopCalls[0]!.id).toMatch(/^00000000-0000-4001-8000-[0-9a-f]{12}$/);
+      expect(typeof autoStopCalls[0]!.promptedAtMs).toBe("number");
+      expect(screen.getByText(/Driving time fixed/)).toBeTruthy();
+      expect(screen.getByText(/14-hour window still ends at/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("no fix for 15 minutes while Driving shows 'Location stale since [time]', never an invented stop", async () => {
+    setPermission("granted");
+    motionHolder.state = "stopped";
+    motionHolder.duty = "driving";
+    motionHolder.sustained = { movingSinceMs: null, lastMovingFixAtMs: null, stoppedSinceMs: null, lastFixAtMs: Date.now() - 16 * 60_000 };
+    await mount(<Page />);
+    const banner = screen.getByTestId("location-stale-banner");
+    expect(banner.textContent).toContain("Location stale since");
+    expect(banner.textContent).toMatch(/ET|CT|MT|PT/);
+    expect(banner.textContent).toContain("can't tell whether you've stopped");
+    expect(createCalls).toHaveLength(0);
+    expect(autoStopCalls).toHaveLength(0);
   });
 });
 

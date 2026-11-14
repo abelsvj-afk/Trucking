@@ -6,11 +6,21 @@
 // Both get the same rules (lib/auto-motion-rules.ts): it only ADDS a Driving row from the
 // detection time forward, never edits or deletes anything, stands down for a manual choice,
 // is idempotent per detection, and respects the auto_duty_switch kill switch.
+//
+// The stop side lives here too (ELD stopped vehicle, App. A §4.4.1.2):
+// applyAutoStopSwitch adds ONE On Duty row backdated to the stop start
+// (the last movement time) when the truck has been stopped 6 minutes
+// and the 5-minute prompt went unanswered. Never Off Duty/Sleeper,
+// never a silent rewrite of in-motion time, original row untouched,
+// trail entry recorded. Same kill switch, same idempotency.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { judgeAutoMotion } from "@/lib/auto-motion-rules";
+import { judgeAutoMotion, judgeAutoStop } from "@/lib/auto-motion-rules";
 import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { AUTO_DUTY_SWITCH_CAPABILITY, DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
+import { buildSegments, findWindowStartMs } from "@/lib/hos";
+import { stopCorrectionConfirmation } from "@/lib/stopped-vehicle";
+import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import type { DutyLog } from "@/types/entities";
 
 export interface AutoMotionResult {
@@ -118,4 +128,179 @@ export function autoSwitchNotice(startedAtIso: string, timeZone: string = HOME_T
 export function autoSubmissionId(detectedAtMs: number): string {
   const hex = detectedAtMs.toString(16).padStart(12, "0").slice(-12);
   return `00000000-0000-4000-8000-${hex}`;
+}
+
+/** One stable id per stop episode — a different namespace from the Driving switch, so a stop and a move can never collide on one id. */
+export function autoStopSubmissionId(stoppedSinceMs: number): string {
+  const hex = stoppedSinceMs.toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4001-8000-${hex}`;
+}
+
+export interface AutoStopResult {
+  switched: boolean;
+  reason?: string;
+  /** The stop start: the new On Duty row's started_at (backdated, never tap-time). */
+  startedAt?: string;
+  deduplicated?: boolean;
+  /** ISO end of the current 14-hour window (unchanged by the correction — the window is not rewound). */
+  windowEndsAt?: string | null;
+  /** The confirmation to show him, with the 14-hour honesty line. */
+  message?: string;
+}
+
+/** The 14-hour window end from the log as it stands after the correction (null when the log cannot say). */
+async function windowEndsAtAfter(
+  client: SupabaseClient,
+  companyId: string,
+  nowMs: number,
+  correctedRow: { duty_status: DutyLog["duty_status"]; started_at: string },
+): Promise<string | null> {
+  try {
+    const sinceIso = new Date(nowMs - 3 * 24 * 60 * 60_000).toISOString();
+    const { data, error } = await client
+      .from("duty_logs")
+      .select("duty_status, started_at")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .gte("started_at", sinceIso)
+      .order("started_at", { ascending: true })
+      .limit(500);
+    if (error || !data) return null;
+    const segments = buildSegments(
+      [...(data as { duty_status: DutyLog["duty_status"]; started_at: string }[]), correctedRow],
+      nowMs,
+    );
+    const windowStartMs = findWindowStartMs(segments);
+    if (windowStartMs === null) return null;
+    return new Date(windowStartMs + 14 * 60 * 60_000).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The automatic switch OUT of Driving (ELD App. A §4.4.1.2): stopped 6
+ * minutes, 5-minute prompt unanswered for a minute. Appends ONE On Duty
+ * row at the stop start (last movement time) + a duty_log_edits trail
+ * entry (reason, proposer Abel/app, confirmer the driver — the prompt
+ * silence is his non-answer, the row is the mirror's). The original
+ * Driving row is untouched; in-motion time is never edited. A corrected
+ * On Duty stop is not a sleeper segment and must never count toward a
+ * future split-sleeper pair (it is On Duty, not Sleeper — the HOS
+ * engine only counts off_duty/sleeper as rest).
+ */
+export async function applyAutoStopSwitch(opts: {
+  client: SupabaseClient;
+  companyId: string;
+  /** The stop start (last movement time): the new row's started_at. */
+  stoppedSinceIso: string;
+  submissionId: string;
+  nowMs: number;
+  /** When the 5-minute prompt was shown for this episode — null means never prompted: never auto-switch blind. */
+  promptedAtMs: number | null;
+  /** "app" = the open app saw it; "position feed" = a server-side position source (works with the app closed). */
+  origin: "app" | "position feed";
+  timeZone?: string;
+}): Promise<AutoStopResult> {
+  const { client, companyId, stoppedSinceIso, submissionId, nowMs, origin } = opts;
+  const timeZone = opts.timeZone ?? HOME_TIME_ZONE;
+  if (!(await isAutoSwitchEnabled(client, companyId))) return { switched: false, reason: "switched_off" };
+
+  // Replay of the same stop: report the original outcome, never a second row.
+  const { data: existing } = await client
+    .from("duty_logs")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("submission_id", submissionId)
+    .maybeSingle();
+  if (existing) return { switched: true, deduplicated: true, startedAt: stoppedSinceIso };
+
+  const { data: latestRows, error } = await client
+    .from("duty_logs")
+    .select("id, duty_status, started_at, notes, time_zone")
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(error.message);
+  const latest = ((latestRows ?? [])[0] ?? null) as
+    | Pick<DutyLog, "id" | "duty_status" | "started_at" | "notes" | "time_zone">
+    | null;
+
+  const verdict = judgeAutoStop(latest, stoppedSinceIso, nowMs, opts.promptedAtMs);
+  if (!verdict.ok) return { switched: false, reason: verdict.reason };
+
+  const startedAt = new Date(stoppedSinceIso).toISOString();
+  const stopLabel = formatClock(startedAt, timeZone);
+  const note =
+    `Auto-stop correction: switched to On Duty (not driving) from ${stopLabel} — truck stopped since then with no ` +
+    `movement, and the 5-minute prompt went unanswered (${origin === "app" ? "seen by the open app" : "from the phone's position feed"}). ` +
+    `Mirror correction — not the legal ELD; confirm the same change in the carrier ELD.`;
+  const base = {
+    company_id: companyId,
+    driver_id: null,
+    load_id: null,
+    duty_status: "on_duty",
+    started_at: startedAt,
+    location: null,
+    odometer: null,
+    notes: note,
+    submission_id: submissionId,
+    time_zone: timeZone,
+  };
+  let insert = await client.from("duty_logs").insert({ ...base, source: "auto_motion" });
+  if (insert.error && /duty_logs_source_check|violates check constraint/i.test(insert.error.message)) {
+    // Migration 00072 not applied yet: the row is still recorded, the note carries the provenance.
+    insert = await client.from("duty_logs").insert({ ...base, source: "app" });
+  }
+  if (insert.error && /time_zone/i.test(insert.error.message) && /does not exist/i.test(insert.error.message)) {
+    // Migration 00091 not applied yet: the row still lands; the note
+    // carries the labeled time, so the zone is not lost, only uncolumned.
+    const { time_zone: _dropped, ...withoutZone } = base;
+    insert = await client.from("duty_logs").insert({ ...withoutZone, source: "auto_motion" });
+  }
+  if (insert.error) {
+    // A second tab/device/feed won the same stop: that is a replay, not a failure.
+    if ((insert.error as { code?: string }).code === "23505") return { switched: true, deduplicated: true, startedAt };
+    throw new Error(insert.error.message);
+  }
+  // The trail: the original Driving row is the "before", the new On
+  // Duty row the "after". Best-effort — a missing trail table never
+  // breaks the landed correction (recordDutyLogEdit reports false).
+  // maybeSingle() is a PromiseLike, not a Promise: no .catch — the
+  // try/catch below is the safety net.
+  let newRowId: string | null = null;
+  try {
+    const found = await client
+      .from("duty_logs")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("submission_id", submissionId)
+      .maybeSingle();
+    newRowId = (found.data as { id: string } | null)?.id ?? null;
+  } catch {
+    newRowId = null;
+  }
+  if (newRowId) {
+    await recordDutyLogEdit(client, {
+      companyId,
+      dutyLogId: newRowId,
+      kind: "insert",
+      reason: note,
+      before: latest ? { ...latest } : null,
+      after: { ...base, source: "auto_motion" },
+      source: "app",
+    });
+  }
+  const windowEndsAt = await windowEndsAtAfter(client, companyId, nowMs, { duty_status: "on_duty", started_at: startedAt });
+  const message =
+    `Switched to On duty (not driving) from ${stopLabel} — truck stopped, no answer to the prompt. ` +
+    `${stopCorrectionConfirmation({ windowEndLabel: windowEndsAt ? formatClock(windowEndsAt, timeZone) : null })} ` +
+    `(Mirror — not the legal ELD.)`;
+  return { switched: true, startedAt, windowEndsAt, message };
+}
+
+/** The auto-stop notice — the confirmation message itself (it carries the 14-hour honesty line). */
+export function autoStopNotice(message: string): string {
+  return message;
 }

@@ -8,7 +8,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { bearerToken } from "@/lib/device-token";
-import { applyAutoMotionSwitch } from "@/services/fleet/auto-motion";
+import { applyAutoMotionSwitch, applyAutoStopSwitch } from "@/services/fleet/auto-motion";
 import { authenticateDeviceToken, feedBodySchema, normalizeFixes, rateLimited } from "@/services/fleet/device-feed";
 import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
 import { formatClock, timeZoneForPosition } from "@/lib/display-zone";
@@ -62,6 +62,8 @@ export async function POST(request: NextRequest) {
         formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
         autoSwitch: (detectedAtIso, submissionId, timeZone) =>
           applyAutoMotionSwitch({ client, companyId: device.companyId, detectedAtIso, submissionId, nowMs: Date.now(), origin: "position feed", timeZone }),
+        autoStop: (stoppedSinceIso, submissionId, promptedAtMs, timeZone) =>
+          applyAutoStopSwitch({ client, companyId: device.companyId, stoppedSinceIso, submissionId, nowMs: Date.now(), promptedAtMs, origin: "position feed", timeZone }),
       });
       if (res.kind === "recorded") accepted += 1;
     } catch (err) {

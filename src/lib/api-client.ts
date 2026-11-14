@@ -279,6 +279,21 @@ export const apiClient = {
       "/api/v1/duty-logs/auto-motion",
       { method: "POST", body: JSON.stringify({ detected_at: detectedAtIso, submission_id: submissionId }) },
     ),
+  /** ELD stopped vehicle: ask the server to switch to On Duty from a 6-minute stop (backdated to the stop start). promptedAtMs is when the 5-minute prompt was shown — the server refuses without it. */
+  autoStopSwitch: (stoppedSinceIso: string, submissionId: string, promptedAtMs: number | null) =>
+    request<{
+      data: {
+        switched: boolean;
+        reason?: string;
+        startedAt?: string;
+        deduplicated?: boolean;
+        windowEndsAt?: string | null;
+        message?: string;
+      };
+    }>("/api/v1/duty-logs/auto-stop", {
+      method: "POST",
+      body: JSON.stringify({ stopped_since: stoppedSinceIso, submission_id: submissionId, prompted_at_ms: promptedAtMs }),
+    }),
   loadEconomics: (loadId: string) => request<{ data: LoadEconomics }>(`/api/v1/loads/${loadId}/economics`),
   paySummary: () => request<{ data: PaySummary }>("/api/v1/pay-summary"),
   /** Active-load navigation: the active load, its next stop and the route to it. `fix` = this device's position; omit to use the newest Tracker/Telegram one. */

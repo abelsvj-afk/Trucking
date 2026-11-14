@@ -49,8 +49,8 @@ import { recordQuoteTargets } from "@/services/bot/quote-targets";
 import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
 import { createRateLimiter } from "@/services/telegram/rate-limit";
-import { createBrainLiveLocationStore, handleLiveLocation } from "@/services/telegram/live-location";
-import { applyAutoMotionSwitch } from "@/services/fleet/auto-motion";
+import { createBrainLiveLocationStore, handleLiveLocation, maybeSendFeedStaleTell } from "@/services/telegram/live-location";
+import { applyAutoMotionSwitch, applyAutoStopSwitch } from "@/services/fleet/auto-motion";
 import { formatClock, timeZoneForPosition } from "@/lib/display-zone";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
@@ -245,6 +245,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 origin: "position feed",
                 timeZone,
               }),
+            // ELD stopped vehicle: stopped 6 minutes, prompt
+            // unanswered — the feed path applies the On Duty switch
+            // (promptedAtMs comes from the staged stop proposal).
+            autoStop: (stoppedSinceIso, submissionId, promptedAtMs, timeZone) =>
+              applyAutoStopSwitch({
+                client: brainStore.client,
+                companyId: brainStore.companyId,
+                stoppedSinceIso,
+                submissionId,
+                nowMs: Date.now(),
+                promptedAtMs,
+                origin: "position feed",
+                timeZone,
+              }),
             formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
           });
         }
@@ -374,6 +388,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     store: createTelegramStore(config.companyId),
     burstCollector: telegramBurstCollector,
   });
+
+  // ELD stopped vehicle §3.1: the feed-health tell for a DEAD feed.
+  // No scheduler exists to fire it on a timer, so it runs
+  // best-effort on his next inbound Telegram interaction — one
+  // message per stale period, never an invented stop. A failure
+  // here never fails the update.
+  if (brainStore) {
+    try {
+      await maybeSendFeedStaleTell({
+        client: brainStore.client,
+        companyId: brainStore.companyId,
+        sendMessage: (text) => sendTelegramMessage(botToken, Number(config.allowedChatId), text),
+        formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
+      });
+    } catch {
+      // Best-effort only.
+    }
+  }
 
   // Always 200 once accepted, so Telegram doesn't retry-storm on a
   // message this bot deliberately ignores (group, wrong chat, ...).

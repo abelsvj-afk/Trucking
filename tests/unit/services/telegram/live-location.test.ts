@@ -132,7 +132,7 @@ describe("describeFixAge", () => {
 
 describe("proposalText", () => {
   it("asks, never claims - and arrives as a labeled card, not prose", () => {
-    const t = proposalText({ kind: "start_driving", status: "driving", sinceMs: 0 }, "9:14 AM");
+    const t = proposalText({ kind: "start_driving", status: "driving", sinceMs: 0, episodeKey: "move:0" }, "9:14 AM");
     expect(t).toContain("Proposed: log Driving from 9:14 AM");
     // Card shape: 🕒 header + labeled Status / Since / Proposed lines.
     expect(t.startsWith("🕒 Duty check")).toBe(true);
@@ -142,12 +142,13 @@ describe("proposalText", () => {
   });
 
   it("a stopped-truck proposal carries the same card shape", () => {
-    const t = proposalText({ kind: "stop_driving", status: "off_duty", sinceMs: 0 }, "8:40 AM CT");
+    const t = proposalText({ kind: "stop_driving", status: "off_duty", sinceMs: 0, episodeKey: "stop:0" }, "8:40 AM CT");
     expect(t.startsWith("🕒 Duty check")).toBe(true);
     expect(t).toContain("Status: log still says Driving");
     expect(t).toContain("Stopped since: 8:40 AM CT");
     expect(t).toContain("Proposed: log Off duty from 8:40 AM CT");
-    expect(t).toContain("Reply YES to confirm");
+    expect(t).toContain("Reply YES to apply");
+    expect(t).toContain("off duty / sleeper instead");
   });
 });
 

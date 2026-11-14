@@ -45,6 +45,12 @@ export const sameArgs = (a: Record<string, unknown>, b: Record<string, unknown>)
 
 /** What this proposal is ABOUT (tool + the record/employer it targets), or null when it is a free-standing create. */
 export function targetKey(tool: string, args: Record<string, unknown>): string | null {
+  // ELD stopped vehicle: a stop proposal is about ONE stop episode,
+  // so a re-staged proposal for the same episode REPLACES the waiting
+  // one instead of cloning it (PR #69 residual 1, agent path).
+  if (tool === "log_duty_status" && typeof args.episode_key === "string" && args.episode_key.length > 0) {
+    return `log_duty_status:episode:${args.episode_key}`;
+  }
   if (!TARGETED.test(tool)) return null;
   if (tool === "set_pay_terms") return `set_pay_terms:${String(args.employer_name ?? "").trim().toLowerCase()}`;
   if (tool === "set_pay_pin") return "set_pay_pin";
