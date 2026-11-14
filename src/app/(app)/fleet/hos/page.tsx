@@ -92,7 +92,7 @@ export default function HosPage() {
     <div>
       <PageHeader
         title="Day log"
-        purpose="Hours of service — track your hours so you never run illegal — every status change you log, turned into what's left today and this week."
+        purpose="Hours of service — track your hours against the federal limits — the ELD/official log governs — every status change you log, turned into what's left today and this week."
         action={
           <Link href="/fleet/hos/new" className="page-action">
             Log duty status

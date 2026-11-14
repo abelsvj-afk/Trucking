@@ -13,7 +13,7 @@ Core capabilities will include:
 - 📍 Truck positioning and Florida freight-trap mitigation
 - 🏠 Home-time and schedule optimization
 - 🔧 Predictive maintenance and repair tracking
-- 📋 DOT/FMCSA compliance management
+- 📋 DOT/FMCSA rule awareness (paper-log helper only)
 - 🤖 AI-powered business intelligence and decision support
 - 📧 Automated freight research, outreach, and workflow preparation
 - 📈 Fleet expansion and owner-operator readiness analysis

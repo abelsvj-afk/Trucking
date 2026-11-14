@@ -189,7 +189,7 @@ export default function HomePage() {
 
       <Reveal aria-label="Roadside inspection" index={1}>
         <Link href="/roadside" className="roadside-entry">
-          <ShieldCheck size={22} strokeWidth={1.75} aria-hidden="true" /> Roadside inspection — show an officer your logs
+          <ShieldCheck size={22} strokeWidth={1.75} aria-hidden="true" /> Roadside inspection — your hours packet, ready to show alongside the carrier ELD
         </Link>
         <p className="row-sub">
           One tap: your hours packet for today + the last 7 days, big and readable. Convenience copy — your

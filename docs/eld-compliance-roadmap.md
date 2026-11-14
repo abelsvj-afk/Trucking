@@ -32,7 +32,7 @@ problem for the carrier. Self-certification is a legal claim, not a formality.
 
 ---
 
-## Where we stand today (honest status, 2026-11-07)
+## Where we stand today (honest status, 2026-11-14)
 
 Already true of the current system:
 
@@ -41,12 +41,13 @@ Already true of the current system:
 - [x] Server address + key saved on-device; main screen shows saved values
 - [x] Server-side record of positions with timestamps (proof-of-miles trail)
 - [x] Multi-driver shape is possible: one key per driver, records tagged per key
+- [x] Duty-status logbook (records of duty status) — duty logs with an edit trail
+- [x] Hours-of-service rules engine with violation warnings — 11-hour, 14-hour, 30-minute-break, and 70-hour clocks computed from the duty log (a mirror of the carrier ELD's clocks, not the legal record)
+- [x] Roadside hours packet — an 8-day convenience copy, labelled as such (not the certified record)
 
 Not yet true (this is the gap this roadmap closes):
 
 - [ ] No connection to the truck's engine (no ECM data at all)
-- [ ] No duty-status logbook (no RODS — records of duty status)
-- [ ] No hours-of-service rules engine or violation warnings
 - [ ] No roadside data-transfer output in the FMCSA standard format
 - [ ] No malfunction/diagnostic system
 - [ ] No self-certification or FMCSA registration

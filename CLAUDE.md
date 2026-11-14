@@ -34,7 +34,7 @@ Three documents anchor this repository regardless of how much application code h
 An "AI-Powered Transportation Operating System" for a trucking business — see `README.md` and `My idea` for full context. In short, three layers working together:
 
 1. **The physical company** — trucks, trailers, drivers, fuel, maintenance, insurance, freight, customers, parking, cash.
-2. **The business operating system** — a system of record for trucks, drivers, loads, revenue/expenses, brokers, lanes, compliance, etc.
+2. **The business operating system** — a system of record for trucks, drivers, loads, revenue/expenses, brokers, lanes, credential dates, etc.
 3. **The AI operating layer** — analyzes the business state and recommends (not autonomously executes) decisions: which load to take, where to park, when to fuel, whether the fleet is ready to expand, etc.
 
 `My idea` enumerates the envisioned subsystems in detail (decision engine, "Florida trap"/positioning risk engine, load profitability engine, fuel intelligence, load-board integration, home-time engine, parking network, maintenance AI, financial AI, fleet-expansion engine, driver management). Treat these as product-vision notes to be formalized into specs, not as an implementation backlog to start coding against directly.

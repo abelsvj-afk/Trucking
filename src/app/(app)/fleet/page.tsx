@@ -20,7 +20,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/fleet/trucks", label: "Trucks", desc: "Your trucks — type, photo, size, and status." },
   { href: "/fleet/trailers", label: "Trailers", desc: "The trailers you pull, and what kind each is." },
   { href: "/fleet/drivers", label: "Drivers", desc: "Driver profiles — contact, CDL, assigned truck." },
-  { href: "/fleet/hos", label: "Day log", desc: "Your duty clocks — hours of service. Track your hours so you never run illegal." },
+  { href: "/fleet/hos", label: "Day log", desc: "Your duty clocks — hours of service. Track your hours against the federal limits — the ELD/official log governs." },
   { href: "/fleet/pretrip-inspections", label: "Pre-trip inspections", desc: "The walk-around before you roll — defects logged, not remembered." },
   { href: "/fleet/checklists", label: "Checklists", desc: "Coupling, docking, and paperwork, step by step." },
   { href: "/fleet/maintenance-events", label: "Maintenance", desc: "Every repair and service, and what it cost." },
