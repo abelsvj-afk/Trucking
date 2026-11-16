@@ -15,7 +15,8 @@ describe("evaluateReminders - HOS (critical, immediate): 2 h, 1 h, 30 min, expir
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ kind: "hos", critical: true });
     expect(r[0]!.text).toContain("about 30 minutes of driving left");
-    expect(r[0]!.text).toContain("can't drive until you've had 10 straight hours off");
+    // a follow-up is ONE line (owner 2026-11-16) - still the action and the disclaimer
+    expect(r[0]!.text.split("\n")).toHaveLength(1);
     expect(r[0]!.text).toContain("plan where you'll park");
     expect(r[0]!.text).toContain("not an ELD");
   });
@@ -85,12 +86,19 @@ describe("evaluateReminders - HOS (critical, immediate): 2 h, 1 h, 30 min, expir
 });
 
 describe("evaluateReminders - stale status (routine)", () => {
-  it("a status standing more than 14 h is probably out of date: a routine, non-critical question that changes nothing", () => {
-    const r = evaluateReminders([row("off_duty", 40), row("driving", 15)], NOW).filter((x) => x.kind === "stale_status");
+  it("a status standing more than 14 h is probably out of date: the hours warnings are held and this question goes out in their place (owner 2026-11-16)", () => {
+    const all = evaluateReminders([row("off_duty", 40), row("driving", 15)], NOW);
+    expect(all.filter((x) => x.kind === "hos")).toEqual([]);
+    const r = all.filter((x) => x.kind === "stale_status");
     expect(r).toHaveLength(1);
-    expect(r[0]!.critical).toBe(false);
+    expect(r[0]!.critical).toBe(true);
     expect(r[0]!.text).toContain("still says Driving");
     expect(r[0]!.text).toContain("ask before changing anything");
+  });
+  it("the FIRST warning for a limit explains it in full; the follow-ups do not repeat the paragraph", () => {
+    const first = evaluateReminders([row("off_duty", 30), row("driving", 9.1)], NOW).find((x) => x.key.startsWith("hos:drive:120"));
+    expect(first!.text).toContain("can't drive until you've had 10 straight hours off");
+    expect(first!.text).toMatch(/ET\b/);
   });
   it("not raised for off duty / sleeper however long", () => {
     expect(evaluateReminders([row("sleeper", 30)], NOW).filter((x) => x.kind === "stale_status")).toEqual([]);

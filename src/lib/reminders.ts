@@ -10,8 +10,9 @@
 //    plain words. SAFETY-CRITICAL: delivered immediately, quiet hours do not hold it,
 //    and only at those thresholds. Once per threshold per clock per shift (dedupe key).
 //  - stale_status: the latest status has stood longer than a legal window can
-//    (> 14 h of "driving"/"on duty") - the log is probably out of date. Routine:
-//    waits for quiet hours to end.
+//    (> 14 h of "driving"/"on duty") - the log is probably out of date. The hours
+//    warnings are then HELD (they would be counted from the wrong log) and this
+//    question goes out in their place, delivered like them (critical) - owner 2026-11-16.
 
 import { buildSegments, findWindowStartMs } from "@/lib/hos";
 import { computeHudClocks, type ClockKey } from "@/lib/hud-clocks";
@@ -58,6 +59,16 @@ export function hosReminderText(
 ): string {
   const at = easternTime(endsAtMs);
   const expired = threshold === 0;
+  // Owner 2026-11-16: four full paragraphs per limit read as a flood. The FIRST warning (2 hours) explains;
+  // the follow-ups at 1 hour and 30 minutes are one line, since he already has the explanation.
+  if (!expired && threshold < 120) {
+    const line =
+      clock === "drive" ? `of driving left (11-hour limit), ends ${at} — plan where you'll park`
+      : clock === "window" ? `left in your 14-hour window, ends ${at} — it keeps running even when you're not driving, be parked before then`
+      : clock === "break" ? `of driving left before your 30-minute break (around ${at}) — 30 straight minutes not driving resets it`
+      : `left in your ${cycleLabel ?? "cycle"} (ends ${at}) — after that, 34 straight hours off restarts it`;
+    return `⏱️ You have ${leftWords(threshold)} ${line}. Planning only, not an ELD.`;
+  }
   switch (clock) {
     case "drive":
       return expired
@@ -86,7 +97,7 @@ function easternTime(ms: number): string {
     weekday: "short",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }) + " ET";
 }
 
 export function evaluateReminders(
@@ -102,7 +113,12 @@ export function evaluateReminders(
   const windowStartMs = findWindowStartMs(segments) ?? clocks.statusSinceMs;
   const working = clocks.status === "driving" || clocks.status === "on_duty";
 
-  if (!clocks.rested) {
+  // Owner 2026-11-16: with the log stuck on "Driving since Friday", every cycle warning was counted from a
+  // wrong log - five alerts, all noise. A status older than any legal window means the log is out of date,
+  // so the hours warnings are held and ONLY the stale-log question goes out; they resume once the log is fixed.
+  const stale = working && nowMs - clocks.statusSinceMs > STALE_STATUS_AFTER_MS;
+
+  if (!clocks.rested && !stale) {
     for (const clock of clocks.clocks) {
       // The 14-hour window runs on ANY time, working or not; the others only matter while he is working.
       if (clock.key !== "window" && !working) continue;
@@ -125,15 +141,17 @@ export function evaluateReminders(
     }
   }
 
-  if (working && nowMs - clocks.statusSinceMs > STALE_STATUS_AFTER_MS) {
+  if (stale) {
     const word = clocks.status === "driving" ? "Driving" : "On duty";
     out.push({
       kind: "stale_status",
       key: `stale:${new Date(clocks.statusSinceMs).toISOString()}`,
-      critical: false,
+      // It stands in for the held hours warnings, so it is delivered like them: quiet hours never hold it.
+      critical: true,
       text:
         `Your log still says ${word} since ${easternTime(clocks.statusSinceMs)} — longer than a duty window can run, so it's probably out of date. ` +
-        "If so, tell me the right status and when it changed and I'll ask before changing anything.",
+        "If so, tell me the right status and when it changed and I'll ask before changing anything. " +
+        "I've paused the hours warnings until then, because they'd be counted from the wrong log.",
     });
   }
   return out;

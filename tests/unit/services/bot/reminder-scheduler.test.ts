@@ -61,18 +61,16 @@ describe("runRemindersIfDue", () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  it("quiet hours hold the routine stale-status question but never a safety (HOS) warning", async () => {
-    // 15 h of "driving": the clocks are long past their limits (critical) AND the log is stale (routine).
+  it("a stale log (15 h of 'driving') holds the hours warnings and sends ONLY the stale-log question - even in quiet hours (owner 2026-11-16)", async () => {
     DUTY = rows([["off_duty", 40], ["driving", 15]]);
     const notify = vi.fn().mockResolvedValue(true);
     const quiet = await runRemindersIfDue({ store: fakeStore({}).store, notify, now: () => NOW, quietHours: () => true });
-    expect(quiet.held).toBe(1);
-    expect(quiet.sent).toBeGreaterThan(0);
-    expect(notify.mock.calls[0]![0]).not.toContain("still says");
-    notify.mockClear();
-    const day = await runRemindersIfDue({ store: fakeStore({}).store, notify, now: () => NOW, quietHours: () => false });
-    expect(day.held).toBe(0);
-    expect(notify.mock.calls[0]![0]).toContain("still says Driving");
+    expect(quiet.held).toBe(0);
+    expect(notify).toHaveBeenCalledTimes(1);
+    const text = notify.mock.calls[0]![0] as string;
+    expect(text).toContain("still says Driving");
+    expect(text).toContain("paused the hours warnings");
+    expect(text).not.toMatch(/14-hour window|11 hours of driving|left in your/);
   });
 
   it("a failed Telegram send releases the dedupe rows so the next tick retries", async () => {

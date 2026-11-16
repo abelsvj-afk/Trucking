@@ -32,3 +32,15 @@ Thresholds (30/10/0) and the 14-hour stale rule are proposals he can change; whe
 
 ## Update 2026-11-06 (Block B, `docs/design/driver-hud-round2.md`)
 HOS reminders now fire at **2 h, 1 h, 30 min and expiry** (was 30/10/0) for all four clocks - drive, 14-hour window, 30-minute break and the 70/8 (or 60/7) cycle (the scheduler passes the server's cycle summary from the one HOS read). One message per threshold per clock per shift: the key is `hos:<clock>:<threshold>:<shift>` where the shift is the window start (drive/window/break) or the carrier period start (cycle). Each message states the consequence and the action in plain words and is still labeled planning-only, not an ELD. They stay critical: sent immediately, even in quiet hours, at those thresholds only. The 14-hour window is announced on any non-rested status (it never pauses) until it ends; the other clocks only while he is working. Ring colours use the same thresholds (amber <= 2 h, red <= 30 min, EXPIRED at zero) from the same `computeHudClocks` read, and a test asserts the colour and the notification never disagree.
+
+## Amendment 2026-11-16 (owner: "make it better, smarter")
+
+From a live chat: five 70/8 warnings were sent while the log still said "Driving since Friday", so all of them were
+counted from a log that was out of date.
+
+- **Stale log holds the hours warnings.** When the current Driving / On duty status has stood longer than 14 hours,
+  no hours warning is sent. Only the stale-log question goes out, saying the warnings are paused until the log is
+  right. That question is now critical (quiet hours never hold it), because it stands in for the held warnings.
+- **Follow-ups are one line.** The 2-hour warning and the expiry message keep the full explanation. The 1-hour and
+  30-minute warnings are one line that still carries the action and "Planning only, not an ELD."
+- **Times carry their zone** ("Thu 1:30 PM ET").
