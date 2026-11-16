@@ -10,6 +10,8 @@ public class MainActivity extends BridgeActivity {
         // The floating HOS overlay's plugin (app-local, so it is registered
         // by hand - Capacitor only auto-discovers plugins from libraries).
         registerPlugin(HosOverlayPlugin.class);
+        // The native background tracker (owner 2026-11-16): reads GPS and sends with the app closed.
+        registerPlugin(TrackerPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

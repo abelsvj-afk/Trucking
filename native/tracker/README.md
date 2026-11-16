@@ -36,3 +36,28 @@ Honest build state: written 2026-11-09 on a machine with **no JDK/Android SDK**,
 - Every request uses the SAVED server URL and key (Settings), never half-typed fields. A change saved while tracking applies to the next send.
 - The status line shows the EXACT reason: the server's own HTTP status plus its error code/message (for example `Server answered HTTP 401 - UNAUTHORIZED: Unauthorized.`), or the network error (`No answer from <host> - TypeError: Failed to fetch ...`). A 200 that is a web page (login redirect, wrong address) is reported as such, not as success.
 - **Connection log** (main screen): the last 60 events, kept across restarts, also written to the phone's console (`adb logcat | grep tracker`). The device key is never in it.
+
+## v1.1.0 - tracking is native and keeps running with the app closed (2026-11-16)
+Owner report: "only tracking when I open it", and the Tracker notification no longer showed in the drop-down.
+Cause (read in the plugin's own code): the `@capacitor-community/background-geolocation` service stops itself the
+moment the app's screen is unbound (`onUnbind` -> `stopSelf()`), and every fix it read was handed to the web page,
+which was the only thing that sent anything. Close the app, or let Android close it, and both reading and sending stopped.
+v1.1.0 replaces that path with the app's own `TrackerService` (Java):
+- a location foreground service with a permanent "Trucking OS Tracker" notification (tap it to open the app);
+- reads GPS with Google's fused location provider (every ~15 s, 10 m minimum movement);
+- queues positions on the phone (500 max, 24 h) and sends them to `/api/v1/position/feed` itself every 30 s,
+  with the same backoff and 401 handling as before; the key is never logged;
+- `START_STICKY`, and swiping the app away does not stop it - only **Stop tracking** does.
+The page (`www/tracker.js`) now only starts and stops the service and shows its status and log (`Tracker` plugin).
+Asks for Location and Notifications on Start. Still: Battery -> Unrestricted for the app, and don't swipe the notification.
+Built here 2026-11-16 (`gradlew assembleDebug`, the built manifest checked: TrackerService with
+`foregroundServiceType=location` and all five permissions). NOT yet run on a real phone - the first drive is the test.
+After a phone restart, open the Tracker and tap Start again (Android does not let a location service start itself at boot).
+
+## v1.1.1 - feeds the ELD-style automatic switch (2026-11-16)
+Owner: "needs to auto switch to driving how it works in ELD". The switch itself already runs on the server from the
+fixes (`services/fleet/auto-motion.ts`): Driving after 60 s sustained at 5 mph or more, then the 5-minute stopped
+prompt and On Duty at minute 6 (ELD stopped-vehicle rule), never Off Duty or Sleeper on its own. Its motion detector
+forgets everything after a 20-second gap between fixes, and the stop side needs fixes while parked. v1.1.0 read GPS
+every 15 s with a 10 m distance filter, which could starve both. v1.1.1 reads every 5 s, moving or not, and the
+on-phone queue holds 3,000 fixes (about 4 hours of dead zone).

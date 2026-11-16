@@ -27,6 +27,13 @@
         <!-- The floating HOS clock card (docs/design/eld-roadside-overlay.md):
              a plain Service that draws one overlay window while it runs.
              Not exported - only this app starts and stops it. -->
+        <!-- The native background tracker (owner 2026-11-16): a location foreground service that reads GPS
+             and sends positions itself, so tracking continues with the app closed and the notification stays. -->
+        <service
+            android:name=".TrackerService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <service
             android:name=".HosOverlayService"
             android:exported="false" />
@@ -45,6 +52,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- The floating HOS overlay (user-granted at runtime via the system
          "display over other apps" screen; the Tracker settings explain it). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
