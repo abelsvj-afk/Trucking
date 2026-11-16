@@ -69,3 +69,14 @@ apply before deploy. Guard test: `tests/unit/services/bot/telegram-review-guard.
   the correction land.
 - Quote resolution (replying to a message to answer the proposal it quoted) is still absent from the Telegram code — the
   review's D4. Left open for a follow-up design.
+
+## Amendment 2026-11-16: pay questions and untraceable figures
+
+- **Pay questions get figures computed in code.** When his message asks about his pay ("check my pay", "how much will I
+  get paid", "when do I get paid"), the `projected_pay` calculation runs in code before the model answers. Its result
+  goes into the context, so the answer is built on figures from his records. If they can't be read, the model keeps
+  the tool as before.
+- **An untraceable dollar figure costs only its sentence.** The grounding guard used to replace the whole reply, which
+  is how his note on a forwarded trip went unanswered. Now only the sentences carrying the figure are removed and a one-line
+  note says so. If too little is left to be an answer, the old refusal stands. The untraceable figure itself never
+  reaches him either way.

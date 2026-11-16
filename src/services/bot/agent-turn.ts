@@ -71,6 +71,7 @@ import {
 } from "./dump-intake";
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone, zoneLongName } from "@/lib/display-zone";
 import { displayFileName } from "@/services/documents/document-naming";
+import { asksAboutHisPay, payFiguresBlock } from "./pay-projection-tools";
 import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
 export const BOT_DISABLED_REPLY =
@@ -1385,6 +1386,10 @@ export async function runAgentTurn(
     contextBlocks.push(
       `HE JUST SAID NO to your waiting suggestion, and it is cancelled (nothing was recorded): ${cancelledSuggestion}. The rest of his message is a NEW request - handle it fresh and do not carry the cancelled item into it. The cancel itself is never a delete; only if he explicitly asks to delete a SAVED record, find it with a read tool and propose delete_record for that record.`,
     );
+  }
+  if (asksAboutHisPay(input.userText)) {
+    const payBlock = await payFiguresBlock(store);
+    if (payBlock) contextBlocks.push(payBlock);
   }
   const researchAskBlock = await loadPendingResearchAskBlock(store);
   if (researchAskBlock) contextBlocks.push(researchAskBlock);

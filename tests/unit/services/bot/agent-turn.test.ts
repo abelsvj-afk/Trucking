@@ -839,6 +839,28 @@ describe("pay terms by percent, and what he will be paid (owner 2026-11-06)", ()
     expect(toolResult).toContain("paid ");
   });
 
+  it("'Check my pay': the figures are computed in code and handed to the model BEFORE it answers (owner 2026-11-16)", async () => {
+    const seed = baseSeed(true);
+    seed.employer_pay_profiles = [{ ...profile, percent_of_load_bps: null, rate_cents_per_mile: 55, mile_basis: "all" }];
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    seed.loads = [
+      { id: "L1", company_id: COMPANY, origin: "Macon, GA", destination: "Tulsa, OK", status: "confirmed", rate_cents: 0, miles: 1178, delivery_date: today, pickup_date: today, deleted_at: null },
+    ];
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "About $647.90 this week.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("Check my pay"));
+    const firstCall = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(firstCall).toContain("HIS PAY, COMPUTED IN CODE");
+    expect(firstCall).toContain("$647.90"); // 1,178 mi x $0.55
+  });
+
+  it("small talk does not pull the pay figures in", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Doing well.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("How are you doing"));
+    expect(JSON.stringify(runToolTurn.mock.calls[0] ?? [])).not.toContain("HIS PAY, COMPUTED IN CODE");
+  });
+
   it("update_load can carry his own figure for what a load pays him", async () => {
     const LOAD = "9c1e4c7a-0000-4000-8000-0000000000aa";
     const seed = baseSeed(true);

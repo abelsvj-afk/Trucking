@@ -246,6 +246,28 @@ export function ungroundedAmounts(reply: string, groundingCorpus: string): strin
   return [...amountsIn(reply)].filter((amount) => !grounded.has(amount));
 }
 
+/** Said in place of a sentence whose dollar figure could not be traced - the rest of the answer stands. */
+export const FIGURE_LEFT_OUT_NOTE = "(I left out a dollar figure I couldn't trace to your records — ask and I'll pull the exact number.)";
+
+/**
+ * Owner 2026-11-16: one untraceable dollar figure used to throw away the WHOLE reply, so a long note he sent
+ * with a trip got no answer at all. Only the sentences carrying an untraceable figure are removed now; the
+ * untraceable figure itself still never reaches him. If too little is left to be an answer, the old reply stands.
+ */
+export function withoutUngroundedFigures(reply: string, groundingCorpus: string): string {
+  const kept: string[] = [];
+  for (const line of reply.split("\n")) {
+    // a sentence ends at . ! ? followed by a space - never inside a figure like $154.00
+    const sentences = line.split(/(?<=[.!?])\s+/);
+    const clean = sentences.filter((s) => ungroundedAmounts(s, groundingCorpus).length === 0);
+    if (clean.length === sentences.length) kept.push(line);
+    else if (clean.join(" ").trim()) kept.push(clean.join(" ").trim());
+  }
+  const body = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (body.replace(/\s+/g, " ").length < 40) return UNGROUNDED_FIGURE_REPLY;
+  return `${body}\n\n${FIGURE_LEFT_OUT_NOTE}`;
+}
+
 // Think deeper (Frontier 1): the self-verification pass. A dollar
 // figure is STALE when a later tool result reports the same labeled
 // figure with a different value - the earlier value was superseded.
@@ -528,7 +550,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopOutp
       }
       const bad = ungroundedAmounts(text, groundingParts.join("\n"));
       return {
-        reply: bad.length > 0 ? UNGROUNDED_FIGURE_REPLY : text,
+        reply: bad.length > 0 ? withoutUngroundedFigures(text, groundingParts.join("\n")) : text,
         proposals,
         toolLog,
         stepsUsed,

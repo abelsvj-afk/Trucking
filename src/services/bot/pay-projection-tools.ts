@@ -106,3 +106,35 @@ export function buildPayProjectionTools(store: BotBrainStore): AgentTool[] {
     },
   ];
 }
+
+/** "check my pay", "what's my pay this week", "how much am I getting paid", "when do I get paid". Owner 2026-11-16. */
+export function asksAboutHisPay(text: string): boolean {
+  const t = text.toLowerCase();
+  if (t.length > 160) return false;
+  return (
+    /\bmy (pay|paycheck|check|money|earnings)\b/.test(t) ||
+    /\b(how much|what)\b.*\b(paid|pay|make|made|earn|earned|earning)\b/.test(t) ||
+    /\bwhen\b.*\b(get paid|payday)\b/.test(t) ||
+    /^(check )?(pay|paycheck|payday)\??$/.test(t.trim())
+  );
+}
+
+/**
+ * The pay figures, computed in code BEFORE the model answers a pay question - so "check my pay" is answered
+ * with the numbers his records support, never "pending" (owner transcript 2026-11-12). Null when the figures
+ * could not be read; the model then has the tool as before.
+ */
+export async function payFiguresBlock(store: BotBrainStore): Promise<string | null> {
+  try {
+    const tool = buildPayProjectionTools(store).find((t) => t.name === "projected_pay")!;
+    const figures = await tool.run({});
+    return (
+      "HIS PAY, COMPUTED IN CODE FROM HIS RECORDS JUST NOW (answer his pay question with these figures; a range stays a range; " +
+      "if a load says what is missing, name exactly that - never say 'pending' when a figure is here):\n" +
+      String(figures)
+    );
+  } catch (err) {
+    console.error("[bot] pay figures for the context failed (the model keeps the tool)", err);
+    return null;
+  }
+}
