@@ -368,6 +368,14 @@ export const apiClient = {
   },
   inboxMessage: (id: string) =>
     request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[]; sent: import("@/services/email/store").SentRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
+  // Paycheck confirmations (docs/design/confirm-paycheck.md).
+  confirmPaycheck: (body: { period_start: string; period_end: string; payday: string | null; received_cents: number; statement_document_id?: string | null }) =>
+    request<{ data: { id: string } }>("/api/v1/paycheck-confirmations", { method: "POST", body: JSON.stringify(body) }),
+  undoPaycheckConfirmation: (periodStart: string) =>
+    request<{ data: { period_start: string; undone: boolean } }>("/api/v1/paycheck-confirmations", {
+      method: "DELETE",
+      body: JSON.stringify({ period_start: periodStart }),
+    }),
   // Abel's "can't do that yet" list (docs/design/abel-do-what-i-ask.md).
   listCapabilityGaps: () =>
     request<{ data: CapabilityGapItem[]; ready: boolean }>("/api/v1/capability-gaps"),

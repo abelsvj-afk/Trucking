@@ -4,6 +4,7 @@
 // a thin loader. HOS clocks come from the ONE HOS read (hos-window.ts); there
 // is no second HOS implementation here.
 
+import { applyPaycheckConfirmations, listPaycheckConfirmations, type ConfirmedPayday, type PaycheckConfirmation } from "./paycheck-confirmations";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pickActiveLoad } from "@/lib/active-load";
 import { checkLoad, termsForDate, type PaycheckLine, type PayTermsRow } from "@/lib/paycheck";
@@ -112,7 +113,7 @@ export interface PaySummary {
   /** The same finished loads grouped by his pay week (newest first). */
   weeks: PayWeekGroup[];
   /** The pay weeks regrouped by PAYDAY (newest first) with per-load detail - the one builder the Paychecks page and Abel both read. */
-  paydays: PaydayGroup[];
+  paydays: ConfirmedPayday[];
   totals: {
     unpaidCount: number;
     unpaidLowCents: number;
@@ -348,6 +349,8 @@ export function buildPaySummary(input: {
   deductions?: readonly (DeductionLike & { category?: string | null })[];
   hos: HosGlance | null;
   now: Date;
+  /** His paycheck confirmations (docs/design/confirm-paycheck.md); absent = none. */
+  confirmations?: PaycheckConfirmation[];
 }): PaySummary {
   const { loads, terms, receivedByLoad, hos, now } = input;
   const advances = input.advances ?? [];
@@ -411,7 +414,7 @@ export function buildPaySummary(input: {
       totals.unpaidNetHighCents += net.highCents;
     }
   }
-  const paydays = groupByPayday(weeks, counted, todayEastern(now), terms);
+  const paydays = applyPaycheckConfirmations(groupByPayday(weeks, counted, todayEastern(now), terms), input.confirmations ?? []);
   return { hasTerms: terms.length > 0, active, completed, weeks, paydays, totals, hos, asOf: now.toISOString() };
 }
 
@@ -439,7 +442,7 @@ async function loadPayDeductions(
 }
 
 export async function loadPaySummary(client: SupabaseClient, companyId: string, now: Date = new Date()): Promise<PaySummary> {
-  const [loadsRes, termsRes, linesRes, advancesRes, deductions, snapshot] = await Promise.all([
+  const [loadsRes, termsRes, linesRes, advancesRes, deductions, snapshot, confirmations] = await Promise.all([
     client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "completed"]).order("delivery_date", { ascending: false, nullsFirst: false }).limit(300),
     client.from("employer_pay_profiles").select("employer_name, rate_cents_per_mile, mile_basis, worker_type, tax_set_aside_bps, percent_of_load_bps, pay_week_ends_on, statement_weekday, payday_weekday, effective_from, effective_to").eq("company_id", companyId).is("deleted_at", null),
     client.from("settlement_lines").select("load_id, amount_cents").eq("company_id", companyId).eq("kind", "load_pay").not("load_id", "is", null).is("deleted_at", null),
@@ -448,6 +451,7 @@ export async function loadPaySummary(client: SupabaseClient, companyId: string, 
     client.from("cash_advances").select("amount_cents, advance_date, driver_id").eq("company_id", companyId).is("deleted_at", null),
     loadPayDeductions(client, companyId),
     loadHosWindow(client, companyId, now).catch(() => null),
+    listPaycheckConfirmations(client, companyId),
   ]);
   if (loadsRes.error || termsRes.error || linesRes.error || advancesRes.error) throw new Error("The paycheck picture could not be loaded.");
   const receivedByLoad = new Map<string, number>();
@@ -462,5 +466,6 @@ export async function loadPaySummary(client: SupabaseClient, companyId: string, 
     deductions,
     hos: snapshot ? glanceFromSnapshot(snapshot, now.getTime()) : null,
     now,
+    confirmations,
   });
 }
