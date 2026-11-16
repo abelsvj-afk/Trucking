@@ -1,5 +1,6 @@
 // The waiting list (docs/design/abel-waiting-list.md). Fictional data throughout.
 import { describe, expect, it } from "vitest";
+import { answersPhotoAsk } from "@/services/bot/agent-turn";
 import { commentContradicts, formatWaitingList, groupWaitingRows, parseWaitingAnswers, plainSummary, WAITING_LIST_MARK } from "@/services/bot/waiting-list";
 
 describe("commentContradicts: a correction that contradicts the proposal IS a no (D2)", () => {
@@ -121,5 +122,16 @@ describe("the list itself", () => {
       { id: "s", tool_name: "create_expense", summary: "x", created_at: at(40) },
     ];
     expect(groupWaitingRows(rows, now, 2 * 3_600_000).map((g) => g.map((r) => r.id))).toEqual([["s"], ["b1", "b2"]]);
+  });
+});
+
+describe("an expired photo question only answers a reply to it (owner 2026-11-16)", () => {
+  it("short replies that name a purpose, or a bare number, are answers", () => {
+    for (const t of ["it's the BOL", "trailer picture", "2", "that's a receipt"]) expect(answersPhotoAsk(t), t).toBe(true);
+  });
+  it("a pasted trip that mentions pictures, seals and BOLs is not", () => {
+    const trip = "🚛 NEW TRIP 9918 HAS BEEN ASSIGNED\nSTOP 1\n❗️Send Picture of trailer in PU/DEL\n❗️SEND SEAL PICTURE\n❗️SIGNED BOL";
+    expect(answersPhotoAsk(trip)).toBe(false);
+    expect(answersPhotoAsk("How are you")).toBe(false);
   });
 });

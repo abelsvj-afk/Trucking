@@ -282,6 +282,17 @@ export const PLAIN_TALK_RULES =
   "NEVER SAY YOU WILL 'PAUSE' A PROPOSAL: there is no paused state - a proposal is waiting until he answers it, or dropped when he says no (or corrects it away). Say 'dropped' or 'still waiting', never 'paused'. " +
   "WHEN HE ASKS ABOUT PAY, give a number: use the pay tools with the miles on file for the load and his pay terms; if a figure is missing say exactly which one, never 'pending'.";
 
+/**
+ * Is this message answering the photo question? Only a SHORT reply that names a purpose, or a bare number.
+ * A long message that merely mentions a picture (a dispatch trip says "Send Picture of trailer", "SEAL",
+ * "BOL") is not an answer - owner 2026-11-16, a pasted trip got the expired-photo notice instead of a workup.
+ */
+export function answersPhotoAsk(text: string): boolean {
+  const t = text.trim();
+  if (/^\d$/.test(t)) return true;
+  return t.length <= 60 && !t.includes("\n") && /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b/i.test(t);
+}
+
 export type ConfirmationKind = "yes" | "no" | "other";
 
 // A BARE confirmation is one of these short phrases and NOTHING else (telegram audit 2026-11-06, P0-1):
@@ -1068,7 +1079,7 @@ export async function runAgentTurn(
     if (pending?.tool_name === PHOTO_PURPOSE_TOOL) {
       const resolved = input.writesRefused === true ? null : await tryResolvePhotoPurposeAsk(store, pending, input.userText);
       const expiredOnly = resolved?.reply === PHOTO_ASK_EXPIRED_REPLY;
-      const answeringIt = /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b|^\s*\d\s*$/i.test(input.userText);
+      const answeringIt = answersPhotoAsk(input.userText);
       if (resolved && !(expiredOnly && !answeringIt)) return resolved;
     }
     quoteScoped = true;
@@ -1178,7 +1189,7 @@ export async function runAgentTurn(
     // is only worth a message when he was actually answering it; otherwise it is dropped quietly and his
     // message gets its own answer.
     const expiredOnly = resolved?.reply === PHOTO_ASK_EXPIRED_REPLY;
-    const answeringIt = /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b|^\s*\d\s*$/i.test(input.userText);
+    const answeringIt = answersPhotoAsk(input.userText);
     if (resolved && !(expiredOnly && !answeringIt)) return resolved;
     if (!expiredOnly) pendingPhotoAsk = pending;
   } else if (!quoteScoped && pending?.batch_id) {

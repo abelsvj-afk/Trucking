@@ -189,6 +189,47 @@ describe("rich cards on the reply path", () => {
     expect(d.sendYesNoMessage).not.toHaveBeenCalled();
   });
 
+  // Owner 2026-11-16: the same trip PASTED (no forward_date) used to go to the chat model as his own words -
+  // the trip reader never ran. It now takes the dispatch path exactly like a forward.
+  it("a PASTED dispatch trip is read by the trip reader, not sent to the chat model", async () => {
+    const d = cardDeps();
+    const runAgent = vi.fn().mockResolvedValue({ reply: "That photo question expired" });
+    const dispatchText = [
+      "🚛 NEW TRIP 9918 HAS BEEN ASSIGNED",
+      "STOP 1",
+      "SHIPPER/CONSIGNEE: SAMPLE FEEDS",
+      "📍 ADDRESS: 200 Example Street Southeast , Ardmore, OK 73401",
+      "APPT: 11/16/2026 14:00 CST",
+      "TYPE: Pickup Stop",
+      "STOP 2",
+      "SHIPPER/CONSIGNEE: SAMPLE DC1",
+      "📍 ADDRESS: 3380 Example Avenue Road , Ocala, FL 34475",
+      "APPT: 11/18/2026 06:30 EST",
+      "TYPE: Delivery Stop",
+      "LOADED DISTANCE: 1,118.10 mi",
+      "❗️Send Picture of trailer in PU/DEL",
+      "❗️SEND SEAL PICTURE",
+    ].join("\n");
+    d.getSuggestion.mockResolvedValue({ suggested_reply: "New load.", recordable_items: [] });
+    const stageRecordables = vi.fn().mockResolvedValue({
+      proposals: [{ tool: "create_load", args: { trip_number: "9918" }, summary: "Create load Trip 9918", batchId: "b", confidence: "high" }],
+      rejected: [],
+      blockedByPending: false,
+      review: "NEW TRIP 9918 — ready for your review",
+    });
+    const result = await handleTelegramUpdate(
+      { update_id: 301, message: { message_id: 2, chat: { id: 4242, type: "private" }, text: dispatchText, date: 1 } },
+      CONFIG,
+      { ...d, stageRecordables, runAgent },
+    );
+    expect(result).toBe("replied");
+    expect(stageRecordables).toHaveBeenCalledTimes(1);
+    expect(runAgent).not.toHaveBeenCalled();
+    const sent = JSON.stringify([...d.sendRichMessage.mock.calls, ...d.sendMessage.mock.calls, ...d.sendYesNoMessage.mock.calls]);
+    expect(sent).toContain("9918");
+    expect(sent).not.toContain("photo question expired");
+  });
+
   // Same for an agent-written staged proposal in a chat turn (no
   // forward): the reply asks for his yes on a trip with structured
   // lines, so it gets the header and rides a card too.

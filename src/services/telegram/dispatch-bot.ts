@@ -455,12 +455,17 @@ async function processTextItems(
   const relevantMemories = ctx.relevantMemories;
 
   try {
+    // Owner 2026-11-16: a dispatch trip PASTED (copied, not forwarded) went to the chat model as his own
+    // words - the trip reader never ran, the first try failed and the second was answered with an
+    // unrelated photo notice. A message the trip reader recognizes is a dispatch message however it
+    // arrived, so it takes the forward path.
+    const isTrip = (i: TelegramBurstItem) => !i.isForwarded && parseDispatchTrip(i.text) !== null;
     const captureItems = items.filter(
-      (i) => !i.isForwarded && classifyTelegramText(i.text, false, "telegram") !== "chat",
+      (i) => !i.isForwarded && !isTrip(i) && classifyTelegramText(i.text, false, "telegram") !== "chat",
     );
-    const forwardItems = items.filter((i) => i.isForwarded);
+    const forwardItems = items.filter((i) => i.isForwarded || isTrip(i));
     const chatItems = items.filter(
-      (i) => !i.isForwarded && classifyTelegramText(i.text, false, "telegram") === "chat",
+      (i) => !i.isForwarded && !isTrip(i) && classifyTelegramText(i.text, false, "telegram") === "chat",
     );
     const combinedForward =
       forwardItems.length === 1
