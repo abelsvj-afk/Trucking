@@ -189,6 +189,31 @@ describe("rich cards on the reply path", () => {
     expect(d.sendYesNoMessage).not.toHaveBeenCalled();
   });
 
+  // Owner 2026-11-16: the FORWARDED trip failed with "couldn't process that one". The AI reply draft is
+  // optional for a trip; its failure must not sink the code-read workup.
+  it("a forwarded trip is still worked up and staged when the AI reply draft fails", async () => {
+    const d = cardDeps();
+    d.getSuggestion.mockRejectedValue(new Error("provider timeout"));
+    const stageRecordables = vi.fn().mockResolvedValue({
+      proposals: [{ tool: "create_load", args: { trip_number: "9918" }, summary: "Create load Trip 9918", batchId: "b", confidence: "high" }],
+      rejected: [],
+      blockedByPending: false,
+      review: "NEW TRIP 9918 — ready for your review",
+    });
+    const text = ["NEW TRIP 9918 HAS BEEN ASSIGNED", "STOP 1", "SHIPPER: SAMPLE FEEDS", "ADDRESS: 200 Example Street, Ardmore, OK 73401", "APPT: 11/16/2026 14:00 CST", "STOP 2", "SHIPPER: SAMPLE DC1", "ADDRESS: 3380 Example Avenue, Ocala, FL 34475", "APPT: 11/18/2026 06:30 EST"].join("\n");
+    const result = await handleTelegramUpdate(
+      { update_id: 302, message: { message_id: 3, chat: { id: 4242, type: "private" }, text, forward_date: 123, date: 1 } },
+      CONFIG,
+      { ...d, stageRecordables },
+    );
+    expect(result).toBe("replied");
+    expect(stageRecordables).toHaveBeenCalledTimes(1);
+    const sent = JSON.stringify([...d.sendRichMessage.mock.calls, ...d.sendMessage.mock.calls, ...d.sendYesNoMessage.mock.calls]);
+    expect(sent).toContain("9918");
+    expect(sent).not.toContain("couldn't process");
+    expect(sent).toContain("AI helper didn't answer");
+  });
+
   // Owner 2026-11-16: the same trip PASTED (no forward_date) used to go to the chat model as his own words -
   // the trip reader never ran. It now takes the dispatch path exactly like a forward.
   it("a PASTED dispatch trip is read by the trip reader, not sent to the chat model", async () => {

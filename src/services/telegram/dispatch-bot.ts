@@ -555,14 +555,26 @@ async function processTextItems(
           ctx.memoryReport ? `CONTEXT REPORT: ${ctx.memoryReport}` : "",
           exemplarsBlock ?? "",
         ].filter(Boolean);
-        const suggestion = await deps.getSuggestion(
-          combinedForward,
-          contextParts.length > 0 ? contextParts.join("\n\n") : dispatchContext,
-        );
         // P2-3 (telegram audit 2026-11-06): a recognized trip assignment needs no "who is this /
         // what are they asking" guess - it is dispatch assigning a trip, and the staged load says the rest.
         const trip = parseDispatchTrip(combinedForward);
         dispatchTrip = trip;
+        // Owner 2026-11-16: the AI draft of a reply is optional for a trip - the trip itself is read by code.
+        // A failed or timed-out AI call used to fail the whole message ("couldn't process that one"); now a
+        // trip is still worked up and staged, and the failure is said plainly (self-report rule).
+        let suggestionFailed = false;
+        let suggestion: Awaited<ReturnType<typeof deps.getSuggestion>>;
+        try {
+          suggestion = await deps.getSuggestion(
+            combinedForward,
+            contextParts.length > 0 ? contextParts.join("\n\n") : dispatchContext,
+          );
+        } catch (err) {
+          if (!trip) throw err;
+          console.error("[telegram] dispatch suggestion failed; trip staged without it", err);
+          suggestionFailed = true;
+          suggestion = { suggested_reply: "", recordable_items: [] } as unknown as typeof suggestion;
+        }
         let reply = trip
           ? `That's dispatch assigning Trip ${trip.tripNumber}.` +
             (suggestion.suggested_reply ? `\n\nSuggested reply:\n${suggestion.suggested_reply}` : "")
@@ -589,6 +601,9 @@ async function processTextItems(
         } else if (options?.writesRefused && (suggestion.recordable_items.length > 0 || trip)) {
           reply +=
             "\n\nI worked that over, but I didn't stage anything from it — a storage hiccup kept me from verifying the message wasn't a duplicate. Send it again in a moment and I'll line it all up for your yes.";
+        }
+        if (suggestionFailed) {
+          reply += "\n\n⚠️ My AI helper didn't answer this time, so there's no suggested reply to dispatch — the trip itself was read and lined up above.";
         }
         segments.push(reply);
         const bundleText = combinedForward;
