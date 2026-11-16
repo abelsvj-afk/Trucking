@@ -73,6 +73,7 @@ import { formatClock, HOME_TIME_ZONE, loadDisplayZone, zoneLongName } from "@/li
 import { displayFileName } from "@/services/documents/document-naming";
 import { asksAboutHisPay, payFiguresBlock } from "./pay-projection-tools";
 import { readEmailIfAsked } from "./email-tools";
+import { groundedAskBlocks } from "./grounded-asks";
 import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
 export const BOT_DISABLED_REPLY =
@@ -293,6 +294,12 @@ export function answersPhotoAsk(text: string): boolean {
   const t = text.trim();
   if (/^\d$/.test(t)) return true;
   return t.length <= 60 && !t.includes("\n") && /\b(photo|picture|pic|image|bol|receipt|trailer|seal|document)\b/i.test(t);
+}
+
+/** "what's waiting on me", "what's pending", "what do I need to approve". */
+export function asksWhatIsWaiting(text: string): boolean {
+  const t = text.toLowerCase().trim().replace(/[?.!]+$/, "");
+  return t.length <= 60 && /\b(what('?s| is)?( still)? (waiting|pending)|anything (waiting|pending)|what do i (need|have) to (approve|answer|ok)|pending items?|what needs my (yes|ok|approval))\b/.test(t);
 }
 
 export type ConfirmationKind = "yes" | "no" | "other";
@@ -1262,6 +1269,18 @@ export async function runAgentTurn(
     const stagedSend = await stageEmailSendIfAsked(store, input.userText);
     if (stagedSend) return stagedSend;
   }
+  // "What's waiting on me" - the numbered waiting list, in code (docs/design/abel-do-what-i-ask.md section 2).
+  if (asksWhatIsWaiting(input.userText)) {
+    try {
+      const groups = groupWaitingRows(await store.loadOpenPendingRows(), Date.now(), PENDING_EXPIRY_MS);
+      const zone = await zoneOf(store);
+      if (groups.length === 0) return { reply: "Nothing is waiting on you — no proposals open." };
+      if (groups.length === 1) return { reply: `One thing is waiting on you:\n- ${groupLine(groups[0]!, zone)}\n👉 Reply YES to record it, or NO to drop it.` };
+      return { reply: formatWaitingList(groups.map((g) => groupLine(g, zone))) };
+    } catch (err) {
+      console.error("[bot] listing what is waiting failed (the model handles the turn)", err);
+    }
+  }
   // "What's the email say" after an email notice: read out in code, word for word (owner 2026-11-16).
   try {
     const lastAbel = [...input.history].reverse().find((t) => t.role === "assistant")?.text ?? "";
@@ -1365,6 +1384,7 @@ export async function runAgentTurn(
           openRows.map((r) => `- [pending ${r.id}] (${r.tool_name}) ${waitingLine(r.summary, displayZone, 400)}`).join("\n") +
           "\nIF HIS MESSAGE CORRECTS OR COMMENTS ON ONE OF THESE (a wrong trailer number, load number, date, address, status - anything about what you just showed him), it is about the WAITING item: call revise_pending_item with pending_id and only the changed fields (confirmation \"execute\"), then show him the corrected line. " +
           "A trip or load that is still waiting here DOES NOT EXIST in his records yet: never call update_load, set_load_stops, attach_document or list_loads to find it, never tell him the load can't be found, and never pick a different saved load in its place. " +
+          "A NUMBER YOU READ FROM A PHOTO (trailer, seal, pickup number) can be misread: when he gives the right one (\"the trailer is actually 5620490\"), revise EVERY waiting item that carries the misread number (the trailer item and the trip item alike) with pending_id, and say back the corrected number - never argue with his reading. " +
           "If he says a waiting item is wrong altogether (\"it's active, not complete\"), drop it with revise_pending_item drop:true. Never restage something that is already in this list.",
       );
     }
@@ -1396,6 +1416,8 @@ export async function runAgentTurn(
       `HE JUST SAID NO to your waiting suggestion, and it is cancelled (nothing was recorded): ${cancelledSuggestion}. The rest of his message is a NEW request - handle it fresh and do not carry the cancelled item into it. The cancel itself is never a delete; only if he explicitly asks to delete a SAVED record, find it with a read tool and propose delete_record for that record.`,
     );
   }
+  // Everyday asks (hours, next load) looked up in code first - docs/design/abel-do-what-i-ask.md section 2.
+  contextBlocks.push(...(await groundedAskBlocks(input.userText, buildBotTools(store))));
   if (asksAboutHisPay(input.userText)) {
     const payBlock = await payFiguresBlock(store);
     if (payBlock) contextBlocks.push(payBlock);

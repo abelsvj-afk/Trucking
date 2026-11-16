@@ -1723,7 +1723,7 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // F2 (remember better) adds 3 tools (list_agent_lessons,
     // save_agent_lesson, correct_agent_lesson — episode-tools.ts):
     // 148 re-measured on this branch before the addition, 151 after.
-    expect(buildBotTools(store)).toHaveLength(151);
+    expect(buildBotTools(store)).toHaveLength(152);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
@@ -1962,6 +1962,7 @@ describe("the waiting list is answered by number, in code (owner 2026-11-12)", (
     const sent = JSON.stringify(runToolTurn.mock.calls[0]);
     for (const id of ["a", "b", "c", "d"]) expect(sent).toContain(`[pending ${id}]`);
     expect(sent).toContain("DOES NOT EXIST in his records yet");
+    expect(sent).toContain("A NUMBER YOU READ FROM A PHOTO");
   });
 
   it("revise_pending_item reaches any waiting item by id, and can drop one - nothing is recorded", async () => {
@@ -1976,5 +1977,41 @@ describe("the waiting list is answered by number, in code (owner 2026-11-12)", (
     expect(db.bot_pending_actions!.find((r) => r.id === "b")!.arguments).toMatchObject({ amount_dollars: 33 });
     expect(db.expenses ?? []).toHaveLength(0);
     expect(db.bot_memories ?? []).toHaveLength(0);
+  });
+});
+
+// docs/design/abel-do-what-i-ask.md section 2 (owner 2026-11-16): everyday asks answered from his records in code.
+describe("everyday asks answered in code (owner 2026-11-16)", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+
+  it("'what's waiting on me' lists the waiting items without a model call", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "a", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "permits", amount_dollars: 11 }, summary: "Expense: $11.00 (permits)", created_at: ago(30), deleted_at: null },
+      { id: "b", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 22 }, summary: "Expense: $22.00 (repairs)", created_at: ago(20), deleted_at: null },
+    ];
+    const { client } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("What's waiting on me?"));
+    expect(out.reply).toContain("1. Expense: $11.00 (permits)");
+    expect(out.reply).toContain("2. Expense: $22.00 (repairs)");
+  });
+
+  it("'what's waiting' with nothing open says so", async () => {
+    const { client } = fakeClient(baseSeed(true));
+    const { provider: noModel } = neverCalledProvider();
+    expect((await runAgentTurn(noModel, telegramStore(client), input("anything pending"))).reply).toContain("Nothing is waiting");
+  });
+
+  it("'what's my next load' hands the model his load calendar, looked up in code", async () => {
+    const seed = baseSeed(true);
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    seed.loads = [{ id: "L1", company_id: COMPANY, origin: "Ardmore, OK", destination: "Ocala, FL", status: "confirmed", pickup_date: today, delivery_date: today, deleted_at: null }];
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "Ardmore to Ocala.", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("what's my next load"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toContain("HIS LOADS IN CALENDAR ORDER");
+    expect(sent).toContain("Ardmore, OK");
   });
 });

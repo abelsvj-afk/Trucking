@@ -29,6 +29,14 @@ import type { BusinessCreditData } from "@/lib/business-credit";
 import type { WhatIKnowModel } from "@/services/bot/what-i-know";
 
 /** One row of the "What Abel remembers" list (Lane 2, Phase B). */
+export interface CapabilityGapItem {
+  id: string;
+  asked: string;
+  missing: string;
+  times_asked: number;
+  last_asked_at: string;
+}
+
 export interface BotMemoryListItem {
   id: string;
   kind: string;
@@ -360,6 +368,14 @@ export const apiClient = {
   },
   inboxMessage: (id: string) =>
     request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[]; sent: import("@/services/email/store").SentRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
+  // Abel's "can't do that yet" list (docs/design/abel-do-what-i-ask.md).
+  listCapabilityGaps: () =>
+    request<{ data: CapabilityGapItem[]; ready: boolean }>("/api/v1/capability-gaps"),
+  dismissCapabilityGap: (id: string) =>
+    request<{ data: { id: string; dismissed: boolean } }>("/api/v1/capability-gaps", {
+      method: "DELETE",
+      body: JSON.stringify({ id }),
+    }),
   listMemories: (includeHistory = false) =>
     request<BotMemoryListResult>(`/api/v1/memories${includeHistory ? "?history=1" : ""}`),
   editMemory: (id: string, content: string) =>

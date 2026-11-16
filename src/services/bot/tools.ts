@@ -35,6 +35,7 @@ import { evaluatePayOffer, formatPayEvaluation, payOfferArgs } from "./pay-advis
 import { buildRouteCheckTool } from "./route-check-tool";
 import { buildPayTools } from "./pay-tools";
 import { buildPayProjectionTools } from "./pay-projection-tools";
+import { buildCapabilityGapTools } from "./capability-gaps";
 import { buildTemporalTools } from "./temporal-tools";
 import { buildLearningTools } from "./learning-tools";
 import { buildFleetTools } from "./fleet-tools";
@@ -1086,6 +1087,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   // report - own module (pay-tools.ts), same registry.
   tools.push(...buildPayTools(store));
   tools.push(...buildPayProjectionTools(store));
+  tools.push(...buildCapabilityGapTools(store));
   tools.push(...buildTemporalTools(store));
   tools.push(...buildLearningTools(store));
   tools.push(...buildFleetTools(store));

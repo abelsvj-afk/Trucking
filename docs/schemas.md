@@ -1451,3 +1451,19 @@ Abel's self-directed learning agenda (docs/design/autonomous-research.md §4): p
 - `business_credit_profiles` — one row per company: the identity header as data (`legal_name`, `filed_name`, `duns`, `sunbiz_doc`, `sunbiz_status`, `registered_address`, `business_email`). Deliberately NO EIN column. RLS tenant isolation; unique live row per company.
 - `business_credit_accounts` — one row per tracked vendor: `vendor`, `vendor_key` (unique per company), `status` (phase in words), `reports_to` text[], `next_action`, `payment_state` check in (none, invoice_open, due_soon, paid, missed), `next_due_date` (nullable — null = nothing expected), `amount_due_cents` (nullable), `match_senders` text[] (the email watch's vendor match, as data), `notes`, `sort_order`. RLS tenant isolation.
 - `business_credit_events` — the audit trail: `account_id` (composite tenant FK), `source` (email_watch, abel_tool, owner), `signal` (invoice, due_date, payment_made, missed, update), `email_message_id` (composite tenant FK to email_messages) + `email_server_message_id`, `summary`, `detail` jsonb (before/after), `buzz_state` (none, held, sent) + `buzz_text` + `buzz_sent_at`. Unique (company, account, email) for watch events — a message is never re-buzzed. RLS tenant isolation.
+
+### `abel_capability_gaps` — created in 00096
+
+Abel's "can't do that yet" list (docs/design/abel-do-what-i-ask.md): an ask he made that no tool could do, in his
+words, with what is missing. The same ask again bumps `times_asked`. Shown in the app under More → What Abel can't do
+yet, where he can drop one. Written best-effort by the bot; before this migration is applied the write fails, is
+logged, and Abel still tells him plainly that it can't do the thing.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `asked` text not null — his words (1–1000 chars)
+- `missing` text not null — what is missing, in plain words (1–500 chars)
+- `times_asked` integer not null default 1
+- `status` text not null default 'open' — open | built | dismissed
+- `created_at`, `last_asked_at` timestamptz not null default now()
+- `deleted_at` timestamptz

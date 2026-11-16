@@ -38,6 +38,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/more/game-plan", label: "Game Plan", desc: "Your target, gamed: the path from your real numbers to the truck, the authority, the company — projections, not promises." },
   { href: "/more/inbox", label: "Company inbox", desc: "Mail to dispatch@ that Abel has read — load offers, payments, shipper notes. Read-only; he cannot send or change anything." },
   { href: "/more/memories", label: "What Abel remembers", desc: "Everything the assistant has stored about you and your business — see it, correct it, delete it." },
+  { href: "/more/abel-cant-yet", label: "What Abel can't do yet", desc: "Things you asked Abel for that it can't do yet — the list of what to build next" },
   { href: "/more/settings", label: "Account & settings", desc: "Your account, and the switches for what the AI may do." },
 ];
 
