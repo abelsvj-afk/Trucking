@@ -138,3 +138,24 @@ export async function payFiguresBlock(store: BotBrainStore): Promise<string | nu
     return null;
   }
 }
+
+/**
+ * This pay week so far, from the same projection projected_pay uses - for the daily check-in
+ * (docs/design/abel-do-what-i-ask.md section 6). Null when he has no pay terms or the read fails.
+ */
+export async function thisPayWeekSoFar(store: BotBrainStore, today: string): Promise<PeriodProjection | null> {
+  const profiles = await store.client.from("employer_pay_profiles").select(PROFILE_COLUMNS).eq("company_id", store.companyId).is("deleted_at", null);
+  if (profiles.error) return null;
+  const rows = (profiles.data ?? []) as unknown as PayTermsRow[];
+  if (rows.length === 0) return null;
+  const termsFor = (l: { delivery_date: string | null; pickup_date: string | null }) => termsForDate(rows, l.delivery_date ?? l.pickup_date)!.terms;
+  const { data, error } = await store.client
+    .from("loads")
+    .select("*")
+    .eq("company_id", store.companyId)
+    .is("deleted_at", null)
+    .in("status", ["confirmed", "completed"])
+    .limit(200);
+  if (error) return null;
+  return projectPeriod(termsFor({ delivery_date: today, pickup_date: today }), (data ?? []) as Load[], today, { termsFor });
+}

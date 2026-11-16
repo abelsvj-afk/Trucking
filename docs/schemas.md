@@ -1483,3 +1483,5 @@ deposit, and optionally the statement he attached. Confirming again soft-deletes
 - `source` text not null default 'app' — app | abel
 - `confirmed_at`, `created_at` timestamptz not null default now()
 - `deleted_at` timestamptz
+
+_00098 (2026-11-16): `reminder_sends.kind` also accepts `checkin` (Abel's daily morning / evening check-in)._

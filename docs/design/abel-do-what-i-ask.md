@@ -50,3 +50,18 @@ was ignored. Now what he types himself in the same burst as a forwarded or paste
 `notes`, in his words, in the same yes. The review says "📝 Your note goes on the load: ...". A bare yes/no is never
 treated as a note. `list_loads` now returns each load's trip number and his note, so Abel can bring the note up
 when he asks about the trip later.
+
+## 6. Daily check-in, morning and evening (added 2026-11-16, owner chose "Morning and evening")
+
+One short message instead of a scatter of alerts (`src/services/bot/check-in.ts`, sent by the reminder scheduler's tick):
+- **Morning:** when he starts his day (the first Driving / On duty entry after 3 AM on his clock), or at 9 AM if he
+  hasn't logged a start by then. Contents: hours left (driving, 14-hour window, cycle, "planning only, not an ELD"),
+  the next confirmed load, pay this week so far, and how many things are waiting on him.
+- **Evening:** after he has been off duty or in the sleeper for 30 minutes, having worked that day, between 5 PM and
+  9 PM. Contents: driving time today, the next load, pay this week, and what's waiting. After 9 PM quiet hours begin,
+  so a late evening is skipped and the morning message covers it.
+- **Facts only:** every line comes from his records, and a missing fact is left out ("No upcoming load on file"),
+  never guessed.
+- **Once per kind per day,** through the same once-only record as the hours reminders (`reminder_sends`, kind
+  `checkin`, migration 00098). It is controlled by the same switch as the logging reminders. Until 00098 is applied
+  the check-in is not sent, and the hours warnings are never held back by it.

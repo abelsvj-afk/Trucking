@@ -94,3 +94,54 @@ describe("runRemindersIfDue", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 });
+
+describe("the daily check-in rides the same tick (docs/design/abel-do-what-i-ask.md section 6)", () => {
+  // 9:05 AM Eastern: the morning check-in is due, and so is a 30-minute driving warning.
+  const MORNING = new Date("2026-11-16T14:05:00Z");
+  const chain = () => {
+    const q: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "is", "order", "limit", "in", "gte", "lte", "not"]) q[m] = () => q;
+    q.then = (ok: (v: { data: unknown[]; error: null }) => unknown) => Promise.resolve(ok({ data: [], error: null }));
+    q.maybeSingle = async () => ({ data: null, error: null });
+    return q;
+  };
+  function storeWith(checkinRefused: boolean) {
+    const kinds: string[] = [];
+    const client = {
+      from: (table: string) =>
+        table === "reminder_sends"
+          ? {
+              insert: async (r: { kind: string }) => {
+                if (checkinRefused && r.kind === "checkin") return { error: { message: 'violates check constraint "reminder_sends_kind_check"' } };
+                kinds.push(r.kind);
+                return { error: null };
+              },
+              delete: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+            }
+          : chain(),
+    };
+    const store = { client, companyId: "co", isLoggingRemindersEnabled: async () => true, loadOpenPendingRows: async () => [] } as unknown as BotBrainStore;
+    return { store, kinds };
+  }
+  const drivingSince = (h: number) => [{ duty_status: "off_duty", started_at: new Date(MORNING.getTime() - 20 * H).toISOString() }, { duty_status: "driving", started_at: new Date(MORNING.getTime() - h * H).toISOString() }];
+
+  it("the morning check-in goes out with the hours warning, in one message", async () => {
+    DUTY = drivingSince(10.5);
+    const notify = vi.fn().mockResolvedValue(true);
+    const { store, kinds } = storeWith(false);
+    await runRemindersIfDue({ store, notify, now: () => MORNING, quietHours: () => false });
+    expect(kinds).toContain("checkin");
+    expect(notify.mock.calls[0]![0]).toContain("Good morning");
+  });
+
+  it("a refused check-in (migration 00098 not applied) never blocks the hours warning", async () => {
+    DUTY = drivingSince(10.5);
+    const notify = vi.fn().mockResolvedValue(true);
+    const { store, kinds } = storeWith(true);
+    const r = await runRemindersIfDue({ store, notify, now: () => MORNING, quietHours: () => false });
+    expect(r.sent).toBeGreaterThan(0);
+    expect(kinds).toContain("hos");
+    expect(notify.mock.calls[0]![0]).toContain("not an ELD");
+    expect(notify.mock.calls[0]![0]).not.toContain("Good morning");
+  });
+});

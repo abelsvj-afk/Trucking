@@ -30,7 +30,7 @@ export interface ReminderRow {
 }
 
 export interface Reminder {
-  kind: "hos" | "stale_status";
+  kind: "hos" | "stale_status" | "checkin";
   /** Persisted dedupe key: the same key is never sent twice. */
   key: string;
   /** True = bypasses quiet hours and the driving hold. */

@@ -18,6 +18,11 @@ import { isQuietHours } from "@/services/research/delivery";
 import { createTelegramBrainStore } from "@/services/telegram/store";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 import type { BotBrainStore } from "./store";
+import { composeCheckIn, dueCheckIn, drivingTodayMs, type DutyRow } from "./check-in";
+import { thisPayWeekSoFar } from "./pay-projection-tools";
+import { groupWaitingRows } from "./waiting-list";
+import { computeHudClocks } from "@/lib/hud-clocks";
+import { HOME_TIME_ZONE, loadDisplayZone } from "@/lib/display-zone";
 
 export const REMINDER_CHECK_MS = 5 * 60_000;
 let started = false;
@@ -64,6 +69,13 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
     const quiet = (overrides.quietHours ?? ((n: Date) => isQuietHours(n, getResearchConfig())))(now);
     const snapshot = await loadHosWindow(store.client, store.companyId, now, "duty_status, started_at");
     const due = evaluateReminders(snapshot.rows, now.getTime(), toWindowSummary(snapshot));
+    // The daily check-in (docs/design/abel-do-what-i-ask.md section 6) rides the same tick and the same
+    // once-only claim. It never blocks the safety reminders: its own failure is logged and ignored.
+    const checkIn = await planCheckIn(store, snapshot, now).catch((err) => {
+      console.error("[reminders] check-in planning failed", err);
+      return null;
+    });
+    if (checkIn) due.push(checkIn);
     const sendable = due.filter((r) => r.critical || !quiet);
     const held = due.length - sendable.length;
     if (sendable.length === 0) return { sent: 0, held };
@@ -71,6 +83,12 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
     const claimed: Reminder[] = [];
     for (const reminder of sendable) {
       const outcome = await claim(store, reminder);
+      // A check-in that can't be claimed (e.g. migration 00098 not applied yet) is simply not sent;
+      // it must never stop the safety reminders in the same tick.
+      if (outcome === "unavailable" && reminder.kind === "checkin") {
+        console.error("[reminders] check-in claim refused - skipping the check-in only");
+        continue;
+      }
       if (outcome === "unavailable") {
         console.error("[reminders] dedupe table unavailable - sending nothing this tick");
         for (const c of claimed) await release(store, c);
@@ -92,6 +110,36 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
     console.error("[reminders] tick failed", err);
     return { sent: 0, held: 0, skipped: "error" };
   }
+}
+
+/** The check-in due now, as a routine reminder (quiet hours hold it like any routine message), or null. */
+async function planCheckIn(store: BotBrainStore, snapshot: Awaited<ReturnType<typeof loadHosWindow>>, now: Date): Promise<Reminder | null> {
+  const rows = snapshot.rows as DutyRow[];
+  const zone = (await loadDisplayZone(store.client, store.companyId, now.getTime()).catch(() => null))?.timeZone ?? HOME_TIME_ZONE;
+  const due = dueCheckIn(rows, now.getTime(), zone);
+  if (!due) return null;
+  const nextLoadRes = await store.client
+    .from("loads")
+    .select("trip_number, origin, destination, pickup_date, delivery_date, status")
+    .eq("company_id", store.companyId)
+    .is("deleted_at", null)
+    .eq("status", "confirmed")
+    .order("pickup_date", { ascending: true, nullsFirst: false })
+    .limit(5);
+  const upcoming = ((nextLoadRes.data ?? []) as Record<string, string | null>[]).find((l) => !l.delivery_date || l.delivery_date >= due.day);
+  const payWeek = await thisPayWeekSoFar(store, due.day).catch(() => null);
+  const waiting = groupWaitingRows(await store.loadOpenPendingRows().catch(() => []), now.getTime(), 2 * 3_600_000).length;
+  const text = composeCheckIn({
+    kind: due.kind,
+    clocks: computeHudClocks(rows, toWindowSummary(snapshot), now.getTime()),
+    drivingTodayMs: drivingTodayMs(rows, now.getTime(), zone),
+    nextLoad: upcoming
+      ? { tripNumber: upcoming.trip_number ?? null, origin: String(upcoming.origin), destination: String(upcoming.destination), pickupDate: upcoming.pickup_date ?? null, deliveryDate: upcoming.delivery_date ?? null }
+      : null,
+    payWeek: payWeek ? { lowCents: payWeek.lowCents, highCents: payWeek.highCents } : null,
+    waitingCount: waiting,
+  });
+  return { kind: "checkin", key: `checkin:${due.kind}:${due.day}`, critical: false, text };
 }
 
 export function startReminderScheduler(): void {
