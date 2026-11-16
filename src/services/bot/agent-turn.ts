@@ -72,6 +72,7 @@ import {
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone, zoneLongName } from "@/lib/display-zone";
 import { displayFileName } from "@/services/documents/document-naming";
 import { asksAboutHisPay, payFiguresBlock } from "./pay-projection-tools";
+import { readEmailIfAsked } from "./email-tools";
 import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
 export const BOT_DISABLED_REPLY =
@@ -1260,6 +1261,14 @@ export async function runAgentTurn(
   if (pendingBatch.length === 0 && !pendingPhotoAsk && !writesRefused) {
     const stagedSend = await stageEmailSendIfAsked(store, input.userText);
     if (stagedSend) return stagedSend;
+  }
+  // "What's the email say" after an email notice: read out in code, word for word (owner 2026-11-16).
+  try {
+    const lastAbel = [...input.history].reverse().find((t) => t.role === "assistant")?.text ?? "";
+    const readOut = await readEmailIfAsked(store, input.userText, lastAbel);
+    if (readOut) return { reply: readOut };
+  } catch (err) {
+    console.error("[bot] reading the email in code failed (the model handles the turn)", err);
   }
 
   // Telegram fix round (fixes 10/11/11B): resolve his references in

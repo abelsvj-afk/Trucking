@@ -80,3 +80,12 @@ apply before deploy. Guard test: `tests/unit/services/bot/telegram-review-guard.
   is how his note on a forwarded trip went unanswered. Now only the sentences carrying the figure are removed and a one-line
   note says so. If too little is left to be an answer, the old refusal stands. The untraceable figure itself never
   reaches him either way.
+
+## Amendment 2026-11-16: reading the email in code
+
+"What's the email say" right after an email notice failed (that day because the AI account was out of credit; even
+with credit, it depended on the model choosing `read_email_verbatim`). It is now answered in code
+(`readEmailIfAsked` in `src/services/bot/email-tools.ts`):
+- a short request to read / open / say what the email says, or "read it" / "what does it say" right after an email notice;
+- the message read is the one the last notice named (by subject), else the newest in the inbox;
+- the text is relayed word for word and never acted on (showing is not obeying).

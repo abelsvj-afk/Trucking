@@ -382,3 +382,35 @@ export function buildEmailTools(
     },
   ];
 }
+
+/**
+ * "What's the email say" / "read it to me" right after an email notice (owner 2026-11-16): answered in CODE,
+ * word for word, instead of hoping the model picks read_email_verbatim. The message is the one the last notice
+ * named (matched by its subject), else the newest in the inbox. Returns null when this is not such a request,
+ * so the model handles everything else. Showing is not obeying: the text is relayed, never acted on.
+ */
+export function asksToReadTheEmail(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  if (t.length > 80) return false;
+  return (
+    /\b(what('?s| does| did)?|read|open|show)\b.*\b(email|e-mail|mail)\b/.test(t) ||
+    /^(what('?s| does) it say|read it( to me)?|open it|what does that say|what'?s it say)\??$/.test(t)
+  );
+}
+
+export async function readEmailIfAsked(
+  store: BotBrainStore,
+  userText: string,
+  lastAssistantText: string,
+  emailStore: EmailStore = createEmailStore(store.client, store.companyId),
+): Promise<string | null> {
+  const afterNotice = lastAssistantText.includes("📬");
+  if (!asksToReadTheEmail(userText)) return null;
+  // "read it" / "what does it say" only means the email right after an email notice
+  if (!/\b(email|e-mail|mail)\b/i.test(userText) && !afterNotice) return null;
+  const subject = afterNotice ? lastAssistantText.match(/^Subject: (.+)$/m)?.[1]?.trim() : undefined;
+  const byNotice = subject ? (await emailStore.list({ query: subject, limit: 1 }))[0] : undefined;
+  const m = byNotice ?? (await emailStore.list({ limit: 1 }))[0];
+  if (!m) return "There's nothing in the inbox to read yet.";
+  return renderVerbatimEmail(m);
+}
