@@ -584,9 +584,15 @@ async function processTextItems(
         // T-004: never staged on a read-only (claim-failed) turn.
         if (deps.stageRecordables && !options?.writesRefused && (suggestion.recordable_items.length > 0 || trip)) {
           try {
+            // His own words in the same burst ride the trip as its note (owner 2026-11-16). Bare yes/no and
+            // capture dictations are not notes.
+            const ownerNote = trip
+              ? chatItems.map((i) => i.text.trim()).filter((t) => t && !BARE_CONFIRMATION.test(t)).join("\n")
+              : "";
             const outcome = await deps.stageRecordables(combinedForward, suggestion.recordable_items, {
               chatId: String(chatId),
               documents: options?.documents,
+              ...(ownerNote ? { ownerNote } : {}),
             });
             reply += formatRecordableOutcome(outcome);
             // D4: the workup's staged groups are rendered in this

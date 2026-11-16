@@ -87,7 +87,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       async run(args) {
         let query = client
           .from("loads")
-          .select("id, origin, destination, status, pickup_date, delivery_date, rate_cents, miles")
+          .select("id, origin, destination, status, pickup_date, delivery_date, rate_cents, miles, trip_number, notes")
           .eq("company_id", companyId)
           .is("deleted_at", null)
           .order("created_at", { ascending: false })
@@ -100,11 +100,13 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         return rows
           .map(
             (r) =>
-              `- [${r.id}] ${r.origin} → ${r.destination} (${r.status}` +
+              `- [${r.id}] ${r.trip_number ? `Trip ${String(r.trip_number)}, ` : ""}${r.origin} → ${r.destination} (${r.status}` +
               `${r.pickup_date ? `, pickup ${r.pickup_date}` : ""}` +
               `${r.delivery_date ? `, delivery ${r.delivery_date}` : ""}` +
               `${typeof r.rate_cents === "number" ? `, rate ${dollars(r.rate_cents)}` : ""}` +
-              `${typeof r.miles === "number" ? `, ${r.miles} mi` : ""})`,
+              `${typeof r.miles === "number" ? `, ${r.miles} mi` : ""})` +
+              // his own note on the load (owner 2026-11-16: a note sent with a trip must be recallable)
+              `${typeof r.notes === "string" && r.notes.trim() ? ` - his note: "${r.notes.trim().slice(0, 300)}"` : ""}`,
           )
           .join("\n");
       },

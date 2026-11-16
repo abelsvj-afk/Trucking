@@ -189,6 +189,32 @@ describe("stageRecordables", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("his own words sent with the trip ride the load as its note, in the same yes (owner 2026-11-16)", async () => {
+    const { store, rows } = makeStoreWithBrokers([]);
+    const msg = `NEW TRIP 1234 HAS BEEN ASSIGNED
+STOP 1
+SHIPPER/CONSIGNEE: Example Steel Co
+ADDRESS: 100 Example Way, Springfield, MO 65801
+APPT: 11/04/2026 00:00 CST
+TYPE: Pickup Stop
+STOP 2
+SHIPPER/CONSIGNEE: Sample County Recycling
+ADDRESS: 200 Sample Road , Tampa, FL 33601
+APPT: 11/05/2026 00:00 EST
+TYPE: Delivery Stop
+TRIP DETAILS
+BROKER: Example Logistics
+REF #: REF123456
+DEADHEAD: 120.00 mi
+LOADED DISTANCE: 900.50 mi
+TOTAL DISTANCE: 1,000.50 mi
+❗️SEND SEAL PICTURE`;
+    const out = await stageRecordables(store, msg, [], { ownerNote: "Trailer is empty, not sure yet if it's a drop and hook" });
+    const load = rows.find((r) => !r.deleted_at && r.tool_name === "create_load")!;
+    expect((load.arguments as Record<string, unknown>).notes).toBe("Trailer is empty, not sure yet if it's a drop and hook");
+    expect(out.review).toContain("Your note goes on the load");
+  });
+
   it("forwarding the same trip again replaces the copy still waiting - one load proposal, never two (owner 2026-11-12)", async () => {
     const { store, rows } = makeStoreWithBrokers([]);
     const msg = `NEW TRIP 1234 HAS BEEN ASSIGNED

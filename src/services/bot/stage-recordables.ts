@@ -100,6 +100,11 @@ export function tripReview(trip: ParsedTrip, brokerResolved: boolean): string {
 export interface StageBundleContext {
   chatId?: string;
   documents?: FiledPhotoInfo[];
+  /**
+   * What he typed himself alongside the forwarded trip (owner 2026-11-16: "the trailer is empty, not sure if I'm
+   * dropping and hooking" was ignored). It rides the load as its note, in his words, in the same yes.
+   */
+  ownerNote?: string;
 }
 
 export async function stageRecordables(
@@ -153,6 +158,11 @@ export async function stageRecordables(
       // could create the load twice. The copy still waiting (and what was bundled with it) is replaced.
       const replaced = await clearWaitingTripCopies(store, trip.tripNumber);
       const bundleLines = await linkBundleTrailer(store, trip, tripArgs, bundle);
+      const ownerNote = bundle?.ownerNote?.trim();
+      if (ownerNote) {
+        tripArgs.notes = ownerNote.slice(0, 2000);
+        bundleLines.push(`📝 Your note goes on the load: "${ownerNote.length > 200 ? `${ownerNote.slice(0, 199)}…` : ownerNote}"`);
+      }
       if (replaced > 0) bundleLines.push("This replaces the copy of this trip that was still waiting — there is only one now.");
       const checked = createLoad?.validateArgs ? createLoad.validateArgs(tripArgs) : { ok: true as const, args: tripArgs };
       if (createLoad && checked.ok) {

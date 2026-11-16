@@ -42,3 +42,11 @@ statement of duty status ("I'm off duty", "been driving 2 hours", "just went on 
   without his yes, and he can answer with the right time instead.
 - Questions ("am I off duty?"), plans ("I'll be off duty at 5"), negations, bare words ("off duty", which may be an
   answer to something else) and longer messages are left to the model.
+
+## 5. His note sent with a trip sticks to the load (added 2026-11-16)
+
+In the chat, he sent "the trailer is empty, not sure yet if I'm dropping and hooking" together with Trip 1903, and it
+was ignored. Now what he types himself in the same burst as a forwarded or pasted trip rides the new load as its
+`notes`, in his words, in the same yes. The review says "📝 Your note goes on the load: ...". A bare yes/no is never
+treated as a note. `list_loads` now returns each load's trip number and his note, so Abel can bring the note up
+when he asks about the trip later.
