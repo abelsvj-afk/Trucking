@@ -89,3 +89,15 @@ describe("tracking runs natively, with the app closed", () => {
     expect(service).toMatch(/message\.replace\(key, "tdv_\[hidden\]"\)/);
   });
 });
+
+// ELD-style auto switching (owner 2026-11-16: "needs to auto switch to driving how it works in ELD") runs on the
+// server from the fixes, and its detector resets after a 20 s gap - the phone must send often enough, moving or not.
+describe("the phone feeds the ELD-style automatic switch often enough", () => {
+  it("a fix at least every 5 s, with no distance filter (stops must be seen too)", async () => {
+    const service = readFileSync(path.join(process.cwd(), "native/tracker/android/app/src/main/java/com/truckingos/tracker/TrackerService.java"), "utf8");
+    const { FIX_GAP_RESET_MS } = await import("@/lib/sustained-motion");
+    const every = Number(service.match(/FIX_EVERY_MS = ([\d_]+);/)![1]!.replace(/_/g, ""));
+    expect(every * 2).toBeLessThan(FIX_GAP_RESET_MS);
+    expect(service).toContain("setMinUpdateDistanceMeters(0)");
+  });
+});

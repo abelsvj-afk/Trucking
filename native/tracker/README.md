@@ -53,3 +53,11 @@ Asks for Location and Notifications on Start. Still: Battery -> Unrestricted for
 Built here 2026-11-16 (`gradlew assembleDebug`, the built manifest checked: TrackerService with
 `foregroundServiceType=location` and all five permissions). NOT yet run on a real phone - the first drive is the test.
 After a phone restart, open the Tracker and tap Start again (Android does not let a location service start itself at boot).
+
+## v1.1.1 - feeds the ELD-style automatic switch (2026-11-16)
+Owner: "needs to auto switch to driving how it works in ELD". The switch itself already runs on the server from the
+fixes (`services/fleet/auto-motion.ts`): Driving after 60 s sustained at 5 mph or more, then the 5-minute stopped
+prompt and On Duty at minute 6 (ELD stopped-vehicle rule), never Off Duty or Sleeper on its own. Its motion detector
+forgets everything after a 20-second gap between fixes, and the stop side needs fixes while parked. v1.1.0 read GPS
+every 15 s with a 10 m distance filter, which could starve both. v1.1.1 reads every 5 s, moving or not, and the
+on-phone queue holds 3,000 fixes (about 4 hours of dead zone).

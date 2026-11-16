@@ -54,12 +54,14 @@ public class TrackerService extends Service {
     public static final String PREFS = "tracker_native";
     static final String CHANNEL_ID = "tracking";
     static final int NOTIFICATION_ID = 4711;
-    static final int MAX_QUEUE = 500;
+    static final int MAX_QUEUE = 3000; // ~4 h of 5-second fixes through a dead zone
     static final int MAX_BATCH = 60;
     static final long MAX_AGE_MS = 24L * 3600 * 1000;
     static final long FLUSH_EVERY_MS = 30_000;
     static final long[] BACKOFF_MS = {15_000, 30_000, 60_000, 120_000, 300_000};
     static final int LOG_MAX = 60;
+    /** Must stay well under the server's 20 s fix-gap reset (lib/sustained-motion.ts). */
+    static final long FIX_EVERY_MS = 5_000;
 
     private FusedLocationProviderClient client;
     private HandlerThread netThread;
@@ -110,9 +112,15 @@ public class TrackerService extends Service {
         }
         prefs(this).edit().putBoolean("running", true).apply();
         try {
-            LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 15_000)
-                .setMinUpdateIntervalMillis(5_000)
-                .setMinUpdateDistanceMeters(10)
+            // ELD-style automatic switching runs on the server from these fixes (services/fleet/auto-motion.ts):
+            // Driving after 60 s sustained at 5 mph+, On Duty after 6 min stopped. Its motion detector forgets
+            // everything after a 20-second gap between fixes (lib/sustained-motion.ts FIX_GAP_RESET_MS), and the
+            // stop side needs fixes while PARKED. So: a fix every 5 s, moving or not - no distance filter.
+            LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, FIX_EVERY_MS)
+                .setMinUpdateIntervalMillis(FIX_EVERY_MS)
+                .setMaxUpdateDelayMillis(0)
+                .setMinUpdateDistanceMeters(0)
+                .setWaitForAccurateLocation(false)
                 .build();
             client.removeLocationUpdates(callback);
             client.requestLocationUpdates(req, callback, Looper.getMainLooper());
