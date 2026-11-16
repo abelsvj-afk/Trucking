@@ -45,6 +45,7 @@ import type { BotChatInput, BotChatOutput } from "@/services/ai/bot-chat";
 import { buildDispatchContext, classifyTelegramText, memoryKindFor, stripCapturePrefix } from "./context";
 import { handleModelCorrection, handleModelRead, isModelReadRequest, parseModelCorrection } from "./model-intent";
 import { type TelegramBurstCollector, type TelegramBurstItem } from "./burst";
+import { classifyTurnFailure, turnFailureReply } from "./turn-failure";
 import type { TelegramStore } from "./store";
 import type { FiledPhotoInfo, TelegramPhotoResult, TelegramPhotoSize } from "./photo-intake";
 import type { TelegramVoice, VoiceIntakeResult } from "./voice-intake";
@@ -765,11 +766,10 @@ async function processTextItems(
       ...(renderedGroups.length > 0 ? { renderedGroups } : {}),
     };
   } catch (err) {
-    console.error("[telegram] bot turn failed", err);
+    console.error("[telegram] bot turn failed", { kind: classifyTurnFailure(err) }, err);
     return {
       result: "error_replied",
-      reply:
-        "Sorry - I couldn't process that one. Try again in a moment, or paste the message into the app (More → Dispatch helper).",
+      reply: turnFailureReply(err, items.some((i) => i.isForwarded)),
       degraded: ctx.degraded,
       persist: false,
     };
