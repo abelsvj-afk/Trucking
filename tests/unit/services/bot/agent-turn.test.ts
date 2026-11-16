@@ -2015,3 +2015,34 @@ describe("everyday asks answered in code (owner 2026-11-16)", () => {
     expect(sent).toContain("Ardmore, OK");
   });
 });
+
+describe("telling Abel your status lines up the log entry (owner transcript 2026-11-12)", () => {
+  it("'I'm off duty for 19 minutes so far' stages ONE off-duty entry starting 19 minutes ago - no model call, nothing logged until yes", async () => {
+    const { client, db } = fakeClient(baseSeed(true));
+    const store = telegramStore(client);
+    const { provider: noModel } = neverCalledProvider();
+    const before = Date.now();
+    const out = await runAgentTurn(noModel, store, input("I'm off duty for 19 minutes so far"));
+    expect(out.reply).toContain("Off duty");
+    expect(out.reply).toContain("Reply YES");
+    expect(db.duty_logs ?? []).toHaveLength(0);
+    const staged = db.bot_pending_actions!.filter((r) => !r.deleted_at);
+    expect(staged).toHaveLength(1);
+    expect(staged[0]!.tool_name).toBe("log_duty_status");
+    const started = Date.parse(String((staged[0]!.arguments as Record<string, unknown>).started_at));
+    expect(Math.round((before - started) / 60_000)).toBe(19);
+    await runAgentTurn(noModel, store, input("yes"));
+    expect(db.duty_logs ?? []).toHaveLength(1);
+    expect(db.duty_logs![0]).toMatchObject({ duty_status: "off_duty" });
+  });
+
+  it("when the log already says so, nothing is staged", async () => {
+    const seed = baseSeed(true);
+    seed.duty_logs = [{ id: "d1", company_id: COMPANY, duty_status: "off_duty", started_at: new Date(Date.now() - 3_600_000).toISOString(), deleted_at: null }];
+    const { client, db } = fakeClient(seed);
+    const { provider: noModel } = neverCalledProvider();
+    const out = await runAgentTurn(noModel, telegramStore(client), input("I'm off duty"));
+    expect(out.reply).toContain("already says Off duty");
+    expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
+  });
+});

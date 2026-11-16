@@ -29,3 +29,16 @@ Answered in code before the model, read-only, each also left to the model when t
 When he corrects a trailer number Abel read from a photo while a trip with it is waiting, the correction goes through
 `revise_pending_item` on that trip. The prompt now names the photo-read trailer case explicitly. (A photo-read value is
 never written to a saved record without his yes, so there is nothing else to change.)
+
+## 4. Telling Abel your status lines up the log entry (added 2026-11-16, owner: "Continue making Abel smarter")
+
+"I'm off duty for 19 minutes so far" got "Thanks for the update!" and nothing logged. Now a first-person present
+statement of duty status ("I'm off duty", "been driving 2 hours", "just went on duty", "I'm in the sleeper",
+`src/services/bot/status-talk.ts`) is read in code:
+- the start time is worked out from what he said (19 minutes ago; "now" when no duration; durations over 14 h are
+  ignored as not a status statement about the current period);
+- if his log already shows that status, Abel says so and stages nothing;
+- otherwise ONE `log_duty_status` proposal is staged for his yes (paper-log helper, not the ELD). Nothing is logged
+  without his yes, and he can answer with the right time instead.
+- Questions ("am I off duty?"), plans ("I'll be off duty at 5"), negations, bare words ("off duty", which may be an
+  answer to something else) and longer messages are left to the model.

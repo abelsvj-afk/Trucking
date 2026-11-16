@@ -74,6 +74,7 @@ import { displayFileName } from "@/services/documents/document-naming";
 import { asksAboutHisPay, payFiguresBlock } from "./pay-projection-tools";
 import { readEmailIfAsked } from "./email-tools";
 import { groundedAskBlocks } from "./grounded-asks";
+import { parseStatusTalk, planStatusTalk } from "./status-talk";
 import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
 export const BOT_DISABLED_REPLY =
@@ -1279,6 +1280,32 @@ export async function runAgentTurn(
       return { reply: formatWaitingList(groups.map((g) => groupLine(g, zone))) };
     } catch (err) {
       console.error("[bot] listing what is waiting failed (the model handles the turn)", err);
+    }
+  }
+  // "I'm off duty for 19 minutes so far" lines up ONE duty-log entry for his yes (section 4 of
+  // docs/design/abel-do-what-i-ask.md). Never executed here; a bare yes then resolves it like any proposal.
+  const statusTalk = !writesRefused && pendingBatch.length === 0 && !pendingPhotoAsk ? parseStatusTalk(input.userText) : null;
+  if (statusTalk) {
+    try {
+      const plan = await planStatusTalk(store, statusTalk, new Date());
+      const zone = await zoneOf(store);
+      if (plan.kind === "already") {
+        return { reply: `Your log already says ${plan.label} since ${formatClock(plan.startedAt, zone)} — nothing to change.` };
+      }
+      const tool = buildBotTools(store).find((t) => t.name === "log_duty_status");
+      const args = { duty_status: plan.status, started_at: plan.startedAt };
+      const checked = tool?.validateArgs ? tool.validateArgs(args) : { ok: false as const, error: "unavailable" };
+      if (tool && checked.ok) {
+        const summary = `Duty status: ${plan.label} starting ${statusTalk.minutesAgo > 0 ? formatClock(plan.startedAt, zone) : "now"}`;
+        await store.savePendingAction({ toolName: "log_duty_status", args: checked.args, summary });
+        return withStillWaiting(
+          store,
+          { reply: `Got it — want me to log that? ${summary} (paper-log helper, not your ELD).\n👉 Reply YES to log it, or tell me the right time.` },
+          null,
+        );
+      }
+    } catch (err) {
+      console.error("[bot] status talk staging failed (the model handles the turn)", err);
     }
   }
   // "What's the email say" after an email notice: read out in code, word for word (owner 2026-11-16).
