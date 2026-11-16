@@ -1467,3 +1467,19 @@ logged, and Abel still tells him plainly that it can't do the thing.
 - `status` text not null default 'open' — open | built | dismissed
 - `created_at`, `last_asked_at` timestamptz not null default now()
 - `deleted_at` timestamptz
+
+### `paycheck_confirmations` — created in 00097
+
+His word for what landed (docs/design/confirm-paycheck.md): one row per paycheck (a payday's pay week), the take-home
+deposit, and optionally the statement he attached. Confirming again soft-deletes the old row first (one live row per
+`period_start`); Undo soft-deletes it. Before this migration is applied the paycheck picture reads as before.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `period_start`, `period_end` date not null — the pay week (calendar days)
+- `payday` date
+- `received_cents` integer not null — what hit his bank
+- `statement_document_id` uuid references documents (id)
+- `source` text not null default 'app' — app | abel
+- `confirmed_at`, `created_at` timestamptz not null default now()
+- `deleted_at` timestamptz

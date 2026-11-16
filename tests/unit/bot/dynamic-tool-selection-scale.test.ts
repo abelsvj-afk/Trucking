@@ -93,7 +93,8 @@ describe("the spec cap holds from the first call", () => {
     expect(selection.length).toBe(TOOL_BUDGET); // the router fills the budget today
     const dropped = registry.filter((t) => !selection.includes(t));
     expect(dropped.length).toBeGreaterThan(0);
-    const pullTarget = dropped.find((t) => t.access === "read")!;
+    // a verbatim-relay tool answers him directly instead of returning to the model - not what this test pulls
+    const pullTarget = dropped.find((t) => t.access === "read" && !t.verbatimRelay)!;
     const pullRun = vi.fn(async () => "pulled result");
     const catalog = registry.map((t) => (t.name === pullTarget.name ? { ...t, run: pullRun } : t));
 

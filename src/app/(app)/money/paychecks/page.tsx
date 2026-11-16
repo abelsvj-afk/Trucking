@@ -17,6 +17,7 @@ import type { PaycheckStatus } from "@/lib/paycheck";
 import { paydayTitle, stillOwedWords } from "@/lib/payday-text";
 import type { PaySummaryLoad } from "@/services/api/pay-summary";
 import { formatMoney } from "@/lib/money-format";
+import PaycheckConfirm from "@/components/PaycheckConfirm";
 
 const STATUS_WORDS: Record<PaycheckStatus, string> = {
   paid: "Paid",
@@ -72,7 +73,7 @@ export default function PaychecksPage() {
           )}
           <p role="note" className="row-sub">
             Expected pay uses the terms in force on each delivery date. &quot;Received&quot; is the pay line a settlement
-            names for that load — record your settlements and this fills in. Your settlement is the final number.
+            names for that load, or the amount you confirm with &quot;I got paid&quot; for the whole paycheck. Your settlement is the final number.
           </p>
           {state.summary.paydays.length > 0 && (
             <section aria-label="By payday">
@@ -128,7 +129,7 @@ export default function PaychecksPage() {
                       </div>
                     )}
                     <div>
-                      <dt>Received so far</dt>
+                      <dt>{g.confirmation ? "Received (you confirmed)" : "Received so far"}</dt>
                       <dd>{formatMoney(g.receivedCents)}</dd>
                     </div>
                     <div>
@@ -139,6 +140,7 @@ export default function PaychecksPage() {
                       </dd>
                     </div>
                   </dl>
+                  {g.loadCount > 0 && <PaycheckConfirm g={g} onChanged={() => window.location.reload()} />}
                   {g.loads.length > 0 && (
                     <ul aria-label={`Loads in ${paydayTitle(g)}`}>
                       {g.loads.map((c) => (

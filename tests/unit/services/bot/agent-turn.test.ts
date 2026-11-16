@@ -1317,7 +1317,8 @@ describe("fleet learning and driver questions (owner 2026-11-07)", () => {
     ];
     return seed;
   };
-  const run = async (seed: Record<string, Row[]>, name: string, args: Record<string, unknown>, userText = "question") => {
+  // The default message names the tool, so the per-turn tool selection offers it however many tools the registry holds.
+  const run = async (seed: Record<string, Row[]>, name: string, args: Record<string, unknown>, userText = name.replaceAll("_", " ")) => {
     const { client, db } = fakeClient(seed);
     const { provider, runToolTurn } = scriptedProvider([
       { text: null, toolCalls: [{ id: "t", name, arguments: JSON.stringify(args) }] },
@@ -1723,7 +1724,7 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // F2 (remember better) adds 3 tools (list_agent_lessons,
     // save_agent_lesson, correct_agent_lesson — episode-tools.ts):
     // 148 re-measured on this branch before the addition, 151 after.
-    expect(buildBotTools(store)).toHaveLength(152);
+    expect(buildBotTools(store)).toHaveLength(153);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
