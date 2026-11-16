@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBotStore, type BotBrainStore } from "@/services/bot/store";
-import { formatRecordableOutcome, stageRecordables } from "@/services/bot/stage-recordables";
+import { formatRecordableOutcome, looksGarbled, stageRecordables } from "@/services/bot/stage-recordables";
 
 type Row = Record<string, unknown>;
 
@@ -269,5 +269,14 @@ TOTAL DISTANCE: 1,000.50 mi
     expect(result.proposals).toHaveLength(1);
     expect((rows[0]!.arguments as Record<string, unknown>).broker_id).toBeUndefined();
     expect(result.review).toContain("not on file yet");
+  });
+});
+
+describe("a garbled broker name is questioned, not passed through (owner 2026-11-16)", () => {
+  it("flags names no company has", () => {
+    expect(looksGarbled("D<RANSPORT,LLC")).toBe(true);
+    expect(looksGarbled("Example Transportation Group")).toBe(false);
+    expect(looksGarbled("Sample Logistics, LLC")).toBe(false);
+    expect(looksGarbled("A & B Freight Inc.")).toBe(false);
   });
 });

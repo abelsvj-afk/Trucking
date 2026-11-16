@@ -49,6 +49,14 @@ export interface StageRecordablesResult {
   stagedGroupKeys: string[];
 }
 
+/**
+ * A company name with characters no company name has ("D<RANSPORT,LLC"), or a word glued to a comma with no
+ * space. Owner transcript 2026-11-12: such a name was passed through without a question.
+ */
+export function looksGarbled(name: string): boolean {
+  return /[<>{}\[\]|\\^~`*_=+]/.test(name) || /[A-Za-z],[A-Za-z]/.test(name);
+}
+
 /** The clean review the owner sees before his one yes: everything read, and what is missing. */
 export function tripReview(trip: ParsedTrip, brokerResolved: boolean): string {
   const lines = [`NEW TRIP ${trip.tripNumber} — ready for your review`];
@@ -72,8 +80,12 @@ export function tripReview(trip: ParsedTrip, brokerResolved: boolean): string {
       `Heads up: the miles don't add up in the message itself (deadhead + loaded = ${mi(trip.milesMismatch.partsSum)}, total printed = ${mi(trip.milesMismatch.printedTotal)}). I kept all three figures exactly as dispatch printed them.`,
     );
   }
-  if (trip.warnings.length > 0) {
-    lines.push("Check before you say yes:", ...trip.warnings.map((w) => `  ⚠ ${w}`));
+  const warnings = [...trip.warnings];
+  if (trip.brokerName && looksGarbled(trip.brokerName)) {
+    warnings.push(`The broker name "${trip.brokerName}" looks garbled in the message — tell me the right name and I'll use that.`);
+  }
+  if (warnings.length > 0) {
+    lines.push("Check before you say yes:", ...warnings.map((w) => `  ⚠ ${w}`));
   }
   if (trip.tasks.length > 0) lines.push("Requirements:", ...trip.tasks.map((t) => `  • ${t}`));
   return lines.join("\n");
