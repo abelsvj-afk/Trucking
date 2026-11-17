@@ -1,724 +1,311 @@
 "use client";
 
-// Smart Path v1 (docs/design/driver-mvp.md §8). The parked planning
-// surface: pick a load, say when you'd leave, get one verdict -
-// legal first, rested second, paid third - with the route, the sleep
-// plan, the fuel math, and the food plan on the same screen.
-//
-// Phone-away law (vision doc §9): nothing here is needed while
-// rolling. The verdict block is glance-grade anyway - status and the
-// one tradeoff line in large type at the top, detail below - because
-// the same block is what the Telegram bot will speak later.
+// Smart Path v2 (docs/design/smart-path-v2.md, owner order 2026-11-17). It plans the run the moment the page
+// opens, from what the app already knows - the active load, which stop is next, where the truck is, the stops'
+// appointments, his hours - so there is no form to fill. One screen: the answer on top, the map, four key facts,
+// a short timeline, and everything else folded under Details. "Change" re-plans another load, another start
+// time, or with different preferences (remembered on this phone). Times are shown in his zone, never UTC.
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Suspense, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
-import {
-  ACTIVE_PLAN_STORAGE_KEY,
-  DRIVE_COPY,
-  serializeActivePlan,
-} from "@/lib/drive";
-import { useApiList } from "@/lib/use-api-list";
-import { ListLoading, ListError, TeachingEmpty } from "@/components/ListStates";
+import { ACTIVE_PLAN_STORAGE_KEY, serializeActivePlan } from "@/lib/drive-review";
+import { DRIVE_COPY } from "@/lib/drive";
 import { usePageTitle } from "@/lib/use-page-title";
-import PageHeader from "@/components/PageHeader";
-import { formatEastern, formatMinutes, routeCaption } from "@/lib/smart-path";
-import { formatFuelPriceLine } from "@/lib/smart-path-stops";
+import { routeCaption } from "@/lib/smart-path";
 import { buildMapStops } from "@/lib/smart-path-map-stops";
-import type { Load } from "@/types/entities";
-import type { RouteCheckResponse } from "@/types/smart-path";
-import { formatMoney } from "@/lib/money-format";
+import { keyFacts, timeline } from "@/lib/smart-path-summary";
+import type { AutoPrefs } from "@/lib/smart-path-auto";
+import type { AutoRunResult } from "@/services/smart-path/auto";
+import SmartPathDetails from "@/components/smart-path/SmartPathDetails";
 
 const SmartPathMap = dynamic(() => import("@/components/SmartPathMap"), { ssr: false });
 
-const STATUS_HEADLINES: Record<RouteCheckResponse["verdict"]["status"], string> = {
-  on_time: "ON TIME",
-  early: "EARLY",
-  late: "LATE",
-  not_legal: "NOT LEGAL AS PLANNED",
+const PREFS_KEY = "trucking.smartpath.prefs.v2";
+const VERDICT: Record<string, { word: string; tone: string }> = {
+  on_time: { word: "ON TIME", tone: "ok" },
+  early: { word: "EARLY", tone: "ok" },
+  late: { word: "LATE", tone: "warn" },
+  not_legal: { word: "NOT LEGAL AS PLANNED", tone: "bad" },
 };
 
-function toLocalInputValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+type Run =
+  | { status: "working"; step: string }
+  | { status: "error"; message: string }
+  | { status: "done"; out: AutoRunResult };
+
+function readPrefs(): AutoPrefs {
+  try {
+    return JSON.parse(window.localStorage.getItem(PREFS_KEY) ?? "{}") as AutoPrefs;
+  } catch {
+    return {};
+  }
 }
 
-function defaultDeparture(): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(5, 0, 0, 0);
-  return d;
+function devicePosition(): Promise<{ lat: number; lng: number; heading: number | null; speed_mph: number | null } | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) =>
+        resolve({
+          lat: p.coords.latitude,
+          lng: p.coords.longitude,
+          heading: p.coords.heading !== null && Number.isFinite(p.coords.heading) ? p.coords.heading : null,
+          speed_mph: p.coords.speed !== null && Number.isFinite(p.coords.speed) ? Math.min(150, p.coords.speed * 2.23694) : null,
+        }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
+    );
+  });
 }
 
-function windowDefault(dateStr: string | null, startHour: number, endHour: number): { start: string; end: string } {
-  if (!dateStr) return { start: "", end: "" };
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return {
-    start: `${y}-${pad(m ?? 1)}-${pad(d ?? 1)}T${pad(startHour)}:00`,
-    end: `${y}-${pad(m ?? 1)}-${pad(d ?? 1)}T${pad(endHour)}:00`,
-  };
+/** The server's reason in plain words: the map/route services being unreachable is said as such, not as code. */
+function plainError(err: unknown): string {
+  const raw = err instanceof ApiClientError ? err.message : "";
+  if (/geocod/i.test(raw) && /unreachable|fetch failed|unavailable/i.test(raw)) {
+    return "The map lookup service isn't answering right now, so the run can't be placed on the map. Try again in a minute.";
+  }
+  if (/routing/i.test(raw) && /unreachable|unavailable/i.test(raw)) {
+    return "The routing service isn't answering right now, so no route could be drawn. Try again in a minute.";
+  }
+  return raw || "Smart Path couldn't plan the run. Try again.";
 }
 
-function hourLabel(hour: number): string {
-  const suffix = hour < 12 ? "AM" : "PM";
-  const twelve = hour % 12 === 0 ? 12 : hour % 12;
-  return `${twelve} ${suffix}`;
+interface PlanOpts {
+  loadId: string | null;
+  leaveAt: string;
+  prefs: AutoPrefs;
+}
+
+/** Plans the run (this phone's fix, then the server's automatic planner). Never throws: failure is a Run too. */
+async function fetchPlan(opts: PlanOpts): Promise<Run> {
+  const position = await devicePosition();
+  try {
+    const body: Record<string, unknown> = { prefs: opts.prefs, position };
+    if (opts.loadId) body.load_id = opts.loadId;
+    if (opts.leaveAt) body.depart_at = new Date(opts.leaveAt).toISOString();
+    const res = await apiClient.create<{ data: AutoRunResult }>("smart-path/auto", body);
+    if (res.data.result) {
+      try {
+        // Drive Mode reads the checked plan from here (Home's GO card and the Drive surface).
+        window.localStorage.setItem(ACTIVE_PLAN_STORAGE_KEY, serializeActivePlan(res.data.result, Date.now()));
+      } catch {
+        /* storage is a nicety; the plan stands */
+      }
+    }
+    return { status: "done", out: res.data };
+  } catch (err) {
+    return { status: "error", message: plainError(err) };
+  }
 }
 
 export default function SmartPathPage() {
   return (
-    <Suspense fallback={<ListLoading />}>
+    <Suspense fallback={null}>
       <SmartPathInner />
     </Suspense>
   );
 }
 
-interface WindowValues {
-  pickupStart: string;
-  pickupEnd: string;
-  deliveryStart: string;
-  deliveryEnd: string;
-}
-
 function SmartPathInner() {
   usePageTitle("Smart Path");
-  const searchParams = useSearchParams();
-  const { state: loadsState, retry } = useApiList<Load>("loads");
+  const params = useSearchParams();
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+  const [run, setRun] = useState<Run>({ status: "working", step: "Finding where you are…" });
+  const [loadId, setLoadId] = useState<string | null>(params.get("load_id"));
+  const [leaveAt, setLeaveAt] = useState("");
+  const [prefs, setPrefs] = useState<AutoPrefs>(() => (typeof window === "undefined" ? {} : readPrefs()));
+  const [showChange, setShowChange] = useState(false);
 
-  // Selection and window defaults are DERIVED, not effect-synced (the
-  // repo's lint bans setState-in-effect): the override states hold
-  // only what the owner actually picked/typed; everything else falls
-  // back to the query param, the first load, or the load's dates.
-  const [loadIdOverride, setLoadIdOverride] = useState<string | null>(null);
-  const [departAt, setDepartAt] = useState(() => toLocalInputValue(defaultDeparture()));
-  const [windowEdits, setWindowEdits] = useState<(WindowValues & { loadId: string }) | null>(null);
-  const [foodMode, setFoodMode] = useState<"grocery" | "fast_food">("grocery");
-  const [gallons, setGallons] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<RouteCheckResponse | null>(null);
-  // Piece 1 (P1-7): the deadhead start - typed place, or a one-shot
-  // geolocation fix from the "Use where I am" button. Never watched,
-  // never persisted; it only rides along on the check itself.
-  const [startText, setStartText] = useState("");
-  const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
-  const [startGeoMessage, setStartGeoMessage] = useState<string | null>(null);
-  const [startAt, setStartAt] = useState("");
-  // Piece 1 (P1-9): life preferences for this run - sleep window and
-  // an optional workout break. Empty select = no set window.
-  const [sleepStartHour, setSleepStartHour] = useState("");
-  const [sleepEndHour, setSleepEndHour] = useState("");
-  const [workoutWant, setWorkoutWant] = useState(false);
-  const [workoutMinutes, setWorkoutMinutes] = useState(60);
-  const [workoutSetting, setWorkoutSetting] = useState<"gym_preferred" | "any_safe_stop">(
-    "gym_preferred",
-  );
+  // Re-plan on request (Change / Re-check / Try again): announce, then fetch.
+  const plan = useCallback((opts: PlanOpts) => {
+    setRun({ status: "working", step: "Finding where you are…" });
+    void fetchPlan(opts).then(setRun);
+  }, []);
 
-  const loads = useMemo(
-    () => (loadsState.status === "loaded" ? loadsState.result.data : []),
-    [loadsState],
-  );
-  const queryLoadId = searchParams.get("load_id");
-  const loadId =
-    loadIdOverride ??
-    (queryLoadId && loads.some((load) => load.id === queryLoadId) ? queryLoadId : loads[0]?.id ?? "");
-  const selectedLoad = loads.find((load) => load.id === loadId) ?? null;
-
-  const windowDefaults: WindowValues = useMemo(() => {
-    if (!selectedLoad) return { pickupStart: "", pickupEnd: "", deliveryStart: "", deliveryEnd: "" };
-    const pickup = windowDefault(selectedLoad.pickup_date, 6, 12);
-    const delivery = windowDefault(selectedLoad.delivery_date, 8, 17);
-    return {
-      pickupStart: pickup.start,
-      pickupEnd: pickup.end,
-      deliveryStart: delivery.start,
-      deliveryEnd: delivery.end,
+  // Plan the moment the page opens - nothing to fill in first. (The state already says "working".)
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPlan({ loadId: params.get("load_id"), leaveAt: "", prefs: readPrefs() }).then((r) => {
+      if (!cancelled) setRun(r);
+    });
+    return () => {
+      cancelled = true;
     };
-  }, [selectedLoad]);
-  const windows: WindowValues =
-    windowEdits && windowEdits.loadId === loadId ? windowEdits : windowDefaults;
-  const setWindow = (patch: Partial<WindowValues>) => {
-    if (!selectedLoad) return;
-    setWindowEdits({ ...windows, ...patch, loadId: selectedLoad.id });
-  };
-  const { pickupStart, pickupEnd, deliveryStart, deliveryEnd } = windows;
+  }, [params]);
 
-  const startIsSet = startPoint !== null || startText.trim().length > 0;
-
-  // The only geolocation in the page: one-shot, on tap, foreground.
-  function handleUseMyLocation() {
-    if (!navigator.geolocation) {
-      setStartGeoMessage("Couldn't get your location — type the start place instead.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setStartPoint({ lat: position.coords.latitude, lng: position.coords.longitude });
-        setStartGeoMessage(
-          `Using your current location (±${Math.round(position.coords.accuracy)} m) — or type a place instead.`,
-        );
-      },
-      () => {
-        setStartGeoMessage("Couldn't get your location — type the start place instead.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!loadId) return;
-    setError(null);
-    setSubmitting(true);
+  function apply(e: React.FormEvent) {
+    e.preventDefault();
     try {
-      const body: Record<string, unknown> = {
-        load_id: loadId,
-        depart_at: new Date(departAt).toISOString(),
-        food_mode: foodMode,
-      };
-      if (pickupStart && pickupEnd) {
-        body.pickup_window = {
-          start: new Date(pickupStart).toISOString(),
-          end: new Date(pickupEnd).toISOString(),
-        };
-      }
-      if (deliveryStart && deliveryEnd) {
-        body.delivery_window = {
-          start: new Date(deliveryStart).toISOString(),
-          end: new Date(deliveryEnd).toISOString(),
-        };
-      }
-      const gallonsNumber = Number(gallons);
-      if (gallons && Number.isFinite(gallonsNumber) && gallonsNumber > 0) {
-        body.gallons_to_buy = gallonsNumber;
-      }
-      if (startPoint) {
-        body.start_point = startPoint;
-      } else if (startText.trim()) {
-        body.start_location = startText.trim();
-      }
-      if (startIsSet && startAt) {
-        body.start_at = new Date(startAt).toISOString();
-      }
-      const life: Record<string, unknown> = {};
-      if (sleepStartHour !== "") life.sleep_start_hour = Number(sleepStartHour);
-      if (sleepEndHour !== "") life.sleep_end_hour = Number(sleepEndHour);
-      if (workoutWant) {
-        life.workout = { want: true, minutes: workoutMinutes, setting: workoutSetting };
-      }
-      if (Object.keys(life).length > 0) {
-        body.life = life;
-      }
-      const response = await apiClient.create<RouteCheckResponse>("smart-path/route-check", body);
-      setResult(response);
-      // Drive Mode D1: the checked plan becomes the active plan -
-      // Home's GO card and the Drive surface both read it from
-      // here. Storage is a nicety, never a reason to fail a check.
-      try {
-        window.localStorage.setItem(
-          ACTIVE_PLAN_STORAGE_KEY,
-          serializeActivePlan(response, Date.now()),
-        );
-      } catch {
-        // Private mode / full storage: the check still stands.
-      }
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "The route check failed. Try again.");
-    } finally {
-      setSubmitting(false);
+      window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      /* remembered next time if storage allows */
     }
+    setShowChange(false);
+    plan({ loadId, leaveAt, prefs });
   }
 
-  const mapStops = useMemo(
-    () => (result ? buildMapStops(result, { workoutSetting }) : []),
-    [result, workoutSetting],
-  );
-
-  const caption = result
-    ? `Map © OpenStreetMap contributors. ${routeCaption(result.route)}`
-    : "Map © OpenStreetMap contributors. When you check a run, this line says which engine drew the route and whether it was truck-checked.";
-
-  const workoutOutcome = result?.plan?.workout ?? null;
-  // The workout block below renders plan.workout's own line, so a
-  // lifeLine that already says it ("Workout: …") is not repeated.
-  const lifeLinesToRender = result
-    ? workoutOutcome
-      ? result.verdict.lifeLines.filter((line) => !line.startsWith("Workout:"))
-      : result.verdict.lifeLines
-    : [];
-
-  const mapsHandoff =
-    selectedLoad &&
-    `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(selectedLoad.origin)}&destination=${encodeURIComponent(selectedLoad.destination)}`;
+  const result = run.status === "done" ? run.out.result : null;
+  const facts = useMemo(() => (result ? keyFacts(result, zone) : []), [result, zone]);
+  const steps = useMemo(() => (result ? timeline(result, zone) : []), [result, zone]);
+  const mapStops = useMemo(() => (result ? buildMapStops(result, { workoutSetting: prefs.workout?.setting }) : []), [result, prefs.workout?.setting]);
+  const verdict = result ? (VERDICT[result.verdict.status] ?? { word: result.verdict.status, tone: "warn" }) : null;
+  const why = result ? (result.verdict.tradeoffLines[0] ?? result.verdict.legalLines[0] ?? "") : "";
 
   return (
-    <div>
-      <PageHeader title="Smart Path" purpose="One route, checked three ways — legal first (your hours), rested second, paid third — with fuel and food that fit the truck." />
-      <p>
-        Times are Eastern. Plan while you&apos;re parked; on the road, Abel speaks the plan.
-      </p>
+    <div className="smart-path-v2">
+      {/* 1. The answer - always the first thing on the screen, including while it works and when it fails. */}
+      <section className={`sp-status sp-${verdict?.tone ?? "neutral"}`} aria-live="polite" aria-label="Smart Path answer">
+        {run.status === "working" && (
+          <>
+            <p className="sp-word">Working…</p>
+            <p>{run.step}</p>
+          </>
+        )}
+        {run.status === "error" && (
+          <>
+            <p className="sp-word">Couldn&apos;t plan it</p>
+            <p>{run.message}</p>
+          </>
+        )}
+        {run.status === "done" && !result && (
+          <>
+            <p className="sp-word">Nothing to plan</p>
+            {run.out.assumptions.map((a) => <p key={a}>{a}</p>)}
+            {run.out.phase === "no_load" && <Link href="/loads/new" className="page-action">Add a load</Link>}
+          </>
+        )}
+        {result && verdict && (
+          <>
+            <p className="sp-load">{run.status === "done" ? run.out.load?.label : ""}</p>
+            <p className="sp-word">{verdict.word}</p>
+            {why && <p className="sp-why">{why}</p>}
+            {run.status === "done" && <p className="sp-assume">{run.out.assumptions.join(" ")}</p>}
+          </>
+        )}
+        <div className="sp-actions">
+          <button type="button" className="secondary" onClick={() => setShowChange((v) => !v)} aria-expanded={showChange}>
+            Change
+          </button>
+          {run.status !== "working" && (
+            <button type="button" className={run.status === "error" ? undefined : "secondary"} onClick={() => plan({ loadId, leaveAt, prefs })}>
+              {run.status === "error" ? "Try again" : "Re-check"}
+            </button>
+          )}
+          {result &&
+            (result.route.truckLegal ? (
+              <Link href="/smart-path/drive" className="sp-go">GO — drive it</Link>
+            ) : (
+              <span className="row-sub">{DRIVE_COPY.carRouteRefusal}</span>
+            ))}
+        </div>
+      </section>
 
+      {showChange && (
+        <form className="sp-change" onSubmit={apply} aria-label="Change the plan">
+          {run.status === "done" && run.out.choices.length > 0 && (
+            <label className="form-row">
+              Load
+              <select value={loadId ?? ""} onChange={(e) => setLoadId(e.target.value || null)}>
+                <option value="">My current load (automatic)</option>
+                {run.out.choices.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="form-row">
+            Leave
+            <input type="datetime-local" value={leaveAt} onChange={(e) => setLeaveAt(e.target.value)} aria-describedby="sp-leave-hint" />
+          </label>
+          <p id="sp-leave-hint" className="row-sub">Blank = leaving now.</p>
+          <label className="form-row">
+            Food
+            <select value={prefs.food_mode ?? "grocery"} onChange={(e) => setPrefs({ ...prefs, food_mode: e.target.value as AutoPrefs["food_mode"] })}>
+              <option value="grocery">Grocery (cook in the truck)</option>
+              <option value="fast_food">Fast food</option>
+            </select>
+          </label>
+          <label className="form-row">
+            Sleep from
+            <select
+              value={prefs.sleep_start_hour ?? ""}
+              onChange={(e) => setPrefs({ ...prefs, sleep_start_hour: e.target.value === "" ? undefined : Number(e.target.value) })}
+            >
+              <option value="">No set time</option>
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h % 12 === 0 ? 12 : h % 12} {h < 12 ? "AM" : "PM"}</option>)}
+            </select>
+          </label>
+          <label className="form-row">
+            Sleep until
+            <select
+              value={prefs.sleep_end_hour ?? ""}
+              onChange={(e) => setPrefs({ ...prefs, sleep_end_hour: e.target.value === "" ? undefined : Number(e.target.value) })}
+            >
+              <option value="">No set time</option>
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h % 12 === 0 ? 12 : h % 12} {h < 12 ? "AM" : "PM"}</option>)}
+            </select>
+          </label>
+          <label className="form-row sp-check">
+            <input
+              type="checkbox"
+              checked={Boolean(prefs.workout?.want)}
+              onChange={(e) => setPrefs({ ...prefs, workout: { ...(prefs.workout ?? {}), want: e.target.checked } })}
+            />
+            Fit a workout in (gym if one is near)
+          </label>
+          <button type="submit">Plan it</button>
+          <p className="row-sub">Food, sleep and workout are remembered on this phone.</p>
+        </form>
+      )}
+
+      {/* 2. The map. */}
       <SmartPathMap
         geometry={result?.route.geometry ?? []}
         stops={mapStops}
         deadheadGeometry={result?.deadhead?.geometry ?? []}
-        caption={caption}
+        caption={`Map © OpenStreetMap contributors.${result ? (result.route.truckLegal ? " Truck-checked route." : " Car route - NOT truck-checked.") : ""}`}
       />
 
-      {loadsState.status === "loading" && <ListLoading />}
-      {loadsState.status === "error" && <ListError message={loadsState.message} onRetry={retry} />}
-      {loadsState.status === "loaded" && loads.length === 0 && (
-        <TeachingEmpty
-          title="No loads yet"
-          message="Add a load first, then check its run here."
-          action={
-            <Link href="/loads/new" className="page-action">
-              Add load
-            </Link>
-          }
-        />
+      {/* 3. Four key facts. */}
+      {facts.length > 0 && (
+        <ul className="sp-facts" aria-label="Key facts">
+          {facts.map((f) => (
+            <li key={f.label}>
+              <span className="sp-fact-label">{f.label}</span>
+              <strong>{f.value}</strong>
+              {f.sub && <span className="row-sub">{f.sub}</span>}
+            </li>
+          ))}
+        </ul>
       )}
 
-      {loads.length > 0 && (
-        <form onSubmit={handleSubmit}>
-          <h2>Check a run</h2>
-
-          <label htmlFor="load_id">Load</label>
-          <select id="load_id" value={loadId} onChange={(event) => setLoadIdOverride(event.target.value)}>
-            {loads.map((load) => (
-              <option key={load.id} value={load.id}>
-                {load.origin} → {load.destination} ({load.status})
-              </option>
-            ))}
-          </select>
-
-          <fieldset>
-            <legend>The whole run</legend>
-            <label htmlFor="start_location">Starting from (optional)</label>
-            <input
-              id="start_location"
-              type="text"
-              placeholder="e.g. Melbourne, FL — where you are before the pickup"
-              value={startText}
-              onChange={(event) => {
-                setStartText(event.target.value);
-                if (startPoint) {
-                  setStartPoint(null);
-                  setStartGeoMessage(null);
-                }
-              }}
-            />
-            <button type="button" onClick={handleUseMyLocation}>
-              Use where I am
-            </button>
-            {startGeoMessage && <p>{startGeoMessage}</p>}
-            {startIsSet && (
-              <>
-                <label htmlFor="start_at">Leaving the start at (optional)</label>
-                <input
-                  id="start_at"
-                  type="datetime-local"
-                  value={startAt}
-                  onChange={(event) => setStartAt(event.target.value)}
-                />
-                <p>Leave blank to get the just-in-time leave-by time.</p>
-              </>
-            )}
-          </fieldset>
-
-          <label htmlFor="depart_at">Leaving the pickup (loaded) at</label>
-          <input
-            id="depart_at"
-            type="datetime-local"
-            value={departAt}
-            onChange={(event) => setDepartAt(event.target.value)}
-            required
-          />
-
-          <fieldset>
-            <legend>Pickup window (adjust to the real appointment)</legend>
-            <label htmlFor="pickup_start">Opens</label>
-            <input id="pickup_start" type="datetime-local" value={pickupStart} onChange={(e) => setWindow({ pickupStart: e.target.value })} />
-            <label htmlFor="pickup_end">Closes</label>
-            <input id="pickup_end" type="datetime-local" value={pickupEnd} onChange={(e) => setWindow({ pickupEnd: e.target.value })} />
-          </fieldset>
-
-          <fieldset>
-            <legend>Delivery window (adjust to the real appointment)</legend>
-            <label htmlFor="delivery_start">Opens</label>
-            <input id="delivery_start" type="datetime-local" value={deliveryStart} onChange={(e) => setWindow({ deliveryStart: e.target.value })} />
-            <label htmlFor="delivery_end">Closes</label>
-            <input id="delivery_end" type="datetime-local" value={deliveryEnd} onChange={(e) => setWindow({ deliveryEnd: e.target.value })} />
-          </fieldset>
-
-          <fieldset>
-            <legend>Food on this run</legend>
-            <label>
-              <input type="radio" name="food_mode" checked={foodMode === "grocery"} onChange={() => setFoodMode("grocery")} />{" "}
-              Grocery — I cook in the truck
-            </label>
-            <label>
-              <input type="radio" name="food_mode" checked={foodMode === "fast_food"} onChange={() => setFoodMode("fast_food")} />{" "}
-              Fast food — no time to stop properly
-            </label>
-          </fieldset>
-
-          <fieldset>
-            <legend>Your life on this run</legend>
-            <label htmlFor="sleep_start_hour">Sleep window starts</label>
-            <select
-              id="sleep_start_hour"
-              value={sleepStartHour}
-              onChange={(event) => setSleepStartHour(event.target.value)}
-            >
-              <option value="">No set window</option>
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>
-                  {hourLabel(hour)}
-                </option>
-              ))}
-            </select>
-            <label htmlFor="sleep_end_hour">Sleep window ends</label>
-            <select
-              id="sleep_end_hour"
-              value={sleepEndHour}
-              onChange={(event) => setSleepEndHour(event.target.value)}
-            >
-              <option value="">No set window</option>
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>
-                  {hourLabel(hour)}
-                </option>
-              ))}
-            </select>
-            <label>
-              <input
-                type="checkbox"
-                checked={workoutWant}
-                onChange={(event) => setWorkoutWant(event.target.checked)}
-              />{" "}
-              Try to fit a workout break
-            </label>
-            {workoutWant && (
-              <>
-                <label htmlFor="workout_minutes">Workout minutes</label>
-                <input
-                  id="workout_minutes"
-                  type="number"
-                  min="30"
-                  max="180"
-                  value={workoutMinutes}
-                  onChange={(event) => setWorkoutMinutes(Number(event.target.value))}
-                />
-                <label htmlFor="workout_setting">Workout spot</label>
-                <select
-                  id="workout_setting"
-                  value={workoutSetting}
-                  onChange={(event) =>
-                    setWorkoutSetting(event.target.value as "gym_preferred" | "any_safe_stop")
-                  }
-                >
-                  <option value="gym_preferred">A gym if one&apos;s near</option>
-                  <option value="any_safe_stop">Any safe stop (bodyweight)</option>
-                </select>
-              </>
-            )}
-          </fieldset>
-
-          <label htmlFor="gallons">Gallons I plan to buy (optional)</label>
-          <input id="gallons" type="number" min="1" max="300" value={gallons} onChange={(e) => setGallons(e.target.value)} />
-
-          {error && <p role="alert">{error}</p>}
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Checking…" : "Check this run"}
-          </button>
-          {mapsHandoff && (
-            <p>
-              <a href={mapsHandoff} target="_blank" rel="noreferrer">
-                Open this lane in Google Maps (handoff)
-              </a>
-            </p>
-          )}
-        </form>
-      )}
-
-      {result && (
-        <section aria-label="Route check result">
-          <h2>
-            {result.load.origin} → {result.load.destination}
-          </h2>
-          <p style={{ fontSize: "1.6rem", fontWeight: 800 }}>
-            {STATUS_HEADLINES[result.verdict.status]}
-          </p>
-          {result.verdict.tradeoffLines.map((line) => (
-            <p key={line} style={{ fontSize: "1.25rem", fontWeight: 600 }}>
-              {line}
-            </p>
-          ))}
-          <p>
-            {Math.round(result.route.distanceMiles)} miles · drive time planned at{" "}
-            {formatMinutes(result.verdict.assumedDriveMinutes)} ({result.verdict.driveTimeBasis})
-            {result.plan?.arrivalAt && <> · arrival {formatEastern(new Date(result.plan.arrivalAt))}</>}
-          </p>
-          <p>{routeCaption(result.route)}</p>
-
-          {result.route.truckLegal ? (
-            <p>
-              <Link
-                href="/smart-path/drive"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  minHeight: "56px",
-                  padding: "0 28px",
-                  fontSize: "1.25rem",
-                  fontWeight: 800,
-                  border: "2px solid currentColor",
-                  borderRadius: "12px",
-                }}
-              >
-                GO — Drive this run
-              </Link>
-            </p>
-          ) : (
-            <p role="note">{DRIVE_COPY.carRouteRefusal}</p>
-          )}
-
-          {result.deadhead && (
-            <>
-              <h3>Deadhead — getting to the pickup</h3>
-              <p>
-                {result.deadhead.distanceMiles} mi · about{" "}
-                {formatMinutes(result.deadhead.providerDurationMinutes)} driving by the routing
-                estimate · leave {result.deadhead.startLabel} by{" "}
-                {formatEastern(new Date(result.deadhead.leaveByAt))} · you&apos;d reach the pickup{" "}
-                {formatEastern(new Date(result.deadhead.pickupArrivalAt))}
-              </p>
-              {result.deadhead.waitMinutesAtPickup > 0 && (
-                <p>
-                  That leaves {formatMinutes(result.deadhead.waitMinutesAtPickup)} waiting at the
-                  pickup — it counts on your 14.
-                </p>
-              )}
-            </>
-          )}
-
-          {result.corridor && "points" in result.corridor && result.corridor.points.length > 1 && (
-            <details>
-              <summary>Along the route — states and when you reach each stretch</summary>
-              <p>
-                {result.corridor.states
-                  .map((st) => `${st.state ?? "outside the map"} (mile ${st.enterMile}–${st.exitMile})`)
-                  .join(" → ")}
-                . State borders are approximate (a few miles).
-              </p>
-              <ul>
-                {result.corridor.points
-                  .filter((pt, i, all) => i === 0 || i === all.length - 1 || pt.mile % 50 === 0)
-                  .map((pt) => (
-                    <li key={pt.mile}>
-                      Mile {Math.round(pt.mile)}: {pt.etaAt ? formatEastern(new Date(pt.etaAt)) : "time unavailable"}
-                    </li>
-                  ))}
-              </ul>
-              <p className="row-sub">From the plan above (drive time, breaks and rests). Weather, fuel by region, state rules and road work will read this same line.</p>
-            </details>
-          )}
-          {result.corridor && "unavailableReason" in result.corridor && (
-            <p role="note">Along-the-route times unavailable: {result.corridor.unavailableReason}</p>
-          )}
-
-          {result.weather && (
-            <details open={result.weather.items.some((i) => i.severe)}>
-              <summary>
-                Weather on the route{result.weather.items.length > 0 ? ` — ${result.weather.items.length} to know` : ""}
-                {result.weather.status !== "ok" && ` (${result.weather.status})`}
-              </summary>
-              {result.weather.items.length === 0 && result.weather.status !== "unavailable" && (
-                <p>Nothing in the National Weather Service forecast at the spots checked, for the times you&apos;d be there.</p>
-              )}
-              <ul>
-                {result.weather.items.map((w) => (
-                  <li key={`${w.kind}-${w.mile}-${w.text}`}>
-                    {w.severe ? "⚠ " : ""}Mile {Math.round(w.mile)}
-                    {w.endMile > w.mile ? `–${Math.round(w.endMile)}` : ""} (about {formatEastern(new Date(w.etaAt))}): {w.text}
-                  </li>
-                ))}
-              </ul>
-              {result.weather.notes.map((n) => (
-                <p key={n} className="row-sub">{n}</p>
-              ))}
-              <p className="row-sub">Forecast as of {formatEastern(new Date(result.weather.asOf))}. Advisory — it doesn&apos;t change the verdict; check conditions before you roll.</p>
-            </details>
-          )}
-
-          {result.roadWork && (
-            <details open={result.roadWork.items.some((i) => i.exceedsTruck)}>
-              <summary>
-                Road work{result.roadWork.items.length > 0 ? ` — ${result.roadWork.items.length} near the route` : ""}
-                {result.roadWork.status !== "ok" && ` (${result.roadWork.status})`}
-              </summary>
-              <ul>
-                {result.roadWork.items.map((w, i) => (
-                  <li key={`${w.mile}-${i}`}>
-                    {w.exceedsTruck ? "⚠ " : ""}Mile {Math.round(w.mile)} (about {formatEastern(new Date(w.etaAt))}): {w.text}
-                  </li>
-                ))}
-              </ul>
-              {result.roadWork.notes.map((n) => (
-                <p key={n} className="row-sub">{n}</p>
-              ))}
-              <p className="row-sub">From state work-zone feeds, as of {formatEastern(new Date(result.roadWork.asOf))}. Advisory — it never says a road is open or closed.</p>
-            </details>
-          )}
-          {result.stateRules && result.stateRules.length > 0 && (
-            <details open={result.stateRules.some((r) => r.kind === "exceeds")}>
-              <summary>State truck rules on this route</summary>
-              <ul>
-                {result.stateRules.map((r, i) => (
-                  <li key={`${r.state}-${i}`}>
-                    {r.kind === "exceeds" ? "⚠ " : ""}{r.text}
-                    {r.sourceUrl && (
-                      <>
-                        {" "}
-                        <a href={r.sourceUrl} rel="noopener noreferrer" target="_blank">source</a>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <p className="row-sub">Only rules someone verified against the state&apos;s own source are listed. A state with none on file is not &quot;unrestricted&quot; — check the posted signs and your carrier.</p>
-            </details>
-          )}
-
-          <h3>Legal</h3>
-          {result.verdict.legalLines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-
-          <h3>Rested — the sleep plan</h3>
-          {result.verdict.restedLines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-          {result.plan && result.plan.breaks.length > 0 && (
-            <p>
-              {result.plan.breaks
-                .map(
-                  (b) =>
-                    `${b.kind === "workout" ? "Workout break" : "Break"} (${formatMinutes(b.durationMinutes)}): ${formatEastern(new Date(b.startAt))}`,
-                )
-                .join(" · ")}
-              .
-            </p>
-          )}
-
-          {(lifeLinesToRender.length > 0 || workoutOutcome) && (
-            <>
-              <h3>Your life on this run</h3>
-              {lifeLinesToRender.map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-              {workoutOutcome &&
-                (workoutOutcome.placed ? (
-                  <p>
-                    Workout: {workoutOutcome.durationMinutes} min at {workoutOutcome.placeName} —{" "}
-                    {workoutOutcome.note}
-                  </p>
-                ) : (
-                  <>
-                    <p>Workout — not placed</p>
-                    <p>{workoutOutcome.note}</p>
-                  </>
-                ))}
-            </>
-          )}
-
-          {result.verdict.paidLines.length > 0 && (
-            <>
-              <h3>Paid</h3>
-              {result.verdict.paidLines.map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-            </>
-          )}
-
-          <h3>Fuel — ranked by what the stop really costs</h3>
-          <p>
-            For {result.fuel.assumptions.gallonsToBuy} gallons at {result.fuel.assumptions.avgMpg} mpg,
-            counting detour miles and clock time (an hour priced at{" "}
-            {formatMoney(result.fuel.assumptions.valueOfTimeCentsPerHour)}, plus a{" "}
-            {result.fuel.assumptions.stopMinutes}-minute stop).
-            {result.fuel.assumptions.baselinePriceCents !== null &&
-              ` Your average price across your fuel log: ${formatMoney(result.fuel.assumptions.baselinePriceCents)}/gal.`}
-            {result.fuel.candidates.some((candidate) => candidate.usedEstimate) &&
-              " Prices marked est. are the EIA weekly U.S. average, not that station's price — your fuel log is the only real price here."}
-          </p>
-          {result.fuel.regional && result.fuel.regional.length > 0 && (
-            <ul aria-label="Diesel by region">
-              {result.fuel.regional.map((r) => (
-                <li key={r.paddCode}>
-                  {r.regionName}: {formatMoney(r.cents)}/gal — {r.label}
-                  {r.freshness === "aging" && " (getting old)"}
-                  {r.freshness === "stale" && " — OLD DATA: shown for reference, not used to rank stops"}
-                </li>
-              ))}
-            </ul>
-          )}
-          {result.fuel.unavailableReason && <p>{result.fuel.unavailableReason}</p>}
-          {result.fuel.candidates.length === 0 && !result.fuel.unavailableReason && (
-            <p>No fuel stops found near this route yet — your fuel log and the map data both feed this list.</p>
-          )}
-          <ul>
-            {result.fuel.candidates.map((candidate, i) => (
-              <li key={candidate.id}>
-                <strong>
-                  {i < 3 ? `F${i + 1} · ` : ""}
-                  {candidate.name}
-                </strong>{" "}
-                {candidate.source === "history" ? "(from your fuel log)" : "(map)"} —{" "}
-                {formatFuelPriceLine(candidate)} · {candidate.detourMiles.toFixed(1)} mi detour ·{" "}
-                {candidate.effectiveCostCents !== null
-                  ? `effective cost ${formatMoney(candidate.effectiveCostCents)}`
-                  : `detour cost ${formatMoney(candidate.detourCostCents)}`}
-                {candidate.savingsVsBaselineCents !== null &&
-                  candidate.savingsVsBaselineCents !== 0 &&
-                  ` · ${candidate.savingsVsBaselineCents > 0 ? "saves" : "costs"} ${formatMoney(Math.abs(candidate.savingsVsBaselineCents))} vs your average`}
+      {/* 4. The run, one line per stop. */}
+      {steps.length > 0 && (
+        <section aria-label="The run">
+          <h2>The run</h2>
+          <ol className="sp-timeline">
+            {steps.map((s) => (
+              <li key={s.text}>
+                <span aria-hidden="true">{s.icon}</span> {s.text}
               </li>
             ))}
-          </ul>
-
-          <h3>Food — {result.food.mode === "grocery" ? "grocery (cook in the truck)" : "fast food"}</h3>
-          {result.food.unavailableReason && <p>Food lookup unavailable: {result.food.unavailableReason}</p>}
-          {result.food.lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-          <ul>
-            {result.food.stops.map((stop, i) => (
-              <li key={stop.id}>
-                <strong>
-                  {i < 3 ? `E${i + 1} · ` : ""}
-                  {stop.name}
-                </strong>{" "}
-                — {stop.detourMiles.toFixed(1)} mi off the route · you&apos;d reach it about{" "}
-                {formatEastern(new Date(stop.arrivalAt))}
-              </li>
-            ))}
-          </ul>
-
-          {result.warnings.length > 0 && (
-            <>
-              <h3>Before you roll</h3>
-              <ul>
-                {result.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </>
-          )}
+          </ol>
         </section>
+      )}
+
+      {/* 5. Everything else, folded. */}
+      {result && (
+        <details className="sp-details">
+          <summary>
+            Details — hours math, fuel ranking, weather, road work, state rules
+            {result.warnings.length > 0 ? ` · ${result.warnings.length} notes` : ""}
+          </summary>
+          <p className="row-sub">{routeCaption(result.route)}</p>
+          <SmartPathDetails result={result} />
+        </details>
       )}
     </div>
   );
