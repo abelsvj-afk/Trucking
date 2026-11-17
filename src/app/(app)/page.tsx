@@ -18,6 +18,7 @@ import { useHosWindow } from "@/lib/use-hos-window";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import DutyHud from "@/components/hud/DutyHud";
+import DayLogMini from "@/components/hud/DayLogMini";
 import TodaysLogStrip from "@/components/TodaysLogStrip";
 import QuickAction from "@/components/QuickAction";
 import NewsBanner from "@/components/NewsBanner";
@@ -130,7 +131,13 @@ export default function HomePage() {
 
       <DutyHud />
 
-      {/* Pay preview stays visible right under the hours (map-first Home). */}
+      {/* Mini paper log (owner order 2026-11-17): today's duty grid in
+          a small view directly under the hours, drawing the lines live
+          from today's log; tap opens the full Day log. Fed by the
+          hosWindow this page already loads. */}
+      <DayLogMini window={hosWindow.state} nowMs={nowMs} />
+
+      {/* Pay preview stays visible near the top of Home, under the mini log. */}
       <DriverPayHomeCard />
 
       {/* Today's log strip (Phase 4, spec §2.4): an ADDITION under the

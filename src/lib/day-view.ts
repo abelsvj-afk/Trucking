@@ -7,6 +7,7 @@
 
 import type { DutyStatus } from "@/types/entities";
 import { zonedWallMinutes } from "@/lib/zoned-day";
+import type { DraftSegment } from "@/lib/paper-day";
 
 export interface DayRow {
   id: string;
@@ -81,6 +82,38 @@ export function buildDayView(
     if (elapsedMin > 0) totals[row.duty_status] += elapsedMin;
   });
   return { stretches, totals };
+}
+
+/** One stretch as a graph segment: the drawing only ever sees clean, driver-logged statuses. */
+export function dayStretchToSegment(s: DayStretch): DraftSegment {
+  return { status: s.status, startMin: s.startMin, endMin: s.endMin, confidence: null, origin: "clean" };
+}
+
+export interface DaySegments {
+  segments: DraftSegment[];
+  /** The stretch still running at "now", if any — its status and start minute drive the one-line caption. */
+  ongoing: { status: DutyStatus; startMin: number } | null;
+}
+
+/**
+ * Today's stretches as graph segments, plus the ongoing stretch. The
+ * ONE mapping from day view to graph — the full Day log page and the
+ * Home mini both read through here, so the two pictures can never
+ * disagree about the same day.
+ */
+export function buildDaySegments(
+  rows: DayRow[],
+  dayStartMs: number,
+  dayEndMs: number,
+  nowMs: number,
+  timeZone?: string,
+): DaySegments {
+  const view = buildDayView(sortRows(rows), dayStartMs, dayEndMs, nowMs, timeZone);
+  const running = view.stretches.find((s) => s.ongoing);
+  return {
+    segments: view.stretches.map(dayStretchToSegment),
+    ongoing: running ? { status: running.status, startMin: running.startMin } : null,
+  };
 }
 
 /** Where a row's start may move without reordering the log or entering the future. */

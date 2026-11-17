@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DayGraph from "@/components/paper/DayGraph";
 import Sheet from "@/components/Sheet";
 import { apiClient } from "@/lib/api-client";
-import { buildDayView, sortRows, type DayRow } from "@/lib/day-view";
+import { buildDayView, dayStretchToSegment, sortRows, type DayRow } from "@/lib/day-view";
 import { addDays, zonedDate, zonedDayBounds } from "@/lib/zoned-day";
 import { useNowTick } from "@/lib/use-now-tick";
 import { formatMinutes } from "@/lib/paper-day";
@@ -73,13 +73,9 @@ export default function DayLog({
   const sorted = useMemo(() => sortRows(rows), [rows]);
   const { startMs, endMs } = zonedDayBounds(day, timeZone);
   const view = buildDayView(sorted, startMs, endMs, nowMs, timeZone);
-  const segments: DraftSegment[] = view.stretches.map((s) => ({
-    status: s.status,
-    startMin: s.startMin,
-    endMin: s.endMin,
-    confidence: null,
-    origin: "clean",
-  }));
+  // Same mapping as the Home mini (buildDaySegments): one code path, so the
+  // full page and the mini can never draw different lines for the same day.
+  const segments: DraftSegment[] = view.stretches.map(dayStretchToSegment);
   const go = (date: string) => {
     setPicked(date === today ? null : date);
     setSelectedId(null);
