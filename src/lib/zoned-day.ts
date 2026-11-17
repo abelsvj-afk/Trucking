@@ -74,6 +74,31 @@ export function zonedDate(instantMs: number, timeZone: string): string {
   );
 }
 
+/** The instant of local midnight starting the zone day an instant falls on. */
+export function startOfZonedDayMs(instantMs: number, timeZone: string): number {
+  return zonedDayBounds(zonedDate(instantMs, timeZone), timeZone).startMs;
+}
+
+/**
+ * The day-aware clock reset (owner 2026-11-17): a hand reset
+ * re-derives the clocks from the log of the day it was pressed on,
+ * so the reset only applies while that day is still today. Returns
+ * the start of the reset day in the zone, or null when the reset is
+ * from an earlier day (or there is none) - the clocks then run from
+ * the logs alone, as before.
+ */
+export function resetDayStartMsFor(
+  resetAtIso: string | null | undefined,
+  nowMs: number,
+  timeZone: string,
+): number | null {
+  if (!resetAtIso) return null;
+  const resetMs = Date.parse(resetAtIso);
+  if (!Number.isFinite(resetMs)) return null;
+  if (zonedDate(resetMs, timeZone) !== zonedDate(nowMs, timeZone)) return null;
+  return startOfZonedDayMs(resetMs, timeZone);
+}
+
 export function addDays(date: string, days: number): string {
   const [y, m, d] = date.split("-").map((part) => Number.parseInt(part, 10));
   const t = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, (d ?? 1) + days));

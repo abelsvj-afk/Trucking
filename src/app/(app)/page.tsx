@@ -106,7 +106,10 @@ export default function HomePage() {
   const logs = hosWindow.state.status === "loaded" ? hosWindow.state.data : [];
   const paperLabel =
     documents.state.status === "loaded" ? homeHosPaperLabel(logs, documents.state.result.data) : null;
-  const summaryRaw = hosWindow.state.status === "loaded" ? summarizeHos(logs) : null;
+  const summaryRaw =
+    hosWindow.state.status === "loaded"
+      ? summarizeHos(logs, new Date(), { resetDayStartMs: hosWindow.state.hos.resetDayStartMs ?? null })
+      : null;
   // Short-term clocks come from lib/hos.ts; the cycle clock comes
   // from the window's cycle summary (lib/hos-cycle.ts, the one
   // engine). summarizeHos carries no cycle math any more, so there

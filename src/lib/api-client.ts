@@ -261,6 +261,12 @@ export const apiClient = {
     }),
   dutyLogWindow: () =>
     request<{ data: DutyLog[]; hos: DutyLogWindowSummary }>("/api/v1/duty-logs/window"),
+  /** Manual clock reset (owner 2026-11-17): POST /api/v1/duty-logs/reset. Day-aware - the route re-derives the clocks from today's log; it never wipes the day. */
+  resetDutyLogClocks: (reason?: string) =>
+    request<{ data: { resetAt: string; dutyLogId: string } }>("/api/v1/duty-logs/reset", {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
   /** Background tracking: the native shell's device tokens. The secret comes back ONCE, from create. */
   deviceTokens: () => request<{ data: { id: string; label: string; created_at: string; last_used_at: string | null }[] }>("/api/v1/device-tokens"),
   createDeviceToken: (label: string) =>

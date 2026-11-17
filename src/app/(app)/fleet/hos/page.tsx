@@ -70,7 +70,11 @@ export default function HosPage() {
   // carries only the 11h/14h/break clocks, so there is no second
   // weekly total to filter out any more.
   const shortTerm =
-    hosWindow.state.status === "loaded" ? summarizeHos(hosWindow.state.data) : null;
+    hosWindow.state.status === "loaded"
+      ? summarizeHos(hosWindow.state.data, new Date(), {
+          resetDayStartMs: hosWindow.state.hos.resetDayStartMs ?? null,
+        })
+      : null;
   const shortTermWarnings = shortTerm?.warnings ?? [];
   const hos = hosWindow.state.status === "loaded" ? hosWindow.state.hos : null;
   const hasAnyLogs =

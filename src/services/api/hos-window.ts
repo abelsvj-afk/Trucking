@@ -23,6 +23,8 @@ import { summarizeHosCycle, type HosCycleSummary } from "@/lib/hos-cycle";
 import { hosCalculationWindowStartMs, isProvisionalCarrierConfig, type HosCarrierConfig } from "@/lib/hos-periods";
 import { loadHosConfig } from "@/services/api/hos-config";
 import { ApiError } from "@/services/api/errors";
+import { fetchLatestClockResetAt } from "@/services/duty-log-edits";
+import { resetDayStartMsFor } from "@/lib/zoned-day";
 import type { DutyLog } from "@/types/entities";
 import type { DutyLogWindowSummary } from "@/types/hos-settings";
 
@@ -35,6 +37,15 @@ export interface HosWindowSnapshot {
   cycle: HosCycleSummary;
   /** 11/14/break clocks; warnings exclude the superseded rolling 8-day one. */
   short: HosSummary;
+  /**
+   * Latest hand clock reset, or null. The short clocks are
+   * re-derived from the log of that reset's day (see
+   * resetDayStartMs); the cycle never reads it, so a hand reset
+   * cannot touch the 60/70.
+   */
+  clockResetAt: string | null;
+  /** Start of the reset day in the carrier zone, or null when no reset applies today. */
+  resetDayStartMs: number | null;
 }
 
 export async function loadHosWindow(
@@ -64,17 +75,34 @@ export async function loadHosWindow(
       `The HOS window holds more than ${HOS_WINDOW_ROW_LIMIT} duty logs; the summary cannot be computed completely, so nothing is shown rather than a partial total.`,
     );
   }
-  return snapshotFromRows(rows, config, now);
+  // The hand-reset marker lives in the edit trail, not the duty
+  // rows (the rows are never changed by a reset). A missing trail
+  // table or a failed read means no reset on record - the clocks
+  // then run from the logs alone, as before.
+  const clockResetAt = await fetchLatestClockResetAt(client, companyId);
+  return snapshotFromRows(rows, config, now, clockResetAt);
 }
 
-export function snapshotFromRows(rows: DutyLog[], config: HosCarrierConfig, now: Date): HosWindowSnapshot {
-  const rawShort = summarizeHos(rows, now);
+export function snapshotFromRows(
+  rows: DutyLog[],
+  config: HosCarrierConfig,
+  now: Date,
+  clockResetAt: string | null = null,
+): HosWindowSnapshot {
+  // Day-aware reset (owner 2026-11-17): the reset re-derives the
+  // short clocks from the log of the day it was pressed on - today's
+  // driving, on-duty time, breaks and pending split period all still
+  // count. A reset from an earlier day does not apply any more.
+  const resetDayStartMs = resetDayStartMsFor(clockResetAt, now.getTime(), config.carrierTimeZone);
+  const rawShort = summarizeHos(rows, now, { resetDayStartMs });
   return {
     rows,
     config,
     provisional: isProvisionalCarrierConfig(config),
     cycle: summarizeHosCycle(rows, now, config),
     short: rawShort,
+    clockResetAt,
+    resetDayStartMs,
   };
 }
 
@@ -117,5 +145,7 @@ export function toWindowSummary(snapshot: HosWindowSnapshot): DutyLogWindowSumma
     restartApplied: cycle.restartApplied,
     restartUnverified: cycle.restartUnverified,
     warnings: cycle.warnings,
+    clockResetAt: snapshot.clockResetAt,
+    resetDayStartMs: snapshot.resetDayStartMs,
   };
 }

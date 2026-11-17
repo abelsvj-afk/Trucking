@@ -53,20 +53,23 @@ function mockSupabase(rows: Record<string, unknown>[], captured: Captured) {
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: (...args: unknown[]) => {
-          captured.companyEq = args;
+          // loadHosWindow also reads the edit trail for a hand-reset
+          // marker (a second query on duty_log_edits) - the captures
+          // below pin the WINDOW query, so only its table records.
+          if (table === "duty_logs") captured.companyEq = args;
           return builder;
         },
         is: () => builder,
         gte: (...args: unknown[]) => {
-          captured.gteArgs = args;
+          if (table === "duty_logs") captured.gteArgs = args;
           return builder;
         },
         order: (...args: unknown[]) => {
-          captured.orderArgs = args;
+          if (table === "duty_logs") captured.orderArgs = args;
           return builder;
         },
         limit: (n: unknown) => {
-          captured.limitArg = n;
+          if (table === "duty_logs") captured.limitArg = n;
           return builder;
         },
         then: (resolve: (v: unknown) => void) => resolve({ data: rows, error: null }),

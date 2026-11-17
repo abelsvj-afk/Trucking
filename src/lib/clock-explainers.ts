@@ -27,7 +27,8 @@ export function clockExplainer(key: ClockKey, cycleLabel: string | null = null):
         what: "The most hours you may spend actually driving between rests. Only time with the truck in a driving status counts — loading, fueling, inspections and waiting do not use it.",
         atZero: "You can't drive any more. You have to stop safely and take 10 straight hours off before you drive again.",
         resets: "10 straight hours off duty (off duty or sleeper berth) fills it back up to 11.",
-        watchOut: "It is a fixed pool, not a timer on the clock: short breaks do not refill it.",
+        watchOut:
+          "It is a fixed pool, not a timer on the clock: short breaks do not refill it. If the clocks are completely wrong, the Reset clocks button on Home re-derives them from today's log — today's driving and breaks still count, so it never hands you a fresh day you haven't earned. Only 10 straight hours off gives a fresh 11.",
       };
     case "window":
       return {

@@ -148,6 +148,8 @@ Standard resource (the 5-endpoint table above) with the fields in `docs/schemas.
 
 **`GET /api/v1/hos-settings`** — the company's carrier HOS configuration: `{ hos_cycle, hos_period_anchor, hos_restart_enabled, hos_carrier_timezone }`. Before migration `00042` is applied, reads return the labeled provisional defaults (`70/8`, `00:00`, `true`, `America/New_York`).
 
+**`POST /api/v1/duty-logs/reset`** — the MANUAL clock reset (owner 2026-11-17), never automatic: the driver presses "Reset clocks" on the Home clocks and confirms once. Body `{ reason? }` (optional, shown in the edit history). It records a correction event in the existing edit trail (`duty_log_edits`, kind `update`, `after.clock_reset_at` = the reset instant; no migration) on the latest duty entry — the original duty rows are never changed — and the HOS engine re-derives the short clocks (drive / 14-hour window / 30-minute break) from the log of the day the reset was pressed on: driving, on-duty time, breaks and any pending split first period from that day all still count. The weekly 60/70 cycle is NOT reset. Returns `{ data: { resetAt, dutyLogId } }`. `422 CLOCK_RESET_NO_LOGS` when there are no duty logs yet. Design: `docs/design/split-sleeper.md` ("Manual clock reset — DAY-AWARE").
+
 **`PATCH /api/v1/hos-settings`** — any subset of the same four fields. Values are validated (cycle enum, anchor `HH:MM` pattern, IANA timezone) and refused with `400 VALIDATION_ERROR` carrying field-named `fields[]`; unknown keys are refused. A write before migration `00042` fails `500 HOS_CONFIG_UNAVAILABLE` — never a silent no-save.
 
 ## Financial summary (read-only, computed)
@@ -521,6 +523,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/duty-logs/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/duty-logs/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/duty-logs` | GET,POST | generic CRUD (contract above) |
+| `/api/v1/duty-logs/reset` | POST | custom (see section / design doc) |
 | `/api/v1/duty-logs/window` | GET | custom (see section / design doc) |
 | `/api/v1/equipment-checklist-items/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/equipment-checklist-items/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
