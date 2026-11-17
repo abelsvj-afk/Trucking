@@ -1724,10 +1724,9 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // F2 (remember better) adds 3 tools (list_agent_lessons,
     // save_agent_lesson, correct_agent_lesson — episode-tools.ts):
     // 148 re-measured on this branch before the addition, 151 after.
-    // Abel plan check adds 1 tool (evaluate_plan —
-    // driver-question-tools.ts): 155 re-measured on this branch
-    // before the addition, 156 after.
-    expect(buildBotTools(store)).toHaveLength(156);
+    // Outbound calling (2026-11-17) adds 2 tools (place_call,
+    // list_outbound_calls — outbound-call-tools.ts): 155 before, 157 after.
+    expect(buildBotTools(store)).toHaveLength(157);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);

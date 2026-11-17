@@ -417,6 +417,12 @@ export const apiClient = {
   getAiSettings: () => request<AiSettings>("/api/v1/ai-settings"),
   updateAiSettings: (body: Partial<AiSettings>) =>
     request<AiSettings>("/api/v1/ai-settings", { method: "PATCH", body: JSON.stringify(body) }),
+  getCallVoices: () =>
+    request<{
+      configured: boolean;
+      selected: string | null;
+      voices: { id: string | null; label: string; provider: string; cost_note: string }[];
+    }>("/api/v1/call-voices"),
   dismissIndustryBriefing: <T>(id: string) =>
     request<T>(`/api/v1/industry-briefings/${id}/dismiss`, { method: "POST" }),
   listIndustryBriefings: <T>() =>

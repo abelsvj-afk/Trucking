@@ -55,7 +55,8 @@ describe("GET /api/v1/ai-settings", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual({
       globally_disabled: false,
-      capabilities: { industry_intelligence: false, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false, live_location: true, auto_duty_switch: true, logging_reminders: false },
+      capabilities: { industry_intelligence: false, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false, live_location: true, auto_duty_switch: true, logging_reminders: false, outbound_calling: false },
+      call_voice_id: null,
     });
   });
 
@@ -72,8 +73,19 @@ describe("GET /api/v1/ai-settings", () => {
 
     expect(body).toEqual({
       globally_disabled: true,
-      capabilities: { industry_intelligence: true, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false, live_location: true, auto_duty_switch: true, logging_reminders: false },
+      capabilities: { industry_intelligence: true, dispatch_helper: false, bot_chat: false, deep_research: false, document_extraction: false, game_plan: false, memory_consolidation: false, voice_transcription: false, driver_twin: false, photo_intelligence: false, maintenance_watch: false, live_location: true, auto_duty_switch: true, logging_reminders: false, outbound_calling: false },
+      call_voice_id: null,
     });
+  });
+
+  it("reflects a stored call voice", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({
+        companyResult: { data: { ai_globally_disabled: false, call_voice_id: "elevenlabs.eleven_turbo_v2_5.abc123" } },
+      }) as never,
+    );
+    const body = await (await GET(new NextRequest("http://localhost/api/v1/ai-settings"))).json();
+    expect(body.call_voice_id).toBe("elevenlabs.eleven_turbo_v2_5.abc123");
   });
 
   it("an explicit live_location off row turns it off", async () => {
@@ -118,6 +130,21 @@ describe("PATCH /api/v1/ai-settings", () => {
       capability: "industry_intelligence",
       enabled: true,
     });
+  });
+
+  it("updates the call voice", async () => {
+    const updateCalls: unknown[] = [];
+    vi.mocked(createClient).mockResolvedValue(mockSupabase({ updateCalls }) as never);
+
+    const res = await PATCH(
+      new NextRequest("http://localhost/api/v1/ai-settings", {
+        method: "PATCH",
+        body: JSON.stringify({ call_voice_id: "elevenlabs.eleven_turbo_v2_5.abc123" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(updateCalls).toContainEqual({ call_voice_id: "elevenlabs.eleven_turbo_v2_5.abc123" });
   });
 
   it("rejects an unknown capability name", async () => {

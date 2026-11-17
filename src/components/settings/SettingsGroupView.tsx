@@ -51,6 +51,13 @@ export default function SettingsGroupView({ group }: { group: SettingsGroupSlug 
   // the switch flipped back and said nothing. Now the failure speaks -
   // an inline message here plus a toast.
   const [toggleError, setToggleError] = useState<string | null>(null);
+  // Voice on calls (docs/design/outbound-calling.md): the options come
+  // from /api/v1/call-voices; null means the list didn't load, and the
+  // dropdown then offers only the Telnyx default.
+  const [callVoices, setCallVoices] = useState<{
+    configured: boolean;
+    voices: { id: string | null; label: string; provider: string; cost_note: string }[];
+  } | null>(null);
   // Theme choice (parked decision (d), src/lib/theme.ts): read from
   // localStorage via useSyncExternalStore (server snapshot = the
   // shipped default, so hydration agrees); a pick in this session
@@ -106,6 +113,14 @@ export default function SettingsGroupView({ group }: { group: SettingsGroupSlug 
     if (group === "ai") fetchSettings();
   }, [fetchSettings, group]);
 
+  useEffect(() => {
+    if (group !== "ai") return;
+    apiClient
+      .getCallVoices()
+      .then((result) => setCallVoices({ configured: result.configured, voices: result.voices }))
+      .catch(() => setCallVoices(null));
+  }, [group]);
+
   async function toggleGlobal(nextValue: boolean) {
     if (state.status !== "loaded") return;
     const previous = state.settings;
@@ -136,6 +151,22 @@ export default function SettingsGroupView({ group }: { group: SettingsGroupSlug 
     } catch {
       setState({ status: "loaded", settings: previous });
       const message = "Couldn't save that change — the switch has been put back. Try again.";
+      setToggleError(message);
+      toast.error(message);
+    }
+  }
+
+  async function pickCallVoice(nextValue: string | null) {
+    if (state.status !== "loaded") return;
+    const previous = state.settings;
+    setToggleError(null);
+    setState({ status: "loaded", settings: { ...previous, call_voice_id: nextValue } });
+    try {
+      const settings = await apiClient.updateAiSettings({ call_voice_id: nextValue });
+      setState({ status: "loaded", settings });
+    } catch {
+      setState({ status: "loaded", settings: previous });
+      const message = "Couldn't save that voice — the pick has been put back. Try again.";
       setToggleError(message);
       toast.error(message);
     }
@@ -269,6 +300,43 @@ export default function SettingsGroupView({ group }: { group: SettingsGroupSlug 
               </li>
             ))}
           </ul>
+        )}
+      </section>
+      <section aria-label="Voice on calls" data-motion-exempt className="ds-card">
+        <h2>Voice on calls</h2>
+        <p>
+          The voice Abel uses when he calls someone on the phone. The Telnyx voice is included in
+          the call minute; an ElevenLabs voice uses characters from your ElevenLabs plan. Your
+          ElevenLabs key goes in the Telnyx portal — never here, never in a message.
+        </p>
+        {state.status === "loaded" && (
+          <>
+            <label htmlFor="call_voice">Voice on calls</label>
+            <select
+              id="call_voice"
+              value={state.settings.call_voice_id ?? ""}
+              onChange={(event) => pickCallVoice(event.target.value === "" ? null : event.target.value)}
+            >
+              <option value="">Telnyx default voice</option>
+              {(callVoices?.voices ?? [])
+                .filter((voice) => voice.id !== null)
+                .map((voice) => (
+                  <option key={voice.id} value={voice.id as string}>
+                    {voice.label}
+                  </option>
+                ))}
+            </select>
+            <p className="row-sub">
+              {(callVoices?.voices ?? []).find((voice) => voice.id === state.settings.call_voice_id)
+                ?.cost_note ?? "Telnyx voice, included in the call minute — no extra cost."}
+            </p>
+            {callVoices && !callVoices.configured && (
+              <p className="row-sub">
+                Calling isn&apos;t connected yet — the full voice list appears once the Telnyx
+                number is set up.
+              </p>
+            )}
+          </>
         )}
       </section>
         </>

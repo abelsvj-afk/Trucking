@@ -1497,3 +1497,25 @@ owner-operator himself), applying to every month until changed; setting it again
 - `target_cents` bigint not null — > 0
 - `created_at`, `updated_at` timestamptz not null default now()
 - `deleted_at` timestamptz
+
+### `outbound_calls` — created in 00100
+
+Abel's outbound phone calls (docs/design/outbound-calling.md): one row per call Abel places from the one shared Telnyx number. Calls queue here and are claimed atomically (`claim_next_outbound_call`, per-company advisory lock) so two machines never dial over each other on the shared number. Transcript + outcome land on the row — the app is his proof vault. Before this migration is applied the place_call tool refuses with a plain-words message (the calls table hasn't been added).
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `driver_id` uuid references drivers (id) — the driver the call was for, when it was for one
+- `to_number` text not null — E.164; only a number the app already knows (driver, broker, customer)
+- `to_name` text not null — who was called, as the app knows them
+- `purpose` text not null — one line on why
+- `say` text not null — what Abel had to get across
+- `status` text not null default 'queued' — queued | dialing | in_progress | completed | failed | no_answer | voicemail
+- `telnyx_call_control_id` text — unique when set; the webhook looks the row up by this
+- `telnyx_conversation_id` text
+- `transcript`, `outcome` text
+- `started_at`, `ended_at` timestamptz
+- `duration_seconds` integer
+- `created_at`, `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz
+
+_00100 (2026-11-17): `companies.call_voice_id` text — the voice he picked for Abel's outbound calls (a Telnyx voice id, or null for the Telnyx default built-in voice). Set in Settings → Abel and AI → "Voice on calls"; the ElevenLabs key itself lives in the Telnyx portal as an Integration Secret, never here._

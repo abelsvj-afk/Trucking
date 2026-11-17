@@ -13,7 +13,7 @@ import { aiSettingsPatchSchema, KNOWN_CAPABILITIES } from "@/data/schemas/ai-set
 
 async function getAiSettings(supabase: SupabaseClient, companyId: string) {
   const [companyResult, capabilitiesResult] = await Promise.all([
-    supabase.from("companies").select("ai_globally_disabled").eq("id", companyId).single(),
+    supabase.from("companies").select("ai_globally_disabled, call_voice_id").eq("id", companyId).single(),
     supabase.from("ai_capability_settings").select("capability, enabled").eq("company_id", companyId),
   ]);
 
@@ -39,6 +39,10 @@ async function getAiSettings(supabase: SupabaseClient, companyId: string) {
   return {
     globally_disabled: (companyResult.data as { ai_globally_disabled: boolean } | null)?.ai_globally_disabled ?? false,
     capabilities,
+    call_voice_id:
+      typeof (companyResult.data as { call_voice_id?: unknown } | null)?.call_voice_id === "string"
+        ? ((companyResult.data as { call_voice_id: string }).call_voice_id as string)
+        : null,
   };
 }
 
@@ -56,6 +60,14 @@ export const PATCH = createApiHandler(async (req, ctx) => {
     const { error } = await supabase
       .from("companies")
       .update({ ai_globally_disabled: body.globally_disabled })
+      .eq("id", ctx.auth.companyId);
+    if (error) throw new Error(error.message);
+  }
+
+  if (body.call_voice_id !== undefined) {
+    const { error } = await supabase
+      .from("companies")
+      .update({ call_voice_id: body.call_voice_id })
       .eq("id", ctx.auth.companyId);
     if (error) throw new Error(error.message);
   }

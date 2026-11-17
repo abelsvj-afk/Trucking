@@ -12,6 +12,7 @@ import { PHOTO_INTELLIGENCE_CAPABILITY } from "@/services/ai/photo-classificatio
 import { MAINTENANCE_WATCH_CAPABILITY } from "@/services/fleet/maintenance-watch";
 import { AUTO_DUTY_SWITCH_CAPABILITY, LIVE_LOCATION_CAPABILITY } from "@/lib/live-motion";
 import { LOGGING_REMINDERS_CAPABILITY } from "@/lib/reminders";
+import { OUTBOUND_CALLING_CAPABILITY } from "@/services/calling/config";
 
 // Every capability that has a kill switch (docs/governance.md). Extend
 // this as each new capability is built - an unknown capability name in a
@@ -32,10 +33,14 @@ export const KNOWN_CAPABILITIES = [
   LIVE_LOCATION_CAPABILITY,
   AUTO_DUTY_SWITCH_CAPABILITY,
   LOGGING_REMINDERS_CAPABILITY,
+  OUTBOUND_CALLING_CAPABILITY,
 ] as const;
 
 export const aiSettingsPatchSchema = z.object({
   globally_disabled: z.boolean().optional(),
+  // The voice for Abel's outbound calls (docs/design/outbound-calling.md):
+  // a Telnyx voice id, or null for the Telnyx default built-in voice.
+  call_voice_id: z.string().nullable().optional(),
   // partialRecord, not record: the PATCH body is any SUBSET of
   // capabilities (docs/api-contracts.md). A plain z.record over the
   // enum would demand every known key once more than one capability
