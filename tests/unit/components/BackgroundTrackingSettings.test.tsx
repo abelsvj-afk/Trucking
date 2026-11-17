@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 afterEach(cleanup);
@@ -35,17 +36,17 @@ describe("BackgroundTrackingSettings", () => {
     expect(document.body.textContent).toContain("never used");
   });
 
-  it("offers the tracker Android download at the stable release URL, and says there is no iPhone version", async () => {
+  it("offers the CURRENT tracker (served by this app), says how to update from 1.0.x, and says there is no iPhone version", async () => {
     deviceTokens.mockResolvedValue({ data: [] });
     render(<BackgroundTrackingSettings />);
     await act(async () => {});
-    const link = screen.getByRole("button", { name: "Download the tracker app (Android)" }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe(
-      "https://github.com/abelsvj-afk/Trucking/releases/download/tracker-v1.0.4/trucking-os-tracker-v1.0.4.apk",
-    );
+    const link = screen.getByRole("button", { name: "Download the tracker app (Android, version 1.1.1)" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/downloads/trucking-os-tracker-1.1.1.apk");
     expect(TRACKER_ANDROID_DOWNLOAD_URL).toBe(link.getAttribute("href"));
+    // the file the button points at is actually shipped with the app
+    expect(existsSync(`public${TRACKER_ANDROID_DOWNLOAD_URL}`)).toBe(true);
     expect(document.body.textContent).toContain("no iPhone version of the Tracker app yet");
-    expect(document.body.textContent).toContain("keeps that copy's saved server address and key");
+    expect(document.body.textContent).toContain("Uninstall the old one first");
   });
 
   it("revokes a device", async () => {
