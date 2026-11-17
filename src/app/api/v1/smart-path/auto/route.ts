@@ -22,6 +22,15 @@ const autoSchema = z.object({
       workout: z.object({ want: z.boolean(), minutes: z.number().int().min(30).max(180).optional(), setting: z.enum(["gym_preferred", "any_safe_stop"]).optional() }).optional(),
     })
     .optional(),
+  eld_clocks: z
+    .object({
+      drive_left_min: z.number().int().min(0).max(11 * 60),
+      window_left_min: z.number().int().min(0).max(14 * 60),
+      cycle_left_min: z.number().int().min(0).max(70 * 60),
+      entered_at: z.string().datetime({ offset: true }),
+    })
+    .nullable()
+    .optional(),
   position: z
     .object({
       lat: z.number().min(-90).max(90),
@@ -40,6 +49,7 @@ export const POST = createApiHandler(async (req, ctx) => {
     loadId: body.load_id ?? null,
     departAt: body.depart_at ?? null,
     prefs: body.prefs,
+    eldClocks: body.eld_clocks ?? undefined,
     devicePosition: body.position ? { lat: body.position.lat, lng: body.position.lng, headingDeg: body.position.heading ?? null, speedMph: body.position.speed_mph ?? null } : null,
   });
   return NextResponse.json({ data: out }, { headers: { "Cache-Control": "no-store" } });

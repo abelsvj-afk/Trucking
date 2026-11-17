@@ -61,3 +61,37 @@ describe("Smart Path plans from what the app already knows", () => {
     expect(p.request).toMatchObject({ food_mode: "fast_food", life: { sleep_start_hour: 22, sleep_end_hour: 6, workout: { want: true, minutes: 60, setting: "gym_preferred" } } });
   });
 });
+
+import { hoursLine } from "@/lib/smart-path-summary";
+import { makeResult } from "../fixtures/route-check-fixture";
+
+describe("the card says which hours it planned on (owner 2026-11-17: 'why does it show late')", () => {
+  it("a used-up cycle from the app log is named as the reason", () => {
+    const r = makeResult({ clocks: { driveLeftMin: 300, windowLeftMin: 500, breakLeftMin: 480, weekLeftMin: 0, fromLogs: true }, clocksSource: "app_log" });
+    const h = hoursLine(r)!;
+    expect(h.fromAppLog).toBe(true);
+    expect(h.tight).toBe(true);
+    expect(h.text).toContain("this app's duty log");
+    expect(h.text).toContain("0h 00m on your cycle");
+    expect(h.text).toContain("34-hour restart");
+  });
+
+  it("ELD hours he entered are labeled as his", () => {
+    const r = makeResult({ clocks: { driveLeftMin: 600, windowLeftMin: 780, breakLeftMin: 480, weekLeftMin: 1800, fromLogs: false }, clocksSource: "eld_entered" });
+    expect(hoursLine(r)).toMatchObject({ fromAppLog: false, tight: false });
+    expect(hoursLine(r)!.text).toContain("your ELD hours");
+  });
+
+  it("ELD clocks ride the automatic plan's request", () => {
+    const eld = { drive_left_min: 600, window_left_min: 780, cycle_left_min: 1800, entered_at: "2026-11-17T14:00:00Z" };
+    const p = planAuto({
+      load: { id: "L1", status: "confirmed", pickup_date: null, delivery_date: null },
+      stops: [],
+      nextStopKind: "delivery",
+      position: { lat: 1, lng: 1, ageSeconds: 10, source: "device" },
+      now: new Date("2026-11-17T15:00:00Z"),
+      eldClocks: eld,
+    });
+    expect(p.request!.eld_clocks).toEqual(eld);
+  });
+});

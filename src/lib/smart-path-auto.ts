@@ -23,6 +23,8 @@ export interface AutoInputs {
   now: Date;
   departAt?: string | null;
   prefs?: AutoPrefs;
+  /** His ELD's clocks, if he entered them (minutes left + when). */
+  eldClocks?: RouteCheckRequest["eld_clocks"];
 }
 
 export interface AutoPlan {
@@ -64,6 +66,7 @@ export function planAuto(i: AutoInputs): AutoPlan {
     load_id: i.load.id,
     depart_at: departAt,
     food_mode: i.prefs?.food_mode ?? "grocery",
+    ...(i.eldClocks ? { eld_clocks: i.eldClocks } : {}),
   };
   const pickupWindow = window(firstPickup?.appointment_at ?? null);
   const deliveryWindow = window(lastDelivery?.appointment_at ?? null);

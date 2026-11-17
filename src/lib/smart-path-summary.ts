@@ -67,3 +67,20 @@ export function timeline(r: RouteCheckResponse, timeZone: string): TimelineItem[
   if (r.plan?.arrivalAt) items.push({ at: r.plan.arrivalAt, icon: "🏁", text: `Arrive ${r.load.destination}` });
   return items.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).map((i) => ({ ...i, text: `${clock(i.at, timeZone)} · ${i.text}` }));
 }
+
+/**
+ * Which hours the plan ran on, in his words, and the one that is holding him up (owner 2026-11-17: "why does it
+ * show late if the delivery isn't until tomorrow" - the app log thought his cycle was used up and never said so).
+ */
+export function hoursLine(r: RouteCheckResponse): { text: string; fromAppLog: boolean; tight: boolean } | null {
+  const c = r.clocks;
+  if (!c) return null;
+  const source = r.clocksSource ?? (c.fromLogs ? "app_log" : "fresh");
+  const label = source === "eld_entered" ? "your ELD hours (as you entered them)" : source === "app_log" ? "this app's duty log" : "fresh hours (no log)";
+  const parts = `${hm(c.driveLeftMin)} driving · ${hm(c.windowLeftMin)} on your 14 · ${hm(c.weekLeftMin)} on your cycle`;
+  const blockers: string[] = [];
+  if (c.weekLeftMin < 60) blockers.push("your cycle is (nearly) used up, so the plan has to fit a 34-hour restart before driving");
+  else if (c.driveLeftMin < 60 || c.windowLeftMin < 60) blockers.push("you're (nearly) out of driving or shift time, so the plan starts with a 10-hour rest");
+  const text = `Hours used: ${label} - ${parts}.${blockers.length ? ` ${blockers[0]![0]!.toUpperCase()}${blockers[0]!.slice(1)}.` : ""}`;
+  return { text, fromAppLog: source === "app_log", tight: blockers.length > 0 };
+}

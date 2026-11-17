@@ -53,6 +53,8 @@ export interface RouteCheckResponse {
    * The ELD remains the legal record (F-014).
    */
   clocks?: ClockState;
+  /** Where the clocks came from: the app's own duty log, ELD hours he entered, or fresh (no log). */
+  clocksSource?: "app_log" | "eld_entered" | "fresh";
   /**
    * Intelligence Phase 1 (docs/design/smart-path-intelligence.md §1): evenly spaced
    * points along the loaded route with the time he reaches each (null when the plan

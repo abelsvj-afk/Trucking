@@ -4,7 +4,7 @@
 
 import type { AgentTool } from "@/services/ai/agent-loop";
 import { runAutoSmartPath } from "@/services/smart-path/auto";
-import { keyFacts, timeline } from "@/lib/smart-path-summary";
+import { hoursLine, keyFacts, timeline } from "@/lib/smart-path-summary";
 import { HOME_TIME_ZONE } from "@/lib/display-zone";
 import type { BotBrainStore } from "./store";
 
@@ -35,6 +35,10 @@ export function buildPlanRunTools(store: BotBrainStore): AgentTool[] {
           `Load: ${out.load?.label ?? `${r.load.origin} → ${r.load.destination}`}`,
           `Verdict: ${WORD[r.verdict.status] ?? r.verdict.status}${r.verdict.tradeoffLines[0] ? ` - ${r.verdict.tradeoffLines[0]}` : ""}`,
           `Assumed: ${out.assumptions.join(" ")}`,
+          hoursLine(r)?.text ?? "",
+          hoursLine(r)?.fromAppLog && hoursLine(r)?.tight
+            ? "If his carrier's ELD shows more hours than this app's log, the verdict is wrong - tell him, and that he can enter his ELD hours under Smart Path -> Change."
+            : "",
           ...keyFacts(r, HOME_TIME_ZONE).map((f) => `${f.label}: ${f.value}${f.sub ? ` (${f.sub})` : ""}`),
           "The run:",
           ...timeline(r, HOME_TIME_ZONE).map((t) => `- ${t.text}`),
