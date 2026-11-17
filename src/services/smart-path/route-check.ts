@@ -50,6 +50,23 @@ import {
 } from "@/services/integrations/places";
 import { buildWeatherSection, defaultWeatherFetchers, type WeatherFetchers } from "@/services/smart-path/route-weather";
 import { buildRoadWorkSection } from "@/services/smart-path/route-roadwork";
+import {
+  buildTrafficSection,
+  defaultTrafficFetchers,
+  type TrafficFetchers,
+  type TrafficSection,
+} from "@/services/smart-path/route-traffic";
+import {
+  buildBridgesSection,
+  defaultBridgesFetchers,
+  type BridgesFetchers,
+  type BridgesSection,
+} from "@/services/smart-path/route-bridges";
+import {
+  avoidCirclesFor,
+  evaluateTrafficCall,
+  worstDelayAhead,
+} from "@/lib/smart-path-traffic";
 import { getRegionalDiesel, type RegionalDiesel } from "@/services/smart-path/regional-fuel";
 import { getDieselPriceEstimate } from "@/services/smart-path/fuel-price-estimate";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
@@ -72,6 +89,10 @@ export interface RouteCheckProviders {
   weather?: WeatherFetchers;
   /** Intelligence Phase 3: build the road-work section (optional seam; absent = no section). Default reads the WZDx feed registry. */
   roadWork?: typeof buildRoadWorkSection;
+  /** Live awareness (owner 2026-11-17): build the traffic section (optional seam; absent = no section). Default reads TomTom. */
+  traffic?: TrafficFetchers;
+  /** Live awareness (owner 2026-11-17): build the bridges section (optional seam; absent = no section). Default reads Overpass. */
+  bridges?: BridgesFetchers;
   regionalDiesel?: (paddCode: string, regionName: string) => Promise<RegionalDiesel | null>;
 }
 
@@ -83,6 +104,8 @@ export const defaultProviders: RouteCheckProviders = {
   regionalDiesel: (code, name) => getRegionalDiesel(code, name),
   weather: defaultWeatherFetchers,
   roadWork: buildRoadWorkSection,
+  traffic: defaultTrafficFetchers,
+  bridges: defaultBridgesFetchers,
 };
 
 type RouteResult = Awaited<ReturnType<RoutingProvider["getRoute"]>>;
@@ -231,7 +254,15 @@ export async function runRouteCheck(
 
   let route;
   try {
-    route = await providers.routing.getRoute(originPoint, destinationPoint, vehicle);
+    // Live awareness: an avoid request routes around the reported
+    // delay. The chain's truck engines take it; a car fallback
+    // refuses it rather than offering a car detour as truck-safe.
+    route = await providers.routing.getRoute(
+      originPoint,
+      destinationPoint,
+      vehicle,
+      request.avoid && request.avoid.length > 0 ? { avoidCircles: request.avoid } : undefined,
+    );
   } catch (err) {
     if (err instanceof RoutingUnavailableError) {
       throw new ApiError(502, "ROUTING_UNAVAILABLE", `${err.message} No distance was estimated instead - a made-up number would be worse than none.`);
@@ -590,6 +621,62 @@ export async function runRouteCheck(
         )
       : undefined;
 
+  // Live awareness (owner 2026-11-17): traffic delays on the route
+  // with the ahead-of-time call, and bridges with a posted
+  // clearance vs his truck. Both are advisory and never change the
+  // verdict; a provider that is down yields "unavailable", never
+  // invented delays or clearances.
+  let traffic: TrafficSection | undefined;
+  if (providers.traffic && corridor && "points" in corridor) {
+    traffic = await buildTrafficSection({
+      geometry: route.geometry,
+      totalMiles: corridor.totalMiles,
+      corridor: corridor.points.map((pt) => ({ mile: pt.mile, etaAt: pt.etaAt })),
+      plannedRemainingMinutes: plan ? verdict.assumedDriveMinutes : null,
+      fetchers: providers.traffic,
+      now,
+    });
+    // The ahead-of-time call, compared against a truck-checked
+    // detour — only when a delay is actually coloring the route.
+    // A detour that comes back car-only, or a routing failure,
+    // leaves the section's own "no detour to compare" call standing.
+    if (traffic.status === "ok" && traffic.segments.length > 0) {
+      const circles = avoidCirclesFor(traffic.items, route.geometry, corridor.totalMiles);
+      if (circles.length > 0) {
+        try {
+          const detour = await providers.routing.getRoute(originPoint, destinationPoint, vehicle, {
+            avoidCircles: circles,
+          });
+          if (detour.truckLegal) {
+            const worst = worstDelayAhead(traffic.items);
+            traffic = {
+              ...traffic,
+              call: evaluateTrafficCall({
+                itemsAhead: traffic.items,
+                currentMile: null,
+                etaAtIncident: worst?.etaAt ?? null,
+                detour: { durationMinutes: detour.durationMinutes, distanceMiles: detour.distanceMiles },
+                plannedRemainingMinutes: plan ? verdict.assumedDriveMinutes : null,
+                now,
+              }),
+            };
+          }
+        } catch {
+          // No detour to compare — the section already says so.
+        }
+      }
+    }
+  }
+  let bridges: BridgesSection | undefined;
+  if (providers.bridges && corridor && "points" in corridor) {
+    bridges = await buildBridgesSection({
+      corridor: corridor.points.map((pt) => ({ mile: pt.mile, lat: pt.lat, lng: pt.lng, etaAt: pt.etaAt })),
+      truckHeightIn: truck?.height_in ?? null,
+      fetchers: providers.bridges,
+      now,
+    });
+  }
+
   const foodPlan = planFoodStops(foodCandidates, request.food_mode, truck?.appliances ?? []);
 
   return {
@@ -610,6 +697,8 @@ export async function runRouteCheck(
     ...(weather ? { weather } : {}),
     ...(stateRules ? { stateRules } : {}),
     ...(roadWork ? { roadWork } : {}),
+    ...(traffic ? { traffic } : {}),
+    ...(bridges ? { bridges } : {}),
     verdict: {
       status: verdict.status,
       assumedDriveMinutes: Math.round(verdict.assumedDriveMinutes),

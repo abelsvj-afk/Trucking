@@ -22,8 +22,18 @@ import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
 import { truckIconSvg, truckIcon3dSvg } from "@/lib/truck-icon";
 import { DRIVE_MAP_PITCH_3D, driveMapCamera } from "@/lib/drive-map-camera";
+import { segmentsToFeatureCollection, type MapSegment } from "@/lib/smart-path-map-segments";
 
 export type DrivePositionQuality = "good" | "poor" | "lost";
+
+/** Live awareness: a bridge / delay marker on the drive map (no popup while rolling — the banner speaks). */
+export interface DriveMapHazard {
+  id: string;
+  point: LatLng;
+  badge: string;
+  color: string;
+  title: string;
+}
 
 interface DriveMapProps {
   geometry: LatLng[];
@@ -49,6 +59,10 @@ interface DriveMapProps {
   frameRoute?: boolean;
   /** Accessible label override. */
   label?: string;
+  /** Live awareness: colored stretches (miles relative to the passed geometry). */
+  segments?: MapSegment[];
+  /** Live awareness: bridge / delay markers on the route. */
+  hazards?: DriveMapHazard[];
 }
 
 const OSM_STYLE = {
@@ -136,15 +150,18 @@ export default function DriveMap({
   interactive = true,
   frameRoute = true,
   label,
+  segments = [],
+  hazards = [],
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const stopMarkersRef = useRef<MapLibreMarker[]>([]);
+  const hazardMarkersRef = useRef<MapLibreMarker[]>([]);
   const positionMarkerRef = useRef<MapLibreMarker | null>(null);
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
   const framedRef = useRef(false);
-  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus });
+  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards });
   const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
@@ -201,8 +218,14 @@ export default function DriveMap({
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("drive-route")) return;
-    const { geometry: geo, deadheadGeometry: deadhead, stops: currentStops, stopStatus: statuses } =
-      dataRef.current;
+    const {
+      geometry: geo,
+      deadheadGeometry: deadhead,
+      stops: currentStops,
+      stopStatus: statuses,
+      segments: currentSegments,
+      hazards: currentHazards,
+    } = dataRef.current;
     const routeSource = map.getSource("drive-route") as
       | { setData: (data: unknown) => void }
       | undefined;
@@ -211,6 +234,12 @@ export default function DriveMap({
       | { setData: (data: unknown) => void }
       | undefined;
     deadheadSource?.setData(lineFeature(deadhead));
+    // Live awareness: the colored stretches over the remaining
+    // route line, each feature carrying its severity color.
+    const trafficSource = map.getSource("drive-traffic") as
+      | { setData: (data: unknown) => void }
+      | undefined;
+    trafficSource?.setData(segmentsToFeatureCollection(geo, currentSegments));
 
     void (async () => {
       const maplibregl = (await import("maplibre-gl")).default;
@@ -227,6 +256,22 @@ export default function DriveMap({
           `font-size:11px;font-weight:700;padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);opacity:${status === "arrived" || dimmed ? 0.75 : 1}`;
         return new maplibregl.Marker({ element: el })
           .setLngLat([stop.point.lng, stop.point.lat])
+          .addTo(map);
+      });
+
+      // Hazard markers: a plain badge, no popup while rolling — the
+      // banner above the map carries the words.
+      for (const marker of hazardMarkersRef.current) marker.remove();
+      hazardMarkersRef.current = currentHazards.map((hazard) => {
+        const el = document.createElement("div");
+        el.textContent = hazard.badge;
+        el.setAttribute("aria-hidden", "true");
+        el.style.cssText =
+          `background:${hazard.color};color:#fff;border-radius:9999px;` +
+          "min-width:24px;height:24px;display:flex;align-items:center;justify-content:center;" +
+          "font-size:12px;font-weight:700;padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);";
+        return new maplibregl.Marker({ element: el })
+          .setLngLat([hazard.point.lng, hazard.point.lat])
           .addTo(map);
       });
 
@@ -302,6 +347,22 @@ export default function DriveMap({
           source: "drive-route",
           paint: { "line-color": "#c9a227", "line-width": 5, "line-opacity": 0.9 },
         });
+        // Live awareness: colored stretches over the route line,
+        // each feature carrying its severity color.
+        map.addSource("drive-traffic", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        map.addLayer({
+          id: "drive-traffic-line",
+          type: "line",
+          source: "drive-traffic",
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 7,
+            "line-opacity": 0.95,
+          },
+        });
         drawRoute();
       });
     })();
@@ -312,9 +373,9 @@ export default function DriveMap({
   }, [drawRoute]);
 
   useEffect(() => {
-    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus };
+    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards };
     drawRoute();
-  }, [geometry, deadheadGeometry, stops, stopStatus, drawRoute]);
+  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, drawRoute]);
 
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).

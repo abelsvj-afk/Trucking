@@ -105,6 +105,56 @@ export default function SmartPathDetails({ result }: { result: RouteCheckRespons
           <p className="row-sub">From state work-zone feeds, as of {formatEastern(new Date(result.roadWork.asOf))}. Advisory — it never says a road is open or closed.</p>
         </details>
       )}
+
+      {result.traffic && (
+        <details open={result.traffic.items.some((i) => i.severity === "severe") || result.traffic.call.decision === "reroute"}>
+          <summary>
+            Traffic ahead{result.traffic.items.length > 0 ? ` — ${result.traffic.items.length} reported ${result.traffic.items.length === 1 ? "delay" : "delays"}` : " — no reported delays"}
+            {result.traffic.status !== "ok" && ` (${result.traffic.status})`}
+          </summary>
+          <p><strong>{result.traffic.call.reason}</strong></p>
+          {result.traffic.items.length === 0 && result.traffic.status !== "unavailable" && (
+            <p>No reported delays on this route right now.</p>
+          )}
+          <ul>
+            {result.traffic.items.map((t) => (
+              <li key={t.id}>
+                {t.severity === "severe" ? "🔴 " : t.severity === "moderate" ? "🟠 " : ""}Mile {Math.round(t.mile)}
+                {t.endMile > t.mile ? `–${Math.round(t.endMile)}` : ""}
+                {t.etaAt ? ` (about ${formatEastern(new Date(t.etaAt))})` : ""}: {t.text}
+              </li>
+            ))}
+          </ul>
+          {result.traffic.notes.map((n) => (
+            <p key={n} className="row-sub">{n}</p>
+          ))}
+          <p className="row-sub">From TomTom&apos;s live incidents, as of {formatEastern(new Date(result.traffic.asOf))}. Advisory — a stretch with no color means no reported incident, not a clear road, and it never changes the verdict.</p>
+        </details>
+      )}
+
+      {result.bridges && (
+        <details open={result.bridges.items.some((i) => i.clearance === "below" || i.clearance === "tight")}>
+          <summary>
+            Bridges ahead{result.bridges.items.length > 0 ? ` — ${result.bridges.items.length} with a posted clearance` : ""}
+            {result.bridges.status !== "ok" && ` (${result.bridges.status})`}
+          </summary>
+          {result.bridges.items.length === 0 && result.bridges.status !== "unavailable" && (
+            <p>No bridges with a posted clearance found on this route.</p>
+          )}
+          <ul>
+            {result.bridges.items.map((b) => (
+              <li key={b.id}>
+                {b.clearance === "below" ? "⚠ " : b.clearance === "tight" ? "⚠ " : ""}Mile {Math.round(b.mile)}
+                {b.etaAt ? ` (about ${formatEastern(new Date(b.etaAt))})` : ""}: {b.text}
+              </li>
+            ))}
+          </ul>
+          {result.bridges.notes.map((n) => (
+            <p key={n} className="row-sub">{n}</p>
+          ))}
+          <p className="row-sub">From the map&apos;s posted clearances, as of {formatEastern(new Date(result.bridges.asOf))}. Advisory — a bridge with no posted clearance isn&apos;t listed and isn&apos;t a pass; check the signs and your truck&apos;s own nav.</p>
+        </details>
+      )}
       {result.stateRules && result.stateRules.length > 0 && (
         <details open={result.stateRules.some((r) => r.kind === "exceeds")}>
           <summary>State truck rules on this route</summary>

@@ -67,10 +67,13 @@ import DriveRolling from "@/components/drive/DriveRolling";
 import DrivePreview from "@/components/drive/DrivePreview";
 import DriveParked from "@/components/drive/DriveParked";
 import DriveRunEnded from "@/components/drive/DriveRunEnded";
-import { easternHour, formatMinutes } from "@/lib/smart-path";
+import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
+import { sliceGeometryFromFraction } from "@/lib/smart-path-map-segments";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { RouteCheckResponse } from "@/types/smart-path";
+import type { LiveTrafficResponse, RouteCheckResponse } from "@/types/smart-path";
+import type { DriveMapHazard } from "@/components/DriveMap";
+import type { MapSegment } from "@/lib/smart-path-map-segments";
 
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 
@@ -123,6 +126,8 @@ const OWN_FIX_STALE_MS = 20_000;
 /** A Telegram fix older than this is not "where he is now". */
 const TELEGRAM_FIX_MAX_AGE_MS = 45_000;
 const FALLBACK_POLL_MS = 10_000;
+/** Live awareness: how often Drive asks what's ahead (2 min). */
+const LIVE_POLL_MS = 120_000;
 
 export default function DrivePage() {
   usePageTitle("Drive");
@@ -168,6 +173,19 @@ export default function DrivePage() {
   const rerouteBusyRef = useRef(false);
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
   const lastCheckpointWriteRef = useRef(0);
+  // Live awareness (owner 2026-11-17): the latest traffic poll, the
+  // hazards already spoken once, and the poll's own pacing.
+  const [liveTraffic, setLiveTraffic] = useState<LiveTrafficResponse | null>(null);
+  const spokenHazardsRef = useRef<Set<string>>(new Set());
+  const livePollBusyRef = useRef(false);
+  const sourceResultRef = useRef<RouteCheckResponse | null>(null);
+  const mutedRef = useRef(false);
+  useEffect(() => {
+    sourceResultRef.current = sourceResult;
+  }, [sourceResult]);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
   const modeRef = useRef<Mode>("loading");
   useEffect(() => {
     modeRef.current = mode;
@@ -325,7 +343,13 @@ export default function DrivePage() {
   // A new route from where he is - accepted ONLY if the provider says it is
   // truck-checked (lib/drive-reroute.ts). A car route never replaces the
   // plan: the old one stays and he is told plainly.
-  const requestReroute = async (point: { lat: number; lng: number }, currentPlan: DrivePlanSnapshot) => {
+  // Live awareness: `avoid` carries the circles around a reported
+  // delay, for the one-tap detour - the same acceptance rule applies.
+  const requestReroute = async (
+    point: { lat: number; lng: number },
+    currentPlan: DrivePlanSnapshot,
+    avoid?: { lat: number; lng: number; radiusMiles: number }[],
+  ) => {
     rerouteBusyRef.current = true;
     lastRerouteRef.current = Date.now();
     setRouteNotice(REROUTE_COPY.working);
@@ -333,7 +357,7 @@ export default function DrivePage() {
       const res = await fetch("/api/v1/smart-path/route-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildRerouteRequest(currentPlan, point, new Date().toISOString())),
+        body: JSON.stringify(buildRerouteRequest(currentPlan, point, new Date().toISOString(), avoid)),
       });
       const body = res.ok ? ((await res.json()) as RouteCheckResponse) : null;
       const outcome = evaluateRerouteResult(body, new Date());
@@ -351,6 +375,8 @@ export default function DrivePage() {
       setPlan(outcome.plan);
       syncSession(newDriveSession(outcome.plan, now));
       spokenManeuversRef.current = new Set();
+      spokenHazardsRef.current = new Set();
+      setLiveTraffic(null);
       offRouteRef.current = INITIAL_OFF_ROUTE;
       setRouteNotice("Rerouted — new truck-checked route.");
       speaker().speak(reroutedSpeech(outcome.milesToGo));
@@ -363,6 +389,93 @@ export default function DrivePage() {
       rerouteBusyRef.current = false;
     }
   };
+
+  // Live awareness (owner 2026-11-17): while rolling, ask what's
+  // ahead every two minutes - the remaining run from where he is,
+  // with the corridor timing the plan already computed. A failed
+  // poll is silent: the last good state stays, and the next poll
+  // retries. Nothing here re-plans; the detour is his tap.
+  const pollLiveTraffic = useCallback(async () => {
+    const currentPlan = planRef.current;
+    const currentSession = sessionRef.current;
+    const result = sourceResultRef.current;
+    if (!currentPlan || !currentSession || !result || modeRef.current !== "rolling") return;
+    const fix = currentSession.lastFix;
+    if (!fix) return;
+    if (!result.corridor || !("points" in result.corridor) || result.corridor.points.length < 2) return;
+    if (livePollBusyRef.current) return;
+    const deadheadMiles = result.deadhead?.distanceMiles ?? 0;
+    const loadedTotal = result.route.distanceMiles;
+    if (loadedTotal <= 0) return;
+    const drivenLoaded = Math.max(0, currentSession.progressFraction * currentPlan.totalMiles - deadheadMiles);
+    if (drivenLoaded >= loadedTotal - 1) return; // nearly there - nothing ahead to poll
+    const fraction = drivenLoaded / loadedTotal;
+    const remainingGeometry = sliceGeometryFromFraction(result.route.geometry, fraction);
+    if (remainingGeometry.length < 2) return;
+    const remainingCorridor = result.corridor.points
+      .filter((pt) => pt.mile > drivenLoaded)
+      .map((pt) => ({ mile: Math.round((pt.mile - drivenLoaded) * 10) / 10, etaAt: pt.etaAt }));
+    if (remainingCorridor.length < 1) return;
+    livePollBusyRef.current = true;
+    try {
+      const res = await fetch("/api/v1/smart-path/live-traffic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          geometry: remainingGeometry,
+          totalMiles: Math.round((loadedTotal - drivenLoaded) * 10) / 10,
+          corridor: remainingCorridor,
+          currentMile: 0,
+          currentPoint: fix.point,
+          destination: result.route.destinationPoint,
+          plannedRemainingMinutes: Math.max(1, Math.round(currentPlan.assumedDriveMinutes * (1 - fraction))),
+        }),
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as LiveTrafficResponse;
+      setLiveTraffic(body);
+      // Each hazard is spoken once, only when it is close ahead -
+      // never repeated, never for something hours away.
+      if (!mutedRef.current) {
+        const speakOnce = (key: string, line: string) => {
+          if (spokenHazardsRef.current.has(key)) return;
+          spokenHazardsRef.current.add(key);
+          speaker().speak(line);
+        };
+        for (const item of body.traffic.items) {
+          if (item.severity === "minor" || item.mile > 15) continue;
+          speakOnce(
+            `traffic-${item.id}`,
+            `Heads up: ${item.category.toLowerCase()} ahead, about ${Math.round(item.mile)} miles` +
+              `${item.delayMinutes !== null ? `, about ${item.delayMinutes} minute delay` : ""}.`,
+          );
+        }
+        for (const bridge of result.bridges?.items ?? []) {
+          const ahead = bridge.mile - drivenLoaded;
+          if (ahead > 5 || ahead < 0 || (bridge.clearance !== "below" && bridge.clearance !== "tight")) continue;
+          speakOnce(
+            `bridge-${bridge.id}`,
+            `Low bridge ahead in about ${Math.round(ahead)} miles. ` +
+              `${bridge.clearance === "below" ? "It is under your truck." : "It is only just over your truck."}`,
+          );
+        }
+        if (body.traffic.call.decision === "reroute" && body.traffic.call.incidentId) {
+          speakOnce(`call-${body.traffic.call.incidentId}`, body.traffic.call.reason);
+        }
+      }
+    } catch {
+      // Silent - see above.
+    } finally {
+      livePollBusyRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "rolling") return;
+    void pollLiveTraffic();
+    const id = setInterval(() => void pollLiveTraffic(), LIVE_POLL_MS);
+    return () => clearInterval(id);
+  }, [mode, pollLiveTraffic]);
 
   const startWatching = () => {
     if (!("geolocation" in navigator)) {
@@ -587,10 +700,76 @@ export default function DrivePage() {
         : (plan?.geometry ?? []),
     [sourceResult, plan],
   );
-  const mapDeadhead =
-    sourceResult && plan && sourceResult.load.id === plan.loadId
-      ? (sourceResult.deadhead?.geometry ?? [])
-      : [];
+  const mapDeadhead = useMemo(
+    () =>
+      sourceResult && plan && sourceResult.load.id === plan.loadId
+        ? (sourceResult.deadhead?.geometry ?? [])
+        : [],
+    [sourceResult, plan],
+  );
+
+  // Live awareness: miles already driven on the loaded leg (the
+  // plan's progress covers deadhead + loaded, so the deadhead comes
+  // off first). Live segments/items are remaining-relative, so they
+  // shift by what's driven; plan-time sections are absolute already.
+  const drivenLoadedMiles =
+    plan && session && sourceResult && sourceResult.load.id === plan.loadId
+      ? Math.max(0, session.progressFraction * plan.totalMiles - (sourceResult.deadhead?.distanceMiles ?? 0))
+      : 0;
+  const mapSegments: MapSegment[] = useMemo(() => {
+    const live = liveTraffic?.traffic.segments;
+    if (live && live.length > 0) {
+      return live.map((s) => ({
+        fromMile: s.fromMile + drivenLoadedMiles,
+        toMile: s.toMile + drivenLoadedMiles,
+        color: s.color,
+      }));
+    }
+    return sourceResult?.traffic?.segments ?? [];
+  }, [liveTraffic, sourceResult, drivenLoadedMiles]);
+  const mapHazards: DriveMapHazard[] = useMemo(() => {
+    if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId) return [];
+    const totalMiles = sourceResult.route.distanceMiles;
+    if (totalMiles <= 0 || mapGeometry.length < 2) return [];
+    const out: DriveMapHazard[] = [];
+    const liveItems = liveTraffic?.traffic.items;
+    const trafficItems = liveItems && liveItems.length > 0 ? liveItems : (sourceResult.traffic?.items ?? []);
+    const shifted = liveItems && liveItems.length > 0;
+    for (const item of trafficItems) {
+      if (item.severity === "minor") continue;
+      const mile = (shifted ? item.mile + drivenLoadedMiles : item.mile);
+      const point = pointAlongRoute(mapGeometry, mile / totalMiles);
+      if (!point) continue;
+      out.push({
+        id: `traffic-${item.id}`,
+        point,
+        badge: "⚠",
+        color: item.color ?? "#ea580c",
+        title: item.category,
+      });
+    }
+    for (const bridge of sourceResult.bridges?.items ?? []) {
+      if (bridge.clearance === "ok") continue;
+      const point = pointAlongRoute(mapGeometry, bridge.mile / totalMiles);
+      if (!point) continue;
+      out.push({
+        id: `bridge-${bridge.id}`,
+        point,
+        badge: "🌉",
+        color: bridge.clearance === "below" ? "#dc2626" : "#ea580c",
+        title: "Bridge ahead",
+      });
+    }
+    return out;
+  }, [liveTraffic, sourceResult, plan, mapGeometry, drivenLoadedMiles]);
+  // A bridge under (or only just over) his truck, close ahead.
+  const bridgeBelowAhead =
+    sourceResult?.bridges?.items.find(
+      (b) =>
+        b.clearance === "below" &&
+        b.mile - drivenLoadedMiles >= 0 &&
+        b.mile - drivenLoadedMiles <= 10,
+    ) ?? null;
 
   // The line draws ahead as he drives (the same remaining-only rule as
   // Home's map, map fix 2026-11-12): the driven part clears behind the
@@ -676,6 +855,26 @@ export default function DrivePage() {
             </p>
           )}
 
+          {/* Live awareness: the ahead-of-time call, with the detour one tap away. */}
+          {mode === "rolling" && liveTraffic?.traffic.call.decision === "reroute" && (
+            <section role="alert" aria-label="Detour available" style={{ border: "2px solid #dc2626", borderRadius: "12px", padding: "12px", marginBottom: "12px" }}>
+              <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>{liveTraffic.traffic.call.reason}</p>
+              <button
+                type="button"
+                onClick={() => lastFix && void requestReroute(lastFix.point, plan, liveTraffic.avoidCircles)}
+                disabled={!lastFix || routeNotice === REROUTE_COPY.working}
+                style={{ minHeight: "72px", padding: "0 20px", fontWeight: 800, fontSize: "1.15rem" }}
+              >
+                Take the detour
+              </button>
+            </section>
+          )}
+          {mode === "rolling" && bridgeBelowAhead && (
+            <p role="alert" style={{ fontWeight: 700 }}>
+              ⚠ {bridgeBelowAhead.text}
+            </p>
+          )}
+
           {mode === "rolling" && !rolling && (
             <DriveRolling
               plan={plan}
@@ -699,6 +898,8 @@ export default function DrivePage() {
               onParked={handleParked}
               onSkip={handleSkip}
               onMuteToggle={handleMuteToggle}
+              segments={mapSegments}
+              hazards={mapHazards}
             />
           )}
 
@@ -723,6 +924,8 @@ export default function DrivePage() {
                   night={night}
                   height="30vh"
                   view3d={view3d}
+                  segments={mapSegments}
+                  hazards={mapHazards}
                 />
               }
               nextStop={

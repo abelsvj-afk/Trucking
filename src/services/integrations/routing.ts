@@ -150,9 +150,16 @@ export interface RouteResult {
  * Optional hints for one route request (active-load navigation). `headingDeg` is the truck's current direction of travel: an engine
  * that can use it starts the route in that direction instead of asking for an immediate reversal. Engines that cannot use it ignore
  * it - the U-turn check on the RESULT (lib/active-navigation.ts) is what actually protects a truck pulling a trailer.
+ *
+ * Live awareness (owner 2026-11-17): `avoidCircles` are circles
+ * around reported delays, for a truck-checked detour. The truck
+ * engines take them as avoid/exclude polygons; the OSRM car
+ * profile REFUSES them outright - a car route through the jam
+ * must never be the answer for a truck.
  */
 export interface RouteOptions {
   headingDeg?: number | null;
+  avoidCircles?: { lat: number; lng: number; radiusMiles: number }[];
 }
 
 export interface RoutingProvider {
@@ -307,8 +314,16 @@ export class OsrmRoutingProvider implements RoutingProvider {
   // deliberately unused: OSRM's driving profile is a car profile -
   // that is precisely why this provider's results are truckLegal:
   // false. There is no honest way to feed dimensions to it.
-  async getRoute(from: LatLng, to: LatLng, _vehicle?: VehicleProfile | null): Promise<RouteResult> {
+  // Live awareness: an avoid request is refused outright, before
+  // any fetch - a car detour around a delay must never be offered
+  // as a truck detour.
+  async getRoute(from: LatLng, to: LatLng, _vehicle?: VehicleProfile | null, options?: RouteOptions): Promise<RouteResult> {
     void _vehicle;
+    if (options?.avoidCircles && options.avoidCircles.length > 0) {
+      throw new RoutingUnavailableError(
+        "OSRM cannot route around a delay: it is a car profile, and a car detour must never be presented as truck-safe.",
+      );
+    }
     const url =
       `https://router.project-osrm.org/route/v1/driving/` +
       `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`;

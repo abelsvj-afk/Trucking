@@ -89,6 +89,66 @@ export interface RouteCheckResponse {
     notes: string[];
     asOf: string;
   };
+  /**
+   * Live awareness (owner 2026-11-17): reported traffic delays on
+   * the route from TomTom, the affected stretches colored by
+   * severity (red = severe, orange = moderate), and the
+   * ahead-of-time call — reroute when a truck-checked detour saves
+   * 10+ minutes, stay when it clears before he gets there or the
+   * detour isn't worth it. Advisory; an uncolored stretch means
+   * "no reported incident", never "clear".
+   */
+  traffic?: {
+    status: "ok" | "unavailable";
+    items: {
+      id: string;
+      mile: number;
+      endMile: number;
+      etaAt: string | null;
+      category: string;
+      severity: "severe" | "moderate" | "minor";
+      color: string | null;
+      delayMinutes: number | null;
+      text: string;
+      startsAt: string | null;
+      endsAt: string | null;
+      from: string | null;
+      to: string | null;
+      roadNumbers: string[];
+    }[];
+    segments: { fromMile: number; toMile: number; color: string }[];
+    call: {
+      decision: "reroute" | "stay" | "none";
+      delayMinutes: number | null;
+      savesMinutes: number | null;
+      clearsAt: string | null;
+      reason: string;
+      incidentId: string | null;
+    };
+    notes: string[];
+    asOf: string;
+  };
+  /**
+   * Live awareness (owner 2026-11-17): bridges on the route with
+   * a posted clearance in the map data, judged against his truck's
+   * height. Only bridges WITH a recorded clearance are listed — an
+   * unrecorded bridge is never presented as cleared. Advisory; the
+   * truck's own nav/ELD is the final word.
+   */
+  bridges?: {
+    status: "ok" | "unavailable";
+    items: {
+      id: string;
+      mile: number;
+      etaAt: string | null;
+      clearance: "below" | "tight" | "ok" | "unknown";
+      limitIn: number | null;
+      truckHeightIn: number | null;
+      text: string;
+    }[];
+    notes: string[];
+    asOf: string;
+  };
   verdict: {
     status: RouteCheckStatus;
     assumedDriveMinutes: number;
@@ -157,3 +217,14 @@ export interface RouteCheckResponse {
   };
   warnings: string[];
 }
+
+/**
+ * Live awareness (owner 2026-11-17): the live-traffic poll's
+ * answer. `traffic` is the same section the plan-time check
+ * carries; `avoidCircles` are the circles around the colored
+ * delays, for the one-tap truck-checked detour.
+ */
+export type LiveTrafficResponse = {
+  traffic: NonNullable<RouteCheckResponse["traffic"]>;
+  avoidCircles: { lat: number; lng: number; radiusMiles: number }[];
+};

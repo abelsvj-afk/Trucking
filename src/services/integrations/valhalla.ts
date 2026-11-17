@@ -21,6 +21,7 @@
 
 import { z } from "zod";
 import type { LatLng } from "@/lib/smart-path";
+import { avoidCirclesToValhallaPolygons } from "@/lib/smart-path-avoid";
 import {
   FETCH_TIMEOUT_MS,
   metricRestrictions,
@@ -129,6 +130,10 @@ export class ValhallaRoutingProvider implements RoutingProvider {
     };
     if (Object.keys(truck).length > 0) {
       body.costing_options = { truck };
+    }
+    // Live awareness: route around the reported delays.
+    if (options?.avoidCircles && options.avoidCircles.length > 0) {
+      body.exclude_polygons = avoidCirclesToValhallaPolygons(options.avoidCircles);
     }
 
     let response: Response;

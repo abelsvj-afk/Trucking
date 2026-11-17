@@ -18,6 +18,8 @@ import {
 } from "@/lib/drive";
 import { REROUTE_COPY } from "@/lib/drive-reroute";
 import { formatMinutes } from "@/lib/smart-path";
+import type { MapSegment } from "@/lib/smart-path-map-segments";
+import type { DriveMapHazard } from "@/components/DriveMap";
 
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 
@@ -34,6 +36,7 @@ type DriveMapProps = React.ComponentProps<typeof DriveMap>;
 export default function DriveRolling({
   plan, session, lastFix, mapGeometry, mapDeadhead, positionQuality, follow, onFollow, night, layout,
   nextStop, upcoming, projection, routeNotice, muted, view3d, onView3dToggle, onReplan, onParked, onSkip, onMuteToggle,
+  segments = [], hazards = [],
 }: {
   plan: DrivePlanSnapshot;
   session: DriveSession;
@@ -57,6 +60,10 @@ export default function DriveRolling({
   onParked: () => void;
   onSkip: () => void;
   onMuteToggle: () => void;
+  /** Live awareness: colored stretches (miles relative to the passed geometry). */
+  segments?: MapSegment[];
+  /** Live awareness: bridge / delay markers. */
+  hazards?: DriveMapHazard[];
 }) {
   return (
   <section aria-label="Drive">
@@ -73,6 +80,8 @@ export default function DriveRolling({
       night={night}
       height={layout === "coach" ? "22vh" : "46vh"}
       view3d={view3d}
+      segments={segments}
+      hazards={hazards}
     />
     {!follow && (
       <button type="button" onClick={() => onFollow(true)} style={{ minHeight: "48px", padding: "0 16px" }}>
