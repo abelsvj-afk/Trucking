@@ -26,6 +26,14 @@ export interface AutoRunResult {
   /** Booked loads he can switch to (id + label), newest pickup first. */
   choices: { id: string; label: string }[];
   result: RouteCheckResponse | null;
+  /** Age of the position the plan used, in seconds; null when no position exists at all. */
+  positionAgeSeconds: number | null;
+  /** True when the routing assumes the pickup is done without a departed_at mark (trip-state model). */
+  pickupUnconfirmed: boolean;
+  /** The trip-state basis for an unconfirmed pickup, in plain words; null when the pickup is confirmed. */
+  pickupUnknownBasis: string | null;
+  /** True when the delivery window end was not recorded and appt+2h was used instead. */
+  deliveryWindowEstimated: boolean;
 }
 
 /** The active-load builder routes to the next stop itself; Smart Path routes once, below, so that step is skipped. */
@@ -51,11 +59,11 @@ export async function runAutoSmartPath(client: SupabaseClient, companyId: string
   const choices = loads.map((l) => ({ id: l.id, label: labelOf(l) }));
   const loadId = input.loadId ?? state.load?.id ?? null;
   if (!loadId) {
-    return { phase: "no_load", assumptions: ["No booked load to plan. Add one, or forward the trip to Abel."], load: null, choices, result: null };
+    return { phase: "no_load", assumptions: ["No booked load to plan. Add one, or forward the trip to Abel."], load: null, choices, result: null, positionAgeSeconds: state.position?.ageSeconds ?? null, pickupUnconfirmed: false, pickupUnknownBasis: null, deliveryWindowEstimated: false };
   }
   const { data: loadRow, error } = await client.from("loads").select("*").eq("company_id", companyId).eq("id", loadId).is("deleted_at", null).maybeSingle();
   if (error) throw new Error("The load could not be read.");
-  if (!loadRow) return { phase: "no_load", assumptions: ["That load could not be found."], load: null, choices, result: null };
+  if (!loadRow) return { phase: "no_load", assumptions: ["That load could not be found."], load: null, choices, result: null, positionAgeSeconds: state.position?.ageSeconds ?? null, pickupUnconfirmed: false, pickupUnknownBasis: null, deliveryWindowEstimated: false };
   const load = loadRow as Load;
   const stopsRes = await client.from("load_stops").select("*").eq("company_id", companyId).eq("load_id", load.id).is("deleted_at", null).order("seq", { ascending: true });
   const stops = stopsRes.error ? [] : ((stopsRes.data ?? []) as LoadStop[]);
@@ -71,7 +79,11 @@ export async function runAutoSmartPath(client: SupabaseClient, companyId: string
     eldClocks: input.eldClocks,
   });
   const summary = { id: load.id, label: labelOf(load), status: load.status };
-  if (!plan.request) return { phase: plan.phase, assumptions: plan.assumptions, load: summary, choices, result: null };
+  // The trip-state basis rides along for the watch: when the pickup was never marked left, the alert's
+  // "why" must say so instead of silently routing via the pickup (or past it).
+  const pickupUnconfirmed = isActive ? (state.nextStop?.pickupUnconfirmed ?? false) : false;
+  const pickupUnknownBasis = pickupUnconfirmed ? (state.nextStop?.basis ?? null) : null;
+  if (!plan.request) return { phase: plan.phase, assumptions: plan.assumptions, load: summary, choices, result: null, positionAgeSeconds: plan.positionAgeSeconds, pickupUnconfirmed, pickupUnknownBasis, deliveryWindowEstimated: plan.deliveryWindowEstimated };
   const result = await runRouteCheck(client, plan.request, undefined, now, companyId);
-  return { phase: plan.phase, assumptions: plan.assumptions, load: summary, choices, result };
+  return { phase: plan.phase, assumptions: plan.assumptions, load: summary, choices, result, positionAgeSeconds: plan.positionAgeSeconds, pickupUnconfirmed, pickupUnknownBasis, deliveryWindowEstimated: plan.deliveryWindowEstimated };
 }

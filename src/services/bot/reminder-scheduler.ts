@@ -20,7 +20,7 @@ import { createTelegramNotifier } from "@/services/telegram/notify";
 import type { BotBrainStore } from "./store";
 import { composeCheckIn, dueCheckIn, drivingTodayMs, missingBolLine, yesterdayLogLine, type DutyRow } from "./check-in";
 import { thisPayWeekSoFar } from "./pay-projection-tools";
-import { planSmartPathWatch } from "./smart-path-watch";
+import { planSmartPathWatch, verdictTrust } from "./smart-path-watch";
 import { getTelegramAppUrl } from "@/services/telegram/cards";
 import { runAutoSmartPath } from "@/services/smart-path/auto";
 import { groupWaitingRows } from "./waiting-list";
@@ -176,6 +176,12 @@ async function smartPathLineFor(store: BotBrainStore, now: Date): Promise<string
     const out = await runAutoSmartPath(store.client, store.companyId, {}, now);
     const r = out.result;
     if (!r) return null;
+    // Same trust gate as the hourly watch: never declare LATE on shaky inputs — say the verdict is
+    // uncertain and name the shaky input instead. No arrival time either: it comes from the same math.
+    const trust = verdictTrust(out);
+    if (trust.uncertain) {
+      return `🧭 Smart Path: can't call it yet — ${trust.reasons.map((s) => s.replace(/\.+$/, "")).join("; ")}.`;
+    }
     const word = { on_time: "on time", early: "early", late: "LATE", not_legal: "NOT LEGAL as planned" }[r.verdict.status] ?? r.verdict.status;
     const arrive = r.plan?.arrivalAt
       ? new Date(r.plan.arrivalAt).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }) + " ET"

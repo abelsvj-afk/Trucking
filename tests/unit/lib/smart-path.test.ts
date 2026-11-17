@@ -175,6 +175,26 @@ describe("checkRoute - HOS vs appointment verdicts", () => {
     expect(result.tradeoffLines[0]).toContain("Leaving by");
   });
 
+  it("Fix A: an 11 AM-style arrival inside the RECORDED 8 AM-4 PM window is not late — the invented 2h window would call it late", () => {
+    // Same run, same 3:30 PM EST arrival (20:30Z): on time against the real window end (4 PM EST),
+    // late against the invented appt+2h end (10 AM EST).
+    const onTime = checkRoute(
+      input({
+        departAt: new Date("2026-11-02T15:00:00Z"), // 10:00 AM EST
+        deliveryWindow: { start: "2026-11-02T13:00:00Z", end: "2026-11-02T21:00:00Z" },
+      }),
+    );
+    expect(onTime.status).not.toBe("late");
+    expect(onTime.plan?.arrivalAt).toBe("2026-11-02T20:30:00.000Z");
+    const invented = checkRoute(
+      input({
+        departAt: new Date("2026-11-02T15:00:00Z"),
+        deliveryWindow: { start: "2026-11-02T13:00:00Z", end: "2026-11-02T15:00:00Z" },
+      }),
+    );
+    expect(invented.status).toBe("late");
+  });
+
   it("early: warns that arriving before the window opens is self-scheduled detention", () => {
     const result = checkRoute(
       input({
