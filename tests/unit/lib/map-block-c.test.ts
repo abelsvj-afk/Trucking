@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { truckIconSvg, truckIcon3dSvg } from "@/lib/truck-icon";
+import { truckIconSvg } from "@/lib/truck-icon";
 import { bearingDeg, distanceM, nextHeading } from "@/lib/heading";
 import { routeProgress, ON_ROUTE_MILES } from "@/lib/route-progress";
 import { limitIsShowable, shouldQuerySpeedLimit, LIMIT_FRESH_MS, MIN_GAP_MS } from "@/lib/speed-limit-policy";
@@ -21,18 +21,8 @@ describe("truck icon", () => {
   it("a lost fix is faded, never drawn as live", () => {
     expect(truckIconSvg({ color: "#9ca3af", opacity: 0.55 })).toContain("opacity:0.55");
   });
-  it("3D icon: rear three-quarter rig — rear face, roof and side faces, in the requested colour, with white outlines", () => {
-    const svg = truckIcon3dSvg({ color: "#f2b705", widthPx: 40 });
-    expect(svg.startsWith("<svg")).toBe(true);
-    expect(svg).toContain('viewBox="0 0 48 72"');
-    expect(svg).toContain(`height="${Math.round(40 * 1.5)}"`);
-    expect(svg).toContain("#f2b705");
-    expect((svg.match(/<polygon/g) ?? []).length).toBeGreaterThanOrEqual(3); // roof + side faces
-    expect(svg).toContain('stroke="#fff"'); // outline survives any tile
-  });
-  it("3D icon: a lost fix is faded, never drawn as live", () => {
-    expect(truckIcon3dSvg({ color: "#9ca3af", opacity: 0.55 })).toContain("opacity:0.55");
-  });
+  // No 3D SVG any more (owner 2026-11-17: the perspective-drawn icon is
+  // NOT 3D): the 3D truck is a real model — see truck-model.test.ts.
 });
 
 describe("heading", () => {

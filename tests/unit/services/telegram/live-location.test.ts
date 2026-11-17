@@ -198,6 +198,23 @@ describe("handleLiveLocation - automatic switch to Driving (works with the app c
     expect(d.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("a refused switch for any OTHER reason falls back to the proposal — a missed switch never stays silent", async () => {
+    const m = memStore("off_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async () => ({ switched: false, reason: "detection_too_old" })) };
+    for (let i = 0; i <= 8; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(m.staged).toHaveLength(1);
+    expect(d.sendMessage.mock.calls.some((c) => String(c[0]).includes("Proposed: log Driving from"))).toBe(true);
+  });
+
+  it("the switch is judged against the fix's own time, not the server clock (a batch flushed after a dead zone must not read as stale)", async () => {
+    const m = memStore("off_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async (detectedAtIso: string, _id: string, _tz: string | undefined, evidenceAtMs?: number) => ({ switched: true, startedAt: detectedAtIso })) };
+    for (let i = 0; i <= 6; i++) await handleLiveLocation(m.store, at(i), T0 + i * 30_000, d);
+    expect(d.autoSwitch).toHaveBeenCalled();
+    // Movement began at the second fix; the switch fires at the fix 90 s into the episode.
+    expect(d.autoSwitch.mock.calls[0]![3]).toBe(T0 + 120_000);
+  });
+
   it("a replay (second source already switched) says nothing more", async () => {
     const m = memStore("off_duty");
     const d = { ...deps(), autoSwitch: vi.fn(async () => ({ switched: true, deduplicated: true, startedAt: "x" })) };
