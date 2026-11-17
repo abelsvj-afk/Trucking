@@ -75,4 +75,30 @@ describe("split sleeper", () => {
     const reset = day([["driving", 5], ["off_duty", 10], ["driving", 2]]);
     expect(left(reset.rows, reset.end)).toMatchObject({ drive: expect.closeTo(9), window: expect.closeTo(12), split: null });
   });
+
+  it("(ii)(D)(1): drive 10h, sleeper 8h, drive 5h, off 2h is NOT a split - 10 + 5 is 15h of driving around the sleeper", () => {
+    const { rows, end } = day([["off_duty", 10], ["driving", 10], ["sleeper", 8], ["driving", 5], ["off_duty", 2], ["driving", 0]]);
+    const a = findShortClockAnchor(buildSegments(rows, end))!;
+    expect(a.split).toBeNull();
+    expect(a.startMs).toBe(T0 + 10 * H); // anchor stays at the last full 10-hour reset
+    // 15 h driven since the reset: no drive time left, and the split must not grant any back
+    expect(left(rows, end).drive).toBe(0);
+  });
+
+  it("(ii)(D)(2): 12h on duty, sleeper 8h, drive 4h, off 2h is NOT a split - 12 + 4 is 16h around the sleeper", () => {
+    const { rows, end } = day([["off_duty", 10], ["on_duty", 12], ["sleeper", 8], ["driving", 4], ["off_duty", 2], ["driving", 0]]);
+    const a = findShortClockAnchor(buildSegments(rows, end))!;
+    expect(a.split).toBeNull();
+    expect(a.startMs).toBe(T0 + 10 * H); // anchor stays at the last full 10-hour reset
+    // 16 h of duty time around the sleeper: the 14-hour window is used up
+    expect(left(rows, end).window).toBe(0);
+  });
+
+  it("(ii)(D) boundary is inclusive: 5h + 6h of driving around the sleeper is exactly 11h, so the split still qualifies", () => {
+    const { rows, end } = day([["off_duty", 10], ["driving", 5], ["sleeper", 8], ["driving", 6], ["off_duty", 2], ["driving", 0]]);
+    const a = findShortClockAnchor(buildSegments(rows, end))!;
+    expect(a.split).not.toBeNull();
+    // from the end of the sleeper: drove 6 -> 5 h driving left; elapsed 6 + 2 (excluded) -> 8 h window left
+    expect(left(rows, end)).toMatchObject({ drive: expect.closeTo(5), window: expect.closeTo(8) });
+  });
 });
