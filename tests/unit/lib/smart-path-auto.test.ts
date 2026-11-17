@@ -62,6 +62,48 @@ describe("Smart Path plans from what the app already knows", () => {
   });
 });
 
+describe("Fix A: the verdict is judged against the load's recorded window end, never an invented one", () => {
+  // The owner's 2026-11-17 case: a real 8 AM-4 PM delivery window, judged as 8-10 AM, called an
+  // 11 AM arrival LATE.
+  const recorded = (over: Partial<AutoInputs> = {}): AutoInputs =>
+    base({
+      load: {
+        id: "L1",
+        status: "confirmed",
+        pickup_date: "2026-11-17",
+        delivery_date: "2026-11-19",
+        pickup_window_start: "2026-11-17T13:00:00Z",
+        pickup_window_end: "2026-11-17T15:00:00Z",
+        delivery_window_start: "2026-11-19T13:00:00Z",
+        delivery_window_end: "2026-11-19T21:00:00Z",
+      },
+      ...over,
+    });
+
+  it("a recorded 8 AM-4 PM delivery window is used as-is (no invented 2h end)", () => {
+    const p = planAuto(recorded());
+    expect(p.request).toMatchObject({
+      pickup_window: { start: "2026-11-17T13:00:00.000Z", end: "2026-11-17T15:00:00.000Z" },
+      delivery_window: { start: "2026-11-19T13:00:00.000Z", end: "2026-11-19T21:00:00.000Z" },
+    });
+    expect(p.deliveryWindowEstimated).toBe(false);
+    expect(p.assumptions.join(" ")).not.toContain("estimate");
+  });
+
+  it("no recorded end: falls back to appt+2h and says so in the output", () => {
+    const p = planAuto(base());
+    expect(p.request).toMatchObject({ delivery_window: { start: "2026-11-19T11:30:00.000Z", end: "2026-11-19T13:30:00.000Z" } });
+    expect(p.deliveryWindowEstimated).toBe(true);
+    expect(p.assumptions.join(" ")).toContain("The delivery window is an estimate - no end time was recorded for this delivery, so I allowed 2 hours from the appointment.");
+  });
+
+  it("a recorded end before the start is not trusted - it falls back to appt+2h, estimated", () => {
+    const p = planAuto(recorded({ load: { id: "L1", status: "confirmed", pickup_date: "2026-11-17", delivery_date: "2026-11-19", delivery_window_start: "2026-11-19T13:00:00Z", delivery_window_end: "2026-11-19T12:00:00Z" } }));
+    expect(p.request).toMatchObject({ delivery_window: { start: "2026-11-19T13:00:00.000Z", end: "2026-11-19T15:00:00.000Z" } });
+    expect(p.deliveryWindowEstimated).toBe(true);
+  });
+});
+
 import { hoursLine } from "@/lib/smart-path-summary";
 import { makeResult } from "../fixtures/route-check-fixture";
 
