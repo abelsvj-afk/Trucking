@@ -86,3 +86,19 @@ describe("morning log check (owner 2026-11-17)", () => {
     expect(yesterdayLogLine([], at("2026-11-17T11:30:00Z"), ET)).toBeNull();
   });
 });
+
+import { missingBolLine } from "@/services/bot/check-in";
+
+describe("missing paperwork (owner 2026-11-17)", () => {
+  const delivered = [
+    { id: "a", label: "Trip 9918", deliveryDate: "2026-11-17" },
+    { id: "b", label: "Trip 9903", deliveryDate: "2026-11-16" },
+  ];
+  it("names the delivered loads with no BOL filed", () => {
+    expect(missingBolLine(delivered, new Set(["b"]))).toBe("📄 No BOL filed yet for Trip 9918 - send me a photo of the signed BOL and I'll file it on the load.");
+  });
+  it("says nothing when every delivered load has paperwork", () => {
+    expect(missingBolLine(delivered, new Set(["a", "b"]))).toBeNull();
+    expect(missingBolLine([], new Set())).toBeNull();
+  });
+});

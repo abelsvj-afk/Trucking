@@ -23,6 +23,15 @@ describe("which everyday asks are looked up in code", () => {
       expect(groundedAsksFor(t).map((a) => a.tool), t).toEqual(["plan_my_run"]);
     }
   });
+  it("money questions look up his expenses and fuel, with the period from his words", () => {
+    for (const [t, days] of [["what did I spend on fuel this week", 7], ["how much did I spend today", 1], ["what are my expenses this month", 30]] as const) {
+      const asks = groundedAsksFor(t);
+      expect(asks.map((a) => a.tool), t).toEqual(["money_summary"]);
+      const args = asks[0]!.args;
+      expect(typeof args === "function" ? args(t) : args, t).toEqual({ days });
+    }
+    expect(groundedAsksFor("log a $40 fuel expense")).toEqual([]);
+  });
   it("small talk and long messages are left alone", () => {
     expect(groundedAsksFor("how are you doing")).toEqual([]);
     expect(groundedAsksFor("I will.")).toEqual([]);

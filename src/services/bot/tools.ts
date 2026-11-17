@@ -57,6 +57,7 @@ import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
 import { todayEastern } from "@/lib/eastern-date";
+import { addDays, zonedDayBounds } from "@/lib/zoned-day";
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone } from "@/lib/display-zone";
 import { formatMoney } from "@/lib/money-format";
 
@@ -157,8 +158,10 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       access: "read",
       async run(args) {
         const days = Math.min(90, Math.max(1, typeof args.days === "number" ? args.days : 30));
-        const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const sinceTs = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        // His calendar, not UTC (audit 2026-11-12): "the last 7 days" starts on his Eastern day.
+        const sinceDate = addDays(todayEastern(), -(days - 1));
+        // Fuel uses the same Eastern day start as expenses, so both cover the same days.
+        const sinceTs = new Date(zonedDayBounds(sinceDate, "America/New_York").startMs).toISOString();
 
         let expenseQuery = client
           .from("expenses")

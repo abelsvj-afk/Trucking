@@ -84,3 +84,14 @@ counts driving from when the truck starts rolling. `applyAutoMotionSwitch` (`src
 stamps the Driving row at the detection time minus the 60-second confirmation window, which is when the motion
 started. It is never earlier than the latest row already in the log. The 60-second confirmation itself is unchanged,
 and so is the stop side (On Duty backdated to the stop start).
+
+## 9. Money questions and missing paperwork (added 2026-11-17)
+
+- **Money questions are looked up in code**: "what did I spend on fuel this week", "how much did I spend today",
+  "my expenses this month" run `money_summary` before the model answers, with the period read from his words
+  (today = 1 day, week = 7, month = 30). A request to *log* an expense is not taken over. `money_summary`'s window now
+  starts on his Eastern calendar day for both expenses and fuel (the UTC-day cut from the 2026-11-12 audit is gone
+  for this tool).
+- **Missing paperwork**: the evening check-in names loads delivered today or yesterday with no BOL filed on them (a
+  document typed `bol`, or a photo he sent as paperwork, counts) and asks for a photo. If the documents can't be read,
+  it says nothing rather than nag wrongly.

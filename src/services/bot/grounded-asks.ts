@@ -8,7 +8,7 @@ import type { AgentTool } from "@/services/ai/agent-loop";
 interface GroundedAsk {
   label: string;
   tool: string;
-  args: Record<string, unknown>;
+  args: Record<string, unknown> | ((t: string) => Record<string, unknown>);
   matches: (t: string) => boolean;
 }
 
@@ -42,6 +42,14 @@ const ASKS: GroundedAsk[] = [
     matches: (t) =>
       /\b(plan my (run|trip|route|day)|will i make it|am i (going to|gonna) make it|when (will|do|would) i (get there|arrive|deliver)|where (should|do) i (sleep|park|fuel|stop))\b/.test(t),
   },
+  {
+    label: "HIS EXPENSES AND FUEL FROM HIS RECORDS (owner 2026-11-17)",
+    tool: "money_summary",
+    args: (t) => ({ days: /\btoday\b/.test(t) ? 1 : /\b(this|last) week\b|\bweek\b/.test(t) ? 7 : /\b(this|last) month\b|\bmonth\b/.test(t) ? 30 : 30 }),
+    matches: (t) =>
+      /\b(spend|spent|spending|cost me|costs|expenses?|fuel bill|how much (did|have) i (pay|paid|spend|spent) (for|on))\b/.test(t) &&
+      !/\b(log|add|record|save)\b/.test(t),
+  },
 ];
 
 /** Which grounded asks this message is (often none). Long messages are left to the model. */
@@ -58,7 +66,7 @@ export async function groundedAskBlocks(text: string, tools: AgentTool[]): Promi
     const tool = tools.find((t) => t.name === ask.tool && t.access === "read");
     if (!tool) continue;
     try {
-      const result = await tool.run(ask.args);
+      const result = await tool.run(typeof ask.args === "function" ? ask.args(text.toLowerCase()) : ask.args);
       blocks.push(`${ask.label} - looked up in code just now; answer his question from this:\n${String(result)}`);
     } catch (err) {
       console.error(`[bot] grounded ask ${ask.tool} failed (the model keeps the tool)`, err);

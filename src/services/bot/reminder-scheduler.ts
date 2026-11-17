@@ -18,7 +18,7 @@ import { isQuietHours } from "@/services/research/delivery";
 import { createTelegramBrainStore } from "@/services/telegram/store";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 import type { BotBrainStore } from "./store";
-import { composeCheckIn, dueCheckIn, drivingTodayMs, yesterdayLogLine, type DutyRow } from "./check-in";
+import { composeCheckIn, dueCheckIn, drivingTodayMs, missingBolLine, yesterdayLogLine, type DutyRow } from "./check-in";
 import { thisPayWeekSoFar } from "./pay-projection-tools";
 import { planSmartPathWatch } from "./smart-path-watch";
 import { getTelegramAppUrl } from "@/services/telegram/cards";
@@ -134,6 +134,42 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
   }
 }
 
+/** Loads delivered today or yesterday with no BOL filed, for the evening check-in. Never fails the check-in. */
+async function paperworkLineFor(store: BotBrainStore, today: string): Promise<string | null> {
+  try {
+    const yesterday = new Date(Date.parse(`${today}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    const { data: loads, error } = await store.client
+      .from("loads")
+      .select("id, trip_number, origin, destination, delivery_date, status")
+      .eq("company_id", store.companyId)
+      .is("deleted_at", null)
+      .in("status", ["confirmed", "completed"])
+      .gte("delivery_date", yesterday)
+      .lte("delivery_date", today);
+    if (error || !loads || loads.length === 0) return null;
+    const rows = loads as { id: string; trip_number: string | null; origin: string; destination: string; delivery_date: string }[];
+    const { data: docs, error: docErr } = await store.client
+      .from("documents")
+      .select("related_entity_id, doc_type, photo_purpose")
+      .eq("company_id", store.companyId)
+      .eq("related_entity_type", "load")
+      .is("deleted_at", null)
+      .in("related_entity_id", rows.map((l) => l.id));
+    if (docErr) return null; // can't tell - say nothing rather than nag wrongly
+    const covered = new Set(
+      ((docs ?? []) as { related_entity_id: string; doc_type: string | null; photo_purpose: string | null }[])
+        .filter((d) => d.doc_type === "bol" || d.photo_purpose === "paperwork")
+        .map((d) => d.related_entity_id),
+    );
+    return missingBolLine(
+      rows.map((l) => ({ id: l.id, label: l.trip_number ? `Trip ${l.trip_number}` : `${l.origin} → ${l.destination}`, deliveryDate: l.delivery_date })),
+      covered,
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** Smart Path's answer for the active load, one line, for the check-in. Null when there's no load or it can't plan. */
 async function smartPathLineFor(store: BotBrainStore, now: Date): Promise<string | null> {
   try {
@@ -178,6 +214,7 @@ async function planCheckIn(store: BotBrainStore, snapshot: Awaited<ReturnType<ty
     waitingCount: waiting,
     logLine: due.kind === "morning" ? yesterdayLogLine(rows, now.getTime(), zone) : null,
     smartPathLine: await smartPathLineFor(store, now),
+    paperworkLine: due.kind === "evening" ? await paperworkLineFor(store, due.day) : null,
   });
   return { kind: "checkin", key: `checkin:${due.kind}:${due.day}`, critical: false, text };
 }

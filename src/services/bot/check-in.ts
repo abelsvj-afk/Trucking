@@ -95,12 +95,32 @@ export function yesterdayLogLine(rows: DutyRow[], nowMs: number, timeZone: strin
   return `📒 Yesterday's log: ${parts.join(" · ")}. Right? If not, tell me what to fix (like "I was off from 9 PM").`;
 }
 
+export interface DeliveredLoad {
+  id: string;
+  label: string;
+  deliveryDate: string;
+}
+
+/**
+ * Loads delivered today or yesterday with no BOL filed on them (owner 2026-11-17: missing paperwork). A document on
+ * the load typed as a BOL, or a photo he sent as paperwork, counts - lenient on purpose, so it never nags about a
+ * load he already covered. Null when nothing is missing.
+ */
+export function missingBolLine(delivered: DeliveredLoad[], loadIdsWithPaperwork: Set<string>): string | null {
+  const missing = delivered.filter((l) => !loadIdsWithPaperwork.has(l.id));
+  if (missing.length === 0) return null;
+  const names = missing.map((l) => l.label).join(", ");
+  return `📄 No BOL filed yet for ${names} - send me a photo of the signed BOL and I'll file it on the load.`;
+}
+
 export interface CheckInFacts {
   kind: CheckInKind;
   /** Morning only: yesterday's log line (yesterdayLogLine). */
   logLine?: string | null;
   /** Smart Path's current answer for the active load (owner 2026-11-17: "Abel should use it"). */
   smartPathLine?: string | null;
+  /** Evening only: loads delivered without a BOL filed (missingBolLine). */
+  paperworkLine?: string | null;
   clocks: HudClocks | null;
   drivingTodayMs: number;
   nextLoad: NextLoad | null;
@@ -149,6 +169,7 @@ export function composeCheckIn(f: CheckInFacts): string {
     lines.push(`💵 This pay week so far: ${money}.`);
   }
   if (f.kind === "morning" && f.logLine) lines.push(f.logLine);
+  if (f.kind === "evening" && f.paperworkLine) lines.push(f.paperworkLine);
   if (f.waitingCount > 0) {
     lines.push(`⏳ ${f.waitingCount} thing${f.waitingCount === 1 ? " is" : "s are"} waiting on you — say "what's waiting".`);
   }
