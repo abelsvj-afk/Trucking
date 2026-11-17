@@ -2,8 +2,11 @@
 
 // Drive Mode map (D1): the same keyless MapLibre/OSM stack as the
 // Plan map, pointed the other way - instead of framing the whole
-// route, it follows the truck. The position marker is a top-down
-// semi-truck icon (Block C) that rotates with the heading, and it is
+// route, it follows the truck. In the flat view the position marker
+// is a top-down semi-truck icon (Block C) that rotates with the
+// heading; in the 3D view the truck is a REAL 3D model (a low-poly
+// semi, drawn by a MapLibre custom WebGL layer — see
+// truck-map-layer.ts), and there is no HTML marker at all. Both are
 // honest about fix quality (G-1): solid blue on a usable fix, gray on
 // a poor one, faded when the signal is lost - and it HOLDS the last
 // real fix when signal is lost - no dead reckoning, ever.
@@ -20,7 +23,8 @@ import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
-import { truckIconSvg, truckIcon3dSvg } from "@/lib/truck-icon";
+import { truckIconSvg } from "@/lib/truck-icon";
+import { createTruckMapLayer, TRUCK_MAP_LAYER_ID, type TruckLayerState } from "@/lib/truck-map-layer";
 import { DRIVE_MAP_PITCH_3D, driveMapCamera } from "@/lib/drive-map-camera";
 import { segmentsToFeatureCollection, type MapSegment } from "@/lib/smart-path-map-segments";
 
@@ -34,6 +38,15 @@ export interface DriveMapHazard {
   color: string;
   title: string;
 }
+
+// The maplibre namespace is imported exactly once, when the map is
+// created; every later use reads it from a ref. The loader's return
+// type IS the namespace type, so the ref is typed by the real module,
+// not a re-declaration.
+async function loadMapLibre() {
+  return (await import("maplibre-gl")).default;
+}
+type MapLibreNamespace = Awaited<ReturnType<typeof loadMapLibre>>;
 
 interface DriveMapProps {
   geometry: LatLng[];
@@ -49,7 +62,7 @@ interface DriveMapProps {
   height?: string;
   /** Block C: rotate the map so the heading points up (the truck icon then points up). */
   headingUp?: boolean;
-  /** 3D driving view (owner 2026-11-17): tilted perspective, truck at the bottom, road ahead on top. Default false — Home mini map stays flat. 3D always implies heading-up. */
+  /** 3D driving view (owner 2026-11-17): tilted perspective, a real 3D truck model at the bottom, road ahead on top. Default false. 3D always implies heading-up. */
   view3d?: boolean;
   /** Block C: zoom used while following (omit to keep the current zoom). */
   followZoom?: number;
@@ -80,22 +93,20 @@ const OSM_STYLE = {
 
 const FLORIDA_CENTER: [number, number] = [-81.7, 28.4];
 
-/** The truck marker's face: flat top-down icon, or the perspective 3D rig in 3D view. Pure — both call sites pass explicit values. */
+/** The truck marker's face: the flat top-down icon. In 3D view there is no HTML marker at all — the truck is a real 3D model drawn by the custom layer (truck-map-layer.ts). Pure — both call sites pass explicit values. */
 function renderTruckIconEl(
   icon: HTMLElement,
-  opts: { quality: DrivePositionQuality | null; view3d: boolean; headingDeg: number | null; headingUp: boolean },
+  opts: { quality: DrivePositionQuality | null; headingDeg: number | null; headingUp: boolean },
 ) {
   const poor = opts.quality === "poor" || opts.quality === "lost";
-  const sig = `${poor}:${opts.quality === "lost"}:${opts.view3d}`;
+  const sig = `${poor}:${opts.quality === "lost"}`;
   if (icon.dataset.sig !== sig) {
     icon.dataset.sig = sig;
-    icon.innerHTML = opts.view3d
-      ? truckIcon3dSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: opts.quality === "lost" ? 0.55 : 1, widthPx: 40 })
-      : truckIconSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: opts.quality === "lost" ? 0.55 : 1, widthPx: 32 });
+    icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: opts.quality === "lost" ? 0.55 : 1, widthPx: 32 });
   }
-  // Heading-up (3D always is): the map is rotated to the heading, so the truck points up on screen.
+  // Heading-up: the map is rotated to the heading, so the truck points up on screen.
   // North-up: the icon itself rotates. No heading yet: it points up and nothing more is claimed.
-  const rotation = opts.headingUp || opts.view3d ? 0 : (opts.headingDeg ?? 0);
+  const rotation = opts.headingUp ? 0 : (opts.headingDeg ?? 0);
   icon.style.transform = `rotate(${rotation}deg)`;
 }
 
@@ -155,6 +166,10 @@ export default function DriveMap({
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  // The maplibre namespace, imported once when the map is created.
+  // Every later use (truck layer, markers, route framing) reads it
+  // from here instead of re-importing on every call.
+  const maplibreRef = useRef<MapLibreNamespace | null>(null);
   const stopMarkersRef = useRef<MapLibreMarker[]>([]);
   const hazardMarkersRef = useRef<MapLibreMarker[]>([]);
   const positionMarkerRef = useRef<MapLibreMarker | null>(null);
@@ -169,6 +184,9 @@ export default function DriveMap({
   const lastPositionRef = useRef<LatLng | null>(null);
   const lastHeadingRef = useRef<number | null>(null);
   const qualityRef = useRef(positionQuality);
+  // The 3D model's live state: the custom layer reads this on every
+  // render, so the model follows the newest fix without re-adding.
+  const truckLayerStateRef = useRef<TruckLayerState | null>(null);
   useEffect(() => {
     view3dRef.current = view3d;
   }, [view3d]);
@@ -186,8 +204,11 @@ export default function DriveMap({
   }, [onUserPan]);
 
   // Aim the camera: tilt + truck-at-the-bottom in 3D, flat in 2D.
-  // With a position and follow on, the camera centres on the truck;
-  // without one (toggle while parked) it only re-aims the tilt.
+  // With a position and follow on, the camera centres on the truck at
+  // street-level follow zoom; without one (toggle while parked) it
+  // only re-aims the tilt. Follow zoom and bearing are follow
+  // properties, not 3D ones — a flat following map still zooms in
+  // and rotates with the heading.
   const applyCamera = useCallback(
     (pos: LatLng | null) => {
       const map = mapRef.current;
@@ -198,6 +219,7 @@ export default function DriveMap({
         headingUp: headingUp || view3dRef.current,
         followZoom,
         containerHeightPx: containerRef.current?.clientHeight ?? 0,
+        follow: followRef.current,
       });
       if (pos && followRef.current) {
         map.easeTo({
@@ -214,6 +236,35 @@ export default function DriveMap({
     },
     [headingUp, followZoom],
   );
+
+  // The 3D truck model lives in a MapLibre custom layer (real
+  // geometry, not an icon). Added when the 3D view is on, removed
+  // when it is off. Only after the style has loaded — addLayer
+  // before that throws. The map-load handler calls this too, so a
+  // map created while 3D is already on still gets its truck.
+  // The maplibre namespace is imported ONCE, at map creation
+  // (maplibreRef), and reused here — re-importing it on every call
+  // is pointless work, and the position effect used to do it on
+  // every fix.
+  const syncTruckLayer = useCallback(() => {
+    const map = mapRef.current;
+    const maplibregl = maplibreRef.current;
+    if (!map || !maplibregl || !map.isStyleLoaded()) return;
+    const has = Boolean(map.getLayer(TRUCK_MAP_LAYER_ID));
+    if (view3dRef.current && !has) {
+      map.addLayer(
+        createTruckMapLayer(
+          () => truckLayerStateRef.current,
+          (pos) => {
+            const mc = maplibregl.MercatorCoordinate.fromLngLat([pos.lng, pos.lat], 0);
+            return { x: mc.x, y: mc.y, z: mc.z, metersPerUnit: mc.meterInMercatorCoordinateUnits() };
+          },
+        ),
+      );
+    } else if (!view3dRef.current && has) {
+      map.removeLayer(TRUCK_MAP_LAYER_ID);
+    }
+  }, []);
 
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
@@ -241,8 +292,9 @@ export default function DriveMap({
       | undefined;
     trafficSource?.setData(segmentsToFeatureCollection(geo, currentSegments));
 
-    void (async () => {
-      const maplibregl = (await import("maplibre-gl")).default;
+    (() => {
+      const maplibregl = maplibreRef.current;
+      if (!maplibregl) return;
       for (const marker of stopMarkersRef.current) marker.remove();
       stopMarkersRef.current = currentStops.map((stop, i) => {
         const status = statuses[i] ?? "pending";
@@ -275,7 +327,11 @@ export default function DriveMap({
           .addTo(map);
       });
 
-      if (frameRouteRef.current && !framedRef.current && geo.length > 0) {
+      // Whole-route framing is for plan/overview only. While following,
+      // the follow camera owns the framing — fitting the whole route
+      // here would park the driver on a zoomed-out state view until
+      // the next position fix re-aims it.
+      if (frameRouteRef.current && !framedRef.current && geo.length > 0 && !followRef.current) {
         framedRef.current = true;
         const all = [...geo, ...deadhead];
         const bounds = new maplibregl.LngLatBounds(
@@ -291,7 +347,8 @@ export default function DriveMap({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const maplibregl = (await import("maplibre-gl")).default;
+      const maplibregl = await loadMapLibre();
+      maplibreRef.current = maplibregl;
       if (cancelled || !containerRef.current || mapRef.current) return;
       const map = new maplibregl.Map({
         container: containerRef.current,
@@ -364,6 +421,7 @@ export default function DriveMap({
           },
         });
         drawRoute();
+        void syncTruckLayer();
       });
     })();
     return () => {
@@ -384,8 +442,25 @@ export default function DriveMap({
     if (!map || !position) return;
     lastPositionRef.current = position;
     lastHeadingRef.current = headingDeg;
-    void (async () => {
-      const maplibregl = (await import("maplibre-gl")).default;
+    // The 3D model reads this on its next render.
+    truckLayerStateRef.current = { position, headingDeg };
+    if (view3dRef.current) {
+      // No HTML marker in 3D view — the model IS the truck. Repaint
+      // so the model moves with the fix (the layer never repaints
+      // itself, or it would loop forever).
+      map.triggerRepaint();
+      if (followRef.current) {
+        const now = Date.now();
+        if (now - lastCameraMoveRef.current >= 1000) {
+          lastCameraMoveRef.current = now;
+          applyCamera(position);
+        }
+      }
+      return;
+    }
+    {
+      const maplibregl = maplibreRef.current;
+      if (!maplibregl) return;
       if (!positionMarkerRef.current) {
         const el = document.createElement("div");
         el.setAttribute("aria-hidden", "true");
@@ -399,6 +474,7 @@ export default function DriveMap({
           .addTo(map);
       }
       const marker = positionMarkerRef.current;
+      if (!marker) return;
       marker.setLngLat([position.lng, position.lat]);
       const el = positionElRef.current;
       if (el) {
@@ -406,7 +482,6 @@ export default function DriveMap({
         if (icon) {
           renderTruckIconEl(icon, {
             quality: positionQuality,
-            view3d: view3dRef.current,
             headingDeg,
             headingUp,
           });
@@ -419,27 +494,36 @@ export default function DriveMap({
           applyCamera(position);
         }
       }
-    })();
+    }
   }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, applyCamera]);
 
   // Toggling 3D re-aims the camera and swaps the truck now — not only on the next fix.
+  // 3D on: the HTML marker goes away (the model takes its place) and the layer is added.
+  // 3D off: the layer is removed; the marker comes back via the position effect
+  // (view3d is one of its deps).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const el = positionElRef.current;
-    if (el) {
-      const icon = el.firstElementChild as HTMLElement | null;
-      if (icon) {
-        renderTruckIconEl(icon, {
-          quality: qualityRef.current,
-          view3d,
-          headingDeg: lastHeadingRef.current,
-          headingUp,
-        });
+    if (view3d) {
+      positionMarkerRef.current?.remove();
+      positionMarkerRef.current = null;
+      positionElRef.current = null;
+    } else {
+      const el = positionElRef.current;
+      if (el) {
+        const icon = el.firstElementChild as HTMLElement | null;
+        if (icon) {
+          renderTruckIconEl(icon, {
+            quality: qualityRef.current,
+            headingDeg: lastHeadingRef.current,
+            headingUp,
+          });
+        }
       }
     }
+    void syncTruckLayer();
     applyCamera(lastPositionRef.current);
-  }, [view3d, headingUp, applyCamera]);
+  }, [view3d, headingUp, applyCamera, syncTruckLayer]);
 
   return (
     <div

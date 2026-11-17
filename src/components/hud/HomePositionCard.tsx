@@ -1,8 +1,9 @@
 "use client";
 
 // Live position on Home (docs/design/driver-hud.md §8; Block C of driver-hud-round2.md): an
-// ELD-style mini map. Zoomed in, heading-up, the truck (a top-down semi icon) kept centred as it
-// moves. When the active trip has a planned route it is drawn as a glowing gold line showing only
+// ELD-style mini map. Tilted 3D and heading-up while driving (the Drive toggle's stored
+// choice, default on), the truck kept near the bottom as it moves, street-level follow zoom.
+// When the active trip has a planned route it is drawn as a glowing gold line showing only
 // the part still ahead; the part already driven is dropped from the line, so it never reads as a
 // turn-around. With no route it shows position + heading only - no invented line. A posted
 // speed-limit badge appears ONLY when OpenStreetMap data has a limit for this road; no data, no
@@ -15,6 +16,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import Sheet from "@/components/Sheet";
+import { useDrive3dView } from "@/lib/drive-3d-view";
 import { useNowTick } from "@/lib/use-now-tick";
 import { useActiveRoute } from "@/lib/use-active-route";
 import { useSpeedLimit } from "@/lib/use-speed-limit";
@@ -75,6 +77,9 @@ export default function HomePositionCard({
   windowLeftMs?: number | null;
 }) {
   const [floatOpen, setFloatOpen] = useState(false);
+  // The 3D driving view, shared with Drive (useDrive3dView): the Home map
+  // is tilted 3D like the Drive map, unless he turned it off there.
+  const [view3d] = useDrive3dView();
   const handle = hero ? (
     <button
       type="button"
@@ -198,6 +203,7 @@ export default function HomePositionCard({
           follow
           headingUp
           followZoom={FOLLOW_ZOOM}
+          view3d={view3d}
           interactive={false}
           frameRoute={false}
           onUserPan={() => {}}

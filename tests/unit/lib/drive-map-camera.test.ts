@@ -29,11 +29,27 @@ describe("drive map camera (3D view)", () => {
     expect(cam.bearing).toBeNull();
     expect(cam.pitch).toBe(DRIVE_MAP_PITCH_3D);
   });
-  it("flat: no tilt, no offset, bearing and zoom untouched", () => {
+  it("flat, following: no tilt, no offset — but still street-level zoom and heading bearing (a flat following map is not a state view)", () => {
     const cam = driveMapCamera({ view3d: false, followZoom: 14, ...base });
     expect(cam.pitch).toBe(DRIVE_MAP_PITCH_FLAT);
     expect(cam.offset).toEqual([0, 0]);
+    expect(cam.bearing).toBe(90);
+    expect(cam.zoom).toBe(14);
+  });
+  it("flat, not following: bearing and zoom untouched (the camera keeps what it has)", () => {
+    const cam = driveMapCamera({ view3d: false, follow: false, followZoom: 14, ...base });
+    expect(cam.pitch).toBe(DRIVE_MAP_PITCH_FLAT);
     expect(cam.bearing).toBeNull();
+    expect(cam.zoom).toBeNull();
+  });
+  it("flat, following, no heading yet: zoom still applies, bearing untouched", () => {
+    const cam = driveMapCamera({ view3d: false, headingDeg: null, headingUp: true, followZoom: 15.5, containerHeightPx: 500 });
+    expect(cam.bearing).toBeNull();
+    expect(cam.zoom).toBe(15.5);
+  });
+  it("3D, not following: zoom untouched (follow owns the zoom)", () => {
+    const cam = driveMapCamera({ view3d: true, follow: false, ...base });
+    expect(cam.pitch).toBe(DRIVE_MAP_PITCH_3D);
     expect(cam.zoom).toBeNull();
   });
   it("offset scales with the map height and never goes negative", () => {

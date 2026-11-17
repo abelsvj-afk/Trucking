@@ -235,13 +235,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   );
                 }
               : undefined,
-            autoSwitch: (detectedAtIso, submissionId, timeZone) =>
+            autoSwitch: (detectedAtIso, submissionId, timeZone, evidenceAtMs) =>
+              // The detection's freshness is judged against the fix's
+              // own time, not the server clock: a batch flushed after
+              // a dead zone must not read as stale (see
+              // live-location.ts).
               applyAutoMotionSwitch({
                 client: brainStore.client,
                 companyId: brainStore.companyId,
                 detectedAtIso,
                 submissionId,
-                nowMs: Date.now(),
+                nowMs: evidenceAtMs ?? Date.now(),
                 origin: "position feed",
                 timeZone,
               }),

@@ -226,9 +226,14 @@ export async function handleLiveLocation(
      * position). Given the DETECTION time; returns what the shared rules decided. Absent = the
      * old behavior (a proposal he approves). The third argument is the
      * fix's zone, so the switch row and its note carry the zone where
-     * the motion was detected.
+     * the motion was detected. The fourth is the EVIDENCE time (the
+     * fix's own timestamp): the rules judge the detection's freshness
+     * against it, not against the server's wall clock — a Tracker
+     * batch flushed after a dead zone would otherwise read as stale
+     * on every fix and refuse forever (the episode never resets while
+     * moving). Absent = the server's wall clock.
      */
-    autoSwitch?: (detectedAtIso: string, submissionId: string, timeZone?: string) => Promise<AutoMotionResult>;
+    autoSwitch?: (detectedAtIso: string, submissionId: string, timeZone?: string, evidenceAtMs?: number) => Promise<AutoMotionResult>;
     /**
      * The automatic switch OUT of Driving (ELD stopped vehicle, App. A
      * §4.4.1.2): stopped 6 minutes, 5-minute prompt unanswered for a
@@ -351,8 +356,16 @@ export async function handleLiveLocation(
   ) {
     const detectedAtMs = episode.movingSinceMs + SUSTAIN_MS;
     try {
-      const res = await deps.autoSwitch(new Date(detectedAtMs).toISOString(), autoSubmissionId(detectedAtMs), fixZone);
-      if (res.switched || res.reason !== "switched_off") autoHandled = true; // a manual choice is also "handled": no nagging proposal on top
+      // The evidence time is the fix's own timestamp: the rules judge
+      // the detection's freshness against it, not the server clock
+      // (a batch flushed after a dead zone must not read as stale).
+      const res = await deps.autoSwitch(new Date(detectedAtMs).toISOString(), autoSubmissionId(detectedAtMs), fixZone, atMs);
+      // Only a switch that went through, a manual choice that won, or
+      // a status that is already Driving needs no proposal. Any OTHER
+      // refusal (a detection judged stale, a missing log) must NOT
+      // swallow the fallback proposal — a missed switch that stays
+      // silent is worse than one that asks.
+      if (res.switched || res.reason === "manual_change_won" || res.reason === "already_driving") autoHandled = true;
       if (res.switched && !res.deduplicated && res.startedAt) {
         await store.savePosition({
           fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,

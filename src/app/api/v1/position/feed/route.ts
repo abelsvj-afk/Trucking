@@ -60,8 +60,11 @@ export async function POST(request: NextRequest) {
       const res = await handleLiveLocation(store, fix.loc, fix.atMs, {
         sendMessage: async (text) => void (await notifier.notifyOwner(text)),
         formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
-        autoSwitch: (detectedAtIso, submissionId, timeZone) =>
-          applyAutoMotionSwitch({ client, companyId: device.companyId, detectedAtIso, submissionId, nowMs: Date.now(), origin: "position feed", timeZone }),
+        autoSwitch: (detectedAtIso, submissionId, timeZone, evidenceAtMs) =>
+          // The detection's freshness is judged against the fix's own
+          // time, not the server clock: a batch flushed after a dead
+          // zone must not read as stale (see live-location.ts).
+          applyAutoMotionSwitch({ client, companyId: device.companyId, detectedAtIso, submissionId, nowMs: evidenceAtMs ?? Date.now(), origin: "position feed", timeZone }),
         autoStop: (stoppedSinceIso, submissionId, promptedAtMs, timeZone) =>
           applyAutoStopSwitch({ client, companyId: device.companyId, stoppedSinceIso, submissionId, nowMs: Date.now(), promptedAtMs, origin: "position feed", timeZone }),
         autoRest: (stoppedSinceIso, submissionId, timeZone) =>

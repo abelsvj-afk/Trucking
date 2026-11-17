@@ -70,6 +70,7 @@ import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
 import { sliceGeometryFromFraction } from "@/lib/smart-path-map-segments";
+import { useDrive3dView } from "@/lib/drive-3d-view";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { LiveTrafficResponse, RouteCheckResponse } from "@/types/smart-path";
 import type { DriveMapHazard } from "@/components/DriveMap";
@@ -78,8 +79,6 @@ import type { MapSegment } from "@/lib/smart-path-map-segments";
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 
 const LAYOUT_STORAGE_KEY = "trucking.smartpath.drive-layout.v1";
-/** 3D driving view (owner 2026-11-17): tilted perspective, 3D truck at the bottom. "0" = flat top-down. */
-const DRIVE_3D_VIEW_STORAGE_KEY = "trucking.smartpath.drive-3d-view.v1";
 const MPS_TO_MPH = 2.23694;
 
 type Mode = "loading" | "preview" | "starting" | "rolling" | "parked";
@@ -139,7 +138,8 @@ export default function DrivePage() {
   const [firstRunSeen, setFirstRunSeen] = useState(true);
   const [layout, setLayout] = useState<"map" | "coach">("map");
   // 3D is the driving view the owner asked for — on unless he turned it off.
-  const [view3d, setView3d] = useState(true);
+  // The choice is shared with Home (useDrive3dView): one toggle, one preference.
+  const [view3d, setView3d] = useDrive3dView();
   const [follow, setFollow] = useState(true);
   const [muted, setMuted] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -226,7 +226,6 @@ export default function DrivePage() {
       }
       setFirstRunSeen(readStorage(DRIVE_FIRST_RUN_STORAGE_KEY) === "1");
       setLayout(readStorage(LAYOUT_STORAGE_KEY) === "coach" ? "coach" : "map");
-      setView3d(readStorage(DRIVE_3D_VIEW_STORAGE_KEY) !== "0");
       setMuted(speaker().isMuted());
       setNowMs(now);
       setMode("preview");
@@ -653,11 +652,7 @@ export default function DrivePage() {
   };
 
   const handleView3dToggle = () => {
-    setView3d((prev) => {
-      const next = !prev;
-      writeStorage(DRIVE_3D_VIEW_STORAGE_KEY, next ? "1" : "0");
-      return next;
-    });
+    setView3d((prev) => !prev);
   };
 
   // ---- derived render state (state only - refs are off-limits in render) --------
