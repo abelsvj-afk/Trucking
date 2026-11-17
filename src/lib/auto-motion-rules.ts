@@ -84,3 +84,42 @@ export function judgeAutoStop(
   if (nowMs - promptedAtMs < STOP_SILENCE_MS) return { ok: false, reason: "silence_not_elapsed" };
   return { ok: true };
 }
+
+// ---- the rest side (owner 2026-11-17: "Auto Off Duty after 2h") ---------------
+//
+// The app put him On Duty when the truck stopped (or never got to), he never answered "going off duty?", and the
+// truck has not moved for 2 hours: that is rest, and leaving it On Duty burns his 14 and his 70 all night - the
+// cause of a Smart Path "LATE" for a delivery due tomorrow. The rest is logged Off Duty from when he parked.
+// Only an AUTOMATIC row is ever followed: an On Duty he chose himself (loading at a dock) stands.
+
+export const AUTO_REST_AFTER_MS = 2 * 60 * 60_000;
+/** A park older than this is not acted on (a stale episode; the morning log check covers it). */
+export const AUTO_REST_MAX_STOP_AGE_MS = 24 * 60 * 60_000;
+
+export type AutoRestVerdict =
+  | { ok: true; startedAtMs: number }
+  | { ok: false; reason: "no_status" | "already_resting" | "manual_status" | "not_parked_long_enough" | "stop_too_old" | "row_after_stop" | "bad_time" };
+
+export function judgeAutoRest(
+  latest: { duty_status: DutyStatus; started_at: string; source?: string | null } | null,
+  stoppedSinceIso: string,
+  nowMs: number,
+): AutoRestVerdict {
+  const stopMs = Date.parse(stoppedSinceIso);
+  if (!Number.isFinite(stopMs)) return { ok: false, reason: "bad_time" };
+  if (!latest) return { ok: false, reason: "no_status" };
+  if (latest.duty_status === "off_duty" || latest.duty_status === "sleeper") return { ok: false, reason: "already_resting" };
+  if (nowMs - stopMs < AUTO_REST_AFTER_MS) return { ok: false, reason: "not_parked_long_enough" };
+  if (nowMs - stopMs > AUTO_REST_MAX_STOP_AGE_MS) return { ok: false, reason: "stop_too_old" };
+  const latestMs = Date.parse(latest.started_at);
+  if (!Number.isFinite(latestMs)) return { ok: false, reason: "bad_time" };
+  if (latest.duty_status === "driving") {
+    // Still "Driving" after 2 h parked: the stop side never ran. The row must predate the stop.
+    if (latestMs >= stopMs + 60_000) return { ok: false, reason: "row_after_stop" };
+    return { ok: true, startedAtMs: stopMs };
+  }
+  // On Duty: only the automatic stop row for THIS park is followed; anything he set himself stands.
+  if (latest.source !== "auto_motion") return { ok: false, reason: "manual_status" };
+  if (latestMs < stopMs - 2 * 60_000 || latestMs > stopMs + 10 * 60_000) return { ok: false, reason: "row_after_stop" };
+  return { ok: true, startedAtMs: Math.max(stopMs, latestMs + 1_000) };
+}

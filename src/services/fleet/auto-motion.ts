@@ -15,7 +15,7 @@
 // trail entry recorded. Same kill switch, same idempotency.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { judgeAutoMotion, judgeAutoStop } from "@/lib/auto-motion-rules";
+import { judgeAutoMotion, judgeAutoRest, judgeAutoStop } from "@/lib/auto-motion-rules";
 import { SUSTAIN_MS } from "@/lib/sustained-motion";
 import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { AUTO_DUTY_SWITCH_CAPABILITY, DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
@@ -319,4 +319,97 @@ export async function applyAutoStopSwitch(opts: {
 /** The auto-stop notice — the confirmation message itself (it carries the 14-hour honesty line). */
 export function autoStopNotice(message: string): string {
   return message;
+}
+
+export interface AutoRestResult {
+  switched: boolean;
+  reason?: string;
+  startedAt?: string;
+  deduplicated?: boolean;
+  message?: string;
+}
+
+/**
+ * Owner 2026-11-17 ("Auto Off Duty after 2h"): parked 2 hours with no answer after the app's own automatic stop
+ * (or still Driving) -> ONE Off Duty row from when he parked. Same kill switch, same idempotency and the same
+ * audit trail as the stop side; an On Duty he set himself is never followed (lib/auto-motion-rules judgeAutoRest).
+ * Planning log, not the legal ELD - the message says how to undo it.
+ */
+export async function applyAutoRestSwitch(opts: {
+  client: SupabaseClient;
+  companyId: string;
+  stoppedSinceIso: string;
+  submissionId: string;
+  nowMs: number;
+  origin: "app" | "position feed";
+  timeZone?: string;
+}): Promise<AutoRestResult> {
+  const { client, companyId, stoppedSinceIso, submissionId, nowMs, origin } = opts;
+  const timeZone = opts.timeZone ?? HOME_TIME_ZONE;
+  if (!(await isAutoSwitchEnabled(client, companyId))) return { switched: false, reason: "switched_off" };
+
+  const { data: existing } = await client.from("duty_logs").select("id").eq("company_id", companyId).eq("submission_id", submissionId).maybeSingle();
+  if (existing) return { switched: true, deduplicated: true };
+
+  const { data: latestRows, error } = await client
+    .from("duty_logs")
+    .select("id, duty_status, started_at, notes, time_zone, source")
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(error.message);
+  const latest = ((latestRows ?? [])[0] ?? null) as (Pick<DutyLog, "id" | "duty_status" | "started_at" | "notes" | "time_zone"> & { source?: string | null }) | null;
+
+  const verdict = judgeAutoRest(latest, stoppedSinceIso, nowMs);
+  if (!verdict.ok) return { switched: false, reason: verdict.reason };
+
+  const startedAt = new Date(verdict.startedAtMs).toISOString();
+  const parkedLabel = formatClock(stoppedSinceIso, timeZone);
+  const note =
+    `Automatic rest: switched to Off Duty from ${parkedLabel} - truck parked 2+ hours with no movement and no answer to "going off duty?" ` +
+    `(${origin === "app" ? "seen by the open app" : "from the phone's position feed"}). Planning log, not the legal ELD.`;
+  const base = {
+    company_id: companyId,
+    driver_id: null,
+    load_id: null,
+    duty_status: "off_duty",
+    started_at: startedAt,
+    location: null,
+    odometer: null,
+    notes: note,
+    submission_id: submissionId,
+    time_zone: timeZone,
+  };
+  let insert = await client.from("duty_logs").insert({ ...base, source: "auto_motion" });
+  if (insert.error && /duty_logs_source_check|violates check constraint/i.test(insert.error.message)) {
+    insert = await client.from("duty_logs").insert({ ...base, source: "app" });
+  }
+  if (insert.error && /time_zone/i.test(insert.error.message) && /does not exist/i.test(insert.error.message)) {
+    const { time_zone: _dropped, ...withoutZone } = base;
+    insert = await client.from("duty_logs").insert({ ...withoutZone, source: "auto_motion" });
+  }
+  if (insert.error) {
+    if ((insert.error as { code?: string }).code === "23505") return { switched: true, deduplicated: true, startedAt };
+    throw new Error(insert.error.message);
+  }
+  try {
+    const found = await client.from("duty_logs").select("id").eq("company_id", companyId).eq("submission_id", submissionId).maybeSingle();
+    const newRowId = (found.data as { id: string } | null)?.id ?? null;
+    if (newRowId) {
+      await recordDutyLogEdit(client, { companyId, dutyLogId: newRowId, kind: "insert", reason: note, before: latest ? { ...latest } : null, after: { ...base, source: "auto_motion" }, source: "app" });
+    }
+  } catch {
+    /* the trail is best-effort; the rest landed */
+  }
+  const message =
+    `Logged you Off Duty from ${parkedLabel} - parked over 2 hours and no answer, so that's counted as rest (your 14 and your cycle stop burning). ` +
+    `Wrong - were you working? Tell me "I was on duty since ${parkedLabel}" and I'll fix it. (Planning log, not your ELD.)`;
+  return { switched: true, startedAt, message };
+}
+
+/** Idempotency key for the automatic rest of one park (a different variant from the stop's). */
+export function autoRestSubmissionId(stoppedSinceMs: number): string {
+  const hex = stoppedSinceMs.toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4002-8000-${hex}`;
 }

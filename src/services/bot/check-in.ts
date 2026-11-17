@@ -73,8 +73,32 @@ export interface NextLoad {
   deliveryDate: string | null;
 }
 
+const STATUS_WORD: Record<string, string> = { off_duty: "Off", sleeper: "Sleeper", driving: "Driving", on_duty: "On duty" };
+
+/**
+ * Yesterday's log on his clock as one short line (owner 2026-11-17: "morning log check") - so a wrong or missing
+ * entry is caught the next morning instead of turning into a wrong plan. Null when nothing was logged yesterday.
+ */
+export function yesterdayLogLine(rows: DutyRow[], nowMs: number, timeZone: string): string | null {
+  const today = localParts(nowMs, timeZone).day;
+  const noon = Date.parse(`${today}T12:00:00Z`) - 24 * 3_600_000;
+  const yesterday = new Date(noon).toISOString().slice(0, 10);
+  const time = (ms: number) => new Date(ms).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
+  const parts = buildSegments(rows, nowMs)
+    .filter((seg) => {
+      const a = localParts(seg.startMs, timeZone).day;
+      const b = localParts(Math.max(seg.startMs, seg.endMs - 1), timeZone).day;
+      return a <= yesterday && b >= yesterday;
+    })
+    .map((seg) => `${STATUS_WORD[seg.status] ?? seg.status} ${time(seg.startMs)}–${time(seg.endMs)}`);
+  if (parts.length === 0) return null;
+  return `📒 Yesterday's log: ${parts.join(" · ")}. Right? If not, tell me what to fix (like "I was off from 9 PM").`;
+}
+
 export interface CheckInFacts {
   kind: CheckInKind;
+  /** Morning only: yesterday's log line (yesterdayLogLine). */
+  logLine?: string | null;
   clocks: HudClocks | null;
   drivingTodayMs: number;
   nextLoad: NextLoad | null;
@@ -121,6 +145,7 @@ export function composeCheckIn(f: CheckInFacts): string {
     const money = f.payWeek.lowCents === f.payWeek.highCents ? formatMoney(f.payWeek.lowCents) : `${formatMoney(f.payWeek.lowCents)} to ${formatMoney(f.payWeek.highCents)}`;
     lines.push(`💵 This pay week so far: ${money}.`);
   }
+  if (f.kind === "morning" && f.logLine) lines.push(f.logLine);
   if (f.waitingCount > 0) {
     lines.push(`⏳ ${f.waitingCount} thing${f.waitingCount === 1 ? " is" : "s are"} waiting on you — say "what's waiting".`);
   }

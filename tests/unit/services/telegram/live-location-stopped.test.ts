@@ -239,3 +239,36 @@ describe("handleLiveLocation — ELD stopped vehicle (feed path)", () => {
 function fakeNow(m: ReturnType<typeof feedStore>, nowMs: number) {
   m.nowMs = nowMs;
 }
+
+// Owner 2026-11-17: "Auto Off Duty after 2h" - the rest he never answered about is logged as rest.
+describe("handleLiveLocation - auto Off Duty after 2 hours parked", () => {
+  it("asks the rest switch at the 2-hour mark (from the stop start), messages him once, and doesn't hammer it", async () => {
+    const m = feedStore("on_duty");
+    const autoRest = vi.fn(async (stoppedSinceIso: string, _submissionId: string, _timeZone?: string) => ({
+      switched: false as const,
+      reason: "manual_status",
+      startedAt: stoppedSinceIso,
+    }));
+    const d = { ...deps(), autoRest };
+    const step = 15_000;
+    // 1 h 55 min parked: never asked
+    await stoppedFixes(m, d, Math.floor((115 * 60_000) / step), T0, step);
+    expect(autoRest).not.toHaveBeenCalled();
+    // to 2 h 30 min: asked at the 2-hour mark, then at most every 10 minutes (an On Duty he chose stands)
+    await stoppedFixes(m, d, Math.floor((35 * 60_000) / step), T0 + 115 * 60_000, step);
+    expect(autoRest.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(autoRest.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(autoRest.mock.calls[0]![0]).toBe(stopIso(T0 + step)); // the stop starts at the second fix
+    expect(autoRest.mock.calls[0]![1]).toMatch(/^00000000-0000-4002-8000-[0-9a-f]{12}$/);
+  });
+
+  it("when it switches, he's told once and later fixes don't ask again", async () => {
+    const m = feedStore("on_duty");
+    const autoRest = vi.fn(async (stoppedSinceIso: string) => ({ switched: true, startedAt: stoppedSinceIso, message: "Logged you Off Duty from t - parked over 2 hours" }));
+    const d = { ...deps(), autoRest };
+    const step = 15_000;
+    await stoppedFixes(m, d, Math.floor((125 * 60_000) / step), T0 + 7, step);
+    const told = d.sendMessage.mock.calls.filter((c) => String(c[0]).includes("Logged you Off Duty"));
+    expect(told).toHaveLength(1);
+  });
+});

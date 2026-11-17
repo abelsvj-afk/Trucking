@@ -18,7 +18,7 @@ import { isQuietHours } from "@/services/research/delivery";
 import { createTelegramBrainStore } from "@/services/telegram/store";
 import { createTelegramNotifier } from "@/services/telegram/notify";
 import type { BotBrainStore } from "./store";
-import { composeCheckIn, dueCheckIn, drivingTodayMs, type DutyRow } from "./check-in";
+import { composeCheckIn, dueCheckIn, drivingTodayMs, yesterdayLogLine, type DutyRow } from "./check-in";
 import { thisPayWeekSoFar } from "./pay-projection-tools";
 import { groupWaitingRows } from "./waiting-list";
 import { computeHudClocks } from "@/lib/hud-clocks";
@@ -138,6 +138,7 @@ async function planCheckIn(store: BotBrainStore, snapshot: Awaited<ReturnType<ty
       : null,
     payWeek: payWeek ? { lowCents: payWeek.lowCents, highCents: payWeek.highCents } : null,
     waitingCount: waiting,
+    logLine: due.kind === "morning" ? yesterdayLogLine(rows, now.getTime(), zone) : null,
   });
   return { kind: "checkin", key: `checkin:${due.kind}:${due.day}`, critical: false, text };
 }

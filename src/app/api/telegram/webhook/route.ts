@@ -50,7 +50,7 @@ import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
 import { createRateLimiter } from "@/services/telegram/rate-limit";
 import { createBrainLiveLocationStore, handleLiveLocation, maybeSendFeedStaleTell } from "@/services/telegram/live-location";
-import { applyAutoMotionSwitch, applyAutoStopSwitch } from "@/services/fleet/auto-motion";
+import { applyAutoMotionSwitch, applyAutoRestSwitch, applyAutoStopSwitch } from "@/services/fleet/auto-motion";
 import { formatClock, timeZoneForPosition } from "@/lib/display-zone";
 import { handleTelegramVoice } from "@/services/telegram/voice-intake";
 
@@ -256,6 +256,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 submissionId,
                 nowMs: Date.now(),
                 promptedAtMs,
+                origin: "position feed",
+                timeZone,
+              }),
+            // Owner 2026-11-17: parked 2 h with no answer -> Off Duty from when he parked.
+            autoRest: (stoppedSinceIso, submissionId, timeZone) =>
+              applyAutoRestSwitch({
+                client: brainStore.client,
+                companyId: brainStore.companyId,
+                stoppedSinceIso,
+                submissionId,
+                nowMs: Date.now(),
                 origin: "position feed",
                 timeZone,
               }),

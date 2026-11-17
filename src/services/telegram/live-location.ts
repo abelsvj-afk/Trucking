@@ -6,6 +6,7 @@
 // duty-status PROPOSAL carrying the time the movement really began. It
 // never books anything: the proposal waits for his yes (bot_pending_actions).
 
+import { AUTO_REST_AFTER_MS } from "@/lib/auto-motion-rules";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import type { DutyStatus } from "@/types/entities";
@@ -15,6 +16,8 @@ import { AUTO_SWITCH_GRACE_MS } from "@/lib/auto-switch";
 import { SUSTAIN_MS } from "@/lib/sustained-motion";
 import {
   autoStopSubmissionId,
+  autoRestSubmissionId,
+  type AutoRestResult,
   autoSubmissionId,
   autoSwitchNotice,
   type AutoMotionResult,
@@ -178,6 +181,20 @@ function validLocation(l: TelegramLocation): boolean {
  * edit_date when present, else now). An out-of-order or duplicate fix
  * (not newer than the stored one) is ignored.
  */
+/**
+ * Auto rest is checked at the 2-hour mark and then at most every 10 minutes per park - not on every 5-second fix
+ * (a park he set On Duty himself would otherwise re-read the log all night). In-process; a restart just checks again.
+ */
+const autoRestTried = new Map<number, number>();
+const AUTO_REST_RETRY_MS = 10 * 60_000;
+export function autoRestDue(stoppedSinceMs: number, atMs: number): boolean {
+  const last = autoRestTried.get(stoppedSinceMs);
+  if (last !== undefined && atMs - last < AUTO_REST_RETRY_MS) return false;
+  autoRestTried.set(stoppedSinceMs, atMs);
+  if (autoRestTried.size > 50) autoRestTried.delete(autoRestTried.keys().next().value!);
+  return true;
+}
+
 export async function handleLiveLocation(
   store: LiveLocationStore,
   loc: TelegramLocation,
@@ -226,6 +243,8 @@ export async function handleLiveLocation(
       promptedAtMs: number | null,
       timeZone?: string,
     ) => Promise<AutoStopResult>;
+    /** Owner 2026-11-17: parked 2 h with no answer -> Off Duty from when he parked (services/fleet/auto-motion.ts). */
+    autoRest?: (stoppedSinceIso: string, submissionId: string, timeZone?: string) => Promise<AutoRestResult>;
   },
   /** Test seam: the "now" the fix's age is judged against (default: real now). */
   opts?: { nowMs?: number },
@@ -390,6 +409,31 @@ export async function handleLiveLocation(
       } catch (err) {
         console.error("[live-location] auto stop failed", err);
       }
+    }
+  }
+
+  // Auto Off Duty after 2 hours parked (owner 2026-11-17): the rest he never answered about is logged as rest,
+  // so his 14 and his cycle stop burning overnight. Only ever follows the app's own automatic row (see judgeAutoRest).
+  if (
+    deps.autoRest &&
+    (currentStatus === "on_duty" || currentStatus === "driving") &&
+    episode.stoppedSinceMs !== null &&
+    atMs - episode.stoppedSinceMs >= AUTO_REST_AFTER_MS &&
+    autoRestDue(episode.stoppedSinceMs, atMs)
+  ) {
+    try {
+      const stoppedSinceMs = episode.stoppedSinceMs;
+      const res = await deps.autoRest(new Date(stoppedSinceMs).toISOString(), autoRestSubmissionId(stoppedSinceMs), fixZone);
+      if (res.switched) {
+        await store.savePosition({
+          fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+          speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: "stop_driving",
+        });
+        if (!res.deduplicated && res.message) await deps.sendMessage(res.message);
+        return { kind: "recorded", proposed: null };
+      }
+    } catch (err) {
+      console.error("[live-location] auto rest failed", err);
     }
   }
 

@@ -66,3 +66,23 @@ describe("the message", () => {
     expect(text).not.toContain("$");
   });
 });
+
+import { yesterdayLogLine } from "@/services/bot/check-in";
+
+describe("morning log check (owner 2026-11-17)", () => {
+  it("yesterday's log on his clock, one line, with how to fix it", () => {
+    const rows = [
+      row("off_duty", "2026-11-16T02:00:00Z"), // Sun 9 PM ET (Sat night rest carries into Sunday... and Monday below)
+      row("driving", "2026-11-16T11:40:00Z"), // Mon 6:40 AM ET
+      row("on_duty", "2026-11-16T16:05:00Z"), // 11:05 AM
+      row("off_duty", "2026-11-17T02:12:00Z"), // 9:12 PM
+    ];
+    const line = yesterdayLogLine(rows, at("2026-11-17T11:30:00Z"), ET)!; // Tue 6:30 AM ET -> yesterday = Mon Nov 16
+    expect(line).toContain("Driving 6:40 AM–11:05 AM");
+    expect(line).toContain("On duty 11:05 AM–9:12 PM");
+    expect(line).toContain("tell me what to fix");
+  });
+  it("nothing logged yesterday: no line", () => {
+    expect(yesterdayLogLine([], at("2026-11-17T11:30:00Z"), ET)).toBeNull();
+  });
+});

@@ -44,3 +44,16 @@ counted from a log that was out of date.
 - **Follow-ups are one line.** The 2-hour warning and the expiry message keep the full explanation. The 1-hour and
   30-minute warnings are one line that still carries the action and "Planning only, not an ELD."
 - **Times carry their zone** ("Thu 1:30 PM ET").
+
+## Amendment 2026-11-17: the app's own clock must stay right (owner decisions)
+
+Owner: Smart Path said LATE for a delivery due the next day, because the app's log had kept him On Duty through
+rests he never answered about. "It does need to be based off of the actual clock hours in the app." Decisions:
+- **Auto Off Duty after 2 hours parked.** If the truck has not moved for 2 hours and the app's own automatic row is
+  the current one (the automatic stop's On Duty, or still Driving), the app logs Off Duty from when he parked and
+  tells him how to undo it. An On Duty he set himself is never followed. Same switch, same idempotency key family
+  (`…-4002-…`) and audit trail as the stop side. The check runs at the 2-hour mark, then at most every 10 minutes
+  per park. Rule: `judgeAutoRest` in `lib/auto-motion-rules.ts`; switch: `applyAutoRestSwitch` in
+  `services/fleet/auto-motion.ts`. A real ELD does not do this; this app is his planning log.
+- **Morning log check.** The morning check-in carries yesterday's log as one line ("Driving 6:40 AM–11:05 AM ·
+  On duty 11:05 AM–9:12 PM · Off 9:12 PM–…") and asks him to say what to fix.
