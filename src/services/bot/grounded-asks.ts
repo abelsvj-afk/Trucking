@@ -35,6 +35,13 @@ const ASKS: GroundedAsk[] = [
       /\b(this|the) month\b.*\b(make|made|pay|earn|income)\b|\b(make|made|earn|income)\b.*\b(this|the) month\b/.test(t) ||
       /\b(my|the) goal\b|\bgo(ing)? home\b.*\b(enough|money|goal)\b|\benough\b.*\bgo home\b/.test(t),
   },
+  {
+    label: "SMART PATH FOR HIS CURRENT RUN, planned from his live position, next stop and hours (docs/design/smart-path-v2.md)",
+    tool: "plan_my_run",
+    args: {},
+    matches: (t) =>
+      /\b(plan my (run|trip|route|day)|will i make it|am i (going to|gonna) make it|when (will|do|would) i (get there|arrive|deliver)|where (should|do) i (sleep|park|fuel|stop))\b/.test(t),
+  },
 ];
 
 /** Which grounded asks this message is (often none). Long messages are left to the model. */

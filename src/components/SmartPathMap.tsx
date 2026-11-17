@@ -273,7 +273,7 @@ export default function SmartPathMap({
               whiteSpace: "nowrap",
             }}
           >
-            Run a check below — your route draws here.
+            Your route draws here once Smart Path has planned it.
           </div>
         )}
         {stops.length > 0 && (

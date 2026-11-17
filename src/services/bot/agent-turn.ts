@@ -1507,7 +1507,10 @@ export async function runAgentTurn(
   const fullGated = gateExecutes(buildBotTools(store), input.userText);
   const catalog = writesRefused ? fullGated.filter((t) => t.access === "read") : fullGated;
   const selectionText = [input.userText, input.openLoopsText ?? "", input.summaryText ?? ""].join("\n");
-  const botTools = selectToolsForTurn(catalog, selectionText);
+  // One slot is left for the loop's own find_more_tools helper: selecting the full budget made the loop trim a
+  // tool back off the tail - and the tail could be the very tool his message matched (2026-11-17: quick_reference
+  // dropped for "what do I do if I break down" once the registry grew by one).
+  const botTools = selectToolsForTurn(catalog, selectionText, TOOL_BUDGET - 1);
   const result = await runAgentLoop({
     provider,
     system: `${AGENT_SYSTEM_PROMPT}\n\n${PLAIN_TALK_RULES}\n\n${PAY_SAFETY_RULES}\n\n${TEMPORAL_RULES}\n\n${CONTEXTUAL_RULES}\n\n${CAUSAL_RULES}\n\n${SELF_CORRECTION_RULES}\n\n${EPISODIC_RULES}\n\n${THEORY_OF_MIND_RULES}\n\n${VALUE_LEARNING_RULES}\n\n${CONSOLIDATION_RULES}\n\n${RESTRAINT_RULES}\n\n${CHAINED_REASONING_RULES}\n\n${VERIFICATION_RULES}\n\n${UNCERTAINTY_RULES}\n\n${TRADEOFF_RULES}\n\n${PREDICTION_RULES}\n\n${FLEET_RULES}\n\n${LEARNING_RULES}\n\n${EMAIL_RULES}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}\n\n${TOOL_SELECTION_RULES}`,

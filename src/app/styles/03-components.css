@@ -2781,3 +2781,25 @@ main .money-weeks li { padding: 0; }
 .month-loads li { padding: 0.6rem 0; border-bottom: 1px solid var(--border, #333); }
 .month-running { display: block; font-size: 0.9rem; margin-top: 0.2rem; }
 .month-goal-row { background: color-mix(in srgb, var(--accent, #d4a017) 12%, transparent); }
+
+/* Smart Path v2 (docs/design/smart-path-v2.md): the answer on top, sticky; facts as tiles; short timeline. */
+.smart-path-v2 { display: flex; flex-direction: column; gap: 0.75rem; }
+.sp-status { position: sticky; top: 0; z-index: 5; padding: 0.75rem 1rem; border-radius: 12px; border: 2px solid var(--border, #444); background: var(--surface, #111); }
+.sp-status.sp-ok { border-color: #2e9d57; }
+.sp-status.sp-warn { border-color: #d4a017; }
+.sp-status.sp-bad { border-color: #d04545; }
+.sp-word { font-size: 1.6rem; font-weight: 800; margin: 0.1rem 0; }
+.sp-load { font-weight: 600; margin: 0; }
+.sp-why { font-size: 1.05rem; font-weight: 600; margin: 0.2rem 0; }
+.sp-assume { font-size: 0.85rem; opacity: 0.8; margin: 0.2rem 0; }
+.sp-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.sp-go { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; font-weight: 800; border: 2px solid currentColor; border-radius: 10px; }
+.sp-change { display: grid; gap: 0.4rem; padding: 0.75rem; border: 1px solid var(--border, #333); border-radius: 12px; }
+.sp-check { display: flex; gap: 0.5rem; align-items: center; }
+.sp-facts { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.sp-facts li { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.6rem; border: 1px solid var(--border, #333); border-radius: 10px; min-width: 0; overflow-wrap: anywhere; }
+.sp-fact-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.75; }
+.sp-timeline { padding-left: 1.25rem; margin: 0.25rem 0; }
+.sp-timeline li { padding: 0.3rem 0; }
+.sp-details summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0; }
+.sp-facts strong { background: none; color: inherit; padding: 0; font-size: 1.1rem; font-weight: 800; text-transform: none; letter-spacing: normal; }
