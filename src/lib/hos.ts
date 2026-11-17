@@ -102,6 +102,9 @@ export function sumMinutes(
 //  - one period of at least 7 CONSECUTIVE hours in the SLEEPER BERTH, and
 //  - a separate period of at least 2 consecutive hours off duty, in the sleeper berth, or both,
 //  - together totaling at least 10 hours, in either order.
+//  - (ii)(D): for EACH of the two periods, the driving immediately before it plus the driving immediately
+//    after it must not exceed 11 hours, and the non-rest time immediately before it plus immediately after
+//    it must not exceed 14 hours. A pair that fails (D) for either period does not qualify at all.
 // Paired, neither period counts against the 14-hour window, and the 11- and 14-hour limits are figured from the
 // END OF THE FIRST of the two periods. Pairs chain: the second period of one pair can be the first of the next.
 
@@ -131,10 +134,37 @@ const isLong = (p: RestPeriod) => p.longestSleeperMs >= SPLIT_LONG_SLEEPER_MIN *
 const durMs = (p: RestPeriod) => p.endMs - p.startMs;
 const qualifies = (p: RestPeriod) => isLong(p) || durMs(p) >= SPLIT_SHORT_REST_MIN * MINUTE_MS;
 
-/** Do these two periods (in either order) make a legal split? */
+/** Do these two periods (in either order) make a legal split on SHAPE alone (long/short/total)?
+ * (ii)(D) needs the surrounding timeline, so it is checked separately in findShortClockAnchor
+ * via periodMeetsRuleD — a pair that passes this shape check can still fail (D). */
 export function isSplitPair(a: RestPeriod, b: RestPeriod): boolean {
   const pairOk = (long: RestPeriod, other: RestPeriod) => isLong(long) && durMs(other) >= SPLIT_SHORT_REST_MIN * MINUTE_MS;
   return (pairOk(a, b) || pairOk(b, a)) && durMs(a) + durMs(b) >= RESET_REST_MIN * MINUTE_MS;
+}
+
+/**
+ * 49 CFR 395.1(g)(1)(ii)(D), for ONE period of a candidate pair: the driving immediately before the period
+ * plus the driving immediately after it must not exceed 11 hours, and the non-rest time immediately before
+ * it plus immediately after it must not exceed 14 hours.
+ *
+ * "Immediately before" runs back to the previous qualifying rest period (or the last full reset); "immediately
+ * after" runs forward to the next qualifying rest period (or now). Short breaks in between do not reset either
+ * count — only rest time itself is left out of the non-rest sum, because a short break does not pause the
+ * 14-hour clock and does not reset accumulated driving. Both halves are checked for BOTH periods of the pair.
+ */
+function periodMeetsRuleD(
+  p: RestPeriod,
+  segments: Segment[],
+  beforeMs: number,
+  afterMs: number,
+): boolean {
+  const NON_REST: DutyStatus[] = ["driving", "on_duty"];
+  const driveBefore = sumMs(segments, beforeMs, p.startMs, ["driving"]);
+  const driveAfter = sumMs(segments, p.endMs, afterMs, ["driving"]);
+  if (driveBefore + driveAfter > DRIVING_LIMIT_MIN * MINUTE_MS) return false;
+  const dutyBefore = sumMs(segments, beforeMs, p.startMs, NON_REST);
+  const dutyAfter = sumMs(segments, p.endMs, afterMs, NON_REST);
+  return dutyBefore + dutyAfter <= WINDOW_LIMIT_MIN * MINUTE_MS;
 }
 
 function hm(ms: number): string {
@@ -143,9 +173,11 @@ function hm(ms: number): string {
 }
 
 /**
- * Where the short clocks run from, split sleeper included. A full >=10-hour rest resets everything (as before);
- * after it, qualifying rest periods are paired in order and each completed pair moves the anchor to the end of
- * its first period, with its second period excluded from the 14-hour window.
+ * Where the short clocks run from, split sleeper included. A full >=10-hour rest resets the 11- and 14-hour
+ * clocks (as before) — it does NOT reset the 60/70-hour limit; only a 34+ hour restart does that (§ 395.3(c)).
+ * After it, qualifying rest periods are paired in order and each completed pair moves the anchor to the end of
+ * its first period, with its second period excluded from the 14-hour window. A pair only counts if it also
+ * passes (ii)(D) for both periods (periodMeetsRuleD); a pair that fails (D) leaves the anchor where it was.
  */
 export function findShortClockAnchor(segments: Segment[]): ShortClockAnchor | null {
   if (segments.length === 0) return null;
@@ -185,10 +217,20 @@ export function findShortClockAnchor(segments: Segment[]): ShortClockAnchor | nu
   const relevant = periods.filter((p) => p.startMs >= base);
 
   let anchor: ShortClockAnchor = { startMs: base, excludedMs: 0, split: null, pending: null };
+  const nowMs = segments[segments.length - 1]!.endMs;
   for (let i = 0; i + 1 < relevant.length; i++) {
     const first = relevant[i]!;
     const second = relevant[i + 1]!;
-    if (isSplitPair(first, second)) {
+    // (ii)(D) boundaries: back to the previous qualifying period (or the last full reset), forward to the
+    // next qualifying period (or now). The first period's "after" is its partner; the second period's
+    // "before" is the first period.
+    const firstBeforeMs = i > 0 ? relevant[i - 1]!.endMs : base;
+    const secondAfterMs = i + 2 < relevant.length ? relevant[i + 2]!.startMs : nowMs;
+    if (
+      isSplitPair(first, second) &&
+      periodMeetsRuleD(first, segments, firstBeforeMs, second.startMs) &&
+      periodMeetsRuleD(second, segments, first.endMs, secondAfterMs)
+    ) {
       anchor = { startMs: first.endMs, excludedMs: durMs(second), split: { first, second }, pending: null };
     }
   }
