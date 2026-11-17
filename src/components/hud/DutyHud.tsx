@@ -11,6 +11,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { computeHudClocks, formatClock } from "@/lib/hud-clocks";
+import { buildSegments, summarizeDaySoFar } from "@/lib/hos";
+import { startOfZonedDayMs } from "@/lib/zoned-day";
+import { apiClient, ApiClientError } from "@/lib/api-client";
 import Sheet from "@/components/Sheet";
 import StoppedGate from "./StoppedGate";
 import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
@@ -32,6 +35,14 @@ import StatusSheet, { HUD_STATUS_LABELS } from "./StatusSheet";
 const REFRESH_MS = 5 * 60_000;
 const BUTTON_ORDER: DutyStatus[] = ["driving", "on_duty", "off_duty", "sleeper"];
 
+/** "2h", "5h 30m" - plain words for the split offer and the reset sheet. */
+function hmWords(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return h > 0 ? `${h}h${rest ? ` ${rest}m` : ""}` : `${rest}m`;
+}
+
 export default function DutyHud() {
   const { state, retry, refresh } = useHosWindow();
   const nowMs = useNowTick();
@@ -42,6 +53,12 @@ export default function DutyHud() {
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState(false);
   const [explain, setExplain] = useState<ClockKey | null>(null);
+  // Manual clock reset (owner 2026-11-17): a button HE presses, never
+  // automatic. The confirm sheet IS the one press that does it.
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetDone, setResetDone] = useState<string | null>(null);
   // Phase 4 map controls (spec §2.4): collapse is the owner's STORED
   // preference (person_preferences key home_map_collapsed) — while it
   // loads, the map renders EXPANDED (the live default), never
@@ -73,8 +90,51 @@ export default function DutyHud() {
   }, [refreshIfVisible]);
 
   const loaded = state.status === "loaded" ? state : null;
-  const clocks = loaded ? computeHudClocks(loaded.data, loaded.hos, nowMs) : null;
+  const tz = loaded?.hos.carrierTimeZone ?? "America/New_York";
+  const clocks = loaded
+    ? computeHudClocks(loaded.data, loaded.hos, nowMs, {
+        resetDayStartMs: loaded.hos.resetDayStartMs ?? null,
+        clockResetAtMs:
+          loaded.hos.clockResetAt && Number.isFinite(Date.parse(loaded.hos.clockResetAt))
+            ? Date.parse(loaded.hos.clockResetAt)
+            : null,
+      })
+    : null;
   const hos = loaded?.hos ?? null;
+
+  // The reset confirm sheet's projection (owner 2026-11-17): computed
+  // client-side from the loaded rows, so he sees before he presses
+  // what the reset counted from today and what the clocks read after.
+  // resetDayStartMs here is the start of TODAY in his zone.
+  const resetProjection =
+    resetOpen && loaded && clocks?.state === "ready"
+      ? (() => {
+          const todayStartMs = startOfZonedDayMs(nowMs, tz);
+          const daySoFar = summarizeDaySoFar(buildSegments(loaded.data, nowMs), todayStartMs, nowMs);
+          const after = computeHudClocks(loaded.data, loaded.hos, nowMs, {
+            resetDayStartMs: todayStartMs,
+            clockResetAtMs: nowMs,
+          });
+          return { daySoFar, after };
+        })()
+      : null;
+
+  const doReset = async () => {
+    setResetBusy(true);
+    setResetError(null);
+    try {
+      await apiClient.resetDutyLogClocks();
+      setResetOpen(false);
+      setResetDone("Clocks reset — re-derived from today's log. Your original log is unchanged.");
+      refresh();
+    } catch (err) {
+      setResetError(
+        err instanceof ApiClientError ? err.message : "Couldn't reset the clocks. Try again.",
+      );
+    } finally {
+      setResetBusy(false);
+    }
+  };
   const provisional = hos !== null && isProvisionalCarrierConfig(hos);
   const drivingLocked = clocks?.state === "ready" && activeLocks(clocks.clocks).length > 0;
 
@@ -137,9 +197,27 @@ export default function DutyHud() {
             ))}
           </div>
           <LockedNow clocks={clocks.clocks} />
-          {clocks.split && (
+          {clocks.splitOffer && (
+            <div className="hud-split-offer" role="alert">
+              <p>
+                <strong>Split break available.</strong> Take {hmWords(clocks.splitOffer.neededRestMs)} in the
+                sleeper now — your 14-hour window moves to{" "}
+                {formatDateTime(new Date(clocks.splitOffer.windowMovesToMs).toISOString(), tz)}, and
+                you&apos;d have {hmWords(clocks.splitOffer.driveLeftAfterMs)} of driving left after.
+                That&apos;s a partial gain, not a fresh 11 hours.
+              </p>
+              <p>Planning only — your ELD&apos;s own split calculation is the legal one.</p>
+            </div>
+          )}
+          {clocks.split && !clocks.splitOffer && (
             <p className="hud-note" role="status">
               {clocks.split} Planning only - your ELD&apos;s own split calculation is the legal one.
+            </p>
+          )}
+          {clocks.clockResetAtMs != null && (
+            <p className="hud-note" role="status">
+              Clocks were reset by hand at {formatDateTime(new Date(clocks.clockResetAtMs).toISOString(), tz)} —
+              re-derived from that day&apos;s log. Your original log is unchanged.
             </p>
           )}
           {clocks.cycleUnavailable && (
@@ -177,6 +255,78 @@ export default function DutyHud() {
           </button>
         ))}
       </div>
+
+      {/* Manual clock reset (owner 2026-11-17): NEVER automatic - this button, pressed by him, is the only
+          way the clocks reset. The confirm sheet shows what today already holds and what the clocks read
+          after, so he presses it knowing exactly what it does. */}
+      <p className="hud-reset-row">
+        <button
+          type="button"
+          className="hud-reset-btn"
+          disabled={!loaded}
+          onClick={() => {
+            setResetError(null);
+            setResetDone(null);
+            setResetOpen(true);
+          }}
+        >
+          Reset clocks
+        </button>
+      </p>
+      {resetDone && (
+        <p role="status" className="hud-note">
+          {resetDone}
+        </p>
+      )}
+
+      {resetOpen && loaded && (
+        <Sheet title="Reset clocks" onClose={() => setResetOpen(false)}>
+          <p>
+            This re-derives your clocks from <strong>today&apos;s log</strong> — it does not give you a
+            fresh day. What you already did today still counts.
+          </p>
+          {resetProjection && (
+            <>
+              <p>
+                Today so far: {hmWords(resetProjection.daySoFar.drivenMs)} driving,{" "}
+                {hmWords(resetProjection.daySoFar.onDutyMs)} on duty, {resetProjection.daySoFar.breakCount}{" "}
+                break{resetProjection.daySoFar.breakCount === 1 ? "" : "s"} (
+                {hmWords(resetProjection.daySoFar.breakTotalMs)} total).
+              </p>
+              {resetProjection.after.state === "ready" && (
+                <p>
+                  After the reset: Drive{" "}
+                  {hmWords(resetProjection.after.clocks.find((c) => c.key === "drive")?.remainingMs ?? 0)}{" "}
+                  left, 14-hour window{" "}
+                  {hmWords(resetProjection.after.clocks.find((c) => c.key === "window")?.remainingMs ?? 0)}{" "}
+                  left.
+                </p>
+              )}
+            </>
+          )}
+          <p>
+            Your weekly cycle is <strong>not</strong> reset — only 34 straight hours off resets the 60/70.
+            Your original log stays recorded and the reset shows in its history.
+          </p>
+          <p>
+            If the log entries themselves are wrong, this reset will not fix the clocks — fix those entries
+            in the day log instead.
+          </p>
+          {resetError && (
+            <p role="alert" className="hud-note">
+              {resetError}
+            </p>
+          )}
+          <div className="hud-sheet-actions">
+            <button type="button" disabled={resetBusy} onClick={doReset}>
+              {resetBusy ? "Resetting…" : "Reset clocks"}
+            </button>
+            <button type="button" disabled={resetBusy} onClick={() => setResetOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </Sheet>
+      )}
 
       {picked && (
         <Sheet title="Change status" onClose={() => setPicked(null)}>

@@ -15,7 +15,76 @@
 // the duty write itself, which has already landed honestly.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DutyLogEdit, DutyLogEditKind, DutyLogEditSource } from "@/types/entities";
+import type { DutyLog, DutyLogEdit, DutyLogEditKind, DutyLogEditSource } from "@/types/entities";
+
+/**
+ * Manual clock reset marker (owner 2026-11-17): a hand reset is
+ * recorded as a trail row on the latest duty entry, kind "update",
+ * whose `after` snapshot carries this key with the reset instant.
+ * No migration: the existing duty_log_edits table (00088) already
+ * holds it - tenant-isolated under its existing RLS, reason +
+ * timestamp recorded, original duty rows untouched. The kind stays
+ * "update" because the table's check constraint only allows the four
+ * correction kinds; the history renderer (lib/duty-edit-history.ts)
+ * recognises this marker and says "Clocks reset" instead of
+ * "Entry updated". The HOS engine reads the latest marker back via
+ * fetchLatestClockResetAt and re-derives the short clocks from the
+ * log of the day the reset was pressed on (DAY-AWARE, owner
+ * 2026-11-17): today's driving, on-duty time, breaks and any pending
+ * split first period all still count - the reset fixes a wrong
+ * derivation, it does not hand him a fresh day. The 60/70 cycle
+ * never reads it.
+ */
+export const CLOCK_RESET_AT = "clock_reset_at";
+
+/** The latest hand-reset instant for the company, or null when none is on record. [] / null on any read failure - the clocks then run from the logs alone, as before. */
+export async function fetchLatestClockResetAt(
+  client: SupabaseClient,
+  companyId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await client
+      .from("duty_log_edits")
+      .select("after, edited_at")
+      .eq("company_id", companyId)
+      .eq("kind", "update")
+      .order("edited_at", { ascending: false })
+      .limit(200);
+    if (error) return null;
+    for (const row of (data ?? []) as { after?: unknown }[]) {
+      const after = row.after;
+      if (after && typeof after === "object" && typeof (after as Record<string, unknown>)[CLOCK_RESET_AT] === "string") {
+        return (after as Record<string, unknown>)[CLOCK_RESET_AT] as string;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record a hand clock reset in the trail: the latest duty entry's
+ * snapshot before, the same snapshot plus the reset instant after.
+ * The entry itself is NOT changed - only the trail grows. Returns
+ * false (and logs) when the trail write fails; the caller decides
+ * whether the reset still stands.
+ */
+export async function recordClockReset(
+  client: SupabaseClient,
+  input: { companyId: string; dutyLog: DutyLog; resetAtIso: string; reason: string },
+): Promise<boolean> {
+  const snapshot = input.dutyLog as unknown as Record<string, unknown>;
+  return recordDutyLogEdit(client, {
+    companyId: input.companyId,
+    dutyLogId: input.dutyLog.id,
+    kind: "update",
+    reason: input.reason,
+    before: snapshot,
+    after: { ...snapshot, [CLOCK_RESET_AT]: input.resetAtIso },
+    source: "app",
+  });
+}
 
 export interface DutyLogEditInput {
   companyId: string;

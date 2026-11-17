@@ -16,6 +16,7 @@ import {
   isRest,
   sumMs,
 } from "@/lib/hos";
+import { computeSplitOffer, type SplitOffer } from "@/lib/split-sleeper-offer";
 import type { DutyStatus } from "@/types/entities";
 import type { DutyLogWindowSummary } from "@/types/hos-settings";
 
@@ -75,6 +76,19 @@ export type HudClocks =
       cycleUnavailable: boolean;
       /** Split sleeper in use or half done, in plain words (null when neither). Optional for older callers. */
       split?: string | null;
+      /**
+       * A split break he can still take, with what it does to the
+       * clocks (lib/split-sleeper-offer.ts) - set only when a limit
+       * is close (drive or window <= 2 h) AND an offer exists. That
+       * is the popup; otherwise the quiet `split` note above stands.
+       */
+      splitOffer?: SplitOffer | null;
+      /**
+       * The clocks were reset by hand at this instant (manual reset,
+       * never automatic) - the short clocks run from here. Null
+       * when no hand reset is on record.
+       */
+      clockResetAtMs?: number | null;
     };
 
 /** Ring escalation (Block B, owner 2026-11-05): green normally, amber at <= 2 h, red at <= 30 min, expired unmistakable. */
@@ -135,14 +149,24 @@ export function computeHudClocks(
   rows: HudDutyRow[],
   cycle: DutyLogWindowSummary | null,
   nowMs: number,
+  opts: { resetDayStartMs?: number | null; clockResetAtMs?: number | null } = {},
 ): HudClocks {
   const segments = buildSegments(rows, nowMs);
   const last = segments[segments.length - 1];
   if (!last) return { state: "no-logs" };
 
+  // Manual clock reset (owner 2026-11-17): a hand reset re-derives
+  // the short clocks from TODAY's log - it never wipes the day.
+  // resetDayStartMs is the start of the reset day in his timezone;
+  // the anchor is re-derived from that day's segments (driving,
+  // on-duty, breaks and any pending split first period all still
+  // count). The cycle is untouched: it reads the same rows through
+  // the server summary, and no row was changed.
+  const resetDayStartMs = opts.resetDayStartMs ?? null;
+
   // Split sleeper (2026-11-17): the clocks run from the end of the first period of a completed pair, and the
   // paired second period does not count against the 14-hour window.
-  const anchor = findShortClockAnchor(segments);
+  const anchor = findShortClockAnchor(segments, { dayStartMs: resetDayStartMs });
   const windowStartMs = anchor?.startMs ?? last.startMs;
   const drivingInWindow = sumMs(segments, windowStartMs, nowMs, ["driving"]);
   const drivingSinceBreak = drivingSinceBreakMs(segments, windowStartMs, nowMs);
@@ -199,6 +223,19 @@ export function computeHudClocks(
     cycleUnavailable = false;
   }
 
+  // The split offer is the popup: only when a limit is close (drive
+  // or window at 2 h or less) AND a qualifying pair is still
+  // completable. Otherwise the quiet split note above stands. The
+  // offer is projected on the same (day-aware, when reset) anchor
+  // as the clocks, so a pending first period from today survives a
+  // reset and can still be offered.
+  const driveLeftMs = clocks.find((c) => c.key === "drive")?.remainingMs ?? Number.POSITIVE_INFINITY;
+  const windowLeftMs = clocks.find((c) => c.key === "window")?.remainingMs ?? Number.POSITIVE_INFINITY;
+  const splitOffer =
+    Math.min(driveLeftMs, windowLeftMs) <= WARN_AT_MS
+      ? computeSplitOffer(segments, nowMs, { dayStartMs: resetDayStartMs })
+      : null;
+
   return {
     state: "ready",
     status: last.status,
@@ -207,5 +244,7 @@ export function computeHudClocks(
     clocks,
     cycleUnavailable,
     split: splitNote(anchor),
+    splitOffer,
+    clockResetAtMs: opts.clockResetAtMs ?? null,
   };
 }

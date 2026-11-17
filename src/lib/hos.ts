@@ -152,7 +152,7 @@ export function isSplitPair(a: RestPeriod, b: RestPeriod): boolean {
  * count — only rest time itself is left out of the non-rest sum, because a short break does not pause the
  * 14-hour clock and does not reset accumulated driving. Both halves are checked for BOTH periods of the pair.
  */
-function periodMeetsRuleD(
+export function periodMeetsRuleD(
   p: RestPeriod,
   segments: Segment[],
   beforeMs: number,
@@ -178,16 +178,48 @@ function hm(ms: number): string {
  * After it, qualifying rest periods are paired in order and each completed pair moves the anchor to the end of
  * its first period, with its second period excluded from the 14-hour window. A pair only counts if it also
  * passes (ii)(D) for both periods (periodMeetsRuleD); a pair that fails (D) leaves the anchor where it was.
+ *
+ * Day-aware reset (opts.dayStartMs, owner 2026-11-17): a hand reset re-derives the anchor from the log of the
+ * day starting here - rest periods and full-reset bases from before that day are dropped, the anchor starts at
+ * the day's first duty, and everything from that day still counts (driving, on-duty, breaks, and a pending
+ * split first period). (ii)(D) is then evaluated on that day's log only. With no duty logged that day yet the
+ * option does nothing and the normal derivation stands.
  */
-export function findShortClockAnchor(segments: Segment[]): ShortClockAnchor | null {
+export function findShortClockAnchor(
+  segments: Segment[],
+  opts: { dayStartMs?: number | null } = {},
+): ShortClockAnchor | null {
   if (segments.length === 0) return null;
   const resetMs = RESET_REST_MIN * MINUTE_MS;
-  let base = segments[0]!.startMs;
+  // Day-aware reset (owner 2026-11-17): when the driver resets his
+  // clocks by hand, the anchor is re-derived from TODAY's log from
+  // scratch - a stale anchor carried over from before today is
+  // dropped, but everything today still counts (driving, on-duty,
+  // breaks, and any pending split first period). The floor only
+  // applies when he has actually gone on duty today; with no duty
+  // today yet there is nothing to re-derive from, so the normal
+  // derivation stands.
+  const floorMs = opts.dayStartMs ?? null;
+  const hasDutyToday =
+    floorMs !== null && segments.some((seg) => !isRest(seg.status) && seg.endMs > floorMs);
+  const dayAware = floorMs !== null && hasDutyToday;
+  let base = dayAware
+    ? Math.max(
+        segments.find((seg) => !isRest(seg.status) && seg.endMs > floorMs!)!.startMs,
+        floorMs!,
+      )
+    : segments[0]!.startMs;
   const periods: RestPeriod[] = [];
   let run: RestPeriod | null = null;
   let sleeperRunStart: number | null = null;
   const close = () => {
     if (!run) return;
+    // Before today a run neither resets the base nor pairs - the
+    // reset drops it from the derivation entirely.
+    if (dayAware && run.endMs < floorMs!) {
+      run = null;
+      return;
+    }
     if (durMs(run) >= resetMs) {
       base = run.endMs;
       periods.length = 0;
@@ -214,7 +246,11 @@ export function findShortClockAnchor(segments: Segment[]): ShortClockAnchor | nu
   // A rest still running counts with the time so far (a reset in progress, or a period that already qualifies).
   close();
   periods.sort((a, b) => a.startMs - b.startMs);
-  const relevant = periods.filter((p) => p.startMs >= base);
+  // Day-aware: periods are already gated to those ending today (in
+  // close()), including one that started before today's first duty
+  // segment - a night's rest straddling midnight is still today's
+  // first period. Otherwise periods before the base do not count.
+  const relevant = dayAware ? periods : periods.filter((p) => p.startMs >= base);
 
   let anchor: ShortClockAnchor = { startMs: base, excludedMs: 0, split: null, pending: null };
   const nowMs = segments[segments.length - 1]!.endMs;
@@ -308,10 +344,59 @@ function formatHours(minutes: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-export function summarizeHos(logs: DutySegmentInput[], now: Date = new Date()): HosSummary {
+/**
+ * What today already holds, for the reset confirm sheet (owner
+ * 2026-11-17): the reset re-derives the clocks from today's real
+ * log, so the sheet shows what it counted - driving and on-duty time
+ * today, and the breaks (continuous 30+ minute non-driving stops)
+ * taken today. Pure.
+ */
+export interface DaySoFar {
+  drivenMs: number;
+  onDutyMs: number;
+  breakCount: number;
+  breakTotalMs: number;
+}
+
+export function summarizeDaySoFar(segments: Segment[], dayStartMs: number, nowMs: number): DaySoFar {
+  const drivenMs = sumMs(segments, dayStartMs, nowMs, ["driving"]);
+  const onDutyMs = sumMs(segments, dayStartMs, nowMs, ["driving", "on_duty"]);
+  let breakCount = 0;
+  let breakTotalMs = 0;
+  let runStart: number | null = null;
+  for (const seg of segments) {
+    if (seg.endMs <= dayStartMs || seg.startMs >= nowMs) continue;
+    if (seg.status !== "driving") {
+      if (runStart === null) runStart = Math.max(seg.startMs, dayStartMs);
+    } else {
+      if (runStart !== null) {
+        const dur = Math.min(seg.startMs, nowMs) - runStart;
+        if (dur >= BREAK_LENGTH_MIN * MINUTE_MS) {
+          breakCount += 1;
+          breakTotalMs += dur;
+        }
+        runStart = null;
+      }
+    }
+  }
+  if (runStart !== null) {
+    const dur = nowMs - runStart;
+    if (dur >= BREAK_LENGTH_MIN * MINUTE_MS) {
+      breakCount += 1;
+      breakTotalMs += dur;
+    }
+  }
+  return { drivenMs, onDutyMs, breakCount, breakTotalMs };
+}
+
+export function summarizeHos(
+  logs: DutySegmentInput[],
+  now: Date = new Date(),
+  opts: { resetDayStartMs?: number | null } = {},
+): HosSummary {
   const nowMs = now.getTime();
   const segments = buildSegments(logs, nowMs);
-  const anchor = findShortClockAnchor(segments);
+  const anchor = findShortClockAnchor(segments, { dayStartMs: opts.resetDayStartMs ?? null });
   const windowStartMs = anchor?.startMs ?? null;
 
   if (windowStartMs === null) {

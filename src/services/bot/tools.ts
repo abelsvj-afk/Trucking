@@ -54,12 +54,15 @@ import { buildRoadsideTools } from "./roadside-tools";
 import { buildThreadTools } from "./thread-tools";
 import { buildTwinTools } from "./twin-tools";
 import { propagateMileage } from "@/services/fleet/mileage";
+import { buildSegments } from "@/lib/hos";
+import { computeSplitOffer } from "@/lib/split-sleeper-offer";
 import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import { hosProvenanceLines } from "@/services/fleet/paper-logs";
 import { isMissingColumnError } from "./tool-helpers";
 import { todayEastern } from "@/lib/eastern-date";
 import { addDays, zonedDayBounds } from "@/lib/zoned-day";
 import { formatClock, HOME_TIME_ZONE, loadDisplayZone } from "@/lib/display-zone";
+import { formatDateTime } from "@/lib/time";
 import { formatMoney } from "@/lib/money-format";
 
 function dollars(cents: number): string {
@@ -119,7 +122,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
     {
       name: "hos_summary",
       description:
-        "His current hours-of-service picture from his duty logs (the paper-log helper - not the ELD): current duty status, driving used in the 14-hour window, driving since the last 30-minute break, on-duty in the cycle (70/8 or 60/7 per his own hours settings, labeled provisional until he picks them), and warnings.",
+        "His current hours-of-service picture from his duty logs (the paper-log helper - not the ELD): current duty status, driving used in the 14-hour window, driving since the last 30-minute break, on-duty in the cycle (70/8 or 60/7 per his own hours settings, labeled provisional until he picks them), and warnings. Split sleeper: when a first period is already taken and a pair can still complete, say what taking the second period does (window moves to the end of the first period, drive kept - a partial gain, never a fresh 11). Manual reset: there is NO tool that resets his clocks - the only reset is the Reset clocks button he presses himself on Home, which re-derives the clocks from today's log (today's driving and breaks still count) and never touches the weekly cycle; if he asks you to reset them, point him at that button.",
       parameters: { type: "object", properties: {} },
       access: "read",
       async run() {
@@ -139,6 +142,20 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
         ];
         const warnings = hosWarnings(snapshot);
         if (warnings.length > 0) lines.push(`Warnings: ${warnings.join("; ")}`);
+        if (snapshot.clockResetAt) {
+          lines.push(
+            `Clocks were reset by hand at ${formatDateTime(snapshot.clockResetAt, snapshot.config.carrierTimeZone)} - re-derived from that day's log, so that day's driving and breaks still count. The weekly cycle was NOT reset (only 34 hours off resets it). The original log is unchanged.`,
+          );
+        }
+        // The split offer the Home clocks show when a limit is close (same projection, same day-aware anchor).
+        const offer = computeSplitOffer(buildSegments(rows, Date.now()), Date.now(), {
+          dayStartMs: snapshot.resetDayStartMs,
+        });
+        if (offer) {
+          lines.push(
+            `Split break available: take ${formatMinutes(Math.round(offer.neededRestMs / 60_000))} in the sleeper and the 14-hour window moves to ${formatDateTime(new Date(offer.windowMovesToMs).toISOString(), snapshot.config.carrierTimeZone)}, with ${formatMinutes(Math.round(offer.driveLeftAfterMs / 60_000))} of driving left after. A partial gain, not a fresh 11 hours. Planning only - the ELD's own split calculation is the legal one.`,
+          );
+        }
         // §7.7 trust labeling: paper-sourced clocks say so, and a
         // partial paper day says partial - in this surface too.
         lines.push(...(await hosProvenanceLines(client, companyId, rows)));

@@ -33,4 +33,8 @@ export interface DutyLogWindowSummary {
   restartApplied: { endedAt: string } | null;
   restartUnverified: boolean;
   warnings: string[];
+  /** Latest hand clock reset (ISO), or null. The short clocks are re-derived from that reset's day; the cycle does not. Optional: older callers and test fixtures omit it, which means no reset on record. */
+  clockResetAt?: string | null;
+  /** Start of the reset day (ms since epoch) in the carrier zone, or null when no reset applies today. */
+  resetDayStartMs?: number | null;
 }

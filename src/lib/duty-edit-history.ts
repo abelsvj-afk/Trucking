@@ -61,6 +61,15 @@ const FIELD_SPECS: FieldSpec[] = [
 
 /** The "what changed" lines for one trail row (before -> after per changed field for an update; one line for the other kinds). */
 export function summarizeDutyEdit(edit: DutyLogEdit, timeZone: string): string[] {
+  // A hand clock reset rides a kind="update" trail row (the table's
+  // check only allows the four correction kinds) - its `after`
+  // snapshot carries the reset instant. Say so plainly: the clocks
+  // were re-derived from that day's log, not wiped to fresh.
+  if (typeof edit.after?.clock_reset_at === "string") {
+    return [
+      `Clocks reset by hand at ${formatDateTime(edit.after.clock_reset_at, timeZone)} - re-derived from that day's log, so that day's driving and breaks still count`,
+    ];
+  }
   if (edit.kind === "insert") {
     const at = typeof edit.after?.started_at === "string" ? formatDateTime(edit.after.started_at, timeZone) : "";
     return [`Entry added — ${statusLabel(edit.after?.duty_status)}${at ? ` from ${at}` : ""}`];
