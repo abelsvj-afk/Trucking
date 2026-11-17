@@ -336,3 +336,136 @@ describe("runRouteCheck - Drive Mode D1 additive fields", () => {
     expect(response.clocks).toBeDefined();
   });
 });
+
+describe("runRouteCheck - live awareness (owner 2026-11-17)", () => {
+  // Midpoint of the stub loaded leg (Melbourne -> Atlanta), on the line.
+  const MID = { lat: 30.915, lng: -82.495 };
+
+  // Real routing providers return dense geometry; the shared stub
+  // returns two endpoints, which the vertex-approximation mapping
+  // cannot judge — so this lane's providers interpolate the line.
+  function denseProviders() {
+    const providers = makeProviders();
+    const original = providers.routing.getRoute;
+    providers.routing.getRoute = (async (
+      from: { lat: number; lng: number },
+      to: { lat: number; lng: number },
+      ...rest: unknown[]
+    ) => {
+      const result = (await (original as unknown as (...a: unknown[]) => Promise<Record<string, unknown>>)(from, to, ...rest)) as Record<string, unknown>;
+      const points = [];
+      const n = 40;
+      for (let i = 0; i <= n; i++) {
+        points.push({
+          lat: from.lat + ((to.lat - from.lat) * i) / n,
+          lng: from.lng + ((to.lng - from.lng) * i) / n,
+        });
+      }
+      return { ...result, geometry: points };
+    }) as never;
+    return providers;
+  }
+
+  it("adds traffic + bridges sections from the injected seams, advisory only (verdict unchanged)", async () => {
+    const base = await runRouteCheck(fakeClient(), parseRequest({}), makeProviders(), NOW);
+    expect(base.traffic).toBeUndefined();
+    expect(base.bridges).toBeUndefined();
+
+    const providers = denseProviders();
+    providers.traffic = {
+      incidents: async () => [
+        {
+          id: "inc-1",
+          iconCategory: 6,
+          description: "Queue",
+          points: [MID],
+          delaySeconds: 1800,
+          magnitude: 3,
+          startTime: null,
+          endTime: "2026-11-02T18:00:00.000Z",
+          from: "A",
+          to: "B",
+          lengthMeters: 4000,
+          roadNumbers: ["I-75"],
+        },
+      ],
+    };
+    providers.bridges = {
+      features: async () => [
+        { id: "way/1", point: MID, maxHeightIn: 160, name: null, road: "I-75" },
+      ],
+    };
+    const response = await runRouteCheck(fakeClient(), parseRequest({}), providers, NOW);
+    expect(response.verdict.status).toBe(base.verdict.status);
+
+    expect(response.traffic?.status).toBe("ok");
+    expect(response.traffic?.items).toHaveLength(1);
+    expect(response.traffic?.items[0]!.severity).toBe("severe");
+    expect(response.traffic?.segments).toHaveLength(1);
+    expect(response.traffic?.segments[0]!.color).toBe("#dc2626");
+    // The stub detour is truck-checked at the 400-min provider
+    // duration; the plan assumes 436 min (400 miles at 55 mph), so
+    // staying costs the 30-min delay and the detour wins by 66.
+    expect(response.traffic?.call.decision).toBe("reroute");
+    expect(response.traffic?.call.savesMinutes).toBe(66);
+
+    expect(response.bridges?.status).toBe("ok");
+    expect(response.bridges?.items).toHaveLength(1);
+    // No truck row in the fake client: height unknown, never a pass.
+    expect(response.bridges?.items[0]!.clearance).toBe("unknown");
+  });
+
+  it("passes an avoid request to the loaded-leg routing call", async () => {
+    const providers = makeProviders();
+    const calls: unknown[][] = [];
+    const original = providers.routing.getRoute;
+    providers.routing.getRoute = (async (...args: unknown[]) => {
+      calls.push(args);
+      return (original as (...a: unknown[]) => unknown)(...args);
+    }) as never;
+    await runRouteCheck(
+      fakeClient(),
+      parseRequest({ avoid: [{ lat: 30.9, lng: -82.5, radiusMiles: 5 }] }),
+      providers,
+      NOW,
+    );
+    const loaded = calls.find(
+      (c) => (c[1] as { lat: number; lng: number }).lat === ATLANTA.lat,
+    );
+    expect(loaded).toBeDefined();
+    expect(loaded![3]).toEqual({ avoidCircles: [{ lat: 30.9, lng: -82.5, radiusMiles: 5 }] });
+  });
+
+  it("keeps the no-detour call when routing cannot serve a detour", async () => {
+    const providers = denseProviders();
+    providers.traffic = {
+      incidents: async () => [
+        {
+          id: "inc-1",
+          iconCategory: 6,
+          description: "Queue",
+          points: [MID],
+          delaySeconds: 1800,
+          magnitude: 3,
+          startTime: null,
+          endTime: "2026-11-02T18:00:00.000Z",
+          from: "A",
+          to: "B",
+          lengthMeters: 4000,
+          roadNumbers: ["I-75"],
+        },
+      ],
+    };
+    // Routing answers the plan but refuses every avoid request.
+    const original = providers.routing.getRoute;
+    providers.routing.getRoute = (async (...args: unknown[]) => {
+      const options = args[3] as { avoidCircles?: unknown[] } | undefined;
+      if (options?.avoidCircles) throw new Error("no detour here");
+      return (original as (...a: unknown[]) => unknown)(...args);
+    }) as never;
+    const response = await runRouteCheck(fakeClient(), parseRequest({}), providers, NOW);
+    expect(response.traffic?.status).toBe("ok");
+    expect(response.traffic?.call.decision).toBe("stay");
+    expect(response.traffic?.call.reason).toContain("no truck-checked detour");
+  });
+});

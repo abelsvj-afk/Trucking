@@ -63,6 +63,20 @@ export const routeCheckRequestSchema = z.object({
       entered_at: isoTimestamp,
     })
     .optional(),
+  // Live awareness (owner 2026-11-17): avoid circles around a
+  // reported delay, for a truck-checked detour. Applied to the
+  // loaded leg only. A car-route fallback refuses avoid outright
+  // (routing.ts) - a car detour is never presented as truck-safe.
+  avoid: z
+    .array(
+      z.object({
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        radiusMiles: z.number().positive().max(50),
+      }),
+    )
+    .max(5)
+    .optional(),
   food_mode: z.enum(["grocery", "fast_food"]).default("grocery"),
   gallons_to_buy: z
     .number()
@@ -72,3 +86,37 @@ export const routeCheckRequestSchema = z.object({
 });
 
 export type RouteCheckRequest = z.infer<typeof routeCheckRequestSchema>;
+
+const latLngSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+
+// Live awareness (owner 2026-11-17): the live-traffic poll while
+// driving. Geometry, corridor and miles are the REMAINING run:
+// mile 0 is his position. The detour comparison needs the
+// destination (and the truck's dimensions when known); without a
+// detour to compare, the call falls back to the clears-before-you-
+// get-there and delay-size rules and says so.
+export const liveTrafficRequestSchema = z.object({
+  geometry: z.array(latLngSchema).min(2).max(2000),
+  totalMiles: z.number().positive().max(3000),
+  corridor: z
+    .array(z.object({ mile: z.number().min(0), etaAt: isoTimestamp.nullable() }))
+    .min(1)
+    .max(200),
+  currentMile: z.number().min(0).default(0),
+  currentPoint: latLngSchema,
+  destination: latLngSchema,
+  vehicle: z
+    .object({
+      heightIn: z.number().positive().max(200).nullable(),
+      lengthIn: z.number().positive().max(1200).nullable(),
+      weightLbs: z.number().positive().max(200000).nullable(),
+    })
+    .nullable()
+    .optional(),
+  plannedRemainingMinutes: z.number().positive().max(24 * 60).nullable().optional(),
+});
+
+export type LiveTrafficRequest = z.infer<typeof liveTrafficRequestSchema>;

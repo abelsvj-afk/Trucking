@@ -253,6 +253,37 @@ export function formatRouteCheck(result: RouteCheckResponse): string {
     lines.push(`Food: inside the 8pm–8am fast window, suppressed: ${result.food.suppressedByFast.join(", ")}.`);
   }
 
+  // Live awareness (owner 2026-11-17): what is ahead on the route
+  // right now, and the call — reroute or stay, with the reason.
+  // Defensive reads: an older check has no traffic/bridges section.
+  if (result.traffic) {
+    if (result.traffic.status === "unavailable") {
+      lines.push(`Traffic ahead: ${result.traffic.notes[0] ?? "live traffic is unavailable right now."}`);
+    } else {
+      lines.push(`Traffic ahead: ${result.traffic.call.reason}`);
+      for (const item of result.traffic.items) {
+        lines.push(`Traffic: ${item.text}`);
+      }
+    }
+  }
+  if (result.bridges) {
+    if (result.bridges.status === "unavailable") {
+      lines.push(`Bridges ahead: ${result.bridges.notes[0] ?? "bridge clearances could not be checked."}`);
+    } else {
+      const flagged = result.bridges.items.filter(
+        (b) => b.clearance === "below" || b.clearance === "tight",
+      );
+      for (const bridge of flagged) lines.push(`Bridge: ${bridge.text}`);
+      const clear = result.bridges.items.length - flagged.length;
+      if (clear > 0) {
+        lines.push(`Bridges: ${clear} more with a posted clearance over your truck.`);
+      }
+      if (result.bridges.items.length === 0) {
+        lines.push("Bridges: none with a posted clearance on this route.");
+      }
+    }
+  }
+
   for (const warning of result.warnings) lines.push(`Warning: ${warning}`);
 
   return lines.join("\n");

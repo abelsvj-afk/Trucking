@@ -508,3 +508,100 @@ describe("formatRouteCheck — Piece 1 parity", () => {
     expect(fuelLine).toContain("est.");
   });
 });
+
+describe("formatRouteCheck — live awareness (owner 2026-11-17)", () => {
+  it("carries the traffic call, the delays, and the flagged bridges", () => {
+    const text = formatRouteCheck({
+      ...LATE_RESULT,
+      traffic: {
+        status: "ok",
+        items: [
+          {
+            id: "inc-1",
+            mile: 40,
+            endMile: 43,
+            etaAt: "2026-11-01T13:00:00.000Z",
+            category: "Traffic jam",
+            severity: "severe",
+            color: "#dc2626",
+            delayMinutes: 30,
+            text: "Traffic jam on I-75, mile 40–43 — Queue — about 30 min delay.",
+            startsAt: null,
+            endsAt: "2026-11-01T14:00:00.000Z",
+            from: "A",
+            to: "B",
+            roadNumbers: ["I-75"],
+          },
+        ],
+        segments: [{ fromMile: 40, toMile: 43, color: "#dc2626" }],
+        call: {
+          decision: "reroute",
+          delayMinutes: 30,
+          savesMinutes: 15,
+          clearsAt: "2026-11-01T14:00:00.000Z",
+          reason: "Reroute around it — the traffic jam at mile 40 costs about 30 min, and the truck-checked detour saves about 15 min.",
+          incidentId: "inc-1",
+        },
+        notes: ["Checked live traffic (TomTom) — 1 reported delay on your route."],
+        asOf: "2026-11-01T12:00:00.000Z",
+      },
+      bridges: {
+        status: "ok",
+        items: [
+          {
+            id: "way/1",
+            mile: 60,
+            etaAt: "2026-11-01T13:30:00.000Z",
+            clearance: "below",
+            limitIn: 160,
+            truckHeightIn: 162,
+            text: "Bridge at mile 60 (I-75): posted 13'4\", your truck is 13'6\" — UNDER your truck. Do not take this route past it; check the posted signs and your truck's own nav.",
+          },
+          {
+            id: "way/2",
+            mile: 80,
+            etaAt: "2026-11-01T14:00:00.000Z",
+            clearance: "ok",
+            limitIn: 180,
+            truckHeightIn: 162,
+            text: "Bridge at mile 80 (I-75): posted 15'0\", your truck is 13'6\".",
+          },
+        ],
+        notes: ["Checked the map for bridges with a posted clearance — 2 on your route."],
+        asOf: "2026-11-01T12:00:00.000Z",
+      },
+    });
+    expect(text).toContain("Traffic ahead: Reroute around it");
+    expect(text).toContain("Traffic: Traffic jam on I-75, mile 40–43");
+    expect(text).toContain("Bridge: Bridge at mile 60 (I-75): posted 13'4\"");
+    expect(text).toContain("Bridges: 1 more with a posted clearance over your truck.");
+  });
+
+  it("says plainly when traffic is unavailable instead of inventing it", () => {
+    const text = formatRouteCheck({
+      ...LATE_RESULT,
+      traffic: {
+        status: "unavailable",
+        items: [],
+        segments: [],
+        call: {
+          decision: "none",
+          delayMinutes: null,
+          savesMinutes: null,
+          clearsAt: null,
+          reason: "Live traffic isn't set up yet, so no call can be made.",
+          incidentId: null,
+        },
+        notes: ["Live traffic isn't set up yet — the app needs a free TomTom key (TOMTOM_API_KEY) before it can show delays. Nothing is claimed about traffic on this route."],
+        asOf: "2026-11-01T12:00:00.000Z",
+      },
+    });
+    expect(text).toContain("Traffic ahead: Live traffic isn't set up yet");
+  });
+
+  it("says nothing about traffic when the section is absent (older check)", () => {
+    const text = formatRouteCheck(LATE_RESULT);
+    expect(text).not.toContain("Traffic ahead");
+    expect(text).not.toContain("Bridge:");
+  });
+});

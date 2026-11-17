@@ -8,14 +8,18 @@
 //
 // The style below is the one place a future tile provider swaps in.
 // Limits are stated in the design doc: OSM tiles are fair-use at this
-// scale and there is no traffic layer. The caption under the map is
-// supplied by the page - this component owns no route copy of its
-// own (Piece 1, P1-1).
+// scale. Live traffic is drawn from incident geometry, not a tile
+// layer: the colored stretches are the route's own line re-drawn in
+// red/orange where TomTom reports a delay (an uncolored stretch
+// means "no reported incident", never "clear"). The caption under
+// the map is supplied by the page - this component owns no route copy
+// of its own (Piece 1, P1-1).
 
 import { useCallback, useEffect, useRef } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
+import { segmentsToFeatureCollection, type MapSegment } from "@/lib/smart-path-map-segments";
 
 export type SmartPathStopKind =
   | "start"
@@ -37,10 +41,23 @@ export interface SmartPathMapStop {
   mapsUrl?: string;
 }
 
+export interface SmartPathMapHazard {
+  id: string;
+  point: LatLng;
+  badge: string;
+  color: string;
+  title: string;
+  lines: string[];
+}
+
 interface SmartPathMapProps {
   geometry: LatLng[];
   stops: SmartPathMapStop[];
   deadheadGeometry?: LatLng[];
+  /** Live awareness: colored stretches of the route (miles are absolute, from the route start). */
+  segments?: MapSegment[];
+  /** Live awareness: bridge / delay markers on the route. */
+  hazards?: SmartPathMapHazard[];
   caption: string;
   height?: string;
 }
@@ -93,13 +110,15 @@ export default function SmartPathMap({
   geometry,
   stops,
   deadheadGeometry = [],
+  segments = [],
+  hazards = [],
   caption,
   height = "clamp(340px, 55vh, 520px)",
 }: SmartPathMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<MapLibreMarker[]>([]);
-  const dataRef = useRef({ geometry, stops, deadheadGeometry });
+  const dataRef = useRef({ geometry, stops, deadheadGeometry, segments, hazards });
 
   const draw = useCallback(() => {
     const map = mapRef.current;
@@ -110,6 +129,8 @@ export default function SmartPathMap({
         geometry: geo,
         stops: currentStops,
         deadheadGeometry: deadhead,
+        segments: currentSegments,
+        hazards: currentHazards,
       } = dataRef.current;
 
       const routeSource = map.getSource("smart-path-route") as
@@ -122,14 +143,42 @@ export default function SmartPathMap({
         | undefined;
       deadheadSource?.setData(lineFeature(deadhead));
 
+      // Live awareness: the colored stretches, drawn over the route
+      // line in the severity color each feature carries.
+      const trafficSource = map.getSource("smart-path-traffic") as
+        | { setData: (data: unknown) => void }
+        | undefined;
+      trafficSource?.setData(segmentsToFeatureCollection(geo, currentSegments));
+
       for (const marker of markersRef.current) marker.remove();
-      markersRef.current = currentStops.map((stop) => {
+      // Stops and hazard markers share one builder: badge, color,
+      // title + lines in a popup. Hazard text comes from the live
+      // sections, never from map data the app hasn't checked.
+      const markerSpecs = [
+        ...currentStops.map((stop) => ({
+          point: stop.point,
+          badge: stop.badge,
+          color: stop.color,
+          title: stop.title,
+          lines: stop.lines,
+          mapsUrl: stop.mapsUrl,
+        })),
+        ...currentHazards.map((hazard) => ({
+          point: hazard.point,
+          badge: hazard.badge,
+          color: hazard.color,
+          title: hazard.title,
+          lines: hazard.lines,
+          mapsUrl: undefined,
+        })),
+      ];
+      markersRef.current = markerSpecs.map((spec) => {
         const el = document.createElement("div");
-        el.textContent = stop.badge;
+        el.textContent = spec.badge;
         el.setAttribute("role", "button");
-        el.setAttribute("aria-label", `${stop.title}. ${stop.lines.join(" ")}`);
+        el.setAttribute("aria-label", `${spec.title}. ${spec.lines.join(" ")}`);
         el.style.cssText =
-          `background:${stop.color};color:#fff;border-radius:9999px;` +
+          `background:${spec.color};color:#fff;border-radius:9999px;` +
           "min-width:28px;height:28px;display:flex;align-items:center;justify-content:center;" +
           "font-size:13px;font-weight:700;padding:0 6px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);" +
           "cursor:pointer";
@@ -139,17 +188,17 @@ export default function SmartPathMap({
         // so innerHTML is never used here.
         const popupEl = document.createElement("div");
         const titleEl = document.createElement("div");
-        titleEl.textContent = stop.title;
+        titleEl.textContent = spec.title;
         titleEl.style.fontWeight = "700";
         popupEl.appendChild(titleEl);
-        for (const line of stop.lines) {
+        for (const line of spec.lines) {
           const lineEl = document.createElement("div");
           lineEl.textContent = line;
           popupEl.appendChild(lineEl);
         }
-        if (stop.mapsUrl) {
+        if (spec.mapsUrl) {
           const linkEl = document.createElement("a");
-          linkEl.href = stop.mapsUrl;
+          linkEl.href = spec.mapsUrl;
           linkEl.target = "_blank";
           linkEl.rel = "noreferrer";
           linkEl.textContent = "Open in Google Maps";
@@ -162,7 +211,7 @@ export default function SmartPathMap({
         }).setDOMContent(popupEl);
 
         return new maplibregl.Marker({ element: el })
-          .setLngLat([stop.point.lng, stop.point.lat])
+          .setLngLat([spec.point.lng, spec.point.lat])
           .setPopup(popup)
           .addTo(map);
       });
@@ -228,6 +277,23 @@ export default function SmartPathMap({
           source: "smart-path-route",
           paint: { "line-color": "#111111", "line-width": 5, "line-opacity": 0.85 },
         });
+        // Live awareness: colored stretches over the route line,
+        // each feature carrying its severity color (red = severe,
+        // orange = moderate). No feature = no reported incident.
+        map.addSource("smart-path-traffic", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        map.addLayer({
+          id: "smart-path-traffic-line",
+          type: "line",
+          source: "smart-path-traffic",
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 7,
+            "line-opacity": 0.95,
+          },
+        });
         draw();
       });
     })();
@@ -239,13 +305,15 @@ export default function SmartPathMap({
   // Latest props into the ref, then redraw - the ref write lives in
   // the effect, never in render (react-hooks/refs).
   useEffect(() => {
-    dataRef.current = { geometry, stops, deadheadGeometry };
+    dataRef.current = { geometry, stops, deadheadGeometry, segments, hazards };
     draw();
-  }, [geometry, stops, deadheadGeometry, draw]);
+  }, [geometry, stops, deadheadGeometry, segments, hazards, draw]);
 
   const legendKinds = LEGEND_LABELS.filter(({ kind }) =>
     stops.some((stop) => stop.kind === kind),
   );
+  const hasSevere = segments.some((s) => s.color === "#dc2626");
+  const hasModerate = segments.some((s) => s.color === "#ea580c");
 
   return (
     <div>
@@ -276,7 +344,7 @@ export default function SmartPathMap({
             Your route draws here once Smart Path has planned it.
           </div>
         )}
-        {stops.length > 0 && (
+        {(stops.length > 0 || segments.length > 0) && (
           <div
             aria-hidden
             style={{
@@ -320,6 +388,18 @@ export default function SmartPathMap({
                   }}
                 />
                 To pickup
+              </span>
+            )}
+            {hasSevere && (
+              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: "16px", borderTop: "4px solid #dc2626", display: "inline-block", flexShrink: 0 }} />
+                Severe delay
+              </span>
+            )}
+            {hasModerate && (
+              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: "16px", borderTop: "4px solid #ea580c", display: "inline-block", flexShrink: 0 }} />
+                Delay
               </span>
             )}
           </div>

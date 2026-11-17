@@ -20,11 +20,13 @@
 
 import { z } from "zod";
 import type { LatLng } from "@/lib/smart-path";
+import { avoidCirclesToMultiPolygon } from "@/lib/smart-path-avoid";
 import {
   FETCH_TIMEOUT_MS,
   metricRestrictions,
   normalizeManeuvers,
   RoutingUnavailableError,
+  type RouteOptions,
   type RouteResult,
   type RoutingProvider,
   type VehicleProfile,
@@ -77,16 +79,20 @@ export class OpenRouteServiceRoutingProvider implements RoutingProvider {
 
   constructor(private readonly apiKey: string) {}
 
-  async getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null): Promise<RouteResult> {
+  async getRoute(from: LatLng, to: LatLng, vehicle?: VehicleProfile | null, options?: RouteOptions): Promise<RouteResult> {
     const metric = metricRestrictions(vehicle);
     const restrictions: OrsRestrictions = {};
     if (metric.lengthMeters !== undefined) restrictions.length = metric.lengthMeters;
     if (metric.heightMeters !== undefined) restrictions.height = metric.heightMeters;
     if (metric.weightTons !== undefined) restrictions.weight = metric.weightTons;
 
-    const options: Record<string, unknown> = { vehicle_type: "hgv" };
+    const orsOptions: Record<string, unknown> = { vehicle_type: "hgv" };
     if (Object.keys(restrictions).length > 0) {
-      options.profile_params = { restrictions };
+      orsOptions.profile_params = { restrictions };
+    }
+    // Live awareness: route around the reported delays.
+    if (options?.avoidCircles && options.avoidCircles.length > 0) {
+      orsOptions.avoid_polygons = avoidCirclesToMultiPolygon(options.avoidCircles);
     }
 
     let response: Response;
@@ -108,7 +114,7 @@ export class OpenRouteServiceRoutingProvider implements RoutingProvider {
           // Drive Mode (G-6) needs the turn prompts the engine
           // already computes; without this flag ORS omits them.
           instructions: true,
-          options,
+          options: orsOptions,
         }),
       });
     } catch (err) {

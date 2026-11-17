@@ -99,10 +99,24 @@ export interface RerouteRequest {
   start_point: LatLng;
   start_at: string;
   already_picked_up: true;
+  /** Live awareness: avoid circles around a reported delay, for a truck-checked detour. */
+  avoid?: { lat: number; lng: number; radiusMiles: number }[];
 }
 
-export function buildRerouteRequest(plan: DrivePlanSnapshot, from: LatLng, nowIso: string): RerouteRequest {
-  return { load_id: plan.loadId, depart_at: nowIso, start_point: from, start_at: nowIso, already_picked_up: true };
+export function buildRerouteRequest(
+  plan: DrivePlanSnapshot,
+  from: LatLng,
+  nowIso: string,
+  avoid?: { lat: number; lng: number; radiusMiles: number }[],
+): RerouteRequest {
+  return {
+    load_id: plan.loadId,
+    depart_at: nowIso,
+    start_point: from,
+    start_at: nowIso,
+    already_picked_up: true,
+    ...(avoid && avoid.length > 0 ? { avoid } : {}),
+  };
 }
 
 /** Whether a reroute may be requested now (not too soon after the last one). */

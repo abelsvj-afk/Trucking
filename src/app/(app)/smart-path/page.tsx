@@ -14,12 +14,13 @@ import { apiClient, ApiClientError } from "@/lib/api-client";
 import { ACTIVE_PLAN_STORAGE_KEY, serializeActivePlan } from "@/lib/drive-review";
 import { DRIVE_COPY } from "@/lib/drive";
 import { usePageTitle } from "@/lib/use-page-title";
-import { routeCaption } from "@/lib/smart-path";
+import { routeCaption, pointAlongRoute } from "@/lib/smart-path";
 import { buildMapStops } from "@/lib/smart-path-map-stops";
 import { hoursLine, keyFacts, timeline } from "@/lib/smart-path-summary";
 import type { AutoPrefs } from "@/lib/smart-path-auto";
 import type { AutoRunResult } from "@/services/smart-path/auto";
 import SmartPathDetails from "@/components/smart-path/SmartPathDetails";
+import type { SmartPathMapHazard } from "@/components/SmartPathMap";
 
 const SmartPathMap = dynamic(() => import("@/components/SmartPathMap"), { ssr: false });
 
@@ -206,6 +207,43 @@ function SmartPathInner() {
   const facts = useMemo(() => (result ? keyFacts(result, zone) : []), [result, zone]);
   const steps = useMemo(() => (result ? timeline(result, zone) : []), [result, zone]);
   const mapStops = useMemo(() => (result ? buildMapStops(result, { workoutSetting: prefs.workout?.setting }) : []), [result, prefs.workout?.setting]);
+  // Live awareness: the colored stretches straight from the check,
+  // and a marker for each delay and each bridge that isn't a clear
+  // pass (minor delays are listed in Details, not marked).
+  const mapSegments = useMemo(() => result?.traffic?.segments ?? [], [result]);
+  const mapHazards = useMemo((): SmartPathMapHazard[] => {
+    if (!result) return [];
+    const totalMiles = result.route.distanceMiles;
+    const geo = result.route.geometry;
+    const out: SmartPathMapHazard[] = [];
+    for (const item of result.traffic?.items ?? []) {
+      if (item.severity === "minor") continue;
+      const point = pointAlongRoute(geo, totalMiles > 0 ? item.mile / totalMiles : 0);
+      if (!point) continue;
+      out.push({
+        id: `traffic-${item.id}`,
+        point,
+        badge: "⚠",
+        color: item.color ?? "#ea580c",
+        title: item.category,
+        lines: [item.text],
+      });
+    }
+    for (const bridge of result.bridges?.items ?? []) {
+      if (bridge.clearance === "ok") continue;
+      const point = pointAlongRoute(geo, totalMiles > 0 ? bridge.mile / totalMiles : 0);
+      if (!point) continue;
+      out.push({
+        id: `bridge-${bridge.id}`,
+        point,
+        badge: "🌉",
+        color: bridge.clearance === "below" ? "#dc2626" : "#ea580c",
+        title: "Bridge ahead",
+        lines: [bridge.text],
+      });
+    }
+    return out;
+  }, [result]);
   const verdict = result ? (VERDICT[result.verdict.status] ?? { word: result.verdict.status, tone: "warn" }) : null;
   const why = result ? (result.verdict.tradeoffLines[0] ?? result.verdict.legalLines[0] ?? "") : "";
   const hours = result ? hoursLine(result) : null;
@@ -346,10 +384,29 @@ function SmartPathInner() {
         geometry={result?.route.geometry ?? []}
         stops={mapStops}
         deadheadGeometry={result?.deadhead?.geometry ?? []}
-        caption={`Map © OpenStreetMap contributors.${result ? (result.route.truckLegal ? " Truck-checked route." : " Car route - NOT truck-checked.") : ""}`}
+        segments={mapSegments}
+        hazards={mapHazards}
+        caption={`Map © OpenStreetMap contributors.${result ? (result.route.truckLegal ? " Truck-checked route." : " Car route - NOT truck-checked.") : ""}${result?.traffic && result.traffic.segments.length > 0 ? " Red and orange stretches are reported delays." : ""}`}
       />
 
-      {/* 3. Four key facts. */}
+      {/* 3. Ahead on this route — the live call, in plain words. */}
+      {result?.traffic && (result.traffic.call.decision !== "none" ||
+        (result.bridges?.items.some((b) => b.clearance === "below" || b.clearance === "tight") ?? false)) && (
+        <section aria-label="Ahead on this route">
+          <h2>Ahead on this route</h2>
+          {result.traffic.call.decision !== "none" && (
+            <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>{result.traffic.call.reason}</p>
+          )}
+          {result.bridges?.items
+            .filter((b) => b.clearance === "below" || b.clearance === "tight")
+            .map((b) => (
+              <p key={b.id}>⚠ {b.text}</p>
+            ))}
+          <p className="row-sub">Live traffic and bridge clearances — see Details for the full list. A stretch with no color means no reported incident, not a clear road.</p>
+        </section>
+      )}
+
+      {/* 4. Four key facts. */}
       {facts.length > 0 && (
         <ul className="sp-facts" aria-label="Key facts">
           {facts.map((f) => (
@@ -362,7 +419,7 @@ function SmartPathInner() {
         </ul>
       )}
 
-      {/* 4. The run, one line per stop. */}
+      {/* 5. The run, one line per stop. */}
       {steps.length > 0 && (
         <section aria-label="The run">
           <h2>The run</h2>
@@ -376,11 +433,11 @@ function SmartPathInner() {
         </section>
       )}
 
-      {/* 5. Everything else, folded. */}
+      {/* 6. Everything else, folded. */}
       {result && (
         <details className="sp-details">
           <summary>
-            Details — hours math, fuel ranking, weather, road work, state rules
+            Details — hours math, fuel ranking, weather, road work, state rules, traffic, bridges
             {result.warnings.length > 0 ? ` · ${result.warnings.length} notes` : ""}
           </summary>
           <p className="row-sub">{routeCaption(result.route)}</p>
