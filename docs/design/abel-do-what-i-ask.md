@@ -75,3 +75,12 @@ block on every turn (`src/services/bot/correction-watchouts.ts`), for example "t
 Abel is told to check such a value twice against its source, and if still unsure to stage the rest and ask him for
 that one value instead of guessing. Dropping a waiting item as wrong is logged as `dropped`. No new table; the
 outcome log is best-effort, so a missing table never breaks a turn.
+
+## 8. The automatic Driving entry starts when the truck started moving (2026-11-17)
+
+Owner: "Backdate it to when I started moving only if it'll be more accurate." It is: the 60 seconds the server takes
+to be sure of the motion were driving, and before this change they were logged under the previous status. An ELD
+counts driving from when the truck starts rolling. `applyAutoMotionSwitch` (`src/services/fleet/auto-motion.ts`) now
+stamps the Driving row at the detection time minus the 60-second confirmation window, which is when the motion
+started. It is never earlier than the latest row already in the log. The 60-second confirmation itself is unchanged,
+and so is the stop side (On Duty backdated to the stop start).

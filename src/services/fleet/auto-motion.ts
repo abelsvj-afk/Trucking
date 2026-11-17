@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { judgeAutoMotion, judgeAutoStop } from "@/lib/auto-motion-rules";
+import { SUSTAIN_MS } from "@/lib/sustained-motion";
 import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { AUTO_DUTY_SWITCH_CAPABILITY, DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
 import { buildSegments, findWindowStartMs } from "@/lib/hos";
@@ -40,6 +41,17 @@ export async function isAutoSwitchEnabled(client: SupabaseClient, companyId: str
   if ((globalRow.data as { ai_globally_disabled: boolean } | null)?.ai_globally_disabled === true) return false;
   const explicit = (switchRow.data as { enabled: boolean } | null)?.enabled;
   return explicit ?? DEFAULT_ON_CAPABILITIES.has(AUTO_DUTY_SWITCH_CAPABILITY);
+}
+
+/**
+ * When the motion run began: the detection time minus the sustain window (both callers stamp detection as
+ * motion start + SUSTAIN_MS - lib/auto-switch.ts, services/telegram/live-location.ts). Clamped to just after
+ * the latest row so the Driving row can never start before an entry already in the log.
+ */
+export function motionStartIso(detectedAtIso: string, latestStartedAtIso: string | null): string {
+  const start = Date.parse(detectedAtIso) - SUSTAIN_MS;
+  const floor = latestStartedAtIso ? Date.parse(latestStartedAtIso) + 1_000 : -Infinity;
+  return new Date(Math.max(start, floor)).toISOString();
 }
 
 export async function applyAutoMotionSwitch(opts: {
@@ -69,7 +81,7 @@ export async function applyAutoMotionSwitch(opts: {
     .eq("company_id", companyId)
     .eq("submission_id", submissionId)
     .maybeSingle();
-  if (existing) return { switched: true, deduplicated: true, startedAt: detectedAtIso };
+  if (existing) return { switched: true, deduplicated: true, startedAt: motionStartIso(detectedAtIso, null) };
 
   const { data: latestRows, error } = await client
     .from("duty_logs")
@@ -84,10 +96,13 @@ export async function applyAutoMotionSwitch(opts: {
   const verdict = judgeAutoMotion(latest, detectedAtIso, nowMs);
   if (!verdict.ok) return { switched: false, reason: verdict.reason };
 
-  const startedAt = new Date(detectedAtIso).toISOString();
+  // Owner 2026-11-17: backdate to when the truck STARTED moving, as an ELD does - the 60 s it took to be
+  // sure of the motion was driving, not the previous status. Never earlier than the latest row (the verdict
+  // above already refuses when a row started inside the motion run, so this clamp is a second guard).
+  const startedAt = motionStartIso(detectedAtIso, latest!.started_at);
   const note =
-    `Automatic: switched to Driving by detected truck motion at ${formatClock(startedAt, timeZone)} ` +
-    `(moving for 60 s while the log said ${latest!.duty_status.replace("_", " ")}; ${origin === "app" ? "seen by the open app" : "from the phone's position feed"}).`;
+    `Automatic: switched to Driving by detected truck motion, from ${formatClock(startedAt, timeZone)} when the truck started moving ` +
+    `(confirmed after 60 s of motion while the log said ${latest!.duty_status.replace("_", " ")}; ${origin === "app" ? "seen by the open app" : "from the phone's position feed"}).`;
   const base = {
     company_id: companyId,
     driver_id: null,
