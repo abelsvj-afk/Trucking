@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The floating HOS clock card (HosOverlayService). Clocks only - the x is
-     the one control. Values are large and high-contrast for a glance. -->
+     the one control, and the whole card can be dragged anywhere on screen
+     (the service saves the position, so it stays where the driver puts it).
+     Values are large and high-contrast for a glance. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
