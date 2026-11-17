@@ -26,6 +26,7 @@ const SECTIONS: { href: string; label: string; desc: string }[] = [
   { href: "/fleet", label: "Fleet", desc: "Your trucks, trailers, drivers, and hours — the physical side of the business." },
   { href: "/more/assistant", label: "Abel", desc: "Abel — ask anything, log anything, paste a whole dispatch thread or settlement." },
   { href: "/more/dispatch", label: "Dispatch helper", desc: "Paste a dispatch message; get a translation, a read on it, and reply drafts in English and Spanish." },
+  { href: "/more/tracker", label: "Tracker app (download)", desc: "Download the Android Tracker that reports the truck's position with this app closed, set it up, and manage its keys." },
   { href: "/smart-path", label: "Smart Path", desc: "Map and route check — can you legally make this run, and where do fuel and food fit?" },
   { href: "/more/documents", label: "Documents", desc: "BOLs, permits, and photos, filed against the record they belong to." },
   { href: "/more/customers", label: "Customers", desc: "The shippers you haul for." },

@@ -2803,3 +2803,9 @@ main .money-weeks li { padding: 0; }
 .sp-timeline li { padding: 0.3rem 0; }
 .sp-details summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0; }
 .sp-facts strong { background: none; color: inherit; padding: 0; font-size: 1.1rem; font-weight: 800; text-transform: none; letter-spacing: normal; }
+
+/* More -> Tracker app (owner 2026-11-17) */
+.tracker-download { display: inline-flex; align-items: center; min-height: 52px; padding: 0 20px; font-size: 1.1rem; font-weight: 800; border-radius: 12px; }
+.tracker-steps li { padding: 0.35rem 0; }
+.tracker-steps code { overflow-wrap: anywhere; }
+.tracker-steps strong { background: none; color: inherit; padding: 0; font-size: inherit; text-transform: none; letter-spacing: normal; font-weight: 800; }

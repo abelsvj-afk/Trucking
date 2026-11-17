@@ -24,7 +24,8 @@ function lastSeen(iso: string | null): string {
   return mins < 2 ? "reporting just now" : mins < 120 ? `last report ${mins} min ago` : `last report ${formatDateTime(iso, "America/New_York")}`;
 }
 
-export default function BackgroundTrackingSettings() {
+/** `keysOnly`: on More → Tracker app the page itself already explains and offers the download, so only the keys show. */
+export default function BackgroundTrackingSettings({ keysOnly = false }: { keysOnly?: boolean } = {}) {
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [label, setLabel] = useState("");
@@ -67,12 +68,15 @@ export default function BackgroundTrackingSettings() {
 
   return (
     <section aria-label="Background tracking">
-      <h2>Background tracking (works with the app closed)</h2>
+      <h2>{keysOnly ? "Phone keys" : "Background tracking (works with the app closed)"}</h2>
       <p className="row-sub">
-        The Trucking OS Tracker app on your Android phone keeps reporting where the truck is after you close this app, so
-        your log can switch to Driving on its own. Each phone gets its own key. A key can only send position — nothing else.
+        {keysOnly
+          ? "Each phone gets its own key. A key can only send position — nothing else."
+          : "The Trucking OS Tracker app on your Android phone keeps reporting where the truck is after you close this app, so your log can switch to Driving on its own. Each phone gets its own key. A key can only send position — nothing else."}
       </p>
 
+      {!keysOnly && (
+        <>
       <p className="row-sub">
         Don&apos;t have the Tracker app yet? It&apos;s the Android companion app that reports the truck&apos;s position with
         this app closed. Install it on the phone, then make a key below and paste it into the Tracker app.
@@ -88,6 +92,8 @@ export default function BackgroundTrackingSettings() {
         </a>
       </p>
       <p className="row-sub">There is no iPhone version of the Tracker app yet.</p>
+        </>
+      )}
 
       {fresh && (
         <div role="status" className="hud-note">

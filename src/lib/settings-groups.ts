@@ -10,7 +10,7 @@ import type { EmployerPayProfile } from "@/types/entities";
 
 export const SETTINGS_GROUPS = [
   { id: "settings-pay", slug: "pay", label: "My pay", desc: "Pay terms, which miles are paid, your pay week and payday." },
-  { id: "settings-hours", slug: "hours", label: "Hours and truck", desc: "Your hours-of-service cycle and background tracking." },
+  { id: "settings-hours", slug: "hours", label: "Hours, truck & Tracker app", desc: "Your hours-of-service cycle, and the Tracker app: download it and manage its keys." },
   { id: "settings-connections", slug: "connections", label: "Connections", desc: "Telegram and the company email inboxes." },
   { id: "settings-look", slug: "look", label: "Appearance and Home", desc: "Light or dark, and what Home shows." },
   { id: "settings-ai", slug: "ai", label: "Abel and AI", desc: "The switches that decide what the AI is allowed to do." },
