@@ -10,7 +10,9 @@
 import {
   buildSegments,
   drivingSinceBreakMs,
+  findShortClockAnchor,
   findWindowStartMs,
+  type ShortClockAnchor,
   isRest,
   sumMs,
 } from "@/lib/hos";
@@ -71,6 +73,8 @@ export type HudClocks =
       clocks: HudClock[];
       /** The cycle clock could not be computed (no server summary) - say so. */
       cycleUnavailable: boolean;
+      /** Split sleeper in use or half done, in plain words (null when neither). Optional for older callers. */
+      split?: string | null;
     };
 
 /** Ring escalation (Block B, owner 2026-11-05): green normally, amber at <= 2 h, red at <= 30 min, expired unmistakable. */
@@ -106,6 +110,27 @@ export function formatClock(ms: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+const RESET_HOW = "10 straight hours off duty or in the sleeper berth - or a split: 7+ straight hours in the sleeper plus 2+ off, 10 total";
+
+const hmWords = (ms: number) => {
+  const m = Math.round(ms / MINUTE_MS);
+  return `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
+};
+
+/** The split-sleeper state in his words - planning only; the ELD's own split calculation is the legal one. */
+export function splitNote(anchor: ShortClockAnchor | null): string | null {
+  if (!anchor) return null;
+  if (anchor.pending) {
+    return `Split sleeper: your ${hmWords(anchor.pending.period.endMs - anchor.pending.period.startMs)} rest counts as the first half - take ${anchor.pending.needs}.`;
+  }
+  if (anchor.split) {
+    const a = anchor.split.first.endMs - anchor.split.first.startMs;
+    const b = anchor.split.second.endMs - anchor.split.second.startMs;
+    return `Split sleeper in use (${hmWords(a)} + ${hmWords(b)}): your clocks run from the end of the first rest, and the second rest doesn't count against your 14.`;
+  }
+  return null;
+}
+
 export function computeHudClocks(
   rows: HudDutyRow[],
   cycle: DutyLogWindowSummary | null,
@@ -115,10 +140,13 @@ export function computeHudClocks(
   const last = segments[segments.length - 1];
   if (!last) return { state: "no-logs" };
 
-  const windowStartMs = findWindowStartMs(segments) ?? last.startMs;
+  // Split sleeper (2026-11-17): the clocks run from the end of the first period of a completed pair, and the
+  // paired second period does not count against the 14-hour window.
+  const anchor = findShortClockAnchor(segments);
+  const windowStartMs = anchor?.startMs ?? last.startMs;
   const drivingInWindow = sumMs(segments, windowStartMs, nowMs, ["driving"]);
   const drivingSinceBreak = drivingSinceBreakMs(segments, windowStartMs, nowMs);
-  const windowElapsed = Math.max(0, nowMs - windowStartMs);
+  const windowElapsed = Math.max(0, nowMs - windowStartMs - (anchor?.excludedMs ?? 0));
 
   // How long he has been continuously at rest, if he is.
   let restStartMs: number | null = null;
@@ -146,8 +174,8 @@ export function computeHudClocks(
   };
 
   const clocks: HudClock[] = [
-    withReset(clock("drive", "Drive", DRIVE_LIMIT_MS, drivingInWindow), RESET_REST_MS, restSoFarMs, "10 straight hours off duty or in the sleeper berth"),
-    withReset(clock("window", "14-hour window", WINDOW_LIMIT_MS, windowElapsed), RESET_REST_MS, restSoFarMs, "10 straight hours off duty or in the sleeper berth"),
+    withReset(clock("drive", "Drive", DRIVE_LIMIT_MS, drivingInWindow), RESET_REST_MS, restSoFarMs, RESET_HOW),
+    withReset(clock("window", "14-hour window", WINDOW_LIMIT_MS, windowElapsed), RESET_REST_MS, restSoFarMs, RESET_HOW),
     withReset(clock("break", "Break due in", BREAK_AFTER_DRIVING_MS, drivingSinceBreak), 30 * MINUTE_MS, notDrivingSoFarMs, "30 straight minutes not driving"),
   ];
 
@@ -178,5 +206,6 @@ export function computeHudClocks(
     rested,
     clocks,
     cycleUnavailable,
+    split: splitNote(anchor),
   };
 }

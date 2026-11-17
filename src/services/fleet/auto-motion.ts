@@ -19,7 +19,7 @@ import { judgeAutoMotion, judgeAutoStop } from "@/lib/auto-motion-rules";
 import { SUSTAIN_MS } from "@/lib/sustained-motion";
 import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { AUTO_DUTY_SWITCH_CAPABILITY, DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
-import { buildSegments, findWindowStartMs } from "@/lib/hos";
+import { buildSegments, findShortClockAnchor } from "@/lib/hos";
 import { stopCorrectionConfirmation } from "@/lib/stopped-vehicle";
 import { recordDutyLogEdit } from "@/services/duty-log-edits";
 import type { DutyLog } from "@/types/entities";
@@ -185,9 +185,10 @@ async function windowEndsAtAfter(
       [...(data as { duty_status: DutyLog["duty_status"]; started_at: string }[]), correctedRow],
       nowMs,
     );
-    const windowStartMs = findWindowStartMs(segments);
-    if (windowStartMs === null) return null;
-    return new Date(windowStartMs + 14 * 60 * 60_000).toISOString();
+    // Split sleeper (2026-11-17): the paired second rest doesn't count against the 14, so it pushes the end out.
+    const anchor = findShortClockAnchor(segments);
+    if (!anchor) return null;
+    return new Date(anchor.startMs + anchor.excludedMs + 14 * 60 * 60_000).toISOString();
   } catch {
     return null;
   }
