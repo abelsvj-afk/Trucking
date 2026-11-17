@@ -38,6 +38,7 @@ import { buildPayProjectionTools } from "./pay-projection-tools";
 import { buildCapabilityGapTools } from "./capability-gaps";
 import { buildPaycheckTools } from "./paycheck-tools";
 import { buildMonthlyIncomeTools } from "./monthly-income-tools";
+import { correctionSummary } from "./correction-watchouts";
 import { buildTemporalTools } from "./temporal-tools";
 import { buildLearningTools } from "./learning-tools";
 import { buildFleetTools } from "./fleet-tools";
@@ -1209,6 +1210,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       }
       if (args.drop === true) {
         await store.clearPendingAction(item.id);
+        await store.recordProposalOutcome({ tool: item.tool_name, args: item.arguments, summary: "dropped as wrong", outcome: "dropped" });
         return `Dropped the waiting item, nothing was recorded: ${item.summary}. Tell him plainly it is dropped.`;
       }
       const tool = writeRegistry.get(item.tool_name);
@@ -1221,6 +1223,11 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
       }
       const summary = tool.summarize(validation.args);
       await store.updatePendingAction(item.id, validation.args, summary);
+      // Learning: which fields he had to fix (docs/design/abel-do-what-i-ask.md section 7). Best-effort.
+      const changed = Object.keys(patch).filter((k) => k !== "confirmation" && JSON.stringify(item.arguments[k]) !== JSON.stringify(validation.args[k]));
+      if (changed.length > 0) {
+        await store.recordProposalOutcome({ tool: item.tool_name, args: validation.args, summary: correctionSummary(changed), outcome: "corrected" });
+      }
       return `Corrected the waiting proposal${itemNumber !== null ? ` item ${itemNumber}` : ""}: ${summary}. Still NOT recorded - it takes effect only when he approves it.`;
     },
   });

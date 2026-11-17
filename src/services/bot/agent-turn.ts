@@ -74,6 +74,7 @@ import { displayFileName } from "@/services/documents/document-naming";
 import { asksAboutHisPay, payFiguresBlock } from "./pay-projection-tools";
 import { readEmailIfAsked } from "./email-tools";
 import { groundedAskBlocks } from "./grounded-asks";
+import { correctionWatchoutsBlock } from "./correction-watchouts";
 import { parseStatusTalk, planStatusTalk } from "./status-talk";
 import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
 
@@ -1481,6 +1482,9 @@ export async function runAgentTurn(
     outcomeStats = summarizeOutcomes(outcomes, new Date());
     const block = learningBlock(outcomeStats, readyLessons(outcomeStats, remembered.map((m) => m.content)));
     if (block) contextBlocks.push(block);
+    // His repeated corrections become watch-outs (docs/design/abel-do-what-i-ask.md section 7).
+    const watchouts = correctionWatchoutsBlock(outcomes);
+    if (watchouts) contextBlocks.push(watchouts);
   } catch {
     /* no learning this turn */
   }

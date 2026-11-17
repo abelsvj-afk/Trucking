@@ -2047,3 +2047,37 @@ describe("telling Abel your status lines up the log entry (owner transcript 2026
     expect(db.bot_pending_actions!.filter((r) => !r.deleted_at)).toHaveLength(0);
   });
 });
+
+describe("Abel learns from repeated corrections (owner 2026-11-17)", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+
+  it("a correction to a waiting item is logged with the fields he fixed", async () => {
+    const seed = baseSeed(true);
+    seed.bot_pending_actions = [
+      { id: "e", company_id: COMPANY, channel: "telegram", tool_name: "create_expense", arguments: { category: "repairs", amount_dollars: 22 }, summary: "Expense: $22.00 (repairs)", created_at: ago(5), deleted_at: null },
+    ];
+    const { client, db } = fakeClient(seed);
+    const { provider } = scriptedProvider([
+      { text: null, toolCalls: [{ id: "r", name: "revise_pending_item", arguments: JSON.stringify({ pending_id: "e", patch: { amount_dollars: 33 }, confirmation: "execute" }) }] },
+      { text: "Fixed: $33.00.", toolCalls: [] },
+    ]);
+    await runAgentTurn(provider, telegramStore(client), input("it was 33 not 22"));
+    const logged = (db.bot_proposal_outcomes ?? []).filter((r) => r.outcome === "corrected");
+    expect(logged).toHaveLength(1);
+    expect(logged[0]!.summary).toBe("corrected fields: amount_dollars");
+  });
+
+  it("a field he has fixed twice is shown to Abel as a watch-out", async () => {
+    const seed = baseSeed(true);
+    seed.bot_proposal_outcomes = [1, 2].map((i) => ({
+      id: `o${i}`, company_id: COMPANY, tool_name: "create_load", signature: "create_load", outcome: "corrected",
+      summary: "corrected fields: trailer_number", created_at: ago(60 * i), deleted_at: null,
+    }));
+    const { client } = fakeClient(seed);
+    const { provider, runToolTurn } = scriptedProvider([{ text: "ok", toolCalls: [] }]);
+    await runAgentTurn(provider, telegramStore(client), input("new trip coming"));
+    const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);
+    expect(sent).toContain("WATCH-OUTS FROM HIS OWN CORRECTIONS");
+    expect(sent).toContain("trailer number: corrected 2 times");
+  });
+});

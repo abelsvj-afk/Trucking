@@ -65,3 +65,13 @@ One short message instead of a scatter of alerts (`src/services/bot/check-in.ts`
 - **Once per kind per day,** through the same once-only record as the hours reminders (`reminder_sends`, kind
   `checkin`, migration 00098). It is controlled by the same switch as the logging reminders. Until 00098 is applied
   the check-in is not sent, and the hours warnings are never held back by it.
+
+## 7. Learning from his repeated corrections (added 2026-11-17)
+
+Each correction he makes to a waiting proposal (`revise_pending_item`) is now logged in the outcome log
+(`bot_proposal_outcomes`, outcome `corrected`, summary `corrected fields: <fields>`). Before this, those corrections
+were not recorded at all. A field he has had to fix **twice or more** in the learning window becomes a watch-out
+block on every turn (`src/services/bot/correction-watchouts.ts`), for example "trailer number: corrected 3 times".
+Abel is told to check such a value twice against its source, and if still unsure to stage the rest and ask him for
+that one value instead of guessing. Dropping a waiting item as wrong is logged as `dropped`. No new table; the
+outcome log is best-effort, so a missing table never breaks a turn.
