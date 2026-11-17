@@ -33,7 +33,7 @@ type DriveMapProps = React.ComponentProps<typeof DriveMap>;
 
 export default function DriveRolling({
   plan, session, lastFix, mapGeometry, mapDeadhead, positionQuality, follow, onFollow, night, layout,
-  nextStop, upcoming, projection, routeNotice, muted, onReplan, onParked, onSkip, onMuteToggle,
+  nextStop, upcoming, projection, routeNotice, muted, view3d, onView3dToggle, onReplan, onParked, onSkip, onMuteToggle,
 }: {
   plan: DrivePlanSnapshot;
   session: DriveSession;
@@ -50,6 +50,9 @@ export default function DriveRolling({
   projection: ReturnType<typeof projectClocks> | null;
   routeNotice: string | null;
   muted: boolean;
+  /** 3D driving view (owner 2026-11-17): tilted perspective, 3D truck at the bottom. */
+  view3d: boolean;
+  onView3dToggle: () => void;
   onReplan: () => void;
   onParked: () => void;
   onSkip: () => void;
@@ -69,6 +72,7 @@ export default function DriveRolling({
       onUserPan={() => onFollow(false)}
       night={night}
       height={layout === "coach" ? "22vh" : "46vh"}
+      view3d={view3d}
     />
     {!follow && (
       <button type="button" onClick={() => onFollow(true)} style={{ minHeight: "48px", padding: "0 16px" }}>
@@ -155,6 +159,14 @@ export default function DriveRolling({
       </button>
       <button type="button" onClick={onMuteToggle} style={{ minHeight: "72px", padding: "0 20px" }}>
         {muted ? "Voice: off" : "Voice: on"}
+      </button>
+      <button
+        type="button"
+        onClick={onView3dToggle}
+        aria-pressed={view3d}
+        style={{ minHeight: "72px", padding: "0 20px" }}
+      >
+        {view3d ? "3D map: on" : "3D map: off"}
       </button>
     </div>
   </section>
