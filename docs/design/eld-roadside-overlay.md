@@ -129,7 +129,10 @@ permission. The overlay is therefore native Tracker code:
   (display smoothing only — the next 30 s refresh re-anchors to the
   server's read). The service is independent of the WebView, so the card
   stays on screen after the app closes, until dismissed (the card's ✕,
-  the Settings toggle, or stopping tracking). Clocks only: no duty
+  the Settings toggle, or stopping tracking). The card can be dragged
+  anywhere on screen by touch (a tap on the ✕ still dismisses it); the
+  position is saved on the phone and restored when the service starts,
+  so it stays where the driver put it. Clocks only: no duty
   controls, nothing that invites interaction while driving beyond the ✕.
   Permission: the plugin reports `Settings.canDrawOverlays` and opens
   the system grant screen when missing; without the grant the toggle
