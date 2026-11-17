@@ -121,6 +121,8 @@ export interface CheckInFacts {
   smartPathLine?: string | null;
   /** Evening only: loads delivered without a BOL filed (missingBolLine). */
   paperworkLine?: string | null;
+  /** Morning only: the way home once the monthly goal is covered (services/bot/way-home.ts). */
+  homeLine?: string | null;
   clocks: HudClocks | null;
   drivingTodayMs: number;
   nextLoad: NextLoad | null;
@@ -170,6 +172,7 @@ export function composeCheckIn(f: CheckInFacts): string {
   }
   if (f.kind === "morning" && f.logLine) lines.push(f.logLine);
   if (f.kind === "evening" && f.paperworkLine) lines.push(f.paperworkLine);
+  if (f.kind === "morning" && f.homeLine) lines.push(f.homeLine);
   if (f.waitingCount > 0) {
     lines.push(`⏳ ${f.waitingCount} thing${f.waitingCount === 1 ? " is" : "s are"} waiting on you — say "what's waiting".`);
   }
