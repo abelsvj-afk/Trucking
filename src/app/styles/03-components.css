@@ -2619,6 +2619,12 @@ body.home-face .page-purpose {
 }
 .todays-log { margin-top: var(--space-4); }
 .todays-log-head { display: flex; justify-content: space-between; align-items: baseline; }
+
+/* --- Home mini paper log (owner order 2026-11-17) --- */
+.day-log-mini { margin-top: var(--space-4); }
+.day-log-mini-head { display: flex; justify-content: space-between; align-items: baseline; }
+.day-log-mini-link { text-decoration: none; color: inherit; display: block; }
+.day-log-mini .day-graph { margin: var(--space-2) 0 0; }
 .todays-log-rows { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
 .todays-log-rows li + li { margin-top: var(--space-2); }
 .todays-log-row { text-decoration: none; color: inherit; display: block; }

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildDayView, deleteConsequence, enteredAfterTheFact, startTimeBounds, type DayRow } from "@/lib/day-view";
+import {
+  buildDaySegments,
+  buildDayView,
+  deleteConsequence,
+  enteredAfterTheFact,
+  startTimeBounds,
+  type DayRow,
+} from "@/lib/day-view";
 
 const D0 = Date.parse("2026-11-03T05:00:00Z"); // 00:00 New York
 const D1 = Date.parse("2026-11-04T05:00:00Z");
@@ -47,6 +54,45 @@ describe("buildDayView", () => {
 
   it("a day with no rows at all is empty", () => {
     expect(buildDayView([], D0, D1, D1).stretches).toEqual([]);
+  });
+});
+
+describe("buildDaySegments (the ONE day-view → graph mapping, Day log page + Home mini)", () => {
+  it("maps stretches to clean graph segments and names the ongoing stretch", () => {
+    const rows = [row("a", "sleeper", D0 - 4 * H), row("b", "driving", D0 + 6 * H), row("c", "off_duty", D0 + 16 * H)];
+    const { segments, ongoing } = buildDaySegments(rows, D0, D1, D0 + 18 * H);
+    expect(segments).toEqual([
+      { status: "sleeper", startMin: 0, endMin: 360, confidence: null, origin: "clean" },
+      { status: "driving", startMin: 360, endMin: 960, confidence: null, origin: "clean" },
+      { status: "off_duty", startMin: 960, endMin: 1080, confidence: null, origin: "clean" },
+    ]);
+    expect(ongoing).toEqual({ status: "off_duty", startMin: 960 });
+  });
+
+  it("today stops at now - the ongoing stretch ends at now, never the future", () => {
+    const rows = [row("a", "off_duty", D0 - H), row("b", "driving", D0 + 8 * H)];
+    const { segments, ongoing } = buildDaySegments(rows, D0, D1, D0 + 10 * H);
+    expect(segments.at(-1)).toEqual({ status: "driving", startMin: 480, endMin: 600, confidence: null, origin: "clean" });
+    expect(ongoing).toEqual({ status: "driving", startMin: 480 });
+  });
+
+  it("empty rows mean no segments and no ongoing stretch - nothing invented", () => {
+    expect(buildDaySegments([], D0, D1, D1)).toEqual({ segments: [], ongoing: null });
+  });
+
+  it("rows that start after now are excluded", () => {
+    const { segments, ongoing } = buildDaySegments([row("a", "driving", D0 + 10 * H)], D0, D1, D0 + 9 * H);
+    expect(segments).toEqual([]);
+    expect(ongoing).toBeNull();
+  });
+
+  it("unsorted rows are sorted before mapping", () => {
+    const rows = [row("b", "driving", D0 + 6 * H), row("a", "off_duty", D0 - H)];
+    const { segments } = buildDaySegments(rows, D0, D1, D0 + 8 * H);
+    expect(segments.map((s) => [s.status, s.startMin])).toEqual([
+      ["off_duty", 0],
+      ["driving", 360],
+    ]);
   });
 });
 
