@@ -137,6 +137,11 @@ export default function DutyHud() {
             ))}
           </div>
           <LockedNow clocks={clocks.clocks} />
+          {clocks.split && (
+            <p className="hud-note" role="status">
+              {clocks.split} Planning only - your ELD&apos;s own split calculation is the legal one.
+            </p>
+          )}
           {clocks.cycleUnavailable && (
             <p className="hud-note" role="status">
               The cycle clock isn&apos;t shown — it couldn&apos;t be computed.

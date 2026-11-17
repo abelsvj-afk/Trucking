@@ -48,7 +48,21 @@ describe("summarizeHos", () => {
     expect(result.drivingMinutesInWindow).toBe(120);
   });
 
-  it("does not restart the window on a rest shorter than 10 hours", () => {
+  it("does not restart the window on a rest shorter than 10 hours (8 h OFF DUTY - not sleeper, so no split)", () => {
+    const result = summarizeHos(
+      [
+        log("driving", "2026-11-01T00:00:00Z"),
+        log("off_duty", "2026-11-01T04:00:00Z"),
+        log("driving", "2026-11-01T12:00:00Z"),
+        log("off_duty", "2026-11-01T14:00:00Z"),
+      ],
+      NOW,
+    );
+    expect(result.windowStart).toBe("2026-11-01T00:00:00.000Z");
+    expect(result.drivingMinutesInWindow).toBe(240 + 120);
+  });
+
+  it("the same day with the 8 hours in the SLEEPER is a legal split (8 + 6): the window runs from the end of the sleeper", () => {
     const result = summarizeHos(
       [
         log("driving", "2026-11-01T00:00:00Z"),
@@ -58,8 +72,10 @@ describe("summarizeHos", () => {
       ],
       NOW,
     );
-    expect(result.windowStart).toBe("2026-11-01T00:00:00.000Z");
-    expect(result.drivingMinutesInWindow).toBe(240 + 120);
+    expect(result.windowStart).toBe("2026-11-01T12:00:00.000Z");
+    expect(result.drivingMinutesInWindow).toBe(120);
+    // 20:00 - 12:00 = 8 h, minus the 6 h paired rest = 2 h counted against the 14
+    expect(result.windowElapsedMinutes).toBe(120);
   });
 
   it("resets the break clock after 30 minutes not driving", () => {

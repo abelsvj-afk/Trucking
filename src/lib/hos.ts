@@ -96,6 +96,112 @@ export function sumMinutes(
   return Math.round(sumMs(segments, fromMs, toMs, statuses) / MINUTE_MS);
 }
 
+// ---- Split sleeper berth (owner 2026-11-17; docs/design/split-sleeper.md) ------------------------------
+// Federal rule for property-carrying drivers, 49 CFR 395.1(g)(1)(ii) as amended in 2020 (built from the rule as
+// published; NOT yet re-checked against the eCFR text from this environment - see the design doc):
+//  - one period of at least 7 CONSECUTIVE hours in the SLEEPER BERTH, and
+//  - a separate period of at least 2 consecutive hours off duty, in the sleeper berth, or both,
+//  - together totaling at least 10 hours, in either order.
+// Paired, neither period counts against the 14-hour window, and the 11- and 14-hour limits are figured from the
+// END OF THE FIRST of the two periods. Pairs chain: the second period of one pair can be the first of the next.
+
+export const SPLIT_LONG_SLEEPER_MIN = 7 * 60;
+export const SPLIT_SHORT_REST_MIN = 2 * 60;
+
+/** One continuous stretch of off-duty/sleeper time shorter than a full 10-hour reset. */
+export interface RestPeriod {
+  startMs: number;
+  endMs: number;
+  /** Longest unbroken sleeper-berth stretch inside it. */
+  longestSleeperMs: number;
+}
+
+export interface ShortClockAnchor {
+  /** Where the 11- and 14-hour clocks are figured from. */
+  startMs: number;
+  /** Rest time after startMs that does NOT count against the 14-hour window (the paired second period). */
+  excludedMs: number;
+  /** The split pair in use, or null when the clocks run from a full 10-hour reset (or the first log). */
+  split: { first: RestPeriod; second: RestPeriod } | null;
+  /** A qualifying period with no partner yet (what he still needs, in plain words), or null. */
+  pending: { period: RestPeriod; needs: string } | null;
+}
+
+const isLong = (p: RestPeriod) => p.longestSleeperMs >= SPLIT_LONG_SLEEPER_MIN * MINUTE_MS;
+const durMs = (p: RestPeriod) => p.endMs - p.startMs;
+const qualifies = (p: RestPeriod) => isLong(p) || durMs(p) >= SPLIT_SHORT_REST_MIN * MINUTE_MS;
+
+/** Do these two periods (in either order) make a legal split? */
+export function isSplitPair(a: RestPeriod, b: RestPeriod): boolean {
+  const pairOk = (long: RestPeriod, other: RestPeriod) => isLong(long) && durMs(other) >= SPLIT_SHORT_REST_MIN * MINUTE_MS;
+  return (pairOk(a, b) || pairOk(b, a)) && durMs(a) + durMs(b) >= RESET_REST_MIN * MINUTE_MS;
+}
+
+function hm(ms: number): string {
+  const m = Math.max(0, Math.ceil(ms / MINUTE_MS));
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/**
+ * Where the short clocks run from, split sleeper included. A full >=10-hour rest resets everything (as before);
+ * after it, qualifying rest periods are paired in order and each completed pair moves the anchor to the end of
+ * its first period, with its second period excluded from the 14-hour window.
+ */
+export function findShortClockAnchor(segments: Segment[]): ShortClockAnchor | null {
+  if (segments.length === 0) return null;
+  const resetMs = RESET_REST_MIN * MINUTE_MS;
+  let base = segments[0]!.startMs;
+  const periods: RestPeriod[] = [];
+  let run: RestPeriod | null = null;
+  let sleeperRunStart: number | null = null;
+  const close = () => {
+    if (!run) return;
+    if (durMs(run) >= resetMs) {
+      base = run.endMs;
+      periods.length = 0;
+    } else if (qualifies(run)) {
+      periods.push(run);
+    }
+    run = null;
+  };
+  for (const seg of segments) {
+    if (isRest(seg.status)) {
+      if (!run) run = { startMs: seg.startMs, endMs: seg.endMs, longestSleeperMs: 0 };
+      run.endMs = seg.endMs;
+      if (seg.status === "sleeper") {
+        if (sleeperRunStart === null) sleeperRunStart = seg.startMs;
+        run.longestSleeperMs = Math.max(run.longestSleeperMs, seg.endMs - sleeperRunStart);
+      } else {
+        sleeperRunStart = null;
+      }
+    } else {
+      sleeperRunStart = null;
+      close();
+    }
+  }
+  // A rest still running counts with the time so far (a reset in progress, or a period that already qualifies).
+  close();
+  periods.sort((a, b) => a.startMs - b.startMs);
+  const relevant = periods.filter((p) => p.startMs >= base);
+
+  let anchor: ShortClockAnchor = { startMs: base, excludedMs: 0, split: null, pending: null };
+  for (let i = 0; i + 1 < relevant.length; i++) {
+    const first = relevant[i]!;
+    const second = relevant[i + 1]!;
+    if (isSplitPair(first, second)) {
+      anchor = { startMs: first.endMs, excludedMs: durMs(second), split: { first, second }, pending: null };
+    }
+  }
+  const last = relevant[relevant.length - 1];
+  if (last && (!anchor.split || anchor.split.second !== last)) {
+    const needs = isLong(last)
+      ? `at least ${hm(Math.max(SPLIT_SHORT_REST_MIN * MINUTE_MS, resetMs - durMs(last)))} more off duty or in the sleeper (in one stretch) to pair it`
+      : `at least ${hm(Math.max(SPLIT_LONG_SLEEPER_MIN * MINUTE_MS, resetMs - durMs(last)))} in the sleeper berth (in one stretch) to pair it`;
+    anchor = { ...anchor, pending: { period: last, needs } };
+  }
+  return anchor;
+}
+
 /**
  * The current 14-hour window starts when a continuous >=10-hour
  * off_duty/sleeper rest ends. If no such rest exists in the logs, the
@@ -103,6 +209,12 @@ export function sumMinutes(
  * helper only knows what was logged in it.
  */
 export function findWindowStartMs(segments: Segment[]): number | null {
+  // Split sleeper (2026-11-17): the anchor moves to the end of the first period of a completed pair.
+  return findShortClockAnchor(segments)?.startMs ?? null;
+}
+
+/** The pre-split rule only (a full 10-hour rest), kept for the reset display. */
+export function findFullResetStartMs(segments: Segment[]): number | null {
   if (segments.length === 0) return null;
 
   let windowStart = segments[0]!.startMs;
@@ -157,7 +269,8 @@ function formatHours(minutes: number): string {
 export function summarizeHos(logs: DutySegmentInput[], now: Date = new Date()): HosSummary {
   const nowMs = now.getTime();
   const segments = buildSegments(logs, nowMs);
-  const windowStartMs = findWindowStartMs(segments);
+  const anchor = findShortClockAnchor(segments);
+  const windowStartMs = anchor?.startMs ?? null;
 
   if (windowStartMs === null) {
     return {
@@ -170,7 +283,7 @@ export function summarizeHos(logs: DutySegmentInput[], now: Date = new Date()): 
   }
 
   const drivingInWindow = sumMinutes(segments, windowStartMs, nowMs, ["driving"]);
-  const windowElapsed = Math.max(0, Math.round((nowMs - windowStartMs) / MINUTE_MS));
+  const windowElapsed = Math.max(0, Math.round((nowMs - windowStartMs - (anchor?.excludedMs ?? 0)) / MINUTE_MS));
   const sinceBreak = drivingSinceBreakMinutes(segments, windowStartMs, nowMs);
 
   const warnings: string[] = [];
