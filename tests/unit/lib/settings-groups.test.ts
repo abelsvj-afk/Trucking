@@ -168,11 +168,11 @@ describe("index summaries say what is set, or nothing", () => {
 
   it("AI: counts the switches; a master switch that is OFF is said first; unknown -> null", () => {
     expect(summarizeAi(null)).toBeNull();
-    expect(summarizeAi({ globally_disabled: false, capabilities: { a: true, b: false, c: true } })).toBe("Master switch on, 2 of 3 switches on");
-    expect(summarizeAi({ globally_disabled: true, capabilities: { a: true, b: false } })).toBe(
+    expect(summarizeAi({ globally_disabled: false, capabilities: { a: true, b: false, c: true }, call_voice_id: null })).toBe("Master switch on, 2 of 3 switches on");
+    expect(summarizeAi({ globally_disabled: true, capabilities: { a: true, b: false }, call_voice_id: null })).toBe(
       "Master switch OFF: no AI runs (1 of 2 switches on but held back)",
     );
     expect(aiSummaryLine(null)).toBe("Your account — and the switches that decide what the AI is allowed to do.");
-    expect(aiSummaryLine({ globally_disabled: false, capabilities: { a: true, b: true } })).toContain("all 2 AI switches are ON");
+    expect(aiSummaryLine({ globally_disabled: false, capabilities: { a: true, b: true }, call_voice_id: null })).toContain("all 2 AI switches are ON");
   });
 });

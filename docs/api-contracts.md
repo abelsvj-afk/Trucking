@@ -332,10 +332,19 @@ Read/write from a normal authenticated owner session — this is the one thing a
 
 | Method | Path | Behavior |
 |---|---|---|
-| GET | `/api/v1/ai-settings` | Returns `{ globally_disabled: boolean, capabilities: { [name]: boolean } }` — the global switch plus every known capability's current on/off state (missing capability = `false`, per `docs/schemas.md`'s fail-closed default) |
-| PATCH | `/api/v1/ai-settings` | Body is any subset of `{ globally_disabled, capabilities: { [name]: boolean } }`; upserts the changed rows. Takes effect for the *next* scheduled run only, per `docs/governance.md` — never interrupts a run already in progress |
+| GET | `/api/v1/ai-settings` | Returns `{ globally_disabled: boolean, capabilities: { [name]: boolean }, call_voice_id: string \| null }` — the global switch plus every known capability's current on/off state (missing capability = `false`, per `docs/schemas.md`'s fail-closed default) plus the voice he picked for Abel's outbound calls (a Telnyx voice id, or `null` for the Telnyx default built-in voice) |
+| PATCH | `/api/v1/ai-settings` | Body is any subset of `{ globally_disabled, capabilities: { [name]: boolean }, call_voice_id: string \| null }`; upserts the changed rows. Takes effect for the *next* scheduled run only, per `docs/governance.md` — never interrupts a run already in progress |
 
 Both fields for one capability's kill switch — `globally_disabled` and `capabilities.industry_intelligence`, for example — are independent per `docs/governance.md`'s "no cooperation required" and "turning one off must never require touching... any other capability" rules; the scheduler checks both before every run, in that order.
+
+### `call-voices` + Telnyx webhook (outbound calling, `docs/design/outbound-calling.md`)
+
+The voice picker for Abel's outbound calls, and the webhook Telnyx calls back on.
+
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/v1/call-voices` | Authenticated owner session. Returns `{ configured: boolean, selected: string \| null, voices: [{ id: string \| null, label, provider, cost_note }] }` — the Telnyx default voice always, plus the live Telnyx catalog (built-ins + ElevenLabs voices) when Telnyx is configured. Never fails when Telnyx isn't set up: it just offers the default and `configured: false`. |
+| POST | `/api/telnyx/webhook` | Public in `src/proxy.ts` (Telnyx's servers have no browser session). Enforces its own checks in order: Telnyx public key configured (else 503, fail closed) → Ed25519 signature over `timestamp + raw body` (else 401) → event handled. Handles `call.answered` (in_progress), `call.hangup` (completed, or failed on a non-normal cause), `call.conversation.ended` (completed + conversation id), `call.conversation_insights.generated` (transcript + outcome). After a terminal event it claims and dials the next queued call for that company. Unknown events are acknowledged and ignored. |
 
 ### `dispatch-suggest` (Driver MVP, `docs/design/driver-mvp.md` §2)
 

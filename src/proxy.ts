@@ -51,7 +51,7 @@ import { isPublicSiteRequest } from "@/lib/public-site";
 // target that serves the public website on the bare domain (see the
 // public-site block at the top of proxy() below) — the route only
 // answers requests the proxy marked, and 404s everything else.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/v1/position/feed", "/api/v1/position/clocks", "/sw.js", "/manifest.webmanifest", "/public-site"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm", "/api/v1/health", "/api/internal", "/api/telegram", "/api/telnyx", "/api/v1/position/feed", "/api/v1/position/clocks", "/sw.js", "/manifest.webmanifest", "/public-site"];
 
 export async function proxy(request: NextRequest) {
   // Public website on the bare domain (owner ruling 2026-11-10):

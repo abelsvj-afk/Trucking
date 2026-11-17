@@ -1727,7 +1727,9 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // Abel plan check adds 1 tool (evaluate_plan —
     // driver-question-tools.ts): 155 re-measured on this branch
     // before the addition, 156 after.
-    expect(buildBotTools(store)).toHaveLength(156);
+    // Outbound calling (2026-11-17) adds 2 tools (place_call,
+    // list_outbound_calls — outbound-call-tools.ts): 156 before, 158 after.
+    expect(buildBotTools(store)).toHaveLength(158);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);

@@ -44,6 +44,7 @@ import { buildTemporalTools } from "./temporal-tools";
 import { buildLearningTools } from "./learning-tools";
 import { buildFleetTools } from "./fleet-tools";
 import { buildDriverQuestionTools } from "./driver-question-tools";
+import { buildOutboundCallTools } from "./outbound-call-tools";
 import { buildNewsTools } from "./news-tools";
 import { buildResearchAgendaTools } from "./research-agenda-tools";
 import { buildBusinessCreditTools } from "./business-credit-tools";
@@ -1104,6 +1105,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push(...buildLearningTools(store));
   tools.push(...buildFleetTools(store));
   tools.push(...buildDriverQuestionTools(store));
+  tools.push(...buildOutboundCallTools(store));
   tools.push(...buildNewsTools(store));
   tools.push(...buildEmailTools(store));
   tools.push(...buildNavigationTools(store));
