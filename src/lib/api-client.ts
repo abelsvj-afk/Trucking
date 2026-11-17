@@ -368,6 +368,11 @@ export const apiClient = {
   },
   inboxMessage: (id: string) =>
     request<{ data: { statuses: import("@/services/email/status").EmailStatus[]; message: import("@/services/email/store").StoredEmail; drafts: import("@/services/email/store").DraftRow[]; sent: import("@/services/email/store").SentRow[] } }>(`/api/v1/inbox?id=${encodeURIComponent(id)}`),
+  // Money → This month (docs/design/monthly-income-goal.md).
+  monthIncome: (month?: string) =>
+    request<{ data: import("@/services/api/monthly-income").MonthIncomeView }>(`/api/v1/monthly-income${month ? `?month=${month}` : ""}`),
+  setMonthlyGoal: (targetCents: number | null) =>
+    request<{ data: { target_cents: number | null } }>("/api/v1/monthly-income", { method: "PUT", body: JSON.stringify({ target_cents: targetCents }) }),
   // Paycheck confirmations (docs/design/confirm-paycheck.md).
   confirmPaycheck: (body: { period_start: string; period_end: string; payday: string | null; received_cents: number; statement_document_id?: string | null }) =>
     request<{ data: { id: string } }>("/api/v1/paycheck-confirmations", { method: "POST", body: JSON.stringify(body) }),

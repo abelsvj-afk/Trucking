@@ -1485,3 +1485,15 @@ deposit, and optionally the statement he attached. Confirming again soft-deletes
 - `deleted_at` timestamptz
 
 _00098 (2026-11-16): `reminder_sends.kind` also accepts `checkin` (Abel's daily morning / evening check-in)._
+
+### `monthly_income_goals` — created in 00099
+
+His monthly pay goal (docs/design/monthly-income-goal.md): one live row per driver (`driver_id` null = the
+owner-operator himself), applying to every month until changed; setting it again soft-deletes the old row.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `driver_id` uuid references drivers (id) — null = the owner-operator
+- `target_cents` bigint not null — > 0
+- `created_at`, `updated_at` timestamptz not null default now()
+- `deleted_at` timestamptz

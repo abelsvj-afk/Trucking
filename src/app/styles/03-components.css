@@ -2770,3 +2770,14 @@ main .money-weeks li { padding: 0; }
 .settings-back { margin-top: var(--space-6); }
 /* The page header already names the group; the group heading that the long page needed is not repeated under it. */
 .settings-group-page h2.settings-group { display: none; }
+
+/* Money -> This month (docs/design/monthly-income-goal.md) */
+.month-nav { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0.5rem 0; }
+.month-figure { font-size: 2rem; font-weight: 700; margin: 0.25rem 0; }
+.month-bar { height: 0.75rem; border-radius: 999px; background: var(--surface-2, #222); overflow: hidden; margin: 0.5rem 0; }
+.month-bar > span { display: block; height: 100%; background: var(--accent, #d4a017); }
+.month-verdict { font-weight: 600; }
+.month-loads { list-style: none; padding: 0; }
+.month-loads li { padding: 0.6rem 0; border-bottom: 1px solid var(--border, #333); }
+.month-running { display: block; font-size: 0.9rem; margin-top: 0.2rem; }
+.month-goal-row { background: color-mix(in srgb, var(--accent, #d4a017) 12%, transparent); }

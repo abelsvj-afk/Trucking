@@ -27,6 +27,14 @@ const ASKS: GroundedAsk[] = [
     args: { days: 21 },
     matches: (t) => /\b(next|upcoming|current|my) (load|trip|pickup|delivery)\b|\bwhere am i (going|headed)\b|\bwhat('?s| is) (my )?next\b/.test(t),
   },
+  {
+    label: "HIS PAY THIS MONTH AND HIS MONTHLY GOAL (docs/design/monthly-income-goal.md)",
+    tool: "monthly_income",
+    args: {},
+    matches: (t) =>
+      /\b(this|the) month\b.*\b(make|made|pay|earn|income)\b|\b(make|made|earn|income)\b.*\b(this|the) month\b/.test(t) ||
+      /\b(my|the) goal\b|\bgo(ing)? home\b.*\b(enough|money|goal)\b|\benough\b.*\bgo home\b/.test(t),
+  },
 ];
 
 /** Which grounded asks this message is (often none). Long messages are left to the model. */

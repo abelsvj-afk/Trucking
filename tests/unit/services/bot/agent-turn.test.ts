@@ -1724,7 +1724,7 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // F2 (remember better) adds 3 tools (list_agent_lessons,
     // save_agent_lesson, correct_agent_lesson — episode-tools.ts):
     // 148 re-measured on this branch before the addition, 151 after.
-    expect(buildBotTools(store)).toHaveLength(153);
+    expect(buildBotTools(store)).toHaveLength(154);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);

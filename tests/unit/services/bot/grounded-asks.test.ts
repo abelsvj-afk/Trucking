@@ -13,6 +13,11 @@ describe("which everyday asks are looked up in code", () => {
       expect(groundedAsksFor(t).map((a) => a.tool), t).toEqual(["load_calendar"]);
     }
   });
+  it("this month's pay and the goal", () => {
+    for (const t of ["how much will I make this month", "am I at my goal yet", "do I have enough to go home"]) {
+      expect(groundedAsksFor(t).map((a) => a.tool), t).toEqual(["monthly_income"]);
+    }
+  });
   it("small talk and long messages are left alone", () => {
     expect(groundedAsksFor("how are you doing")).toEqual([]);
     expect(groundedAsksFor("I will.")).toEqual([]);

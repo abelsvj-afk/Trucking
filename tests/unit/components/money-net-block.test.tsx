@@ -230,10 +230,10 @@ describe("Recent pay weeks block", () => {
 });
 
 describe("the Money page", () => {
-  it("puts the block above the sections and keeps all eight sections", () => {
+  it("puts the block above the sections and keeps all nine sections (This month added 2026-11-17)", () => {
     const page = readFileSync("src/app/(app)/money/page.tsx", "utf8");
     expect(page.indexOf("<MoneyNetBlock")).toBeGreaterThan(0);
     expect(page.indexOf("<MoneyNetBlock")).toBeLessThan(page.indexOf("{SECTIONS.map("));
-    expect(page.match(/\{ href: "\/money\//g)).toHaveLength(8);
+    expect(page.match(/\{ href: "\/money\//g)).toHaveLength(9);
   });
 });

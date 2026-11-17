@@ -29,6 +29,7 @@ import MoneyNetBlock from "@/components/MoneyNetBlock";
 import { usePayProjection } from "@/lib/use-pay-projection";
 
 const SECTIONS: { href: string; label: string; desc: string }[] = [
+  { href: "/money/month", label: "This month", desc: "What your loads pay this month, your goal, and the load that gets you there." },
   { href: "/money/expenses", label: "Expenses", desc: "What the business spends — insurance, permits, repairs, the rest." },
   { href: "/money/fuel-purchases", label: "Fuel purchases", desc: "Every fuel stop: gallons, price, and where." },
   { href: "/money/pay", label: "Driver pay", desc: "What this week's loads are worth at your pay terms — updating as loads come in." },
