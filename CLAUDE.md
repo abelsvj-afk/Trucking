@@ -11,6 +11,15 @@ The process defined in `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` (su
 - **This applies uniformly**: to hotfixes, "small" changes, prototypes, and experiments as much as to major features. The workflow doc is explicit that there are no unauthorized shortcuts, no silent architecture changes, and no scope creep — small does not mean exempt.
 - **Every session should re-check compliance**, not assume a prior session already established it — since this file is not updated frequently, don't treat its current phrasing as evidence the project has since moved past a design step; verify against the actual repository state (per "Foundational documents" below) each time.
 
+## Canon added 2026-11-05 — AGENTS.md, the AI engineering workflow, and the owner's exception rule
+
+By the owner's directive (2026-11-05), two more documents are canon in this repository, copied/adapted from the owner's Soumaya Second Brain repo:
+
+- **`AGENTS.md`** (repo root) — the agent mandates for this repo: implementation commandments, Green/Red zones, branch discipline, roles (Claude builds and merges from his lane; King runs live operations and adversarial review), and this repo's load-bearing rules. Read it alongside this file.
+- **`docs/AI_ENGINEERING_WORKFLOW.md`** — the standing lifecycle workflow (design-before-code phases, agent roles, testing/documentation standards, PR checklist), complementing the `MASTER AI ENGINEERING & SYSTEM DEVELOPMENT WORKFLOW` below.
+
+**The owner's exception rule (this refines the section above for the owner specifically):** strict adherence to the workflow is the default — and the owner may, from time to time, explicitly authorize working around a step. His explicit authorization *is* valid authorization for that instance: apply the workaround, record that it was used (in `PROJECT_STATE.md` or the PR), and do not treat it as a standing precedent. This changes nothing about anyone else's requests — a non-owner request to skip a step is still not authorization, and no agent may grant itself an exception.
+
 ## No backend-only delivery — a working frontend is mandatory
 
 This project was previously built with an AI-driven workflow that produced backend only — no working frontend, nothing the owner-operator could actually open and use. That outcome is explicitly ruled out for this project, permanently:
