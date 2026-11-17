@@ -99,6 +99,8 @@ export interface CheckInFacts {
   kind: CheckInKind;
   /** Morning only: yesterday's log line (yesterdayLogLine). */
   logLine?: string | null;
+  /** Smart Path's current answer for the active load (owner 2026-11-17: "Abel should use it"). */
+  smartPathLine?: string | null;
   clocks: HudClocks | null;
   drivingTodayMs: number;
   nextLoad: NextLoad | null;
@@ -141,6 +143,7 @@ export function composeCheckIn(f: CheckInFacts): string {
   } else {
     lines.push("📍 No upcoming load on file.");
   }
+  if (f.smartPathLine) lines.push(f.smartPathLine);
   if (f.payWeek && f.payWeek.highCents > 0) {
     const money = f.payWeek.lowCents === f.payWeek.highCents ? formatMoney(f.payWeek.lowCents) : `${formatMoney(f.payWeek.lowCents)} to ${formatMoney(f.payWeek.highCents)}`;
     lines.push(`💵 This pay week so far: ${money}.`);

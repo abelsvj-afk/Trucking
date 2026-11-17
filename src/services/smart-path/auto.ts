@@ -38,11 +38,16 @@ const SKIP_ROUTING: RoutingProvider = {
 const labelOf = (l: Pick<Load, "origin" | "destination" | "trip_number">) => `${l.trip_number ? `Trip ${l.trip_number}: ` : ""}${l.origin} → ${l.destination}`;
 
 export async function runAutoSmartPath(client: SupabaseClient, companyId: string, input: AutoRunInput, now: Date = new Date()): Promise<AutoRunResult> {
-  const [state, loadsRes] = await Promise.all([
+  // allSettled, not all: when one read fails, the other's later failure must not become an unhandled rejection.
+  const [stateRes, loadsSettled] = await Promise.allSettled([
     buildActiveLoadState(client, companyId, { devicePosition: input.devicePosition ?? null, routing: SKIP_ROUTING, now: () => now }),
-    client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "draft"]).order("pickup_date", { ascending: false }).limit(30),
+    Promise.resolve().then(() =>
+      client.from("loads").select("*").eq("company_id", companyId).is("deleted_at", null).in("status", ["confirmed", "draft"]).order("pickup_date", { ascending: false }).limit(30),
+    ),
   ]);
-  const loads = (loadsRes.data ?? []) as Load[];
+  if (stateRes.status === "rejected") throw stateRes.reason;
+  const state = stateRes.value;
+  const loads = (loadsSettled.status === "fulfilled" ? (loadsSettled.value.data ?? []) : []) as Load[];
   const choices = loads.map((l) => ({ id: l.id, label: labelOf(l) }));
   const loadId = input.loadId ?? state.load?.id ?? null;
   if (!loadId) {

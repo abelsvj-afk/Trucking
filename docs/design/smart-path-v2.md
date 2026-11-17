@@ -58,3 +58,15 @@ shown his 70/8 as used up), the plan scheduled a 34-hour restart and called the 
   those for up to 14 hours, counted down from when he typed them as if every minute since were on duty, so it can
   never assume more hours than he has. Clearing them goes back to the app's log. Abel's `plan_my_run` states the
   same hours line.
+
+## Amendment 2026-11-17: Smart Path doesn't wait to be opened
+
+Owner: "Smart Path shouldn't wait on me, and Abel should use it."
+- **Hourly watch** (`services/bot/smart-path-watch.ts`, on the reminder scheduler's tick): while a load is active, the
+  same automatic planner re-plans the run from the truck's latest position and his hours, at most once an hour.
+  When the answer turns LATE or NOT LEGAL, Abel says so once for that load, with why, the hours it used, and a link
+  to Smart Path. When it comes back on time after a warning, he hears that once too. It is a routine message, so quiet
+  hours (9 PM–6 AM) hold it, and `reminder_sends` (kind `checkin`, migration 00098) makes each alert once-only.
+- **Check-ins** carry Smart Path's current answer for the load ("🧭 Smart Path: on time, arriving about Wed 6:10 AM ET").
+- Before migration 00098 is applied, these alerts are not sent (the once-only record is refused); nothing else is
+  affected.

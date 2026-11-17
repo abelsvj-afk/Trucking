@@ -20,6 +20,9 @@ import { createTelegramNotifier } from "@/services/telegram/notify";
 import type { BotBrainStore } from "./store";
 import { composeCheckIn, dueCheckIn, drivingTodayMs, yesterdayLogLine, type DutyRow } from "./check-in";
 import { thisPayWeekSoFar } from "./pay-projection-tools";
+import { planSmartPathWatch } from "./smart-path-watch";
+import { getTelegramAppUrl } from "@/services/telegram/cards";
+import { runAutoSmartPath } from "@/services/smart-path/auto";
 import { groupWaitingRows } from "./waiting-list";
 import { computeHudClocks } from "@/lib/hud-clocks";
 import { HOME_TIME_ZONE, loadDisplayZone } from "@/lib/display-zone";
@@ -76,6 +79,25 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
       return null;
     });
     if (checkIn) due.push(checkIn);
+    // Smart Path watch (owner 2026-11-17): re-plan the active load hourly and speak up when the answer changes.
+    const watch = await planSmartPathWatch(
+      store,
+      now,
+      async (loadId) => {
+        const { data } = await store.client
+          .from("reminder_sends")
+          .select("dedupe_key")
+          .eq("company_id", store.companyId)
+          .in("dedupe_key", [`smartpath:${loadId}:late`, `smartpath:${loadId}:not_legal`])
+          .limit(1);
+        return (data ?? []).length > 0;
+      },
+      getTelegramAppUrl(),
+    ).catch((err) => {
+      console.error("[reminders] smart path watch failed", err);
+      return null;
+    });
+    if (watch) due.push(watch);
     const sendable = due.filter((r) => r.critical || !quiet);
     const held = due.length - sendable.length;
     if (sendable.length === 0) return { sent: 0, held };
@@ -112,6 +134,22 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
   }
 }
 
+/** Smart Path's answer for the active load, one line, for the check-in. Null when there's no load or it can't plan. */
+async function smartPathLineFor(store: BotBrainStore, now: Date): Promise<string | null> {
+  try {
+    const out = await runAutoSmartPath(store.client, store.companyId, {}, now);
+    const r = out.result;
+    if (!r) return null;
+    const word = { on_time: "on time", early: "early", late: "LATE", not_legal: "NOT LEGAL as planned" }[r.verdict.status] ?? r.verdict.status;
+    const arrive = r.plan?.arrivalAt
+      ? new Date(r.plan.arrivalAt).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }) + " ET"
+      : null;
+    return `🧭 Smart Path: ${word}${arrive ? `, arriving about ${arrive}` : ""}.`;
+  } catch {
+    return null;
+  }
+}
+
 /** The check-in due now, as a routine reminder (quiet hours hold it like any routine message), or null. */
 async function planCheckIn(store: BotBrainStore, snapshot: Awaited<ReturnType<typeof loadHosWindow>>, now: Date): Promise<Reminder | null> {
   const rows = snapshot.rows as DutyRow[];
@@ -139,6 +177,7 @@ async function planCheckIn(store: BotBrainStore, snapshot: Awaited<ReturnType<ty
     payWeek: payWeek ? { lowCents: payWeek.lowCents, highCents: payWeek.highCents } : null,
     waitingCount: waiting,
     logLine: due.kind === "morning" ? yesterdayLogLine(rows, now.getTime(), zone) : null,
+    smartPathLine: await smartPathLineFor(store, now),
   });
   return { kind: "checkin", key: `checkin:${due.kind}:${due.day}`, critical: false, text };
 }
