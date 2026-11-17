@@ -284,10 +284,26 @@ export async function runRouteCheck(
     source_document_id?: string | null;
   })[];
   const hos = hosSnapshot.short;
-  const clocks = clocksFromHos(
+  let clocks = clocksFromHos(
     hos,
     hosSnapshot.cycle.cycleLimitMinutes - hosSnapshot.cycle.onDutyMinutesInCycle,
   );
+  let clocksSource: "app_log" | "eld_entered" | "fresh" = clocks.fromLogs ? "app_log" : "fresh";
+  // His ELD's clocks, when he gave them (owner 2026-11-17: the app log can lag his carrier's ELD). Counted down
+  // from when he entered them as if every minute since were on duty - never more hours than he has.
+  if (request.eld_clocks) {
+    const e = request.eld_clocks;
+    const aged = Math.max(0, Math.round((now.getTime() - Date.parse(e.entered_at)) / 60_000));
+    clocks = {
+      driveLeftMin: Math.max(0, e.drive_left_min - aged),
+      windowLeftMin: Math.max(0, e.window_left_min - aged),
+      breakLeftMin: Math.max(0, (e.break_left_min ?? 8 * 60) - aged),
+      weekLeftMin: Math.max(0, e.cycle_left_min - aged),
+      fromLogs: false,
+    };
+    clocksSource = "eld_entered";
+    warnings.push(`Hours from your ELD as you entered them ${aged < 2 ? "just now" : `${aged} min ago`}, counted down since. Your ELD is the legal record.`);
+  }
   if (hosSnapshot.provisional) {
     warnings.push(
       `The week clock uses the default hours settings (${hosSnapshot.cycle.cycle}, period start ${hosSnapshot.cycle.periodAnchor}) - pick your own cycle in Settings → Hours.`,
@@ -589,6 +605,7 @@ export async function runRouteCheck(
       ...(route.maneuvers ? { maneuvers: route.maneuvers } : {}),
     },
     clocks,
+    clocksSource,
     corridor,
     ...(weather ? { weather } : {}),
     ...(stateRules ? { stateRules } : {}),

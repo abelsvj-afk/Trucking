@@ -16,7 +16,7 @@ import { DRIVE_COPY } from "@/lib/drive";
 import { usePageTitle } from "@/lib/use-page-title";
 import { routeCaption } from "@/lib/smart-path";
 import { buildMapStops } from "@/lib/smart-path-map-stops";
-import { keyFacts, timeline } from "@/lib/smart-path-summary";
+import { hoursLine, keyFacts, timeline } from "@/lib/smart-path-summary";
 import type { AutoPrefs } from "@/lib/smart-path-auto";
 import type { AutoRunResult } from "@/services/smart-path/auto";
 import SmartPathDetails from "@/components/smart-path/SmartPathDetails";
@@ -24,6 +24,35 @@ import SmartPathDetails from "@/components/smart-path/SmartPathDetails";
 const SmartPathMap = dynamic(() => import("@/components/SmartPathMap"), { ssr: false });
 
 const PREFS_KEY = "trucking.smartpath.prefs.v2";
+/** His ELD's clocks, as he entered them (owner 2026-11-17). Used for 14 hours, counted down by the server. */
+const ELD_KEY = "trucking.smartpath.eld-clocks.v1";
+const ELD_MAX_AGE_MS = 14 * 3_600_000;
+
+interface EldClocks {
+  drive_left_min: number;
+  window_left_min: number;
+  cycle_left_min: number;
+  entered_at: string;
+}
+
+function readEld(): EldClocks | null {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(ELD_KEY) ?? "null") as EldClocks | null;
+    return v && Date.now() - Date.parse(v.entered_at) < ELD_MAX_AGE_MS ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "10:30", "10.5" or "10" (hours) -> minutes; null when blank or unreadable. */
+function toMinutes(text: string, maxH: number): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const m = t.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+  const mins = m ? Number(m[1]) * 60 + Number(m[2] ?? 0) : Math.round(Number.parseFloat(t) * 60);
+  return Number.isFinite(mins) && mins >= 0 && mins <= maxH * 60 ? mins : null;
+}
+const hmText = (min: number) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
 const VERDICT: Record<string, { word: string; tone: string }> = {
   on_time: { word: "ON TIME", tone: "ok" },
   early: { word: "EARLY", tone: "ok" },
@@ -84,6 +113,8 @@ async function fetchPlan(opts: PlanOpts): Promise<Run> {
   const position = await devicePosition();
   try {
     const body: Record<string, unknown> = { prefs: opts.prefs, position };
+    const eld = readEld();
+    if (eld) body.eld_clocks = eld;
     if (opts.loadId) body.load_id = opts.loadId;
     if (opts.leaveAt) body.depart_at = new Date(opts.leaveAt).toISOString();
     const res = await apiClient.create<{ data: AutoRunResult }>("smart-path/auto", body);
@@ -118,6 +149,11 @@ function SmartPathInner() {
   const [leaveAt, setLeaveAt] = useState("");
   const [prefs, setPrefs] = useState<AutoPrefs>(() => (typeof window === "undefined" ? {} : readPrefs()));
   const [showChange, setShowChange] = useState(false);
+  const [eldText, setEldText] = useState(() => {
+    const e = typeof window === "undefined" ? null : readEld();
+    return e ? { drive: hmText(e.drive_left_min), shift: hmText(e.window_left_min), cycle: hmText(e.cycle_left_min) } : { drive: "", shift: "", cycle: "" };
+  });
+  const [eldError, setEldError] = useState<string | null>(null);
 
   // Re-plan on request (Change / Re-check / Try again): announce, then fetch.
   const plan = useCallback((opts: PlanOpts) => {
@@ -144,6 +180,25 @@ function SmartPathInner() {
       /* remembered next time if storage allows */
     }
     setShowChange(false);
+    // ELD hours: all three filled = use them; all blank = back to the app log; anything else = say what's wrong.
+    const drive = toMinutes(eldText.drive, 11);
+    const shift = toMinutes(eldText.shift, 14);
+    const cycle = toMinutes(eldText.cycle, 70);
+    const anyTyped = [eldText.drive, eldText.shift, eldText.cycle].some((v) => v.trim() !== "");
+    try {
+      if (drive !== null && shift !== null && cycle !== null) {
+        window.localStorage.setItem(ELD_KEY, JSON.stringify({ drive_left_min: drive, window_left_min: shift, cycle_left_min: cycle, entered_at: new Date().toISOString() }));
+      } else if (!anyTyped) {
+        window.localStorage.removeItem(ELD_KEY);
+      } else {
+        setEldError("Fill in all three ELD hours (like 10:30), or clear all three to use the app's log.");
+        setShowChange(true);
+        return;
+      }
+    } catch {
+      /* storage refused - the plan still runs on the app log */
+    }
+    setEldError(null);
     plan({ loadId, leaveAt, prefs });
   }
 
@@ -153,6 +208,7 @@ function SmartPathInner() {
   const mapStops = useMemo(() => (result ? buildMapStops(result, { workoutSetting: prefs.workout?.setting }) : []), [result, prefs.workout?.setting]);
   const verdict = result ? (VERDICT[result.verdict.status] ?? { word: result.verdict.status, tone: "warn" }) : null;
   const why = result ? (result.verdict.tradeoffLines[0] ?? result.verdict.legalLines[0] ?? "") : "";
+  const hours = result ? hoursLine(result) : null;
 
   return (
     <div className="smart-path-v2">
@@ -182,6 +238,13 @@ function SmartPathInner() {
             <p className="sp-load">{run.status === "done" ? run.out.load?.label : ""}</p>
             <p className="sp-word">{verdict.word}</p>
             {why && <p className="sp-why">{why}</p>}
+            {hours && <p className={hours.tight ? "sp-hours sp-hours-tight" : "sp-hours"}>{hours.text}</p>}
+            {hours?.fromAppLog && (hours.tight || result.verdict.status === "late" || result.verdict.status === "not_legal") && (
+              <p className="sp-hours-hint">
+                Running on your carrier&apos;s ELD? If this app&apos;s log is behind, the plan is wrong.{" "}
+                <button type="button" className="secondary" onClick={() => setShowChange(true)}>Use my ELD hours</button>
+              </p>
+            )}
             {run.status === "done" && <p className="sp-assume">{run.out.assumptions.join(" ")}</p>}
           </>
         )}
@@ -256,6 +319,23 @@ function SmartPathInner() {
             />
             Fit a workout in (gym if one is near)
           </label>
+          <fieldset className="sp-eld">
+            <legend>My hours from my ELD (optional)</legend>
+            <p className="row-sub">Copy what your carrier&apos;s ELD shows left, like 10:30. Used for 14 hours, counted down as time passes. Clear all three to go back to this app&apos;s log.</p>
+            <label className="form-row">
+              Drive left
+              <input inputMode="decimal" placeholder="11:00" value={eldText.drive} onChange={(e) => setEldText({ ...eldText, drive: e.target.value })} />
+            </label>
+            <label className="form-row">
+              Shift (14) left
+              <input inputMode="decimal" placeholder="14:00" value={eldText.shift} onChange={(e) => setEldText({ ...eldText, shift: e.target.value })} />
+            </label>
+            <label className="form-row">
+              Cycle (70/60) left
+              <input inputMode="decimal" placeholder="45:00" value={eldText.cycle} onChange={(e) => setEldText({ ...eldText, cycle: e.target.value })} />
+            </label>
+            {eldError && <p role="alert">{eldError}</p>}
+          </fieldset>
           <button type="submit">Plan it</button>
           <p className="row-sub">Food, sleep and workout are remembered on this phone.</p>
         </form>

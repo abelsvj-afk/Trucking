@@ -52,6 +52,17 @@ export const routeCheckRequestSchema = z.object({
     .optional(),
   pickup_window: timeWindowSchema.optional(),
   delivery_window: timeWindowSchema.optional(),
+  // Owner 2026-11-17: he runs on his carrier's ELD; when the app's own log is behind, he can give the ELD's clocks.
+  // They are counted down from entered_at (conservatively, as if every minute since were on duty).
+  eld_clocks: z
+    .object({
+      drive_left_min: z.number().int().min(0).max(11 * 60),
+      window_left_min: z.number().int().min(0).max(14 * 60),
+      cycle_left_min: z.number().int().min(0).max(70 * 60),
+      break_left_min: z.number().int().min(0).max(8 * 60).optional(),
+      entered_at: isoTimestamp,
+    })
+    .optional(),
   food_mode: z.enum(["grocery", "fast_food"]).default("grocery"),
   gallons_to_buy: z
     .number()

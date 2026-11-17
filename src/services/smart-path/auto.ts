@@ -9,11 +9,13 @@ import { runRouteCheck } from "./route-check";
 import { planAuto, type AutoPhase, type AutoPrefs } from "@/lib/smart-path-auto";
 import type { Load, LoadStop } from "@/types/entities";
 import type { RouteCheckResponse } from "@/types/smart-path";
+import type { RouteCheckRequest } from "@/data/schemas/smart-path";
 
 export interface AutoRunInput {
   loadId?: string | null;
   departAt?: string | null;
   prefs?: AutoPrefs;
+  eldClocks?: RouteCheckRequest["eld_clocks"];
   devicePosition?: { lat: number; lng: number; headingDeg?: number | null; speedMph?: number | null } | null;
 }
 
@@ -61,6 +63,7 @@ export async function runAutoSmartPath(client: SupabaseClient, companyId: string
     now,
     departAt: input.departAt ?? null,
     prefs: input.prefs,
+    eldClocks: input.eldClocks,
   });
   const summary = { id: load.id, label: labelOf(load), status: load.status };
   if (!plan.request) return { phase: plan.phase, assumptions: plan.assumptions, load: summary, choices, result: null };

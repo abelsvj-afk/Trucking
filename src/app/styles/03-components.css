@@ -2809,3 +2809,7 @@ main .money-weeks li { padding: 0; }
 .tracker-steps li { padding: 0.35rem 0; }
 .tracker-steps code { overflow-wrap: anywhere; }
 .tracker-steps strong { background: none; color: inherit; padding: 0; font-size: inherit; text-transform: none; letter-spacing: normal; font-weight: 800; }
+.sp-hours { font-size: 0.9rem; margin: 0.25rem 0; }
+.sp-hours-tight { color: #f0b429; font-weight: 600; }
+.sp-hours-hint { font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.25rem 0; }
+.sp-eld { border: 1px solid var(--border, #333); border-radius: 10px; padding: 0.5rem 0.75rem; display: grid; gap: 0.3rem; }

@@ -45,3 +45,16 @@ paid third, are unchanged.
 6. **Change**: a small button opens the settings (another load, leave time, preferences) and re-runs.
 
 Phone-away law stands: plan parked; Drive mode and Abel speak it on the road. Times are shown in his zone, never UTC.
+
+## Amendment 2026-11-17: which hours the plan used, and his ELD hours
+
+Owner: "why does Smart Path show LATE if the delivery isn't until tomorrow, I'm nowhere near late". Smart Path took
+his clocks only from this app's duty log. He runs on his carrier's ELD, so when the app's log was behind (it had
+shown his 70/8 as used up), the plan scheduled a 34-hour restart and called the run late, without saying why.
+- **The card says which hours it used**: "Hours used: this app's duty log - 6h 00m driving · 9h 00m on your 14 ·
+  0h 00m on your cycle", and names the blocker (cycle used up → 34-hour restart; out of drive/shift → 10-hour rest).
+  When the app log is the source and the plan is late, or the hours are tight, it offers **Use my ELD hours**.
+- **ELD hours**: under Change he can type the drive / shift / cycle time his ELD shows left. Smart Path plans on
+  those for up to 14 hours, counted down from when he typed them as if every minute since were on duty, so it can
+  never assume more hours than he has. Clearing them goes back to the app's log. Abel's `plan_my_run` states the
+  same hours line.
