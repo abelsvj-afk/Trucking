@@ -50,3 +50,19 @@ describe("isConfigured / describeSaved", () => {
     expect(describeSaved({ server: "", key: "" })).toEqual({ address: "No server saved yet", keyText: "No key saved yet" });
   });
 });
+
+// Owner 2026-11-17: the domain changed. The bare domain serves the public website, not the app, so a Tracker
+// pointed there would post every position into the void - refuse it and say the right address.
+describe("the website address is refused, with the app address offered", () => {
+  it("roadtolegacytrucking.com and www. are refused; app. and the old fly.dev address are accepted", async () => {
+    const { validateSettings } = await load();
+    const key = "tdv_" + "a".repeat(30);
+    for (const host of ["roadtolegacytrucking.com", "www.roadtolegacytrucking.com", "WWW.RoadToLegacyTrucking.com"]) {
+      const r = validateSettings(`https://${host}`, key);
+      expect(r.ok, host).toBe(false);
+      expect(!r.ok && r.error).toContain("https://app.roadtolegacytrucking.com");
+    }
+    expect(validateSettings("https://app.roadtolegacytrucking.com", key).ok).toBe(true);
+    expect(validateSettings("https://trucking.fly.dev", key).ok).toBe(true);
+  });
+});

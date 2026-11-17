@@ -141,32 +141,53 @@ function closeSettings() {
   renderSaved();
 }
 
+/**
+ * Shows a Settings problem where it can't be missed (owner 2026-11-17: "it wasn't having any warnings or
+ * notifications on why it wasn't saving"): the red line, scrolled into view above the keyboard, plus a phone
+ * alert - and it lands in the connection log too.
+ */
+function settingsProblem(message, field) {
+  const el = $("settings-error");
+  el.textContent = message;
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (field) $(field).focus();
+  logEvent("ERROR", "Settings not saved: " + message);
+  try {
+    window.alert("Not saved: " + message);
+  } catch {
+    /* no alert surface - the red line stands */
+  }
+}
+
 async function saveSettings() {
   const checked = validateSettings($("server").value, $("key").value);
   if (!checked.ok) {
-    $("settings-error").textContent = checked.error;
-    $(checked.field).focus();
+    settingsProblem(checked.error, checked.field);
     return;
   }
   $("settings-error").textContent = "";
+  // No phone storage = nothing can be saved. This used to fall through and close Settings as if it had saved.
+  if (!Prefs) {
+    settingsProblem("this Tracker build can't reach the phone's storage - ask for a new build.", null);
+    return;
+  }
   const ok = (await save("server", checked.server)) && (await save("key", checked.key));
-  if (!ok && Prefs) {
-    $("settings-error").textContent = "Couldn't save on this phone. Try again.";
+  if (!ok) {
+    settingsProblem("the phone didn't accept the save. Try again.", null);
     return;
   }
   const changed = checked.server !== saved.server || checked.key !== saved.key;
   saved = { server: checked.server, key: checked.key };
-  if (changed) {
-    // The running service reads its own copy of the connection on every send.
-    if (Tracker) await Tracker.configure({ server: saved.server, key: saved.key }).catch(() => undefined);
-    logEvent("INFO", "Settings saved - now reporting to " + checked.server + " with the saved key.");
-  }
+  // The service reads its own copy of the connection on every send - always hand it the saved values.
+  if (Tracker) await Tracker.configure({ server: saved.server, key: saved.key }).catch(() => undefined);
+  if (changed) logEvent("INFO", "Settings saved - now reporting to " + checked.server + " with the saved key.");
+  renderSaved();
   closeSettings();
   if (running) {
-    refresh();
-    detailEl.textContent = (changed ? "Saved - the next report uses the new settings. " : "Saved. ") + detailEl.textContent;
+    await refresh();
+    detailEl.textContent = (changed ? "✅ Saved - the next report uses the new settings. " : "✅ Saved. ") + detailEl.textContent;
   } else {
-    show("Saved. Tap Start tracking when you're ready.");
+    show("✅ Saved: " + describeSaved(saved).address + ". Tap Start tracking when you're ready.");
   }
 }
 

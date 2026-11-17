@@ -61,3 +61,9 @@ prompt and On Duty at minute 6 (ELD stopped-vehicle rule), never Off Duty or Sle
 forgets everything after a 20-second gap between fixes, and the stop side needs fixes while parked. v1.1.0 read GPS
 every 15 s with a 10 m distance filter, which could starve both. v1.1.1 reads every 5 s, moving or not, and the
 on-phone queue holds 3,000 fixes (about 4 hours of dead zone).
+
+## v1.1.2 - the website address is refused (2026-11-17)
+The domain moved to roadtolegacytrucking.com. The bare domain (and www.) serves the PUBLIC website; the app, and its
+position feed, is at app.roadtolegacytrucking.com. Settings now refuses the website address and says to use
+https://app.roadtolegacytrucking.com, so a wrong address can't silently drop every report. The old fly.dev address
+still works. Signed with the same key as 1.1.1, so it installs over it (no uninstall).
