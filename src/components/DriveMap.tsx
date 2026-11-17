@@ -20,7 +20,8 @@ import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
-import { truckIconSvg } from "@/lib/truck-icon";
+import { truckIconSvg, truckIcon3dSvg } from "@/lib/truck-icon";
+import { DRIVE_MAP_PITCH_3D, driveMapCamera } from "@/lib/drive-map-camera";
 
 export type DrivePositionQuality = "good" | "poor" | "lost";
 
@@ -38,6 +39,8 @@ interface DriveMapProps {
   height?: string;
   /** Block C: rotate the map so the heading points up (the truck icon then points up). */
   headingUp?: boolean;
+  /** 3D driving view (owner 2026-11-17): tilted perspective, truck at the bottom, road ahead on top. Default false — Home mini map stays flat. 3D always implies heading-up. */
+  view3d?: boolean;
   /** Block C: zoom used while following (omit to keep the current zoom). */
   followZoom?: number;
   /** Block C: false = no touch pan/zoom (a glance map that must not trap page scroll). Default true. */
@@ -62,6 +65,25 @@ const OSM_STYLE = {
 };
 
 const FLORIDA_CENTER: [number, number] = [-81.7, 28.4];
+
+/** The truck marker's face: flat top-down icon, or the perspective 3D rig in 3D view. Pure — both call sites pass explicit values. */
+function renderTruckIconEl(
+  icon: HTMLElement,
+  opts: { quality: DrivePositionQuality | null; view3d: boolean; headingDeg: number | null; headingUp: boolean },
+) {
+  const poor = opts.quality === "poor" || opts.quality === "lost";
+  const sig = `${poor}:${opts.quality === "lost"}:${opts.view3d}`;
+  if (icon.dataset.sig !== sig) {
+    icon.dataset.sig = sig;
+    icon.innerHTML = opts.view3d
+      ? truckIcon3dSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: opts.quality === "lost" ? 0.55 : 1, widthPx: 40 })
+      : truckIconSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: opts.quality === "lost" ? 0.55 : 1, widthPx: 32 });
+  }
+  // Heading-up (3D always is): the map is rotated to the heading, so the truck points up on screen.
+  // North-up: the icon itself rotates. No heading yet: it points up and nothing more is claimed.
+  const rotation = opts.headingUp || opts.view3d ? 0 : (opts.headingDeg ?? 0);
+  icon.style.transform = `rotate(${rotation}deg)`;
+}
 
 function lineFeature(points: LatLng[]) {
   return {
@@ -109,6 +131,7 @@ export default function DriveMap({
   night,
   height = "46vh",
   headingUp = false,
+  view3d = false,
   followZoom,
   interactive = true,
   frameRoute = true,
@@ -125,6 +148,16 @@ export default function DriveMap({
   const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
+  const view3dRef = useRef(view3d);
+  const lastPositionRef = useRef<LatLng | null>(null);
+  const lastHeadingRef = useRef<number | null>(null);
+  const qualityRef = useRef(positionQuality);
+  useEffect(() => {
+    view3dRef.current = view3d;
+  }, [view3d]);
+  useEffect(() => {
+    qualityRef.current = positionQuality;
+  }, [positionQuality]);
   // Ref syncs live in effects, never in render (react-hooks/refs,
   // same discipline as SmartPathMap).
   useEffect(() => {
@@ -134,6 +167,36 @@ export default function DriveMap({
   useEffect(() => {
     panRef.current = onUserPan;
   }, [onUserPan]);
+
+  // Aim the camera: tilt + truck-at-the-bottom in 3D, flat in 2D.
+  // With a position and follow on, the camera centres on the truck;
+  // without one (toggle while parked) it only re-aims the tilt.
+  const applyCamera = useCallback(
+    (pos: LatLng | null) => {
+      const map = mapRef.current;
+      if (!map) return;
+      const cam = driveMapCamera({
+        view3d: view3dRef.current,
+        headingDeg: lastHeadingRef.current,
+        headingUp: headingUp || view3dRef.current,
+        followZoom,
+        containerHeightPx: containerRef.current?.clientHeight ?? 0,
+      });
+      if (pos && followRef.current) {
+        map.easeTo({
+          center: [pos.lng, pos.lat],
+          duration: 700,
+          pitch: cam.pitch,
+          ...(cam.bearing !== null ? { bearing: cam.bearing } : {}),
+          ...(cam.zoom !== null ? { zoom: cam.zoom } : {}),
+          offset: cam.offset,
+        });
+      } else {
+        map.easeTo({ duration: 700, pitch: cam.pitch, offset: cam.offset });
+      }
+    },
+    [headingUp, followZoom],
+  );
 
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
@@ -190,6 +253,8 @@ export default function DriveMap({
         style: OSM_STYLE,
         center: FLORIDA_CENTER,
         zoom: 6,
+        // 3D starts tilted (the toggle re-aims it later); flat starts top-down.
+        pitch: view3dRef.current ? DRIVE_MAP_PITCH_3D : 0,
         attributionControl: { compact: true },
         interactive,
       });
@@ -256,6 +321,8 @@ export default function DriveMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !position) return;
+    lastPositionRef.current = position;
+    lastHeadingRef.current = headingDeg;
     void (async () => {
       const maplibregl = (await import("maplibre-gl")).default;
       if (!positionMarkerRef.current) {
@@ -276,32 +343,42 @@ export default function DriveMap({
       if (el) {
         const icon = el.firstElementChild as HTMLElement | null;
         if (icon) {
-          const poor = positionQuality === "poor" || positionQuality === "lost";
-          const sig = `${poor}:${positionQuality === "lost"}`;
-          if (icon.dataset.sig !== sig) {
-            icon.dataset.sig = sig;
-            icon.innerHTML = truckIconSvg({ color: poor ? "#9ca3af" : "#f2b705", opacity: positionQuality === "lost" ? 0.55 : 1, widthPx: 32 });
-          }
-          // Heading-up: the map is rotated to the heading, so the truck points up on screen.
-          // North-up: the icon itself rotates. No heading yet: it points up and nothing more is claimed.
-          const rotation = headingUp ? 0 : headingDeg ?? 0;
-          icon.style.transform = `rotate(${rotation}deg)`;
+          renderTruckIconEl(icon, {
+            quality: positionQuality,
+            view3d: view3dRef.current,
+            headingDeg,
+            headingUp,
+          });
         }
       }
       if (followRef.current) {
         const now = Date.now();
         if (now - lastCameraMoveRef.current >= 1000) {
           lastCameraMoveRef.current = now;
-          map.easeTo({
-            center: [position.lng, position.lat],
-            duration: 700,
-            ...(headingUp && headingDeg !== null ? { bearing: headingDeg } : {}),
-            ...(followZoom !== undefined ? { zoom: followZoom } : {}),
-          });
+          applyCamera(position);
         }
       }
     })();
-  }, [position, headingDeg, positionQuality, headingUp, followZoom]);
+  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, applyCamera]);
+
+  // Toggling 3D re-aims the camera and swaps the truck now — not only on the next fix.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const el = positionElRef.current;
+    if (el) {
+      const icon = el.firstElementChild as HTMLElement | null;
+      if (icon) {
+        renderTruckIconEl(icon, {
+          quality: qualityRef.current,
+          view3d,
+          headingDeg: lastHeadingRef.current,
+          headingUp,
+        });
+      }
+    }
+    applyCamera(lastPositionRef.current);
+  }, [view3d, headingUp, applyCamera]);
 
   return (
     <div

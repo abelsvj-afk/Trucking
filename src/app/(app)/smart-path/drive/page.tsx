@@ -68,12 +68,15 @@ import DrivePreview from "@/components/drive/DrivePreview";
 import DriveParked from "@/components/drive/DriveParked";
 import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes } from "@/lib/smart-path";
+import { routeProgress } from "@/lib/route-progress";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { RouteCheckResponse } from "@/types/smart-path";
 
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 
 const LAYOUT_STORAGE_KEY = "trucking.smartpath.drive-layout.v1";
+/** 3D driving view (owner 2026-11-17): tilted perspective, 3D truck at the bottom. "0" = flat top-down. */
+const DRIVE_3D_VIEW_STORAGE_KEY = "trucking.smartpath.drive-3d-view.v1";
 const MPS_TO_MPH = 2.23694;
 
 type Mode = "loading" | "preview" | "starting" | "rolling" | "parked";
@@ -130,6 +133,8 @@ export default function DrivePage() {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [firstRunSeen, setFirstRunSeen] = useState(true);
   const [layout, setLayout] = useState<"map" | "coach">("map");
+  // 3D is the driving view the owner asked for — on unless he turned it off.
+  const [view3d, setView3d] = useState(true);
   const [follow, setFollow] = useState(true);
   const [muted, setMuted] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -203,6 +208,7 @@ export default function DrivePage() {
       }
       setFirstRunSeen(readStorage(DRIVE_FIRST_RUN_STORAGE_KEY) === "1");
       setLayout(readStorage(LAYOUT_STORAGE_KEY) === "coach" ? "coach" : "map");
+      setView3d(readStorage(DRIVE_3D_VIEW_STORAGE_KEY) !== "0");
       setMuted(speaker().isMuted());
       setNowMs(now);
       setMode("preview");
@@ -533,6 +539,14 @@ export default function DrivePage() {
     writeStorage(LAYOUT_STORAGE_KEY, next);
   };
 
+  const handleView3dToggle = () => {
+    setView3d((prev) => {
+      const next = !prev;
+      writeStorage(DRIVE_3D_VIEW_STORAGE_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
+
   // ---- derived render state (state only - refs are off-limits in render) --------
   const lastFix = session?.lastFix ?? null;
   // Fail closed (lib/vehicle-motion.ts): the fuller screen needs POSITIVE
@@ -543,8 +557,13 @@ export default function DrivePage() {
   const nowForMotion = nowMs || lastFix?.atMs || 0;
   const motion = motionState(motionEst, nowForMotion);
   // While parked the drawn icon is pinned to the anchor so it doesn't jitter.
-  const shownFix =
-    lastFix && motionEst.displayPoint && !motionEst.moving ? { ...lastFix, point: motionEst.displayPoint } : lastFix;
+  const shownFix = useMemo(
+    () =>
+      lastFix && motionEst.displayPoint && !motionEst.moving
+        ? { ...lastFix, point: motionEst.displayPoint }
+        : lastFix,
+    [lastFix, motionEst.displayPoint, motionEst.moving],
+  );
   const rolling = mode === "rolling" && isRestricted(motion) && DRIVE_SETTINGS.rollingSurface === "glance";
   const nextStop =
     plan && session && session.nextStopIndex < plan.stops.length
@@ -561,14 +580,27 @@ export default function DrivePage() {
         ? "poor"
         : "good";
 
-  const mapGeometry =
-    sourceResult && plan && sourceResult.load.id === plan.loadId
-      ? sourceResult.route.geometry
-      : (plan?.geometry ?? []);
+  const mapGeometry = useMemo(
+    () =>
+      sourceResult && plan && sourceResult.load.id === plan.loadId
+        ? sourceResult.route.geometry
+        : (plan?.geometry ?? []),
+    [sourceResult, plan],
+  );
   const mapDeadhead =
     sourceResult && plan && sourceResult.load.id === plan.loadId
       ? (sourceResult.deadhead?.geometry ?? [])
       : [];
+
+  // The line draws ahead as he drives (the same remaining-only rule as
+  // Home's map, map fix 2026-11-12): the driven part clears behind the
+  // truck. Off route or no fix yet, the whole line shows — never a
+  // split the data doesn't support.
+  const driveProgress = useMemo(
+    () => (shownFix && mapGeometry.length > 1 ? routeProgress(shownFix.point, mapGeometry) : null),
+    [shownFix, mapGeometry],
+  );
+  const driveAheadGeometry = driveProgress?.onRoute ? driveProgress.ahead : mapGeometry;
 
   if (mode === "loading") {
     return (
@@ -649,7 +681,7 @@ export default function DrivePage() {
               plan={plan}
               session={session}
               lastFix={shownFix}
-              mapGeometry={mapGeometry}
+              mapGeometry={driveAheadGeometry}
               mapDeadhead={mapDeadhead}
               positionQuality={positionQuality}
               follow={follow}
@@ -661,6 +693,8 @@ export default function DrivePage() {
               projection={projection}
               routeNotice={routeNotice}
               muted={muted}
+              view3d={view3d}
+              onView3dToggle={handleView3dToggle}
               onReplan={() => lastFix && void requestReroute(lastFix.point, plan)}
               onParked={handleParked}
               onSkip={handleSkip}
@@ -677,7 +711,7 @@ export default function DrivePage() {
               clocks={<DriveClocks dark />}
               map={
                 <DriveMap
-                  geometry={mapGeometry}
+                  geometry={driveAheadGeometry}
                   deadheadGeometry={mapDeadhead}
                   stops={plan.stops}
                   stopStatus={session.stopStatus}
@@ -688,6 +722,7 @@ export default function DrivePage() {
                   onUserPan={() => {}}
                   night={night}
                   height="30vh"
+                  view3d={view3d}
                 />
               }
               nextStop={
