@@ -101,3 +101,17 @@ describe("the phone feeds the ELD-style automatic switch often enough", () => {
     expect(service).toContain("setMinUpdateDistanceMeters(0)");
   });
 });
+
+// Owner 2026-11-17: "it wasn't having any warnings or notifications on why it wasn't saving".
+describe("Settings never fails silently", () => {
+  it("every refusal goes through the loud path; a missing storage plugin is a refusal, not a silent close", () => {
+    const script = readFileSync(path.join(process.cwd(), "native/tracker/www/tracker.js"), "utf8");
+    const save = script.slice(script.indexOf("async function saveSettings"), script.indexOf("// ---- status"));
+    expect(save).not.toMatch(/!ok && Prefs/);
+    expect(save).toMatch(/if \(!Prefs\) \{\s*settingsProblem\(/);
+    expect(save.match(/settingsProblem\(/g)!.length).toBeGreaterThanOrEqual(3);
+    const problem = script.slice(script.indexOf("function settingsProblem"), script.indexOf("async function saveSettings"));
+    expect(problem).toContain("window.alert(");
+    expect(problem).toContain("scrollIntoView(");
+  });
+});
