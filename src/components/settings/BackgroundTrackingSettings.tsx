@@ -9,12 +9,12 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import { formatDateTime } from "@/lib/time";
 
-// The tracker Android app ships as a GitHub release (tag tracker-v1.0.4); this stable
-// /releases/download/ URL always serves that release's APK asset. When a new tracker
-// version is published, bump the tag in BOTH places in this one line - this constant is
-// the only place the download URL lives.
-export const TRACKER_ANDROID_DOWNLOAD_URL =
-  "https://github.com/abelsvj-afk/Trucking/releases/download/tracker-v1.0.4/trucking-os-tracker-v1.0.4.apk";
+// The tracker Android app is served by THIS app from public/downloads (owner 2026-11-17: reinstall it from
+// Settings). Until then it was pinned to the GitHub release tracker-v1.0.4 - the version whose tracking
+// stopped with the app closed. When a new tracker is built, copy its APK to public/downloads under the new
+// version's name and change this one line - this constant is the only place the download URL lives.
+export const TRACKER_ANDROID_VERSION = "1.1.1";
+export const TRACKER_ANDROID_DOWNLOAD_URL = `/downloads/trucking-os-tracker-${TRACKER_ANDROID_VERSION}.apk`;
 
 type Device = { id: string; label: string; created_at: string; last_used_at: string | null };
 
@@ -75,12 +75,16 @@ export default function BackgroundTrackingSettings() {
 
       <p className="row-sub">
         Don&apos;t have the Tracker app yet? It&apos;s the Android companion app that reports the truck&apos;s position with
-        this app closed. Install it on the phone, then make a key below and paste it into the Tracker app. Installing it
-        over an older Tracker copy keeps that copy&apos;s saved server address and key.
+        this app closed. Install it on the phone, then make a key below and paste it into the Tracker app.
+      </p>
+      <p className="row-sub">
+        Updating from an older Tracker (1.0.x)? Uninstall the old one first (phone Settings → Apps → Trucking OS Tracker →
+        Uninstall) - Android won&apos;t install this version over it. That erases its saved server address and key, so
+        paste them in again after installing.
       </p>
       <p>
-        <a role="button" href={TRACKER_ANDROID_DOWNLOAD_URL}>
-          Download the tracker app (Android)
+        <a role="button" href={TRACKER_ANDROID_DOWNLOAD_URL} download>
+          Download the tracker app (Android, version {TRACKER_ANDROID_VERSION})
         </a>
       </p>
       <p className="row-sub">There is no iPhone version of the Tracker app yet.</p>
