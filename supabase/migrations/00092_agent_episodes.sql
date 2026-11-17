@@ -1,17 +1,17 @@
-// Frontier 2 (Remember better) — agent autobiography.
-//
-// New table agent_episodes: Abel's own record of what he said,
-// recommended, did, got wrong, and learned — the autobiography
-// namespace the plan names. Same conventions as bot_memories:
-// company_id + tenant-isolation RLS, soft delete, bi-temporal
-// supersession (a correction CLOSES the old row, never edits or
-// deletes it), embedding + FTS with hybrid search (abel_search_
-// episodes mirrors abel_search_memories from 00029, RRF k=60).
-//
-// Migration replay NOT run on this VM (no Postgres: no psql /
-// pg_ctl / initdb) — validated by careful review against 00029 +
-// 00014, and covered by fake-client tests of the behavioral
-// contract (tenant scoping, current-only reads, supersession).
+-- Frontier 2 (Remember better) — agent autobiography.
+--
+-- New table agent_episodes: Abel's own record of what he said,
+-- recommended, did, got wrong, and learned — the autobiography
+-- namespace the plan names. Same conventions as bot_memories:
+-- company_id + tenant-isolation RLS, soft delete, bi-temporal
+-- supersession (a correction CLOSES the old row, never edits or
+-- deletes it), embedding + FTS with hybrid search (abel_search_
+-- episodes mirrors abel_search_memories from 00029, RRF k=60).
+--
+-- Migration replay NOT run on this VM (no Postgres: no psql /
+-- pg_ctl / initdb) — validated by careful review against 00029 +
+-- 00014, and covered by fake-client tests of the behavioral
+-- contract (tenant scoping, current-only reads, supersession).
 
 create extension if not exists vector;
 
