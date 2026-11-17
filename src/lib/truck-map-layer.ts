@@ -87,6 +87,11 @@ export function createTruckMapLayer(
   let scene: THREE.Scene | null = null;
   let camera: THREE.Camera | null = null;
   const size = new THREE.Vector2();
+  // A render failure must not kill the map's frame (and the truck
+  // with it) without a trace: log the first one in full, then keep
+  // trying on later frames — a transient GL error heals, a
+  // persistent one stays visible in the log instead of vanishing.
+  let reportedRenderError = false;
 
   return {
     id: TRUCK_MAP_LAYER_ID,
@@ -124,19 +129,26 @@ export function createTruckMapLayer(
     render(_gl, options) {
       const state = getState();
       if (!state || !renderer || !scene || !camera || !map) return;
-      const canvas = map.getCanvas();
-      renderer.getSize(size);
-      if (size.x !== canvas.clientWidth || size.y !== canvas.clientHeight) {
-        renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+      try {
+        const canvas = map.getCanvas();
+        renderer.getSize(size);
+        if (size.x !== canvas.clientWidth || size.y !== canvas.clientHeight) {
+          renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+        }
+        camera.projectionMatrix.copy(
+          computeTruckMatrix(
+            options.modelViewProjectionMatrix,
+            project(state.position),
+            state.headingDeg ?? 0,
+          ),
+        );
+        renderer.render(scene, camera);
+      } catch (error) {
+        if (!reportedRenderError) {
+          reportedRenderError = true;
+          console.error("[truck-map-layer] 3D truck render failed; the truck will be missing until the next good frame.", error);
+        }
       }
-      camera.projectionMatrix.copy(
-        computeTruckMatrix(
-          options.modelViewProjectionMatrix,
-          project(state.position),
-          state.headingDeg ?? 0,
-        ),
-      );
-      renderer.render(scene, camera);
     },
   };
 }

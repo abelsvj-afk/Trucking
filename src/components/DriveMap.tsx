@@ -18,7 +18,7 @@
 // looked like he needed to turn around when he didn't). Callers pass
 // the remaining geometry in `geometry`; there is no traveled overlay.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
@@ -186,7 +186,28 @@ export default function DriveMap({
   const qualityRef = useRef(positionQuality);
   // The 3D model's live state: the custom layer reads this on every
   // render, so the model follows the newest fix without re-adding.
+  // Seeded from the latest fix in the position effect below — even
+  // before the map exists, so a fix that arrives while the map is
+  // still loading is not dropped (2026-11-17: the first fix used to
+  // be lost that way and the truck stayed invisible until the next
+  // one).
   const truckLayerStateRef = useRef<TruckLayerState | null>(null);
+  // The 3D layer failed to initialise on this mount (on a real phone
+  // that is the WebGL1 fallback: three.js r163+ refuses a WebGL1
+  // context, while MapLibre silently falls back to one when WebGL2
+  // creation fails — and the layer is already registered by then, so
+  // without this flag the map would keep "having" a truck layer that
+  // can never draw). While set, the flat 2D icon is the truck — a
+  // visible truck beats an invisible one. Kept as state (so the
+  // position effect re-runs and the marker comes back at once) with
+  // a ref mirror for the stable callbacks.
+  const [truckLayerFailed, setTruckLayerFailed] = useState(false);
+  const truckLayerFailedRef = useRef(false);
+  const markTruckLayerFailed = useCallback((error: unknown) => {
+    console.error("[DriveMap] 3D truck layer failed to initialise; falling back to the flat truck icon.", error);
+    truckLayerFailedRef.current = true;
+    setTruckLayerFailed(true);
+  }, []);
   useEffect(() => {
     view3dRef.current = view3d;
   }, [view3d]);
@@ -246,12 +267,31 @@ export default function DriveMap({
   // (maplibreRef), and reused here — re-importing it on every call
   // is pointless work, and the position effect used to do it on
   // every fix.
+  // Failure is NOT silent (2026-11-17: the truck vanished with no
+  // error anywhere): if addLayer throws — on a real phone that is
+  // the three.js WebGL1 refusal, because MapLibre falls back to a
+  // WebGL1 context when WebGL2 creation fails — the half-registered
+  // layer is removed (MapLibre registers it BEFORE calling onAdd,
+  // so getLayer would keep reporting it as present and no retry
+  // would ever happen) and the flat 2D icon takes over as the
+  // truck. The error is logged in full.
   const syncTruckLayer = useCallback(() => {
     const map = mapRef.current;
     const maplibregl = maplibreRef.current;
     if (!map || !maplibregl || !map.isStyleLoaded()) return;
     const has = Boolean(map.getLayer(TRUCK_MAP_LAYER_ID));
-    if (view3dRef.current && !has) {
+    if (!view3dRef.current) {
+      if (has) {
+        try {
+          map.removeLayer(TRUCK_MAP_LAYER_ID);
+        } catch {
+          // Already gone (e.g. removed by the failure path below).
+        }
+      }
+      return;
+    }
+    if (truckLayerFailedRef.current || has) return;
+    try {
       map.addLayer(
         createTruckMapLayer(
           () => truckLayerStateRef.current,
@@ -261,10 +301,15 @@ export default function DriveMap({
           },
         ),
       );
-    } else if (!view3dRef.current && has) {
-      map.removeLayer(TRUCK_MAP_LAYER_ID);
+    } catch (error) {
+      markTruckLayerFailed(error);
+      try {
+        if (map.getLayer(TRUCK_MAP_LAYER_ID)) map.removeLayer(TRUCK_MAP_LAYER_ID);
+      } catch {
+        // Best effort: the layer is dead either way.
+      }
     }
-  }, []);
+  }, [markTruckLayerFailed]);
 
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
@@ -426,6 +471,17 @@ export default function DriveMap({
     })();
     return () => {
       cancelled = true;
+      // The map owns a WebGL context: destroy it on unmount, or
+      // every remount leaks one. Browsers cap contexts per page, and
+      // once the cap is hit new maps fall back to WebGL1 — which is
+      // exactly what makes the three.js 3D layer refuse to initialise
+      // (2026-11-17: the truck vanished after repeated Home
+      // show/hide flips, each leaking a context).
+      const map = mapRef.current;
+      if (map) {
+        map.remove();
+        mapRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the map is created once; `interactive` is a mount-time choice
   }, [drawRoute]);
@@ -438,13 +494,17 @@ export default function DriveMap({
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !position) return;
+    // Seed the 3D model's state from the latest fix BEFORE the
+    // map check: a fix that arrives while the map is still loading
+    // used to be dropped here, and the truck stayed invisible until
+    // the next fix (on the Drive surface that is the next GPS fix,
+    // not a timer). A null position never clears the last real fix.
     lastPositionRef.current = position;
     lastHeadingRef.current = headingDeg;
-    // The 3D model reads this on its next render.
-    truckLayerStateRef.current = { position, headingDeg };
-    if (view3dRef.current) {
+    if (position) truckLayerStateRef.current = { position, headingDeg };
+    const map = mapRef.current;
+    if (!map || !position) return;
+    if (view3dRef.current && !truckLayerFailed) {
       // No HTML marker in 3D view — the model IS the truck. Repaint
       // so the model moves with the fix (the layer never repaints
       // itself, or it would loop forever).
@@ -495,16 +555,17 @@ export default function DriveMap({
         }
       }
     }
-  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, applyCamera]);
+  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, applyCamera]);
 
   // Toggling 3D re-aims the camera and swaps the truck now — not only on the next fix.
   // 3D on: the HTML marker goes away (the model takes its place) and the layer is added.
   // 3D off: the layer is removed; the marker comes back via the position effect
-  // (view3d is one of its deps).
+  // (view3d is one of its deps). When the layer failed to initialise,
+  // the marker stays: it IS the truck now (see syncTruckLayer).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (view3d) {
+    if (view3d && !truckLayerFailed) {
       positionMarkerRef.current?.remove();
       positionMarkerRef.current = null;
       positionElRef.current = null;
@@ -523,7 +584,7 @@ export default function DriveMap({
     }
     void syncTruckLayer();
     applyCamera(lastPositionRef.current);
-  }, [view3d, headingUp, applyCamera, syncTruckLayer]);
+  }, [view3d, headingUp, truckLayerFailed, applyCamera, syncTruckLayer]);
 
   return (
     <div

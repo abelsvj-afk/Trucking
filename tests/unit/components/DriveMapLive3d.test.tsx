@@ -37,6 +37,11 @@ const fakes = vi.hoisted(() => {
     mapConstructorOpts: null as Record<string, unknown> | null,
     loadHandler: null as (() => void) | null,
     rendererRenderCalls: [] as Array<{ scene: object; camera: object }>,
+    // When set, FakeMap.addLayer throws this AFTER registering the
+    // layer — exactly what happens on a real phone when the three.js
+    // renderer refuses a WebGL1 context (MapLibre registers the
+    // layer before calling onAdd).
+    addLayerThrows: null as Error | null,
   };
   class FakeMarker {
     removed = false;
@@ -78,6 +83,10 @@ const fakes = vi.hoisted(() => {
     addSource() {}
     addLayer(layer: FakeLayer) {
       state.addedLayers.push(layer);
+      // Only the truck layer's onAdd can throw (the three.js WebGL1
+      // refusal); the route-line layers added in the same load
+      // handler must still land.
+      if (state.addLayerThrows && layer.id === "drive-truck-3d") throw state.addLayerThrows;
       layer.onAdd?.(this, {});
     }
     getLayer(id: string) {
@@ -179,6 +188,7 @@ function resetFakes() {
   markerInstances.length = 0;
   fakes.state.mapConstructorOpts = null;
   fakes.state.loadHandler = null;
+  fakes.state.addLayerThrows = null;
   rendererRenderCalls.length = 0;
 }
 
@@ -360,5 +370,36 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     rendered.rerender(flat);
     await waitFor(() => expect(removedLayers).toContain("drive-truck-3d"));
     expect(addedLayers.some((l) => l.id === "drive-truck-3d")).toBe(false);
+  });
+
+  it("3D layer fails to initialise (WebGL1 on a real phone): no crash, the flat truck icon comes back instead of nothing", async () => {
+    // The exact failure from the live v106 report: MapLibre fell back
+    // to a WebGL1 context and three.js r163+ refuses it. The layer is
+    // already registered when onAdd throws, so without the fallback
+    // the map would keep "having" a truck layer that can never draw.
+    fakes.state.addLayerThrows = new Error("THREE.WebGLRenderer: WebGL 1 is not supported since r163.");
+    const rendered = await mountAndLoad(homeMap({ lat: 32.05, lng: -91.15 }));
+    // The half-registered layer is removed, and the flat icon is the
+    // truck again — the failure state re-runs the position effect at
+    // once, and a later fix would do the same.
+    await waitFor(() => expect(removedLayers).toContain("drive-truck-3d"));
+    expect(addedLayers.some((l) => l.id === "drive-truck-3d")).toBe(false);
+    rendered.rerender(homeMap({ lat: 32.06, lng: -91.14 }));
+    await waitFor(() => expect(markerInstances.length).toBeGreaterThan(0));
+  });
+
+  it("the mount-time fix is seeded: the model draws without waiting for a second fix", async () => {
+    // The first fix used to be dropped when it arrived before the
+    // map existed, so the truck stayed invisible until the next fix
+    // (on the Drive surface that is the next GPS fix, not a timer).
+    const rendered = await mountAndLoad(homeMap({ lat: 32.05, lng: -91.15 }));
+    const layer = addedLayers.find((l) => l.id === "drive-truck-3d");
+    expect(layer).toBeDefined();
+    layer!.render(
+      {} as never,
+      { modelViewProjectionMatrix: IDENTITY_MVP } as unknown as CustomRenderMethodInput,
+    );
+    expect(rendererRenderCalls).toHaveLength(1);
+    rendered.unmount();
   });
 });
