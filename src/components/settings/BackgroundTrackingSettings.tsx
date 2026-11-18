@@ -13,7 +13,7 @@ import { formatDateTime } from "@/lib/time";
 // Settings). Until then it was pinned to the GitHub release tracker-v1.0.4 - the version whose tracking
 // stopped with the app closed. When a new tracker is built, copy its APK to public/downloads under the new
 // version's name and change this one line - this constant is the only place the download URL lives.
-export const TRACKER_ANDROID_VERSION = "1.1.2";
+export const TRACKER_ANDROID_VERSION = "1.1.3";
 export const TRACKER_ANDROID_DOWNLOAD_URL = `/downloads/trucking-os-tracker-${TRACKER_ANDROID_VERSION}.apk`;
 
 type Device = { id: string; label: string; created_at: string; last_used_at: string | null };

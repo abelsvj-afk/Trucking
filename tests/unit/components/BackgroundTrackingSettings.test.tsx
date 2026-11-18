@@ -40,8 +40,8 @@ describe("BackgroundTrackingSettings", () => {
     deviceTokens.mockResolvedValue({ data: [] });
     render(<BackgroundTrackingSettings />);
     await act(async () => {});
-    const link = screen.getByRole("button", { name: "Download the tracker app (Android, version 1.1.2)" }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/downloads/trucking-os-tracker-1.1.2.apk");
+    const link = screen.getByRole("button", { name: "Download the tracker app (Android, version 1.1.3)" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/downloads/trucking-os-tracker-1.1.3.apk");
     expect(TRACKER_ANDROID_DOWNLOAD_URL).toBe(link.getAttribute("href"));
     // the file the button points at is actually shipped with the app
     expect(existsSync(`public${TRACKER_ANDROID_DOWNLOAD_URL}`)).toBe(true);

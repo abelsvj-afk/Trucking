@@ -67,3 +67,15 @@ The domain moved to roadtolegacytrucking.com. The bare domain (and www.) serves 
 position feed, is at app.roadtolegacytrucking.com. Settings now refuses the website address and says to use
 https://app.roadtolegacytrucking.com, so a wrong address can't silently drop every report. The old fly.dev address
 still works. Signed with the same key as 1.1.1, so it installs over it (no uninstall).
+
+## v1.1.3 - the floating HOS clock can be dragged, and it follows a clock reset (2026-11-17)
+Two things the driver asked for, both already in the app code, now in a build on the phone:
+- **The floating HOS clock moves.** Press and drag the card to anywhere on the screen; it follows your finger, and
+  where you leave it is where it comes back next time (saved on the phone). Built in PR #81
+  (`HosOverlayDrag` + touch handling in `HosOverlayService`); no Tracker build had shipped from main since that
+  merge, so the clock on the phone until now was the fixed-position one.
+- **The clock follows a reset.** After the clocks are reset in the app, the floating card shows the reset values
+  within one poll (30 seconds or less): the card polls the clocks endpoint every 30 s and re-anchors on every poll.
+Signed with the same key as 1.1.2, so it installs over 1.1.1 / 1.1.2 (no uninstall, saved device key stays).
+Not run on a real phone by the builder - the first check on the phone is: drag the card, close and reopen, and
+confirm it stays where it was put; then reset the clocks in the app and confirm the card follows within 30 seconds.

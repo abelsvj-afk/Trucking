@@ -7,8 +7,8 @@ android {
         applicationId "com.truckingos.tracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 8
-        versionName "1.1.2"
+        versionCode 9
+        versionName "1.1.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -20,6 +20,17 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    // androidx.collection 1.4.2 and androidx.annotation 1.8.1 both ship
+    // Kotlin-multiplatform metadata under 'commonMain/' and a
+    // 'META-INF/kotlin-project-structure-metadata.json' in their jars;
+    // without this the build fails at :app:mergeDebugJavaResource with
+    // duplicate-file errors. None of it is app content.
+    packaging {
+        resources {
+            excludes += "commonMain/**"
+            excludes += "META-INF/kotlin-project-structure-metadata.json"
         }
     }
 }
