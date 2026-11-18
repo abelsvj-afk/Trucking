@@ -1729,7 +1729,8 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // before the addition, 156 after.
     // Outbound calling (2026-11-17) adds 2 tools (place_call,
     // list_outbound_calls — outbound-call-tools.ts): 156 before, 158 after.
-    expect(buildBotTools(store)).toHaveLength(158);
+    // The way home (2026-11-17) adds 1 tool (way_home): 158 before, 159 after.
+    expect(buildBotTools(store)).toHaveLength(159);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);

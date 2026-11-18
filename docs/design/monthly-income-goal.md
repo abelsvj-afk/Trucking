@@ -32,3 +32,13 @@ Setting it again replaces it. Before 00099 is applied, the page shows the projec
 Tool `monthly_income` (read): the same calculation, so Abel answers "how much will I make this month", "am I at my
 goal", "how much more before I can go home". Questions like these are also looked up in code before the model answers
 (grounded asks).
+
+## Amendment 2026-11-17: the way home
+
+Once the month's booked loads cover his goal, Abel says which load covers it and roughly how far home is from where
+that load ends (`services/bot/way-home.ts`): straight-line distance × 1.2 road allowance at 55 mph, plus a 10-hour rest
+for each extra 11-hour driving day. It is labeled "rough estimate, not a route". Home is his `home_base` preference
+({ city, state }); without it, Abel asks where home is.
+- **Abel:** tool `way_home`, looked up in code for "when can I go home", "how far is home", "way home".
+- **Morning check-in:** the same line, only while the goal load is upcoming or delivered yesterday or today, so it
+  doesn't repeat all month.

@@ -21,6 +21,8 @@ import type { BotBrainStore } from "./store";
 import { composeCheckIn, dueCheckIn, drivingTodayMs, missingBolLine, yesterdayLogLine, type DutyRow } from "./check-in";
 import { thisPayWeekSoFar } from "./pay-projection-tools";
 import { planSmartPathWatch, verdictTrust } from "./smart-path-watch";
+import { wayHome } from "./way-home";
+import { loadMonthIncome } from "@/services/api/monthly-income";
 import { getTelegramAppUrl } from "@/services/telegram/cards";
 import { runAutoSmartPath } from "@/services/smart-path/auto";
 import { groupWaitingRows } from "./waiting-list";
@@ -134,6 +136,18 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
   }
 }
 
+/** The way home, in the morning check-in, only while the goal load is upcoming or just delivered (no month-long repeats). */
+async function homeLineFor(store: BotBrainStore, today: string): Promise<string | null> {
+  try {
+    const m = await loadMonthIncome(store.client, store.companyId);
+    const yesterday = new Date(Date.parse(`${today}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    if (!m.goalLoad || m.goalLoad.deliveryDate < yesterday) return null;
+    return (await wayHome(store)).text;
+  } catch {
+    return null;
+  }
+}
+
 /** Loads delivered today or yesterday with no BOL filed, for the evening check-in. Never fails the check-in. */
 async function paperworkLineFor(store: BotBrainStore, today: string): Promise<string | null> {
   try {
@@ -221,6 +235,7 @@ async function planCheckIn(store: BotBrainStore, snapshot: Awaited<ReturnType<ty
     logLine: due.kind === "morning" ? yesterdayLogLine(rows, now.getTime(), zone) : null,
     smartPathLine: await smartPathLineFor(store, now),
     paperworkLine: due.kind === "evening" ? await paperworkLineFor(store, due.day) : null,
+    homeLine: due.kind === "morning" ? await homeLineFor(store, due.day) : null,
   });
   return { kind: "checkin", key: `checkin:${due.kind}:${due.day}`, critical: false, text };
 }

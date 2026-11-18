@@ -39,6 +39,7 @@ import { buildCapabilityGapTools } from "./capability-gaps";
 import { buildPaycheckTools } from "./paycheck-tools";
 import { buildMonthlyIncomeTools } from "./monthly-income-tools";
 import { buildPlanRunTools } from "./plan-run-tool";
+import { buildWayHomeTools } from "./way-home";
 import { correctionSummary } from "./correction-watchouts";
 import { buildTemporalTools } from "./temporal-tools";
 import { buildLearningTools } from "./learning-tools";
@@ -1118,6 +1119,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push(...buildPaycheckTools(store));
   tools.push(...buildMonthlyIncomeTools(store));
   tools.push(...buildPlanRunTools(store));
+  tools.push(...buildWayHomeTools(store));
   tools.push(...buildTemporalTools(store));
   tools.push(...buildLearningTools(store));
   tools.push(...buildFleetTools(store));

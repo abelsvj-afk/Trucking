@@ -28,6 +28,12 @@ const ASKS: GroundedAsk[] = [
     matches: (t) => /\b(next|upcoming|current|my) (load|trip|pickup|delivery)\b|\bwhere am i (going|headed)\b|\bwhat('?s| is) (my )?next\b/.test(t),
   },
   {
+    label: "THE WAY HOME: whether his monthly goal is covered and roughly how far home is (owner 2026-11-17)",
+    tool: "way_home",
+    args: {},
+    matches: (t) => /\b(when can i (go|head) home|go(ing)? home|head(ing)? home|how far (is|to) home|way home|get home)\b/.test(t),
+  },
+  {
     label: "HIS PAY THIS MONTH AND HIS MONTHLY GOAL (docs/design/monthly-income-goal.md)",
     tool: "monthly_income",
     args: {},

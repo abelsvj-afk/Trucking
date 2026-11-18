@@ -14,9 +14,12 @@ describe("which everyday asks are looked up in code", () => {
     }
   });
   it("this month's pay and the goal", () => {
-    for (const t of ["how much will I make this month", "am I at my goal yet", "do I have enough to go home"]) {
+    for (const t of ["how much will I make this month", "am I at my goal yet"]) {
       expect(groundedAsksFor(t).map((a) => a.tool), t).toEqual(["monthly_income"]);
     }
+    // going home: both the way home and the month's figures
+    expect(groundedAsksFor("do I have enough to go home").map((a) => a.tool).sort()).toEqual(["monthly_income", "way_home"]);
+    expect(groundedAsksFor("when can I go home").map((a) => a.tool)).toEqual(["way_home"]);
   });
   it("plan my run / will I make it", () => {
     for (const t of ["plan my run", "will I make it on time?", "when will I get there", "where should I sleep tonight"]) {
