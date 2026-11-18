@@ -22,6 +22,8 @@ import { composeCheckIn, dueCheckIn, drivingTodayMs, missingBolLine, yesterdayLo
 import { thisPayWeekSoFar } from "./pay-projection-tools";
 import { planSmartPathWatch, verdictTrust } from "./smart-path-watch";
 import { wayHome } from "./way-home";
+import { planDetention } from "./detention";
+import { planWeeklyRecap } from "./weekly-recap";
 import { loadMonthIncome } from "@/services/api/monthly-income";
 import { getTelegramAppUrl } from "@/services/telegram/cards";
 import { runAutoSmartPath } from "@/services/smart-path/auto";
@@ -100,6 +102,11 @@ export async function runRemindersIfDue(overrides: Partial<ReminderDeps> = {}): 
       return null;
     });
     if (watch) due.push(watch);
+    // Detention and the Sunday recap (owner 2026-11-17: "Do it"). Each is best-effort and never blocks the rest.
+    const tz = (await loadDisplayZone(store.client, store.companyId, now.getTime()).catch(() => null))?.timeZone ?? HOME_TIME_ZONE;
+    due.push(...(await planDetention(store, now, tz).catch(() => [])));
+    const recap = await planWeeklyRecap(store, now, tz).catch(() => null);
+    if (recap) due.push(recap);
     const sendable = due.filter((r) => r.critical || !quiet);
     const held = due.length - sendable.length;
     if (sendable.length === 0) return { sent: 0, held };

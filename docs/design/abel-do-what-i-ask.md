@@ -95,3 +95,17 @@ and so is the stop side (On Duty backdated to the stop start).
 - **Missing paperwork**: the evening check-in names loads delivered today or yesterday with no BOL filed on them (a
   document typed `bol`, or a photo he sent as paperwork, counts) and asks for a photo. If the documents can't be read,
   it says nothing rather than nag wrongly.
+
+## 10. Detention and the Sunday money recap (added 2026-11-18, owner: "Do it")
+
+- **Detention** (`services/bot/detention.ts`): free time is 2 hours from his arrival or his appointment, whichever
+  is later, read from the stop's arrived / left times. When it runs out and he hasn't left, Abel tells him once,
+  with a note for dispatch he can copy (arrival, appointment, when detention started). When he leaves, Abel gives
+  the total once. Abel never sends anything to dispatch himself. Stops arrived at in the last 2 days are checked;
+  left stops for 12 hours.
+- **Sunday money recap** (`services/bot/weekly-recap.ts`): Sunday 5-9 PM on his clock, once per week. Loads
+  delivered Monday to Sunday: count and miles, the pay they earn him (same projection as the pay screens), fuel,
+  other business expenses (pay deductions excluded), cost per mile and pay per mile. With no miles it says it can't
+  work out a per-mile cost instead of guessing.
+- Both ride the reminder scheduler's tick (routine messages: quiet hours hold them) and its once-only record
+  (`reminder_sends`, kind `checkin`, migration 00098).
