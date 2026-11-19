@@ -240,7 +240,7 @@ export type TruckPoisResponse = {
   status: "ok" | "unavailable";
   items: {
     id: string;
-    kind: "fuel" | "rest" | "parking";
+    kind: "truck_stop" | "fuel" | "rest" | "parking";
     name: string | null;
     mile: number;
     point: { lat: number; lng: number };

@@ -41,6 +41,7 @@ import {
   skipNextStop,
   skipSpeech,
   speechForEvent,
+  planMeasure,
   type DriveFix,
   type DrivePlanSnapshot,
   type DriveSession,
@@ -69,12 +70,18 @@ import DriveParked from "@/components/drive/DriveParked";
 import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
+import { measurePoint, pointAtRoadMiles } from "@/lib/route-measure";
+import { timeZoneForPosition } from "@/lib/display-zone";
+
+/** Truck stops, rest areas, bridges ahead within this many miles (owner 2026-11-18: "about 30"). */
+const AHEAD_WINDOW_MILES = 30;
 import { sliceGeometryFromFraction } from "@/lib/smart-path-map-segments";
 import { useDrive3dView } from "@/lib/drive-3d-view";
 import { useSmoothedFix } from "@/lib/drive-position-smoothing";
 import { maneuverZoomTarget } from "@/lib/drive-maneuver-zoom";
 import { DRIVE_MAP_FOLLOW_ZOOM_3D } from "@/lib/drive-map-camera";
 import DriveUpcomingList, {
+  POI_META,
   type UpcomingListManeuver,
   type UpcomingListPoi,
   type UpcomingListRemaining,
@@ -840,19 +847,21 @@ export default function DrivePage() {
   // down with decimals as he rolls instead of sitting still until
   // the next GPS fix lands. When the glide has nothing to work from
   // (parked, preview, off route) the session's own fraction stands.
-  const smoothedFix = useSmoothedFix(shownFix, mapGeometry, mode === "rolling");
+  const measure = useMemo(() => (plan ? planMeasure(plan) : null), [plan]);
+  const smoothedFix = useSmoothedFix(shownFix, measure, mode === "rolling");
   const displayFix = mode === "rolling" ? (smoothedFix ?? shownFix) : shownFix;
   const liveFraction = useMemo(() => {
     if (!displayFix || !plan || !session || !sourceResult || sourceResult.load.id !== plan.loadId) {
       return session?.progressFraction ?? 0;
     }
-    const progress = routeProgress(displayFix.point, mapGeometry);
-    if (!progress?.onRoute || progress.milesDone === null) return session.progressFraction;
-    const deadheadMiles = sourceResult.deadhead?.distanceMiles ?? 0;
-    const totalMiles = sourceResult.route.distanceMiles;
-    if (totalMiles <= 0 || plan.totalMiles <= 0) return session.progressFraction;
-    return Math.max(0, Math.min(1, (deadheadMiles + progress.milesDone) / plan.totalMiles));
-  }, [displayFix, plan, session, sourceResult, mapGeometry]);
+    // ONE measurement (route-measure.ts): road miles by segment
+    // projection — the same one the session, turns, stops and truck
+    // stops use, so every number on the screen agrees.
+    if (!measure || measure.totalRoadMiles <= 0) return session.progressFraction;
+    const at = measurePoint(measure, displayFix.point);
+    if (!at?.onRoute) return session.progressFraction;
+    return Math.max(0, Math.min(1, at.roadMiles / measure.totalRoadMiles));
+  }, [displayFix, plan, session, sourceResult, measure]);
   const liveUpcoming = plan && session ? nextManeuver(plan, liveFraction) : null;
   // Miles already driven on the loaded leg, from the LIVE fraction —
   // every "miles ahead" below is measured from the gliding truck.
@@ -878,42 +887,58 @@ export default function DrivePage() {
         milesAway: liveUpcoming.milesAway,
       }
     : null;
-  // Truck POIs ahead, nearest first, within 30 miles — live distance,
-  // not the snapshot from when they were fetched.
-  const upcomingListPois: UpcomingListPoi[] = useMemo(() => {
-    if (!truckPois || !sourceResult || !plan || sourceResult.load.id !== plan.loadId) return [];
-    return truckPois
-      .map((item) => ({ ...item, milesAway: item.mile - drivenLoadedLive }))
-      .filter((item) => item.milesAway >= 0 && item.milesAway <= 30)
-      .sort((a, b) => a.milesAway - b.milesAway)
-      .slice(0, 4)
-      .map((item) => ({ id: item.id, kind: item.kind, name: item.name, milesAway: item.milesAway }));
-  }, [truckPois, sourceResult, plan, drivenLoadedLive]);
-  const mapPois: DriveMapPoi[] = useMemo(() => {
-    if (!truckPois || !sourceResult || !plan || sourceResult.load.id !== plan.loadId) return [];
-    const totalMiles = sourceResult.route.distanceMiles;
-    if (totalMiles <= 0 || mapGeometry.length < 2) return [];
-    const meta = {
-      fuel: { badge: "⛽", color: "#b45309" },
-      rest: { badge: "R", color: "#2563eb" },
-      parking: { badge: "P", color: "#0f766a" },
-    } as const;
-    const out: DriveMapPoi[] = [];
-    for (const item of truckPois) {
-      const ahead = item.mile - drivenLoadedLive;
-      if (ahead < 0 || ahead > 30) continue;
-      const point = pointAlongRoute(mapGeometry, item.mile / totalMiles);
+  // What's ahead — truck stops, rest areas, fuel, parking (OSM, free)
+  // and low/unknown-clearance bridges — in ONE list that feeds both
+  // the map icons and the left-hand chips, so they can never disagree.
+  // Every distance is road miles from the same measurement as the
+  // truck (route-measure.ts), live from the gliding fix: 7.8, 7.7…
+  // Nearest first, within 30 miles.
+  const aheadItems = useMemo(() => {
+    if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId || !measure) return [];
+    const truckMiles = liveFraction * plan.totalMiles;
+    const deadheadMiles = sourceResult.deadhead?.distanceMiles ?? 0;
+    const items: (UpcomingListPoi & { point: { lat: number; lng: number } })[] = [];
+    for (const item of truckPois ?? []) {
+      const at = measurePoint(measure, item.point);
+      if (!at?.onRoute) continue;
+      items.push({ id: `poi-${item.id}`, kind: item.kind, name: item.name, milesAway: at.roadMiles - truckMiles, point: item.point });
+    }
+    for (const bridge of sourceResult.bridges?.items ?? []) {
+      if (bridge.clearance === "ok") continue;
+      const roadMiles = deadheadMiles + bridge.mile;
+      const point = pointAtRoadMiles(measure, roadMiles);
       if (!point) continue;
-      out.push({
-        id: `poi-${item.id}`,
+      items.push({
+        id: `bridge-${bridge.id}`,
+        kind: "bridge",
+        name: bridge.clearance === "below" ? "Low bridge" : "Bridge — check clearance",
+        milesAway: roadMiles - truckMiles,
         point,
-        badge: meta[item.kind].badge,
-        color: meta[item.kind].color,
-        title: item.name ?? item.kind,
       });
     }
-    return out;
-  }, [truckPois, sourceResult, plan, mapGeometry, drivenLoadedLive]);
+    return items
+      .filter((item) => item.milesAway >= 0 && item.milesAway <= AHEAD_WINDOW_MILES)
+      .sort((x, y) => x.milesAway - y.milesAway);
+  }, [truckPois, sourceResult, plan, measure, liveFraction]);
+  const upcomingListPois: UpcomingListPoi[] = useMemo(
+    () => aheadItems.map(({ id, kind, name, milesAway }) => ({ id, kind, name, milesAway })),
+    [aheadItems],
+  );
+  // Bridges already have their own map markers (mapHazards); the
+  // icons here are the truck POIs.
+  const mapPois: DriveMapPoi[] = useMemo(
+    () =>
+      aheadItems
+        .filter((item) => item.kind !== "bridge")
+        .map((item) => ({
+          id: item.id,
+          point: item.point,
+          badge: POI_META[item.kind].badge,
+          color: POI_META[item.kind].color,
+          title: item.name ?? POI_META[item.kind].label,
+        })),
+    [aheadItems],
+  );
   // The remaining run, ticking live: miles with one decimal, minutes
   // from live speed (or the plan's pace), arrival on his clock.
   const upcomingListRemaining: UpcomingListRemaining | null = useMemo(() => {
@@ -932,6 +957,8 @@ export default function DrivePage() {
       milesLeft,
       minutesLeft,
       etaAt: minutesLeft !== null && nowMs > 0 ? new Date(nowMs + minutesLeft * 60_000) : null,
+      // Shown in the zone the truck is in now (TruckPath does the same), never UTC.
+      timeZone: displayFix ? timeZoneForPosition(displayFix.point.lat, displayFix.point.lng) : undefined,
     };
   }, [plan, session, liveFraction, displayFix, nowMs]);
 
@@ -1033,8 +1060,9 @@ export default function DrivePage() {
             <DriveRolling
               plan={plan}
               session={session}
-              lastFix={displayFix}
+              lastFix={shownFix}
               mapGeometry={driveAheadGeometry}
+              motionGeometry={plan.geometry}
               mapDeadhead={mapDeadhead}
               positionQuality={positionQuality}
               follow={follow}
@@ -1077,8 +1105,9 @@ export default function DrivePage() {
                     deadheadGeometry={mapDeadhead}
                     stops={plan.stops}
                     stopStatus={session.stopStatus}
-                    position={displayFix?.point ?? null}
-                    headingDeg={lastFix?.headingDeg ?? null}
+                    position={shownFix?.point ?? null}
+                    headingDeg={shownFix?.headingDeg ?? null}
+                    motionGeometry={plan.geometry}
                     positionQuality={positionQuality}
                     follow
                     onUserPan={() => {}}

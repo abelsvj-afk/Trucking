@@ -8,10 +8,16 @@
 // tap meant for the map. All distances tick live — the page feeds
 // it the smoothed progress, so 7.8 becomes 7.7 as he rolls.
 //
-// Times read on the driver's clock (America/New_York, the app's
-// standing zone) — never UTC, never a bare server time.
+// Times read on the driver's clock — the phone's own timezone (he
+// crosses zones on the road) — never UTC, never a bare server time.
 
+import { useState } from "react";
 import type { TruckPoiKind } from "@/services/integrations/overpass-truck-pois";
+import { viewerTimeZone } from "@/lib/time";
+import { zoneShortLabel } from "@/lib/display-zone";
+
+/** What the list can show: truck POIs plus low/unknown-clearance bridges on the route. */
+export type UpcomingListKind = TruckPoiKind | "bridge";
 
 export interface UpcomingListManeuver {
   arrow: string;
@@ -21,7 +27,7 @@ export interface UpcomingListManeuver {
 
 export interface UpcomingListPoi {
   id: string;
-  kind: TruckPoiKind;
+  kind: UpcomingListKind;
   name: string | null;
   milesAway: number;
 }
@@ -31,6 +37,8 @@ export interface UpcomingListRemaining {
   minutesLeft: number | null;
   /** Arrival time on the driver's clock; null when it cannot be timed. */
   etaAt: Date | null;
+  /** The zone to show it in — where the truck is now (the page passes it); defaults to the phone's. */
+  timeZone?: string;
 }
 
 interface Props {
@@ -39,7 +47,9 @@ interface Props {
   remaining: UpcomingListRemaining | null;
 }
 
-const POI_META: Record<TruckPoiKind, { badge: string; label: string; color: string }> = {
+export const POI_META: Record<UpcomingListKind, { badge: string; label: string; color: string }> = {
+  truck_stop: { badge: "T", label: "Truck stop", color: "#c9a227" },
+  bridge: { badge: "⚠", label: "Low bridge", color: "#b91c1c" },
   fuel: { badge: "⛽", label: "Fuel", color: "#b45309" },
   rest: { badge: "R", label: "Rest area", color: "#2563eb" },
   parking: { badge: "P", label: "Truck parking", color: "#0f766a" },
@@ -51,15 +61,28 @@ export function exitNumber(instruction: string): string | null {
   return match ? match[1]! : null;
 }
 
-function formatEta(etaAt: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York",
-  }).format(etaAt);
+/** " CT" after the arrival time (TruckPath shows the zone, 2026-11-19). Never "UTC": a zone that reads as UTC gets no label. */
+export function etaZoneLabel(timeZone: string = viewerTimeZone()): string {
+  const label = zoneShortLabel(timeZone);
+  return /^(UTC|GMT|Etc\/)/.test(label) || /^(UTC|Etc\/)/.test(timeZone) ? "" : ` ${label}`;
 }
 
-function formatMinutesLeft(minutes: number): string {
+/** "4:35 PM" on the driver's own clock (the phone's zone). */
+export function formatEta(etaAt: Date, timeZone: string = viewerTimeZone()): string {
+  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(etaAt);
+}
+
+/**
+ * Time left that ticks like the miles do: under 10 minutes it counts
+ * the seconds down too (8m 20s, 8m 10s), above that minutes (1h 04m).
+ */
+export function formatMinutesLeft(minutes: number): string {
+  if (minutes < 10) {
+    const secs = Math.max(0, Math.round(minutes * 6)) * 10; // 10-second steps
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m === 0 ? `${s}s` : `${m}m ${String(s).padStart(2, "0")}s`;
+  }
   const rounded = Math.max(0, Math.round(minutes));
   const h = Math.floor(rounded / 60);
   const m = rounded % 60;
@@ -68,7 +91,11 @@ function formatMinutesLeft(minutes: number): string {
   return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
+/** Chips shown before More (TruckPath shows three). */
+const CHIPS_SHOWN = 3;
+
 export default function DriveUpcomingList({ maneuver, pois, remaining }: Props) {
+  const [expanded, setExpanded] = useState(false);
   if (!maneuver && pois.length === 0 && !remaining) return null;
   const exit = maneuver ? exitNumber(maneuver.instruction) : null;
   return (
@@ -123,59 +150,68 @@ export default function DriveUpcomingList({ maneuver, pois, remaining }: Props) 
             )}
           </div>
         )}
-        {pois.map((poi) => {
-          const meta = POI_META[poi.kind];
-          return (
-            <div
-              key={poi.id}
-              style={{
-                background: "rgba(255,255,255,0.95)",
-                color: "#111827",
-                borderRadius: "10px",
-                padding: "6px 10px",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                boxShadow: "0 1px 4px rgba(0,0,0,.3)",
-                maxWidth: "230px",
-              }}
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: "26px",
-                  height: "26px",
-                  borderRadius: "9999px",
-                  border: `2px solid ${meta.color}`,
-                  color: meta.color,
-                  fontSize: "0.95rem",
-                  fontWeight: 800,
-                }}
-              >
-                {meta.badge}
-              </span>
-              <span
-                style={{
-                  fontSize: "1.05rem",
-                  fontWeight: 600,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {poi.name ?? meta.label}
-              </span>
-              <span style={{ fontSize: "1.25rem", fontWeight: 800, marginLeft: "auto", whiteSpace: "nowrap" }}>
-                {Math.max(0, poi.milesAway).toFixed(1)}
-                <span style={{ fontSize: "0.9rem", fontWeight: 600 }}> mi</span>
-              </span>
-            </div>
-          );
-        })}
       </div>
+      {pois.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-start" }}>
+          {(expanded ? pois : pois.slice(0, CHIPS_SHOWN)).map((poi) => {
+            const meta = POI_META[poi.kind];
+            return (
+              <div
+                key={poi.id}
+                style={{
+                  background: "rgba(255,255,255,0.95)",
+                  color: "#111827",
+                  borderRadius: "10px",
+                  padding: "6px 10px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+                  maxWidth: "230px",
+                }}
+              >
+                <span
+                  role="img"
+                  aria-label={meta.label}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minWidth: "26px",
+                    height: "26px",
+                    borderRadius: "9999px",
+                    border: `2px solid ${meta.color}`,
+                    color: meta.color,
+                    fontSize: "0.95rem",
+                    fontWeight: 800,
+                  }}
+                >
+                  {meta.badge}
+                </span>
+                {expanded && (
+                  <span style={{ fontSize: "1rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {poi.name ?? meta.label}
+                  </span>
+                )}
+                <span style={{ fontSize: "1.25rem", fontWeight: 800, marginLeft: "auto", whiteSpace: "nowrap" }}>
+                  {Math.max(0, poi.milesAway).toFixed(1)}
+                  <span style={{ fontSize: "0.9rem", fontWeight: 600 }}> mi</span>
+                </span>
+              </div>
+            );
+          })}
+          {pois.length > CHIPS_SHOWN || !expanded ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              style={{ pointerEvents: "auto", borderRadius: "10px", padding: "4px 12px", fontWeight: 700 }}
+            >
+              {expanded ? "▴ Less" : "▾ More"}
+            </button>
+          ) : null}
+        </div>
+      )}
       {remaining && (
         <div
           style={{
@@ -194,7 +230,8 @@ export default function DriveUpcomingList({ maneuver, pois, remaining }: Props) 
           </p>
           {remaining.etaAt && (
             <p style={{ margin: 0, fontSize: "1.05rem", color: "#4b5563" }}>
-              Arrive about {formatEta(remaining.etaAt)} ET
+              Arrive about {formatEta(remaining.etaAt, remaining.timeZone)}
+              {etaZoneLabel(remaining.timeZone)}
             </p>
           )}
         </div>

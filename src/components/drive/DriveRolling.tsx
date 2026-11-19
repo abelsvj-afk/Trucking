@@ -2,6 +2,7 @@
 // 2026-11-06. Markup and behavior unchanged; all state and handlers stay in
 // the page and arrive as props.
 
+import type { LatLng } from "@/lib/smart-path";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import DriveClocks from "./DriveClocks";
@@ -39,7 +40,7 @@ const MANEUVER_ARROWS = {
 type DriveMapProps = React.ComponentProps<typeof DriveMap>;
 
 export default function DriveRolling({
-  plan, session, lastFix, mapGeometry, mapDeadhead, positionQuality, follow, onFollow, night, layout,
+  plan, session, lastFix, motionGeometry, mapGeometry, mapDeadhead, positionQuality, follow, onFollow, night, layout,
   nextStop, upcoming, projection, routeNotice, muted, view3d, onView3dToggle, onReplan, onParked, onSkip, onMuteToggle,
   segments = [], hazards = [],
   pois = [],
@@ -53,6 +54,8 @@ export default function DriveRolling({
   plan: DrivePlanSnapshot;
   session: DriveSession;
   lastFix: DriveFix | null;
+  /** The whole drive line the 3D truck glides along (truck-motion.ts). */
+  motionGeometry?: LatLng[];
   mapGeometry: DriveMapProps["geometry"];
   mapDeadhead: DriveMapProps["deadheadGeometry"];
   positionQuality: DriveMapProps["positionQuality"];
@@ -98,6 +101,7 @@ export default function DriveRolling({
         stops={plan.stops}
         stopStatus={session.stopStatus}
         position={lastFix?.point ?? null}
+        motionGeometry={motionGeometry}
         headingDeg={lastFix?.headingDeg ?? null}
         positionQuality={positionQuality}
         follow={follow}

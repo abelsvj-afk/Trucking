@@ -21,6 +21,7 @@ import {
   type ClockState,
   type LatLng,
 } from "./smart-path";
+import { buildRouteMeasure, measurePoint, type RouteMeasure } from "./route-measure";
 import type { RouteManeuver } from "@/services/integrations/routing";
 import type { RouteCheckResponse } from "@/types/smart-path";
 
@@ -156,6 +157,12 @@ export interface DrivePlanSnapshot {
   /** The path actually driven: deadhead geometry (if any) joined
    * to the loaded geometry, joint point de-duplicated. */
   geometry: LatLng[];
+  /** Index in `geometry` of the deadhead leg's last point (the joint), or null
+   * with no deadhead. With `deadheadMiles` it lets every distance be measured
+   * in road miles, leg by leg (route-measure.ts). Optional: plans saved before
+   * 2026-11-19 lack it and are measured as one leg. */
+  deadheadEndIndex?: number | null;
+  deadheadMiles?: number;
   stops: DriveStop[];
   /** Maneuvers remapped onto the combined path; [] when the
    * serving provider returned none - Drive then guides by
@@ -367,6 +374,8 @@ export function buildDrivePlan(
     assumedDriveMinutes: result.verdict.assumedDriveMinutes,
     totalMiles,
     geometry,
+    deadheadEndIndex: deadhead && deadhead.geometry.length > 0 ? deadhead.geometry.length - 1 : null,
+    deadheadMiles,
     stops,
     maneuvers,
     clocks: result.clocks ?? null,
@@ -400,53 +409,6 @@ export interface DriveFix {
   atMs: number;
 }
 
-/**
- * Along-route fraction of a point, projected onto the nearest
- * SEGMENT and interpolated within it. Drive's progress math needs
- * finer resolution than the shared vertex approximation in
- * lib/smart-path (routeFractionOfPoint, design §8.1): with sparse
- * geometry a vertex snap can jump a fix past a stop and swallow
- * both its approach call and its miss. Stop PLACEMENT keeps the
- * §8.1 helper so Drive and Plan agree on where stops sit; only
- * live progress uses this.
- */
-export function fractionAlongRoute(point: LatLng, geometry: LatLng[]): number {
-  if (geometry.length < 2) return 0;
-  const cumulative: number[] = [0];
-  for (let i = 1; i < geometry.length; i++) {
-    cumulative.push(cumulative[i - 1]! + haversineMiles(geometry[i - 1]!, geometry[i]!));
-  }
-  const total = cumulative[cumulative.length - 1] || 1;
-  const milesPerDegLat = 69.09;
-  let bestAlong = 0;
-  let bestPerp = Number.POSITIVE_INFINITY;
-  for (let i = 1; i < geometry.length; i++) {
-    const a = geometry[i - 1]!;
-    const b = geometry[i]!;
-    // Local flat frame (miles) around the segment - the right
-    // scale for picking the nearest segment and the ratio along it.
-    const kx = milesPerDegLat * Math.cos((a.lat * Math.PI) / 180);
-    const ax = a.lng * kx;
-    const ay = a.lat * milesPerDegLat;
-    const bx = b.lng * kx;
-    const by = b.lat * milesPerDegLat;
-    const px = point.lng * kx;
-    const py = point.lat * milesPerDegLat;
-    const dx = bx - ax;
-    const dy = by - ay;
-    const lenSq = dx * dx + dy * dy;
-    const t =
-      lenSq === 0
-        ? 0
-        : Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-    const perp = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-    if (perp < bestPerp) {
-      bestPerp = perp;
-      bestAlong = cumulative[i - 1]! + t * (cumulative[i]! - cumulative[i - 1]!);
-    }
-  }
-  return bestAlong / total;
-}
 
 export type DriveStopStatus = "pending" | "arrived" | "skipped" | "missed";
 
@@ -599,7 +561,7 @@ export function evaluateFix(
         next.drivingMinutes += spanMinutes;
       }
 
-      const fraction = fractionAlongRoute(fix.point, plan.geometry);
+      const fraction = planFractionAt(plan, fix.point);
       if (fraction > next.progressFraction) {
         next.progressFraction = fraction;
       }
@@ -783,3 +745,36 @@ export function etaMinutesToStop(
 // (file decomposition); re-exported so every existing import still resolves.
 export * from "./drive-lines";
 export * from "./drive-review";
+
+const planMeasures = new WeakMap<DrivePlanSnapshot, RouteMeasure>();
+
+/** The plan's road-miles measure (route-measure.ts), built once per plan. */
+export function planMeasure(plan: DrivePlanSnapshot): RouteMeasure {
+  const cached = planMeasures.get(plan);
+  if (cached) return cached;
+  const g = plan.geometry;
+  const end = plan.deadheadEndIndex;
+  const dh = plan.deadheadMiles ?? 0;
+  const measure =
+    end !== null && end !== undefined && end > 0 && end < g.length - 1
+      ? buildRouteMeasure([
+          { geometry: g.slice(0, end + 1), roadMiles: dh },
+          { geometry: g.slice(end), roadMiles: plan.totalMiles - dh },
+        ])
+      : buildRouteMeasure([{ geometry: g, roadMiles: plan.totalMiles }]);
+  planMeasures.set(plan, measure);
+  return measure;
+}
+
+/**
+ * Where a point is along the plan, as a fraction of its ROAD miles —
+ * the one measurement every distance on the drive map uses (owner
+ * 2026-11-18, "11 mi to I-20 vs 19"). Segment projection, scaled to
+ * road miles per leg. 0 with no line.
+ */
+export function planFractionAt(plan: DrivePlanSnapshot, point: LatLng): number {
+  const m = planMeasure(plan);
+  const at = measurePoint(m, point);
+  if (!at || m.totalRoadMiles <= 0) return 0;
+  return Math.max(0, Math.min(1, at.roadMiles / m.totalRoadMiles));
+}

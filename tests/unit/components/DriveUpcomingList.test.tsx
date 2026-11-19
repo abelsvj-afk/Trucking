@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import DriveUpcomingList from "@/components/drive/DriveUpcomingList";
 
 afterEach(() => cleanup());
@@ -31,9 +31,33 @@ describe("DriveUpcomingList (the left-hand cards)", () => {
         remaining={null}
       />,
     );
-    expect(screen.getByText("Greenville Rest Area")).toBeTruthy();
+    // Compact chips like TruckPath: icon + miles; names behind More.
+    expect(screen.getByRole("img", { name: "Rest area" })).toBeTruthy();
     expect(screen.getByText("7.8")).toBeTruthy();
     expect(screen.getByText("17.2")).toBeTruthy();
+    expect(screen.queryByText("Greenville Rest Area")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /More/ }));
+    expect(screen.getByText("Greenville Rest Area")).toBeTruthy();
+  });
+
+  it("shows the nearest three, the rest behind More, truck stops and low bridges included", () => {
+    render(
+      <DriveUpcomingList
+        maneuver={null}
+        pois={[
+          { id: "a", kind: "truck_stop", name: "Pilot", milesAway: 3.1 },
+          { id: "b", kind: "bridge", name: "Low bridge", milesAway: 5.4 },
+          { id: "c", kind: "rest", name: null, milesAway: 9 },
+          { id: "d", kind: "fuel", name: null, milesAway: 17 },
+        ]}
+        remaining={null}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Truck stop" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Low bridge" })).toBeTruthy();
+    expect(screen.queryByText("17.0")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /More/ }));
+    expect(screen.getByText("17.0")).toBeTruthy();
   });
 
   it("shows the remaining run with miles, time, and arrival on his clock", () => {
@@ -45,12 +69,25 @@ describe("DriveUpcomingList (the left-hand cards)", () => {
           milesLeft: 146.4,
           minutesLeft: 154,
           etaAt: new Date("2026-11-18T16:57:00-05:00"),
+          timeZone: "America/Chicago",
         }}
       />,
     );
     expect(screen.getByText(/146\.4 mi/)).toBeTruthy();
     expect(screen.getByText(/2h 34m/)).toBeTruthy();
-    expect(screen.getByText(/Arrive about 4:57 PM ET/)).toBeTruthy();
+    expect(screen.getByText(/Arrive about 3:57 PM CT/)).toBeTruthy();
+  });
+
+  it("never labels the arrival UTC", () => {
+    render(
+      <DriveUpcomingList maneuver={null} pois={[]} remaining={{ milesLeft: 1, minutesLeft: 20, etaAt: new Date("2026-11-18T16:57:00Z"), timeZone: "UTC" }} />,
+    );
+    expect(document.body.textContent).not.toMatch(/UTC|GMT/);
+  });
+
+  it("time left ticks in seconds under 10 minutes", () => {
+    render(<DriveUpcomingList maneuver={null} pois={[]} remaining={{ milesLeft: 7.8, minutesLeft: 8.34, etaAt: null }} />);
+    expect(screen.getByText(/8m 20s/)).toBeTruthy();
   });
 
   it("renders nothing when there is nothing ahead", () => {

@@ -18,12 +18,13 @@
 // looked like he needed to turn around when he didn't). Callers pass
 // the remaining geometry in `geometry`; there is no traveled overlay.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
 import { truckIconSvg } from "@/lib/truck-icon";
+import { buildRouteMeasure } from "@/lib/route-measure";
 import { createTruckMapLayer, TRUCK_MAP_LAYER_ID, type TruckLayerState } from "@/lib/truck-map-layer";
 import { DRIVE_MAP_PITCH_3D, driveMapCamera } from "@/lib/drive-map-camera";
 import { segmentsToFeatureCollection, type MapSegment } from "@/lib/smart-path-map-segments";
@@ -89,6 +90,9 @@ interface DriveMapProps {
   maneuverZoom?: number | null;
   /** Truck-relevant POIs on the route (audit-fix B7). */
   pois?: DriveMapPoi[];
+  /** The WHOLE route line the truck glides along (truck-motion.ts). `geometry` may be only the part
+   * still ahead; the glide needs the line behind the truck too. Defaults to `geometry`. */
+  motionGeometry?: LatLng[];
 }
 
 const OSM_STYLE = {
@@ -178,6 +182,7 @@ export default function DriveMap({
   hazards = [],
   maneuverZoom = null,
   pois = [],
+  motionGeometry,
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -208,6 +213,18 @@ export default function DriveMap({
   // be lost that way and the truck stayed invisible until the next
   // one).
   const truckLayerStateRef = useRef<TruckLayerState | null>(null);
+  // The line the truck glides along (route-measure.ts); line miles are
+  // enough for drawing, so no road-miles calibration here.
+  const glideLine = motionGeometry ?? geometry;
+  const motionMeasure = useMemo(
+    () => (glideLine.length >= 2 ? buildRouteMeasure([{ geometry: glideLine, roadMiles: 0 }]) : null),
+    [glideLine],
+  );
+  const motionMeasureRef = useRef(motionMeasure);
+  useEffect(() => {
+    motionMeasureRef.current = motionMeasure;
+    if (truckLayerStateRef.current) truckLayerStateRef.current = { ...truckLayerStateRef.current, measure: motionMeasure };
+  }, [motionMeasure]);
   // The 3D layer failed to initialise on this mount (on a real phone
   // that is the WebGL1 fallback: three.js r163+ refuses a WebGL1
   // context, while MapLibre silently falls back to one when WebGL2
@@ -220,9 +237,19 @@ export default function DriveMap({
   const [truckLayerFailed, setTruckLayerFailed] = useState(false);
   const truckLayerFailedRef = useRef(false);
   const markTruckLayerFailed = useCallback((error: unknown) => {
-    console.error("[DriveMap] 3D truck layer failed to initialise; falling back to the flat truck icon.", error);
+    console.error("[DriveMap] 3D truck layer failed; falling back to the flat truck icon.", error);
     truckLayerFailedRef.current = true;
     setTruckLayerFailed(true);
+    // Take the dead layer off the map (deferred: this can be called
+    // from inside the layer's own render, where removing it is unsafe).
+    setTimeout(() => {
+      const map = mapRef.current;
+      try {
+        if (map?.getLayer(TRUCK_MAP_LAYER_ID)) map.removeLayer(TRUCK_MAP_LAYER_ID);
+      } catch {
+        // Best effort: the flat icon is the truck either way.
+      }
+    }, 0);
   }, []);
   useEffect(() => {
     view3dRef.current = view3d;
@@ -319,6 +346,7 @@ export default function DriveMap({
             const mc = maplibregl.MercatorCoordinate.fromLngLat([pos.lng, pos.lat], 0);
             return { x: mc.x, y: mc.y, z: mc.z, metersPerUnit: mc.meterInMercatorCoordinateUnits() };
           },
+          markTruckLayerFailed,
         ),
       );
     } catch (error) {
@@ -449,6 +477,10 @@ export default function DriveMap({
       // re-center is how follow comes back). Programmatic easeTo
       // does not fire dragstart, so the camera never fights itself.
       map.on("dragstart", () => panRef.current());
+      // The GL context can be lost mid-drive (phone memory pressure,
+      // app switching). The 3D truck cannot draw without it — the flat
+      // icon takes over rather than leaving no truck at all.
+      map.on("webglcontextlost", () => markTruckLayerFailed(new Error("WebGL context lost")));
       map.on("load", () => {
         map.addSource("drive-deadhead", {
           type: "geojson",
@@ -540,7 +572,7 @@ export default function DriveMap({
     // not a timer). A null position never clears the last real fix.
     lastPositionRef.current = position;
     lastHeadingRef.current = headingDeg;
-    if (position) truckLayerStateRef.current = { position, headingDeg };
+    if (position) truckLayerStateRef.current = { position, headingDeg, measure: motionMeasureRef.current };
     const map = mapRef.current;
     if (!map || !position) return;
     if (view3dRef.current && !truckLayerFailed) {

@@ -16,7 +16,7 @@ import { corridorBboxes } from "./tomtom-traffic";
 
 export class OverpassTruckPoisError extends Error {}
 
-export type TruckPoiKind = "fuel" | "rest" | "parking";
+export type TruckPoiKind = "truck_stop" | "fuel" | "rest" | "parking";
 
 export interface TruckPoiFeature {
   id: string;
@@ -83,6 +83,8 @@ export async function fetchTruckPoiFeatures(
       `node["amenity"="fuel"](${bbox});` +
       `way["amenity"="fuel"](${bbox});` +
       `node["highway"="rest_area"](${bbox});` +
+      `node["highway"="services"](${bbox});` +
+      `way["highway"="services"](${bbox});` +
       `way["highway"="rest_area"](${bbox});` +
       `node["amenity"="parking"]["hgv"](${bbox});` +
       `way["amenity"="parking"]["hgv"](${bbox});` +
@@ -120,9 +122,20 @@ export async function fetchTruckPoiFeatures(
       seen.add(id);
       const tags = element.tags ?? {};
       // A place can carry several tags (a fuel station that is also
-      // truck parking); rest areas win, then fuel, then parking.
+      // truck parking). Truck stops first (a travel plaza, or fuel
+      // OSM marks as serving big trucks), then rest areas, fuel,
+      // parking. Only what OSM records: an untagged truck stop shows
+      // as plain fuel, never guessed from its name.
+      const truckFuel =
+        tags.amenity === "fuel" && (tags.hgv === "yes" || tags.hgv === "designated" || tags["fuel:HGV_diesel"] === "yes");
       const kind: TruckPoiKind =
-        tags.highway === "rest_area" ? "rest" : tags.amenity === "fuel" ? "fuel" : "parking";
+        tags.highway === "services" || truckFuel
+          ? "truck_stop"
+          : tags.highway === "rest_area"
+            ? "rest"
+            : tags.amenity === "fuel"
+              ? "fuel"
+              : "parking";
       features.push({
         id,
         point: { lat, lng },
