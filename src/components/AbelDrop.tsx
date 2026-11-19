@@ -66,7 +66,15 @@ export const ASSISTANT_PATH = "/more/assistant";
 const SIDE_STORAGE_KEY = "abel-drop-side";
 const IDLE_SLEEP_MS = 45_000;
 const DOCK_WIDTH_PX = 72;
-const DOCK_MARGIN_PX = 12;
+const DOCK_MARGIN_PX = 6;
+/**
+ * UI audit 2026-11-19 (owner: "it needs to not feel cheap"): at full size the
+ * drop sat over the right edge of list cards on Loads, Money, More and Fleet.
+ * It is drawn at this scale, anchored to its docked corner, and tucked closer to
+ * the edge. The rig, animation and tap behaviour are unchanged; the tap target
+ * stays above 44 px.
+ */
+const DROP_SCALE = 0.78;
 const LONG_PRESS_MS = 550;
 
 type LifeState = "entering" | "alive" | "hopping" | "sleeping";
@@ -603,6 +611,7 @@ function AbelDropFace() {
           visibility: focusHidden ? "hidden" : "visible",
         }}
       >
+        <div style={{ transform: `scale(${DROP_SCALE})`, transformOrigin: side === "right" ? "100% 100%" : "0% 100%" }}>
         <motion.div
           data-testid="abel-drop-bob"
           animate={
@@ -741,6 +750,7 @@ function AbelDropFace() {
             </motion.div>
           </motion.div>
         </motion.div>
+        </div>
       </motion.div>
     </div>
   );

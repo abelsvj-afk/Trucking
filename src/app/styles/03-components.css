@@ -2931,3 +2931,57 @@ main .money-weeks li { padding: 0; }
   color: #fff;
   font-size: 0.95rem;
 }
+
+/* Home's fold (owner 2026-11-19): news, day wrap, the business summary and
+   Ask Abel sit one tap away under the road-first blocks. */
+.home-more {
+  margin: 1rem 0 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
+  background: var(--color-surface);
+}
+.home-more > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.home-more > summary::-webkit-details-marker {
+  display: none;
+}
+.home-more > summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--color-gold, currentColor);
+  transition: transform 0.15s ease;
+}
+.home-more[open] > summary::after {
+  transform: rotate(180deg);
+}
+.home-more[open] {
+  padding-bottom: 0.5rem;
+}
+.home-more > :not(summary) {
+  margin-left: 0.75rem;
+  margin-right: 0.75rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-more > summary::after {
+    transition: none;
+  }
+}
+.home-more-title {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.55rem 0;
+}
+.home-more-sub {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-muted-strong);
+}
