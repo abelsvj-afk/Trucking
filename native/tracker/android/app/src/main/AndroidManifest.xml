@@ -24,6 +24,19 @@
 
         </activity>
 
+        <!-- The drive map inside the Tracker (2026-11-19): keeps the screen on, and floats
+             small (picture-in-picture, draggable and resizable by the system) when he
+             leaves it. Its own task, so the floating map never drags Settings along. -->
+        <activity
+            android:name=".MapActivity"
+            android:label="Map"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.truckingos.tracker.map"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation|density" />
+
         <!-- The floating HOS clock card (docs/design/eld-roadside-overlay.md):
              a plain Service that draws one overlay window while it runs.
              Not exported - only this app starts and stops it. -->
@@ -57,6 +70,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Voice notes from the map screen (2026-11-19): asked only when he taps the mic. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- The floating HOS overlay (user-granted at runtime via the system
          "display over other apps" screen; the Tracker settings explain it). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />

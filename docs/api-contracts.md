@@ -578,6 +578,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/what-i-know` | GET,POST | custom (see section / design doc) |
 | `/api/v1/map/speed-limit` | GET | custom (see section / design doc) |
 | `/api/v1/map/where` | GET | custom (see section / design doc) |
+| `/api/v1/voice/speak` | POST | custom (docs/design/map-everywhere.md) |
 | `/api/v1/voice-notes` | GET,POST | custom (docs/design/voice-notes.md) |
 | `/api/v1/voice-notes/[id]` | DELETE | custom (docs/design/voice-notes.md) |
 | `/api/v1/voice-notes/[id]/audio` | GET | custom (docs/design/voice-notes.md) |
@@ -707,3 +708,11 @@ All routes are authenticated, and row-level security scopes them to the caller's
 - `POST /api/v1/voice-notes/:id/view` `{ listened?: true, passed?: true }` → never un-sets a time already recorded.
 - `POST /api/v1/voice-notes/:id/report` `{ kind: "gone" | "bad" }` → one report per driver per kind.
 - `DELETE /api/v1/voice-notes/:id` → author only; sets `removed_at`.
+
+### Spoken drive lines (`POST /api/v1/voice/speak`) — 2026-11-19
+
+Authenticated. Body `{ text }`, 1–300 characters. Returns one of:
+- `{ data: { url, source: "saved" | "generated" } }` — a 1-hour signed link to his ElevenLabs clip;
+- `{ data: { url: null, reason: "not_configured" | "budget_reached" | "too_long" | "unavailable" } }` — the app speaks with the phone's voice instead.
+
+A line is generated at most once per voice and then served from storage. Design: `docs/design/map-everywhere.md`.
