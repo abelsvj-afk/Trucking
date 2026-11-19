@@ -138,6 +138,11 @@ export default function HosPage() {
       {shortTerm && hos && hasAnyLogs && (
         <section aria-label="Summary">
           <h2>Where you stand</h2>
+          {hosWindow.state.status === "loaded" && hosWindow.state.stale && (
+            <p role="alert">
+              These hours may be out of date — the last refresh didn&apos;t reach the server. Check the ELD.
+            </p>
+          )}
           <ul>
             <li>Driving in this 14-hour window: {formatMinutes(shortTerm.drivingMinutesInWindow)} of 11h</li>
             <li>Window elapsed: {formatMinutes(shortTerm.windowElapsedMinutes)} of 14h</li>

@@ -104,9 +104,12 @@ export interface CrudRouteOptions {
   // duty_log_edits trail row). NEVER fired on an idempotency dedup
   // replay (no write happened) and undefined for every entity that
   // doesn't opt in - all other entities behave exactly as before.
-  // A hook failure is logged, never allowed to fail the write that
-  // already landed: reporting failure for a saved record would invite
-  // a duplicate retry.
+  // A hook failure is logged with the entity id and surfaced as an
+  // `after_write_warning` on the create/update response (audit D
+  // MEDIUM 5) - never allowed to fail the write that already landed:
+  // reporting failure for a saved record would invite a duplicate
+  // retry. DELETE has no response body, so a hook failure there is
+  // log-only (no entity in this codebase wires a delete hook today).
   afterWrite?: (ctx: {
     supabase: Awaited<ReturnType<typeof createClient>>;
     companyId: string;
@@ -187,9 +190,11 @@ export function createCrudRoutes<Row extends { id: string }>(
     const body = options.prepareCreate ? options.prepareCreate(parsed.data) : parsed.data;
 
     // Fires the entity's afterWrite hook for a REAL create (never for
-    // the dedup replay below - no write happens there).
-    const fireAfterWrite = async (row: Row) => {
-      if (!options.afterWrite) return;
+    // the dedup replay below - no write happens there). Returns the
+    // plain-words warning to carry on the response when the hook
+    // failed (audit D MEDIUM 5); null when there is no hook or it ran.
+    const fireAfterWrite = async (row: Row): Promise<string | null> => {
+      if (!options.afterWrite) return null;
       try {
         await options.afterWrite({
           supabase,
@@ -200,8 +205,10 @@ export function createCrudRoutes<Row extends { id: string }>(
           after: row as Record<string, unknown>,
           rawBody,
         });
+        return null;
       } catch (hookErr) {
-        console.error(`[crud-routes] afterWrite failed for ${table}:`, hookErr);
+        console.error(`[crud-routes] afterWrite failed for ${table} ${row.id}:`, hookErr);
+        return "Saved, but a follow-on step didn't run — the record is saved; check its history.";
       }
     };
 
@@ -209,8 +216,11 @@ export function createCrudRoutes<Row extends { id: string }>(
     // that don't send a token get no dedup guarantee (design A.6).
     if (!submissionId) {
       const row = await crud.create(supabase, ctx.auth.companyId, body);
-      await fireAfterWrite(row);
-      return NextResponse.json(row, { status: 201 });
+      const warning = await fireAfterWrite(row);
+      return NextResponse.json(
+        warning ? { ...row, after_write_warning: warning } : row,
+        { status: 201 },
+      );
     }
 
     const fingerprint = payloadFingerprint(body);
@@ -220,8 +230,11 @@ export function createCrudRoutes<Row extends { id: string }>(
         submission_id: submissionId,
         submission_payload_hash: fingerprint,
       });
-      await fireAfterWrite(row);
-      return NextResponse.json(row, { status: 201 });
+      const warning = await fireAfterWrite(row);
+      return NextResponse.json(
+        warning ? { ...row, after_write_warning: warning } : row,
+        { status: 201 },
+      );
     } catch (err) {
       // Only a violation of THIS table's named idempotency index enters
       // the dedup path; every other error is its own error (A.6).
@@ -292,6 +305,10 @@ export function createCrudRoutes<Row extends { id: string }>(
     const writePatch = options.prepareUpdate ? options.prepareUpdate(merged, patch) : patch;
     const row = await crud.update(supabase, id, writePatch);
     if (!row) throw notFound();
+    // Same contract as create above: a failed hook is logged with
+    // the entity id and rides back as after_write_warning - the
+    // write itself stands (audit D MEDIUM 5).
+    let afterWriteWarning: string | null = null;
     if (options.afterWrite) {
       try {
         await options.afterWrite({
@@ -304,10 +321,13 @@ export function createCrudRoutes<Row extends { id: string }>(
           rawPatch: patch as Record<string, unknown>,
         });
       } catch (hookErr) {
-        console.error(`[crud-routes] afterWrite failed for ${table}:`, hookErr);
+        console.error(`[crud-routes] afterWrite failed for ${table} ${id}:`, hookErr);
+        afterWriteWarning = "Saved, but a follow-on step didn't run — the record is saved; check its history.";
       }
     }
-    return NextResponse.json(row);
+    return NextResponse.json(
+      afterWriteWarning ? { ...row, after_write_warning: afterWriteWarning } : row,
+    );
   });
 
   const remove = createApiHandler(async (_req, ctx) => {

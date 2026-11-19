@@ -8,6 +8,7 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
 import PageHeader from "@/components/PageHeader";
 import { ListLoading, ListError } from "@/components/ListStates";
@@ -32,6 +33,11 @@ const hours = (minutes: number) => `${Math.floor(minutes / 60)}h ${String(minute
 export default function PaperLogReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   usePageTitle("Review paper log");
+  const searchParams = useSearchParams();
+  // ?read=failed (audit D LOW 10): the upload's auto-read failed,
+  // so the review screen says so instead of presenting an unread
+  // sheet as if nothing happened. Cleared by a successful re-read.
+  const [readNote, setReadNote] = useState(() => searchParams.get("read") === "failed");
   const [review, setReview] = useState<PaperLogReview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftSegment[]>([]);
@@ -70,6 +76,7 @@ export default function PaperLogReviewPage({ params }: { params: Promise<{ id: s
     setSaveError(null);
     try {
       accept((await apiClient.readPaperLog(id)).data);
+      setReadNote(false);
     } catch (err) {
       setSaveError(err instanceof ApiClientError ? err.message : "Couldn't reach the server.");
     } finally {
@@ -142,6 +149,13 @@ export default function PaperLogReviewPage({ params }: { params: Promise<{ id: s
         title="Review paper log"
         purpose="Check each stretch against your sheet. Nothing goes in your log until you save."
       />
+
+      {readNote && (
+        <p role="status">
+          The photo didn&apos;t read automatically — check the day by hand below, or tap &ldquo;Read
+          the grid&rdquo; to try again.
+        </p>
+      )}
 
       <section aria-label="Your sheet" className="paper-photo">
         {review.photo_url ? (

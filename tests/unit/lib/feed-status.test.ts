@@ -3,7 +3,8 @@ import { feedStatus, FEED_OFF_TEXT, FEED_SETUP_TEXT, FEED_STALE_TEXT } from "@/l
 import { cleanResearchError } from "@/lib/research-errors";
 
 const watcher = (key: string, last_error: string | null = null, last_status = "ok") => ({ watcher_key: key, last_error, last_status, last_polled_at: null });
-const page = (over: Record<string, unknown> = {}) => ({ engine_enabled: true, runner: { last_tick_at: "2026-11-07T10:00:00Z", last_source: "x", stale: false }, watchers: [watcher("eia_diesel")], ...over }) as never;
+const run = (status: string, created_at = "2026-11-07T09:00:00Z") => ({ status, created_at });
+const page = (over: Record<string, unknown> = {}) => ({ engine_enabled: true, runner: { last_tick_at: "2026-11-07T10:00:00Z", last_source: "x", stale: false }, watchers: [watcher("eia_diesel")], runs: [], ...over }) as never;
 
 describe("feedStatus: one verdict for Home and Industry Intelligence", () => {
   it("off / setup / stale / degraded / ok, each with its one sentence", () => {
@@ -14,6 +15,15 @@ describe("feedStatus: one verdict for Home and Industry Intelligence", () => {
     expect(d.state).toBe("degraded");
     expect(d.failing).toEqual(["industry news"]);
     expect(feedStatus(page()).state).toBe("ok");
+  });
+  it("a failed newest research run joins the failing list (audit D LOW 9); a later success clears it", () => {
+    const failed = feedStatus(page({ runs: [run("failure"), run("success", "2026-11-06T09:00:00Z")] }));
+    expect(failed.state).toBe("degraded");
+    expect(failed.failing).toEqual(["research runs"]);
+    expect(failed.text).toContain("research runs");
+    const recovered = feedStatus(page({ runs: [run("success"), run("failure", "2026-11-06T09:00:00Z")] }));
+    expect(recovered.state).toBe("ok");
+    expect(recovered.failing).toEqual([]);
   });
   it("an unavailable status is stated, not assumed healthy", () => {
     expect(feedStatus(null).text).toContain("unavailable");

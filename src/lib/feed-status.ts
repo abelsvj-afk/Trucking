@@ -18,7 +18,7 @@ export const FEED_OFF_TEXT = "News is off — the research engine is turned off 
 export const FEED_SETUP_TEXT = "The research engine hasn't run yet — it needs its one-time setup before headlines appear.";
 export const FEED_STALE_TEXT = "The research runner hasn't checked in for over a day — headlines may be behind.";
 
-export function feedStatus(page: Pick<ResearchPageData, "engine_enabled" | "runner" | "watchers"> | null): FeedStatus {
+export function feedStatus(page: Pick<ResearchPageData, "engine_enabled" | "runner" | "watchers" | "runs"> | null): FeedStatus {
   if (page === null) return { state: "off", text: "News status is unavailable right now.", failing: [] };
   if (!page.engine_enabled) return { state: "off", text: FEED_OFF_TEXT, failing: [] };
   if (page.runner === null || page.runner.last_tick_at === null) {
@@ -30,6 +30,16 @@ export function feedStatus(page: Pick<ResearchPageData, "engine_enabled" | "runn
   const failing = (page.watchers ?? [])
     .filter((w) => w.last_error || (w.last_status ?? "").toLowerCase().includes("error") || (w.last_status ?? "").toLowerCase() === "failure")
     .map((w) => w.watcher_key.replace(/_/g, " "));
+  // A failed research run used to produce nothing and say nothing
+  // (audit D LOW 9): the run log records the failure, but the feed
+  // status - the one line Home and Industry Intelligence read -
+  // stayed "ok". The newest run failing joins the failing list, so a
+  // run that died is visible where the feed is judged. A later
+  // success clears it: only the newest run counts.
+  const latestRun = (page.runs ?? [])[0];
+  if (latestRun?.status === "failure") {
+    failing.push("research runs");
+  }
   if (failing.length > 0) {
     return { state: "degraded", text: `News is running, but ${failing.length === 1 ? "one source is" : `${failing.length} sources are`} not answering (${failing.join(", ")}). The others are fine.`, failing };
   }

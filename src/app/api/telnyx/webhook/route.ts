@@ -13,14 +13,17 @@
 // call.conversation.ended -> completed + conversation id;
 // call.conversation_insights.generated -> transcript + outcome.
 // After a terminal event the next queued call for that company is
-// claimed and dialed, so the queue keeps moving on its own.
+// claimed and dialed, so the queue keeps moving on its own - and the
+// periodic sweep (services/calling/scheduler.ts) does the same when a
+// terminal event is missed or lost, so the webhook is no longer the
+// queue's only mover.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCallingConfig } from "@/services/calling/config";
-import { claimNextOutboundCall, findOutboundCallByControlId, updateOutboundCall } from "@/services/calling/queue";
-import { dialOutboundCallRow } from "@/services/calling/dialer";
+import { dialNextQueued } from "@/services/calling/dial-next";
+import { findOutboundCallByControlId, updateOutboundCall } from "@/services/calling/queue";
 import { verifyTelnyxSignature } from "@/services/calling/telnyx";
 
 function serviceRoleClient(): SupabaseClient | null {
@@ -48,19 +51,6 @@ interface TelnyxEvent {
 function eventCallControlId(event: TelnyxEvent): string | null {
   const id = event.data?.payload?.call_control_id;
   return typeof id === "string" && id ? id : null;
-}
-
-async function dialNextQueued(client: SupabaseClient, companyId: string): Promise<void> {
-  const config = getCallingConfig();
-  if (!config.telnyxApiKey || !config.phoneNumber || !config.assistantId) return;
-  let claimed;
-  try {
-    claimed = await claimNextOutboundCall(client, companyId);
-  } catch {
-    return;
-  }
-  if (!claimed) return;
-  await dialOutboundCallRow(client, claimed, { config });
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {

@@ -9,6 +9,12 @@ import { countPerDiemDays, type PerDiemCount } from "@/lib/per-diem";
 import { easternDate } from "@/lib/day-wrap";
 import type { DutyLog, Expense, FuelPurchase, Load } from "@/types/entities";
 
+/** A missing settlements table (pre-migration database) is not a read failure - the packet proceeds without it. */
+function isMissingTableError(error: { message?: string } | null): boolean {
+  const message = error?.message ?? "";
+  return message.includes("does not exist") || message.includes("Could not find the table");
+}
+
 export async function getIftaWorksheet(
   supabase: SupabaseClient,
   companyId: string,
@@ -119,8 +125,13 @@ export async function getTaxPacket(
   // below used to promise this join while no query existed. Missing-
   // table tolerant like day-wrap's Cluster-D reads: a database
   // without the settlements migration yields zero, never a failure.
+  // But a database WITH the table that fails to read is different
+  // from a database without it (audit D LOW 10): then the packet
+  // says so in its note instead of proceeding silently without the
+  // settlement income.
   let settlementIncomeCents = 0;
   let settlementsCount = 0;
+  let settlementsMissing = false;
   try {
     const settlementsResult = await supabase
       .from("settlements")
@@ -132,9 +143,14 @@ export async function getTaxPacket(
       const rows = (settlementsResult.data ?? []) as { driver_pay_cents: number }[];
       settlementsCount = rows.length;
       settlementIncomeCents = rows.reduce((s, r) => s + (r.driver_pay_cents ?? 0), 0);
+    } else if (!isMissingTableError(settlementsResult.error)) {
+      settlementsMissing = true;
     }
   } catch {
     // Table absent on this database — packet proceeds without it.
+    // A thrown read error (not a missing table) is also silent here
+    // by the same tolerance; only a returned error on a present
+    // table sets the flag above.
   }
 
   const fuel = ((fuelResult.data ?? []) as FuelPurchase[]).filter((f) =>
@@ -165,6 +181,10 @@ export async function getTaxPacket(
     completedLoads: loads.length,
     settlementIncomeCents,
     settlementsCount,
-    note: "Assembled from his own records for his tax preparer — per-diem counted by the rule in lib/per-diem.ts at the labeled rate; settlement income (Abel Phase D, driver pay on settlements whose period ends in the year) is included above when settlements exist.",
+    note:
+      "Assembled from his own records for his tax preparer — per-diem counted by the rule in lib/per-diem.ts at the labeled rate; settlement income (Abel Phase D, driver pay on settlements whose period ends in the year) is included above when settlements exist." +
+      (settlementsMissing
+        ? " Settlement income couldn't be read, so it isn't in this packet — check settlements before filing."
+        : ""),
   };
 }

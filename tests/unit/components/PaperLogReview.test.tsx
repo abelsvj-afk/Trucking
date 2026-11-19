@@ -11,6 +11,14 @@ vi.mock("@/lib/api-client", () => ({
   ApiClientError: class extends Error {},
 }));
 
+// The review page reads ?read=failed via useSearchParams (audit D
+// LOW 10); without a router context that hook throws in jsdom, so
+// the test supplies the params stand-in - the same mock the
+// financial-summary detail test uses. Tests set ?read=failed on it
+// to cover the note.
+let searchParams = new URLSearchParams();
+vi.mock("next/navigation", () => ({ useSearchParams: () => searchParams }));
+
 import { apiClient } from "@/lib/api-client";
 import PaperLogReviewPage from "@/app/(app)/fleet/hos/paper/[id]/page";
 import type { PaperLogReview } from "@/types/paper-logs";
@@ -57,7 +65,10 @@ async function mount(r: PaperLogReview) {
 
 const saveButton = () => screen.getByRole("button", { name: /Save 2026-11-03 to my log/ }) as HTMLButtonElement;
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  searchParams = new URLSearchParams();
+});
 
 describe("Paper log review", () => {
   it("shows the photo, says how sure the reader was in words, and blocks saving", async () => {
@@ -109,6 +120,25 @@ describe("Paper log review", () => {
     );
     expect(screen.getAllByText(/differs/).length).toBeGreaterThan(0);
     expect(saveButton().disabled).toBe(false);
+  });
+
+  it("says the auto-read failed when ?read=failed, and clears the note after a successful re-read (audit D LOW 10)", async () => {
+    searchParams.set("read", "failed");
+    await mount(
+      review({
+        read: false,
+        log_date: null,
+        draft: [{ status: null, startMin: 0, endMin: h(24), confidence: null, origin: "missing" }],
+        written_totals: null,
+        conflicts: [],
+      }),
+    );
+    expect(screen.getByText(/didn't read automatically/)).toBeTruthy();
+    vi.mocked(apiClient.readPaperLog).mockResolvedValue({ data: review() });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Read the grid" }));
+    });
+    expect(screen.queryByText(/didn't read automatically/)).toBeNull();
   });
 
   it("an unread sheet offers a read or entry by hand - a whole missing day, nothing invented", async () => {

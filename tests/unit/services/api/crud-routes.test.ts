@@ -150,6 +150,56 @@ describe("createCrudRoutes", () => {
 
     expect(eqCalls).toEqual([]);
   });
+
+  it("create: a failed afterWrite still 201s, with after_write_warning on the response (audit D MEDIUM 5)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ data: { id: "1", name: "a" } }) as never,
+    );
+    const routes = createCrudRoutes<TestRow>("things", schemas, {
+      afterWrite: async () => {
+        throw new Error("trail write failed");
+      },
+    });
+
+    const req = new NextRequest("http://localhost/api/v1/things", {
+      method: "POST",
+      body: JSON.stringify({ name: "a" }),
+    });
+    const res = await routes.create(req);
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.id).toBe("1");
+    expect(body.after_write_warning).toMatch(/follow-on step/);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("afterWrite failed for things 1"), expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it("update: a failed afterWrite still 200s, with after_write_warning on the response (audit D MEDIUM 5)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ data: { id: "1", name: "a" } }) as never,
+    );
+    const routes = createCrudRoutes<TestRow>("things", schemas, {
+      afterWrite: async () => {
+        throw new Error("trail write failed");
+      },
+    });
+
+    const req = new NextRequest("http://localhost/api/v1/things/1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "b" }),
+    });
+    const res = await routes.update(req, { params: Promise.resolve({ id: "1" }) });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.id).toBe("1");
+    expect(body.after_write_warning).toMatch(/follow-on step/);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("afterWrite failed for things 1"), expect.any(Error));
+    errorSpy.mockRestore();
+  });
 });
 
 describe("createCrudRoutes: URL-named routes reach the snake_case table (Invoices page error)", () => {

@@ -17,7 +17,20 @@ import type { DutyLogWindowSummary } from "@/types/hos-settings";
 export type HosWindowState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "loaded"; data: DutyLog[]; hos: DutyLogWindowSummary };
+  | {
+      status: "loaded";
+      data: DutyLog[];
+      hos: DutyLogWindowSummary;
+      /**
+       * Stale-data flag (audit D MEDIUM 4): a failed silent refresh
+       * keeps the last good data rather than blanking a ticking
+       * display - but the display must say so. `staleSinceMs` is
+       * when the data stopped being fresh, so the label can carry
+       * its age. A successful fetch clears both.
+       */
+      stale: boolean;
+      staleSinceMs: number | null;
+    };
 
 export function useHosWindow() {
   const [state, setState] = useState<HosWindowState>({ status: "loading" });
@@ -25,7 +38,9 @@ export function useHosWindow() {
   const fetchWindow = useCallback(() => {
     apiClient
       .dutyLogWindow()
-      .then((result) => setState({ status: "loaded", data: result.data, hos: result.hos }))
+      .then((result) =>
+        setState({ status: "loaded", data: result.data, hos: result.hos, stale: false, staleSinceMs: null }),
+      )
       .catch((err: unknown) => {
         const message =
           err instanceof ApiClientError ? err.message : "Couldn't reach the server. Try again.";
@@ -47,12 +62,22 @@ export function useHosWindow() {
 
   // Silent re-fetch (no loading flash): focus, the 5-minute safety
   // net and after-save refreshes. A failed silent refresh keeps the
-  // last good data rather than blanking a ticking display.
+  // last good data rather than blanking a ticking display - and marks
+  // it stale with its age, so the clocks never present old data as
+  // current (audit D MEDIUM 4).
   const refresh = useCallback(() => {
     apiClient
       .dutyLogWindow()
-      .then((result) => setState({ status: "loaded", data: result.data, hos: result.hos }))
-      .catch(() => {});
+      .then((result) =>
+        setState({ status: "loaded", data: result.data, hos: result.hos, stale: false, staleSinceMs: null }),
+      )
+      .catch(() => {
+        setState((prev) =>
+          prev.status === "loaded"
+            ? { ...prev, stale: true, staleSinceMs: prev.staleSinceMs ?? Date.now() }
+            : prev,
+        );
+      });
   }, []);
 
   return { state, retry, refresh };

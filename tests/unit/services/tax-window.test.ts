@@ -29,7 +29,7 @@ const NEXT_YEAR_PURCHASE = {
   gallons: 99, state: "FL", total_cost_cents: 9900, deleted_at: null,
 };
 
-function boundAwareFake() {
+function boundAwareFake(errorTables: string[] = []) {
   const tables: Record<string, Record<string, unknown>[]> = {
     fuel_purchases: [EVENING_PURCHASE, MID_PURCHASE, NEXT_YEAR_PURCHASE],
     loads: [],
@@ -58,7 +58,11 @@ function boundAwareFake() {
       builder.order = () => builder;
       builder.limit = () => builder;
       builder.then = (resolve: (v: unknown) => void) =>
-        resolve({ data: rows, error: null, count: rows.length });
+        resolve(
+          errorTables.includes(table)
+            ? { data: null, error: { message: "settlements read failed" }, count: 0 }
+            : { data: rows, error: null, count: rows.length },
+        );
       return builder;
     },
   };
@@ -78,5 +82,17 @@ describe("tax packet fuel year (ET bucketing)", () => {
     const packet = await getTaxPacket(boundAwareFake(), COMPANY, 2026);
     expect(packet.fuel.purchases).toBe(2);
     expect(packet.fuel.totalCostCents).toBe(31500);
+  });
+
+  it("says so in the packet note when settlements can't be read (audit D LOW 10)", async () => {
+    const packet = await getTaxPacket(boundAwareFake(["settlements"]), COMPANY, 2026);
+    expect(packet.settlementsCount).toBe(0);
+    expect(packet.note).toContain("Settlement income couldn't be read");
+    expect(packet.note).toContain("check settlements before filing");
+  });
+
+  it("does not warn when settlements read fine", async () => {
+    const packet = await getTaxPacket(boundAwareFake(), COMPANY, 2026);
+    expect(packet.note).not.toContain("couldn't be read");
   });
 });

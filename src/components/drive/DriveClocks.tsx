@@ -46,8 +46,19 @@ export default function DriveClocks({ dark = false }: { dark?: boolean }) {
       </p>
     );
   }
+  // Stale-data label (audit D MEDIUM 4): the last good clocks keep
+  // ticking, but they say how old they are instead of presenting
+  // themselves as current.
+  const staleAgeMinutes =
+    state.stale && state.staleSinceMs !== null ? Math.max(0, Math.floor((nowMs - state.staleSinceMs) / 60_000)) : 0;
+  const staleAge = staleAgeMinutes < 1 ? "less than a minute" : `${staleAgeMinutes} min`;
   return (
     <div aria-label="Hours clocks" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "6px" }}>
+      {state.stale && (
+        <p role="status" style={{ gridColumn: "1 / -1", margin: 0, fontSize: "0.85rem", fontWeight: 700 }}>
+          Showing last good hours — {staleAge} old. Check the ELD.
+        </p>
+      )}
       {clocks.clocks.map((clock) => (
         <p
           key={clock.key}

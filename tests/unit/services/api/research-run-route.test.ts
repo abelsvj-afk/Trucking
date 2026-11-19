@@ -14,6 +14,13 @@ vi.mock("@/services/bot/consolidation-scheduler", () => ({
   runConsolidationIfDue: vi.fn(async () => {}),
 }));
 
+// Same cure for the calling sweep piggyback (audit A-M5/A-m3): the
+// real sweep reads live env (TELEGRAM_COMPANY_ID, Supabase service
+// key) and would attempt a real queue read under test.
+vi.mock("@/services/calling/scheduler", () => ({
+  runCallingSweep: vi.fn(async () => {}),
+}));
+
 import { runResearchTick } from "@/services/research/scheduler";
 import { POST } from "@/app/api/internal/research/run/route";
 

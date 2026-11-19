@@ -405,10 +405,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   });
 
   // ELD stopped vehicle §3.1: the feed-health tell for a DEAD feed.
-  // No scheduler exists to fire it on a timer, so it runs
-  // best-effort on his next inbound Telegram interaction — one
-  // message per stale period, never an invented stop. A failure
-  // here never fails the update.
+  // The periodic sweep fires it on a timer; this runs it best-effort
+  // on his next inbound Telegram interaction as well - one message
+  // per stale period, never an invented stop. A failure here never
+  // fails the update.
   if (brainStore) {
     try {
       await maybeSendFeedStaleTell({
