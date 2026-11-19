@@ -229,6 +229,7 @@ export default function DriveMap({
   const stopMarkersRef = useRef<MapLibreMarker[]>([]);
   const hazardMarkersRef = useRef<MapLibreMarker[]>([]);
   const poiMarkersRef = useRef<MapLibreMarker[]>([]);
+  const markerSigRef = useRef({ stops: "", hazards: "", pois: "" });
   const positionMarkerRef = useRef<MapLibreMarker | null>(null);
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
@@ -271,6 +272,11 @@ export default function DriveMap({
   // position effect re-runs and the marker comes back at once) with
   // a ref mirror for the stable callbacks.
   const [truckLayerFailed, setTruckLayerFailed] = useState(false);
+  // The 3D truck has really drawn a frame on this map. Until then (and
+  // whenever 3D fails or is off) the flat gold truck is the truck. Once
+  // it has, the flat one goes, so there is ONE truck: two of them drift
+  // apart while moving (the icon jumps to each fix, the model glides).
+  const [truck3dDrawn, setTruck3dDrawn] = useState(false);
   const truckLayerFailedRef = useRef(false);
   const markTruckLayerFailed = useCallback((error: unknown) => {
     console.error("[DriveMap] 3D truck layer failed; falling back to the flat truck icon.", error);
@@ -309,6 +315,10 @@ export default function DriveMap({
   // only re-aims the tilt. Follow zoom and bearing are follow
   // properties, not 3D ones — a flat following map still zooms in
   // and rotates with the heading.
+  // Camera state shared by applyCamera (per-fix ease) and followPose (per-frame glide follow).
+  const cameraTargetRef = useRef<{ zoom: number | null; pitch: number; padTop: number }>({ zoom: null, pitch: 0, padTop: 0 });
+  const userZoomRef = useRef<number | null>(null);
+  const followFrameRef = useRef<number | null>(null);
   const applyCamera = useCallback(
     (pos: LatLng | null) => {
       const map = mapRef.current;
@@ -331,15 +341,22 @@ export default function DriveMap({
           duration: 700,
           pitch: cam.pitch,
           ...(cam.bearing !== null ? { bearing: cam.bearing } : {}),
-          ...(cam.zoom !== null ? { zoom: cam.zoom } : {}),
-          offset: cam.offset,
+          ...(cam.zoom !== null ? { zoom: userZoomRef.current ?? cam.zoom } : {}),
+          // Padding (not offset) pushes the truck down-screen, so the
+          // per-frame glide follower below uses the very same framing.
+          padding: { top: cam.offset[1] * 2, bottom: 0, left: 0, right: 0 },
         });
+        cameraTargetRef.current = { zoom: cam.zoom, pitch: cam.pitch, padTop: cam.offset[1] * 2 };
       } else {
-        map.easeTo({ duration: 700, pitch: cam.pitch, offset: cam.offset });
+        map.easeTo({ duration: 700, pitch: cam.pitch, padding: { top: cam.offset[1] * 2, bottom: 0, left: 0, right: 0 } });
       }
     },
     [headingUp, followZoom, maneuverZoom],
   );
+  const applyCameraRef = useRef<(pos: LatLng | null) => void>(() => {});
+  useEffect(() => {
+    applyCameraRef.current = applyCamera;
+  }, [applyCamera]);
 
   // The 3D truck model lives in a MapLibre custom layer (real
   // geometry, not an icon). Added when the 3D view is on, removed
@@ -358,6 +375,60 @@ export default function DriveMap({
   // so getLayer would keep reporting it as present and no retry
   // would ever happen) and the flat 2D icon takes over as the
   // truck. The error is logged in full.
+  // Smooth follow (owner 2026-11-19: "it's still jumping every time it
+  // moves"): once the 3D truck draws, the camera follows the truck AS IT
+  // GLIDES, frame by frame, instead of easing to each raw GPS fix (which
+  // left the view lurching once a second). A zoom HE makes with his
+  // fingers is kept (userZoomRef) — the map no longer yanks it back.
+  const followPose = useCallback((pose: { position: LatLng; headingDeg: number }) => {
+    const map = mapRef.current;
+    if (!map || !followRef.current || !view3dRef.current || followFrameRef.current !== null) return;
+    followFrameRef.current = requestAnimationFrame(() => {
+      followFrameRef.current = null;
+      if (mapRef.current !== map) return; // the map was removed (page left) meanwhile
+      const t = cameraTargetRef.current;
+      const center = map.getCenter();
+      const zoom = map.getZoom();
+      const bearing = map.getBearing();
+      const pitch = map.getPitch();
+      const targetZoom = userZoomRef.current ?? t.zoom ?? zoom;
+      const nextZoom = zoom + (targetZoom - zoom) * 0.15;
+      const turn = ((((pose.headingDeg - bearing) % 360) + 540) % 360) - 180;
+      const nextBearing = bearing + turn * 0.2;
+      const nextPitch = pitch + (t.pitch - pitch) * 0.15;
+      const moved = Math.abs(center.lng - pose.position.lng) + Math.abs(center.lat - pose.position.lat) > 1e-7;
+      const settling = Math.abs(targetZoom - nextZoom) > 0.01 || Math.abs(turn) > 0.5 || Math.abs(t.pitch - nextPitch) > 0.2;
+      // Nothing to change = no new frame: a parked truck costs nothing.
+      if (!moved && !settling) return;
+      map.jumpTo({
+        center: [pose.position.lng, pose.position.lat],
+        zoom: nextZoom,
+        bearing: nextBearing,
+        pitch: nextPitch,
+        padding: { top: t.padTop, bottom: 0, left: 0, right: 0 },
+      });
+      if (settling) map.triggerRepaint();
+    });
+  }, []);
+  // Keep the glide follower's target in step with the follow / maneuver
+  // zoom (turn zoom eases in through it) without a camera jump.
+  useEffect(() => {
+    const cam = driveMapCamera({
+      view3d,
+      headingDeg: lastHeadingRef.current,
+      headingUp: headingUp || view3d,
+      followZoom: maneuverZoom ?? followZoom,
+      containerHeightPx: containerRef.current?.clientHeight ?? 0,
+      follow,
+    });
+    cameraTargetRef.current = { zoom: cam.zoom, pitch: cam.pitch, padTop: cam.offset[1] * 2 };
+    mapRef.current?.triggerRepaint();
+  }, [view3d, headingUp, maneuverZoom, followZoom, follow]);
+  // Re-centring (follow back on) hands the zoom back to the map, so the
+  // turn zoom works again after he pinch-zoomed.
+  useEffect(() => {
+    if (follow) userZoomRef.current = null;
+  }, [follow]);
   // Handle for map-event retries ("idle"), pointed at syncTruckLayer by the effect below.
   const syncTruckLayerRef = useRef<() => void>(() => {});
   const syncTruckLayer = useCallback(() => {
@@ -384,6 +455,8 @@ export default function DriveMap({
           // Already gone (e.g. removed by the failure path below).
         }
       }
+      // A re-added layer must draw again before the flat truck goes away.
+      setTruck3dDrawn(false);
       return;
     }
     if (truckLayerFailedRef.current || has) return;
@@ -396,6 +469,8 @@ export default function DriveMap({
             return { x: mc.x, y: mc.y, z: mc.z, metersPerUnit: mc.meterInMercatorCoordinateUnits() };
           },
           markTruckLayerFailed,
+          () => setTruck3dDrawn(true),
+          (pose) => followPose(pose),
         ),
       );
     } catch (error) {
@@ -416,7 +491,7 @@ export default function DriveMap({
         // Best effort: the layer is dead either way.
       }
     }
-  }, [markTruckLayerFailed]);
+  }, [markTruckLayerFailed, followPose]);
   useEffect(() => {
     syncTruckLayerRef.current = syncTruckLayer;
   }, [syncTruckLayer]);
@@ -456,6 +531,15 @@ export default function DriveMap({
     (() => {
       const maplibregl = maplibreRef.current;
       if (!maplibregl) return;
+      // Markers are rebuilt ONLY when what they show changed (review
+      // 2026-11-19): the lists are recomputed on every GPS update (live
+      // miles), and tearing down every marker each time flickered and
+      // cost battery for nothing.
+      const stopSig = JSON.stringify(currentStops.map((stop, i) => [stop.badge, stop.kind, statuses[i] ?? "pending", stop.point.lat, stop.point.lng]));
+      const hazardSig = JSON.stringify(currentHazards.map((h) => [h.id, h.badge, h.color, h.point.lat, h.point.lng]));
+      const poiSig = JSON.stringify(currentPois.map((p) => [p.id, p.badge, p.color, p.title, Boolean(p.alert), p.point.lat, p.point.lng]));
+      if (stopSig !== markerSigRef.current.stops) {
+      markerSigRef.current.stops = stopSig;
       for (const marker of stopMarkersRef.current) marker.remove();
       stopMarkersRef.current = currentStops.map((stop, i) => {
         const status = statuses[i] ?? "pending";
@@ -472,8 +556,12 @@ export default function DriveMap({
           .addTo(map);
       });
 
+      }
+
       // Hazard markers: a plain badge, no popup while rolling — the
       // banner above the map carries the words.
+      if (hazardSig !== markerSigRef.current.hazards) {
+      markerSigRef.current.hazards = hazardSig;
       for (const marker of hazardMarkersRef.current) marker.remove();
       hazardMarkersRef.current = currentHazards.map((hazard) => {
         const el = document.createElement("div");
@@ -488,10 +576,14 @@ export default function DriveMap({
           .addTo(map);
       });
 
+      }
+
       // Truck POI markers (audit-fix B7): fuel, rest areas, truck
       // parking — the same plain-badge shape as hazards, so the map
       // stays glanceable. No popup while rolling; the list beside
       // the map carries the names and live distances.
+      if (poiSig !== markerSigRef.current.pois) {
+      markerSigRef.current.pois = poiSig;
       for (const marker of poiMarkersRef.current) marker.remove();
       poiMarkersRef.current = currentPois.map((poi) => {
         const el = document.createElement("div");
@@ -526,6 +618,7 @@ export default function DriveMap({
           .setLngLat([poi.point.lng, poi.point.lat])
           .addTo(map);
       });
+      }
 
       // Whole-route framing is for plan/overview only. While following,
       // the follow camera owns the framing — fitting the whole route
@@ -565,6 +658,10 @@ export default function DriveMap({
       // re-center is how follow comes back). Programmatic easeTo
       // does not fire dragstart, so the camera never fights itself.
       map.on("dragstart", () => panRef.current());
+      // His own pinch / wheel zoom wins over the follow zoom until he leaves the page.
+      map.on("zoomend", (e: { originalEvent?: unknown }) => {
+        if (e.originalEvent) userZoomRef.current = map.getZoom();
+      });
       // Belt and braces: whenever the map settles, make sure the 3D truck is
       // on it (a no-op when it is, or when 3D is off / has failed).
       map.on("idle", () => syncTruckLayerRef.current());
@@ -603,14 +700,17 @@ export default function DriveMap({
           id: "drive-route-casing",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 },
+          // Dark edge (was white): the gold line stays distinct from OSM's own
+          // yellow/orange highways on the light day map, and reads at night.
+          paint: { "line-color": "#111827", "line-width": 11, "line-opacity": 0.85 },
         });
         // The remaining route, glowing brand gold (#c9a227) — the only line on the map.
         map.addLayer({
           id: "drive-route-line",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#c9a227", "line-width": 5, "line-opacity": 0.9 },
+          // Bright gold (owner 2026-11-19: "there's still not that bright truck path").
+          paint: { "line-color": "#ffc61a", "line-width": 7, "line-opacity": 1 },
         });
         // Live awareness: colored stretches over the route line,
         // each feature carrying its severity color.
@@ -656,6 +756,8 @@ export default function DriveMap({
       // exactly what makes the three.js 3D layer refuse to initialise
       // (2026-11-17: the truck vanished after repeated Home
       // show/hide flips, each leaking a context).
+      if (followFrameRef.current !== null) cancelAnimationFrame(followFrameRef.current);
+      followFrameRef.current = null;
       const map = mapRef.current;
       if (map) {
         map.remove();
@@ -686,11 +788,17 @@ export default function DriveMap({
     if (view3dRef.current && !truckLayerFailed) {
       // Repaint so the 3D layer sees the new fix; it glides to it and
       // stops asking for frames once it arrives (truck-motion.ts).
-      // The flat gold truck below is ALSO drawn in 3D (owner
-      // 2026-11-19, on the road with no truck on his map): a visible
-      // truck always beats an invisible one, whatever the phone's
-      // graphics do with the 3D model.
       map.triggerRepaint();
+      if (truck3dDrawn) {
+        // The 3D truck is drawing: it IS the truck. No flat icon, and the
+        // camera follows the glide frame by frame (followPose) — no
+        // per-fix camera jump here.
+        positionMarkerRef.current?.remove();
+        positionMarkerRef.current = null;
+        positionElRef.current = null;
+        return;
+      }
+      // Not drawn yet (or never will on this phone): the flat truck below shows meanwhile.
     }
     {
       const maplibregl = maplibreRef.current;
@@ -729,7 +837,7 @@ export default function DriveMap({
         }
       }
     }
-  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, applyCamera]);
+  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, truck3dDrawn, applyCamera]);
 
   // The pulsating golden glow on the route (owner 2026-11-18). Two
   // paint values on one layer, ~8 updates a second (route-glow.ts) —
@@ -788,8 +896,11 @@ export default function DriveMap({
       }
     }
     void syncTruckLayer();
-    applyCamera(lastPositionRef.current);
-  }, [view3d, headingUp, truckLayerFailed, applyCamera, syncTruckLayer]);
+    // Through a ref: applyCamera changes identity with the turn zoom (every
+    // GPS update near a turn), and re-running this "3D toggled" step each
+    // time fired a camera ease that fought the smooth follower.
+    applyCameraRef.current(lastPositionRef.current);
+  }, [view3d, headingUp, truckLayerFailed, syncTruckLayer]);
 
   return (
     <div

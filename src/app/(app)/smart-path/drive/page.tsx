@@ -59,6 +59,7 @@ import {
   evaluateRerouteResult,
   mayRequestReroute,
   reroutedSpeech,
+  isWrongWay,
   stepOffRoute,
   type OffRouteState,
 } from "@/lib/drive-reroute";
@@ -361,7 +362,10 @@ export default function DrivePage() {
     // once, then ask for a truck-checked route from here, at most every 2 min.
     if (fix) {
       const step = stepOffRoute(offRouteRef.current, {
-        distanceMiles: distanceToRouteMiles(fix.point, currentPlan.geometry),
+        // Going the wrong way along the line counts as off route too (owner 2026-11-19).
+        distanceMiles: isWrongWay(fix.point, currentPlan.geometry, fix.headingDeg, fix.speedMph)
+          ? Number.MAX_SAFE_INTEGER
+          : distanceToRouteMiles(fix.point, currentPlan.geometry),
         accuracyM: fix.accuracyM,
         nowMs: nowMsValue,
       });

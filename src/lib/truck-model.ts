@@ -32,15 +32,15 @@ export interface TruckModelParts {
   cab: THREE.Mesh;
 }
 
-const CAB_COLOR = 0x111827; // near-black, the app's brand black
-const HOOD_COLOR = 0x111827;
-const CHASSIS_COLOR = 0x1f2937;
-const TRAILER_COLOR = 0xc9a227; // brand gold — the trailer reads on any tile
-const TRAILER_REAR_COLOR = 0xa8861d; // darker gold rear doors
-const WINDOW_COLOR = 0x1e3a5f;
+const CAB_COLOR = 0xf8fafc; // bright white cab against the gold box (owner 2026-11-19: "it should be bright")
+const HOOD_COLOR = 0xf8fafc;
+const CHASSIS_COLOR = 0x4b5563;
+const TRAILER_COLOR = 0xffc61a; // bright gold box — white vanished on the light day map
+const TRAILER_REAR_COLOR = 0xe0a800; // darker gold rear doors
+const WINDOW_COLOR = 0x60a5fa;
 const TANK_COLOR = 0x9ca3af; // aluminium
 const STACK_COLOR = 0x6b7280;
-const WHEEL_COLOR = 0x0f172a;
+const WHEEL_COLOR = 0x1f2937;
 const MARKER_COLOR = 0xf59e0b; // amber front markers
 
 function box(

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import { decideAdoption, NAV_COPY, type NavRoute } from "@/lib/active-navigation";
-import { distanceToRouteMiles, INITIAL_OFF_ROUTE, mayRequestReroute, stepOffRoute, type OffRouteState } from "@/lib/drive-reroute";
+import { distanceToRouteMiles, INITIAL_OFF_ROUTE, isWrongWay, mayRequestReroute, stepOffRoute, type OffRouteState } from "@/lib/drive-reroute";
 import { useLiveVersion } from "@/lib/use-live";
 import type { TripState } from "@/lib/trip-state";
 import type { ActiveLoadState } from "@/services/navigation/active-load-state";
@@ -127,7 +127,11 @@ export function useActiveNavigation(position: NavPosition | null, headingDeg: nu
     const route = heldRef.current.nav.route;
     if (!route || lat === null || lng === null) return;
     const nowMs = Date.now();
-    const step = stepOffRoute(offRoute.current, { distanceMiles: distanceToRouteMiles({ lat, lng }, route.geometry), accuracyM, nowMs });
+    // Going the wrong way along the line counts as off route too (owner 2026-11-19).
+    const { headingDeg: h, speedMph: v } = latest.current;
+    const wrongWay = isWrongWay({ lat, lng }, route.geometry, h, v);
+    const distance = distanceToRouteMiles({ lat, lng }, route.geometry);
+    const step = stepOffRoute(offRoute.current, { distanceMiles: wrongWay ? Number.MAX_SAFE_INTEGER : distance, accuracyM, nowMs });
     offRoute.current = step.state;
     if (step.offRoute && mayRequestReroute(lastRequestMs.current, nowMs)) {
       const timer = setTimeout(() => ask(true), 0);

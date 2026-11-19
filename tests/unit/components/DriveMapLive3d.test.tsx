@@ -286,7 +286,7 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     expect(lastEase.zoom).toBe(15.5);
     expect(lastEase.bearing).toBe(90);
     expect(lastEase.pitch).toBe(60);
-    expect((lastEase.offset as [number, number])[1]).toBe(88); // 22% of 400
+    expect((lastEase.padding as { top: number }).top).toBe(176); // truck pushed down-screen: 2 x 22% of 400
     // No whole-route framing while following.
     expect(fitBoundsCalls).toHaveLength(0);
 
@@ -308,6 +308,11 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     // (lng -91.14 -> x 0.2468; lat 32.06 -> y ~0.406), not at the map's centre.
     expect(origin.x).toBeCloseTo(0.2468, 3);
     expect(origin.y).toBeCloseTo(0.406, 2);
+ 
+    // ONE truck (owner 2026-11-19: the truck "floats off"): once the 3D
+    // truck has really drawn, the flat icon is removed on the next fix.
+    await driveOneFix(rendered, homeMap({ lat: 32.07, lng: -91.13 }));
+    expect(markerInstances.every((m) => m.removed)).toBe(true);
   });
 
   it("Drive-style: same 3D + follow behaviour with the default follow zoom", async () => {
@@ -316,7 +321,7 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     await driveOneFix(rendered, driveMap({ lat: 32.06, lng: -91.14 }));
     expect(addedLayers.some((l) => l.id === "drive-truck-3d")).toBe(true);
     const lastEase = easeToCalls[easeToCalls.length - 1]!;
-    expect(lastEase.zoom).toBe(15); // the 3D follow default
+    expect(lastEase.zoom).toBe(15); // the 3D follow default (pulled back 2026-11-19: "the camera is too close")
     expect(lastEase.bearing).toBe(180);
     expect(fitBoundsCalls).toHaveLength(0);
   });

@@ -26,7 +26,10 @@ import { wherePillLines } from "@/lib/drive-where";
 import { useVoiceNotes } from "@/lib/use-voice-notes";
 import { freshnessLabel, milesAheadByBearing, stackVoiceNotes, VOICE_NOTE_LABEL, type VoiceNoteStack } from "@/lib/voice-notes";
 import { maneuverDirection } from "@/lib/drive";
-import DriveUpcomingList, { type UpcomingListManeuver, type UpcomingListPoi } from "@/components/drive/DriveUpcomingList";
+import DriveUpcomingList, { POI_META, type UpcomingListManeuver, type UpcomingListPoi, type UpcomingListRemaining } from "@/components/drive/DriveUpcomingList";
+import { buildRouteMeasure, measurePoint } from "@/lib/route-measure";
+import { useRoutePois } from "@/lib/use-route-pois";
+import { maneuverZoomTarget } from "@/lib/drive-maneuver-zoom";
 import VoiceNoteRecorder from "@/components/drive/VoiceNoteRecorder";
 
 const HOME_ARROWS = { left: "⬅", right: "➡", straight: "⬆", uturn: "↩", arrive: "⚑" } as const;
@@ -44,7 +47,9 @@ const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 export const POSITION_FRESH_MS = 60_000;
 /** Fix worse than this many metres is drawn as a poor (gray) marker. */
 export const POOR_ACCURACY_M = 50;
-export const FOLLOW_ZOOM = 15.5;
+export const FOLLOW_ZOOM = 15;
+/** Past drive-reroute's MAX_FIX_ACCURACY_M: an old fix never counts for off-route. */
+const STALE_ACCURACY_M = 10_000;
 
 export function positionAgeText(ageMs: number): string {
   const s = Math.max(0, Math.round(ageMs / 1000));
@@ -173,7 +178,16 @@ export default function HomePositionCard({
   }, [deviceFresh, devicePosition, deviceHeading, server]);
   // ACTIVE-LOAD NAVIGATION: the automatic route to the active load's next stop (no Smart Path run needed). It feeds the SAME route-line
   // mechanism a Smart Path run uses (DriveMap's geometry, remaining part only — the line clears behind the truck); a saved Smart Path run is the fallback when there is none.
-  const nav = useActiveNavigation(position ? { lat: position.lat, lng: position.lng, accuracyM: position.accuracyM } : null, headingDeg, speedMph);
+  // A LAST-KNOWN (stale) position still gets a route drawn, but it must
+  // never drive a reroute (review 2026-11-19): it goes in marked unusable
+  // for the off-route check (accuracy past its 100 m limit) and with no
+  // speed or heading, so neither off-route nor wrong-way can fire from a
+  // place the truck left hours ago.
+  const nav = useActiveNavigation(
+    position ? { lat: position.lat, lng: position.lng, accuracyM: stale ? STALE_ACCURACY_M : position.accuracyM } : null,
+    stale ? null : headingDeg,
+    stale ? null : speedMph,
+  );
   const smartPathRoute = useActiveRoute();
   const route = useMemo(
     () => (nav.route ? { geometry: nav.route.geometry, destinationLabel: nav.stopLabel ?? "your next stop" } : smartPathRoute),
@@ -231,6 +245,58 @@ export default function HomePositionCard({
       }),
     [voiceChips, voice.notes],
   );
+  // Home parity with the Drive screen (owner 2026-11-19): truck stops /
+  // rest areas / fuel / parking ahead with live miles, the remaining-run
+  // bar, and the zoom into each turn or exit.
+  const navMeasure = useMemo(
+    () => (nav.route && nav.route.geometry.length >= 2 ? buildRouteMeasure([{ geometry: nav.route.geometry, roadMiles: nav.route.distanceMiles }]) : null),
+    [nav.route],
+  );
+  const routePois = useRoutePois(nav.route?.geometry ?? null, nav.route?.distanceMiles ?? null);
+  const truckRoadMiles = useMemo(() => {
+    if (!navMeasure || !liveFix) return null;
+    const at = measurePoint(navMeasure, liveFix.point);
+    return at && at.offRouteMiles <= 0.3 ? at.roadMiles : null;
+  }, [navMeasure, liveFix]);
+  const aheadPois = useMemo(() => {
+    if (!navMeasure || truckRoadMiles === null) return [];
+    return routePois
+      .map((p) => ({ p, at: measurePoint(navMeasure, p.point) }))
+      .filter((x) => x.at && x.at.onRoute)
+      .map(({ p, at }) => ({ id: `poi-${p.id}`, kind: p.kind, name: p.name, milesAway: at!.roadMiles - truckRoadMiles, point: p.point }))
+      .filter((x) => x.milesAway >= 0 && x.milesAway <= 30)
+      .sort((a, b) => a.milesAway - b.milesAway);
+  }, [routePois, navMeasure, truckRoadMiles]);
+  // Memoized: the map rebuilds its markers whenever this list changes identity.
+  const homeMapPois = useMemo(
+    () => [
+      ...voicePois,
+      ...aheadPois.map((p) => ({ id: p.id, point: p.point, badge: POI_META[p.kind].badge, color: POI_META[p.kind].color, title: p.name ?? POI_META[p.kind].label })),
+    ],
+    [voicePois, aheadPois],
+  );
+  const homeChips = useMemo(
+    () => [...voiceChips, ...aheadPois.map(({ id, kind, name, milesAway }) => ({ id, kind, name, milesAway }))],
+    [voiceChips, aheadPois],
+  );
+  const homeRemaining: UpcomingListRemaining | null =
+    nav.route && guidance?.onRoute && guidance.milesLeft !== null
+      ? {
+          milesLeft: guidance.milesLeft,
+          minutesLeft: guidance.minutesLeft,
+          etaAt: guidance.etaAt ? new Date(guidance.etaAt) : null,
+          timeZone: displayZone,
+        }
+      : null;
+  const homeManeuverZoom =
+    nav.route && guidance?.onRoute && guidance.next
+      ? maneuverZoomTarget({
+          milesAway: guidance.next.inMiles,
+          direction: maneuverDirection(guidance.next.instruction),
+          instruction: guidance.next.instruction,
+          baseZoom: FOLLOW_ZOOM,
+        })
+      : FOLLOW_ZOOM;
   const homeManeuver: UpcomingListManeuver | null =
     nav.route && guidance?.onRoute && guidance.next
       ? { arrow: HOME_ARROWS[maneuverDirection(guidance.next.instruction)], instruction: guidance.next.instruction, milesAway: guidance.next.inMiles }
@@ -288,12 +354,13 @@ export default function HomePositionCard({
           night={false}
           height={hero ? (fullscreen ? "min(62vh, 720px)" : "clamp(220px, 50vh, 600px)") : "min(40vh, 340px)"}
           label={route ? "Map following your truck along your planned route" : "Map following your truck"}
-          pois={voicePois}
+          pois={homeMapPois}
+          maneuverZoom={homeManeuverZoom === FOLLOW_ZOOM ? null : homeManeuverZoom}
         />
         <DriveUpcomingList
           maneuver={homeManeuver}
-          pois={voiceChips}
-          remaining={null}
+          pois={homeChips}
+          remaining={homeRemaining}
           where={liveFix ? wherePill : null}
           recorder={liveFix ? <VoiceNoteRecorder fix={liveFix} roadRef={whereHere?.roadRef ?? null} onSaved={voice.onSaved} /> : null}
           bottomInsetPx={72}
