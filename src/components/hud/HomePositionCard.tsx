@@ -48,6 +48,8 @@ export const POSITION_FRESH_MS = 60_000;
 /** Fix worse than this many metres is drawn as a poor (gray) marker. */
 export const POOR_ACCURACY_M = 50;
 export const FOLLOW_ZOOM = 15;
+/** Past drive-reroute's MAX_FIX_ACCURACY_M: an old fix never counts for off-route. */
+const STALE_ACCURACY_M = 10_000;
 
 export function positionAgeText(ageMs: number): string {
   const s = Math.max(0, Math.round(ageMs / 1000));
@@ -176,7 +178,16 @@ export default function HomePositionCard({
   }, [deviceFresh, devicePosition, deviceHeading, server]);
   // ACTIVE-LOAD NAVIGATION: the automatic route to the active load's next stop (no Smart Path run needed). It feeds the SAME route-line
   // mechanism a Smart Path run uses (DriveMap's geometry, remaining part only — the line clears behind the truck); a saved Smart Path run is the fallback when there is none.
-  const nav = useActiveNavigation(position ? { lat: position.lat, lng: position.lng, accuracyM: position.accuracyM } : null, headingDeg, speedMph);
+  // A LAST-KNOWN (stale) position still gets a route drawn, but it must
+  // never drive a reroute (review 2026-11-19): it goes in marked unusable
+  // for the off-route check (accuracy past its 100 m limit) and with no
+  // speed or heading, so neither off-route nor wrong-way can fire from a
+  // place the truck left hours ago.
+  const nav = useActiveNavigation(
+    position ? { lat: position.lat, lng: position.lng, accuracyM: stale ? STALE_ACCURACY_M : position.accuracyM } : null,
+    stale ? null : headingDeg,
+    stale ? null : speedMph,
+  );
   const smartPathRoute = useActiveRoute();
   const route = useMemo(
     () => (nav.route ? { geometry: nav.route.geometry, destinationLabel: nav.stopLabel ?? "your next stop" } : smartPathRoute),
