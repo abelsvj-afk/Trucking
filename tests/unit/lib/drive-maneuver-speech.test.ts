@@ -47,4 +47,24 @@ describe("maneuverAnnouncement (spoken turns)", () => {
   it("ignores an empty instruction rather than speaking nothing useful", () => {
     expect(maneuverAnnouncement({ maneuver: m("  "), milesAway: 0.3 }, new Set())).toBeNull();
   });
+
+  it("calls out a turn once on the approach, about four and a half miles out", () => {
+    const spoken = new Set<string>();
+    const a = maneuverAnnouncement({ maneuver: turn, milesAway: 4.4 }, spoken)!;
+    expect(a.line).toBe("In 4.4 miles, turn right onto US-231.");
+    a.keys.forEach((k) => spoken.add(k));
+    expect(maneuverAnnouncement({ maneuver: turn, milesAway: 4.2 }, spoken)).toBeNull();
+    // The far and near call-outs still fire afterwards.
+    expect(maneuverAnnouncement({ maneuver: turn, milesAway: 0.5 }, spoken)).not.toBeNull();
+  });
+
+  it("never calls out straight-ahead on the approach", () => {
+    expect(
+      maneuverAnnouncement({ maneuver: m("Continue on I-10 W."), milesAway: 4.4 }, new Set()),
+    ).toBeNull();
+  });
+
+  it("never gives a stale approach call below the band", () => {
+    expect(maneuverAnnouncement({ maneuver: turn, milesAway: 3.9 }, new Set())).toBeNull();
+  });
 });

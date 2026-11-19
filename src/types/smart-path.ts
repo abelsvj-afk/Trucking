@@ -228,3 +228,23 @@ export type LiveTrafficResponse = {
   traffic: NonNullable<RouteCheckResponse["traffic"]>;
   avoidCircles: { lat: number; lng: number; radiusMiles: number }[];
 };
+
+/**
+ * Drive map (audit-fix B7, 2026-11-18): truck POIs along the
+ * remaining run. Miles are relative to the geometry sent (mile 0 is
+ * his position); `asOf` is when the map data was checked. A
+ * "unavailable" status means the map could not be reached — never
+ * invented stops.
+ */
+export type TruckPoisResponse = {
+  status: "ok" | "unavailable";
+  items: {
+    id: string;
+    kind: "fuel" | "rest" | "parking";
+    name: string | null;
+    mile: number;
+    point: { lat: number; lng: number };
+  }[];
+  notes: string[];
+  asOf: string;
+};

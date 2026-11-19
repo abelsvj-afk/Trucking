@@ -39,6 +39,15 @@ export interface DriveMapHazard {
   title: string;
 }
 
+/** Truck-relevant POI marker (audit-fix B7): fuel, rest area, truck parking. */
+export interface DriveMapPoi {
+  id: string;
+  point: LatLng;
+  badge: string;
+  color: string;
+  title: string;
+}
+
 // The maplibre namespace is imported exactly once, when the map is
 // created; every later use reads it from a ref. The loader's return
 // type IS the namespace type, so the ref is typed by the real module,
@@ -76,6 +85,10 @@ interface DriveMapProps {
   segments?: MapSegment[];
   /** Live awareness: bridge / delay markers on the route. */
   hazards?: DriveMapHazard[];
+  /** Maneuver zoom (audit-fix B7): the target zoom while closing on a turn/exit; null = normal follow zoom. */
+  maneuverZoom?: number | null;
+  /** Truck-relevant POIs on the route (audit-fix B7). */
+  pois?: DriveMapPoi[];
 }
 
 const OSM_STYLE = {
@@ -163,6 +176,8 @@ export default function DriveMap({
   label,
   segments = [],
   hazards = [],
+  maneuverZoom = null,
+  pois = [],
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -172,11 +187,12 @@ export default function DriveMap({
   const maplibreRef = useRef<MapLibreNamespace | null>(null);
   const stopMarkersRef = useRef<MapLibreMarker[]>([]);
   const hazardMarkersRef = useRef<MapLibreMarker[]>([]);
+  const poiMarkersRef = useRef<MapLibreMarker[]>([]);
   const positionMarkerRef = useRef<MapLibreMarker | null>(null);
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
   const framedRef = useRef(false);
-  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards });
+  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois });
   const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
@@ -238,7 +254,11 @@ export default function DriveMap({
         view3d: view3dRef.current,
         headingDeg: lastHeadingRef.current,
         headingUp: headingUp || view3dRef.current,
-        followZoom,
+        // Maneuver zoom (audit-fix B7): while closing on a turn the
+        // target zoom is the maneuver's, and easeTo glides there;
+        // past it the prop goes back to null and the camera eases
+        // out to the normal follow zoom on its own.
+        followZoom: maneuverZoom ?? followZoom,
         containerHeightPx: containerRef.current?.clientHeight ?? 0,
         follow: followRef.current,
       });
@@ -255,7 +275,7 @@ export default function DriveMap({
         map.easeTo({ duration: 700, pitch: cam.pitch, offset: cam.offset });
       }
     },
-    [headingUp, followZoom],
+    [headingUp, followZoom, maneuverZoom],
   );
 
   // The 3D truck model lives in a MapLibre custom layer (real
@@ -321,6 +341,7 @@ export default function DriveMap({
       stopStatus: statuses,
       segments: currentSegments,
       hazards: currentHazards,
+      pois: currentPois,
     } = dataRef.current;
     const routeSource = map.getSource("drive-route") as
       | { setData: (data: unknown) => void }
@@ -369,6 +390,24 @@ export default function DriveMap({
           "font-size:12px;font-weight:700;padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);";
         return new maplibregl.Marker({ element: el })
           .setLngLat([hazard.point.lng, hazard.point.lat])
+          .addTo(map);
+      });
+
+      // Truck POI markers (audit-fix B7): fuel, rest areas, truck
+      // parking — the same plain-badge shape as hazards, so the map
+      // stays glanceable. No popup while rolling; the list beside
+      // the map carries the names and live distances.
+      for (const marker of poiMarkersRef.current) marker.remove();
+      poiMarkersRef.current = currentPois.map((poi) => {
+        const el = document.createElement("div");
+        el.textContent = poi.badge;
+        el.setAttribute("aria-hidden", "true");
+        el.style.cssText =
+          `background:#fff;color:${poi.color};border:2px solid ${poi.color};border-radius:9999px;` +
+          "min-width:24px;height:24px;display:flex;align-items:center;justify-content:center;" +
+          "font-size:12px;font-weight:700;padding:0 5px;box-shadow:0 1px 4px rgba(0,0,0,.4);";
+        return new maplibregl.Marker({ element: el })
+          .setLngLat([poi.point.lng, poi.point.lat])
           .addTo(map);
       });
 
@@ -487,9 +526,9 @@ export default function DriveMap({
   }, [drawRoute]);
 
   useEffect(() => {
-    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards };
+    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois };
     drawRoute();
-  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, drawRoute]);
+  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, drawRoute]);
 
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).

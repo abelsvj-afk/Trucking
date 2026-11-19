@@ -120,3 +120,14 @@ export const liveTrafficRequestSchema = z.object({
 });
 
 export type LiveTrafficRequest = z.infer<typeof liveTrafficRequestSchema>;
+
+// Drive map (audit-fix B7, 2026-11-18): truck POIs along the run
+// while driving. Geometry and miles are the REMAINING run: mile 0
+// is his position, and the answer's miles are relative to it — the
+// page shifts them by what he has already driven.
+export const truckPoisRequestSchema = z.object({
+  geometry: z.array(latLngSchema).min(2).max(2000),
+  totalMiles: z.number().positive().max(3000),
+});
+
+export type TruckPoisRequest = z.infer<typeof truckPoisRequestSchema>;
