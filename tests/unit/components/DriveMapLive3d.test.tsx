@@ -273,12 +273,14 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     setMapHeight(rendered, 400);
     await driveOneFix(rendered, homeMap({ lat: 32.06, lng: -91.14 }));
 
-    // The 3D truck layer is on the map; no flat HTML marker exists.
+    // The 3D truck layer is on the map AND the flat gold truck is too
+    // (owner 2026-11-19: a visible truck always, whatever the phone's
+    // graphics do with the 3D model).
     const layer = addedLayers.find((l) => l.id === "drive-truck-3d");
     expect(layer).toBeDefined();
     expect(layer?.type).toBe("custom");
     expect(layer?.renderingMode).toBe("3d");
-    expect(markerInstances).toHaveLength(0);
+    expect(markerInstances).toHaveLength(1);
     // Follow camera: street-level zoom + heading bearing, truck pushed down-screen.
     const lastEase = easeToCalls[easeToCalls.length - 1]!;
     expect(lastEase.zoom).toBe(15.5);
