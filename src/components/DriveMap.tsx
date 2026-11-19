@@ -684,18 +684,13 @@ export default function DriveMap({
     const map = mapRef.current;
     if (!map || !position) return;
     if (view3dRef.current && !truckLayerFailed) {
-      // No HTML marker in 3D view — the model IS the truck. Repaint
-      // so the layer sees the new fix; it then glides to it and
+      // Repaint so the 3D layer sees the new fix; it glides to it and
       // stops asking for frames once it arrives (truck-motion.ts).
+      // The flat gold truck below is ALSO drawn in 3D (owner
+      // 2026-11-19, on the road with no truck on his map): a visible
+      // truck always beats an invisible one, whatever the phone's
+      // graphics do with the 3D model.
       map.triggerRepaint();
-      if (followRef.current) {
-        const now = Date.now();
-        if (now - lastCameraMoveRef.current >= 1000) {
-          lastCameraMoveRef.current = now;
-          applyCamera(position);
-        }
-      }
-      return;
     }
     {
       const maplibregl = maplibreRef.current;
@@ -779,11 +774,7 @@ export default function DriveMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (view3d && !truckLayerFailed) {
-      positionMarkerRef.current?.remove();
-      positionMarkerRef.current = null;
-      positionElRef.current = null;
-    } else {
+    {
       const el = positionElRef.current;
       if (el) {
         const icon = el.firstElementChild as HTMLElement | null;
