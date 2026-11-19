@@ -64,6 +64,17 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("[research] maintenance watch piggyback failed", err);
     }
+    // Audit A-M5/A-m3: the outbound-call queue sweeper's second door -
+    // the same hourly invoker gives it its sweep, so a missed Telnyx
+    // terminal event and a dead position feed are both caught even
+    // while the app process sleeps. A failure here never fails the
+    // research tick's own answer.
+    try {
+      const { runCallingSweep } = await import("@/services/calling/scheduler");
+      await runCallingSweep();
+    } catch (err) {
+      console.error("[research] calling sweep piggyback failed", err);
+    }
     // CD-7: a tick whose health carries an explicit failure (e.g. the
     // job database is not configured, so the engine never ran) must
     // not dress itself as "ok" - the HTTP contract stays 200 (the

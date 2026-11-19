@@ -188,6 +188,7 @@ function BriefingSnapshot({
 function WatchPanel() {
   const [picture, setPicture] = useState<WatchPictureData | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [decideError, setDecideError] = useState<string | null>(null);
 
   const fetchPicture = useCallback(() => {
     // The panel is an addition to this page, never a dependency of
@@ -211,12 +212,16 @@ function WatchPanel() {
 
   async function decide(id: string, action: "approve" | "dismiss") {
     setBusyId(id);
+    setDecideError(null);
     try {
       if (action === "approve") await apiClient.approveLearningTopic(id);
       else await apiClient.dismissLearningTopic(id);
       fetchPicture();
     } catch {
-      // The row stays as it was; a failed decide changes nothing.
+      // The row stays as it was - and now says so, instead of
+      // swallowing the tap (audit D MEDIUM 1). The row stays
+      // actionable: the buttons re-enable in the finally below.
+      setDecideError("Couldn't save that choice — try again. The topic is still here.");
     } finally {
       setBusyId(null);
     }
@@ -256,6 +261,7 @@ function WatchPanel() {
       </ul>
 
       <h3>Learning agenda</h3>
+      {decideError && <p role="alert">{decideError}</p>}
       {proposed.length === 0 && queued.length === 0 && (
         <p>Nothing proposed right now - Abel files a topic here when a watched picture goes dark or stale.</p>
       )}

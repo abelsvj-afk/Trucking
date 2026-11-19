@@ -23,6 +23,8 @@ const windowLoaded = (data: HosWindowState extends { data: infer D } ? D : never
   status: "loaded",
   data,
   hos: { carrierTimeZone: "America/New_York" } as HosWindowState extends { hos: infer H } ? H : never,
+  stale: false,
+  staleSinceMs: null,
 });
 
 // Noon ET, 2026-11-10. Off duty from midnight, driving from 8:05 AM.

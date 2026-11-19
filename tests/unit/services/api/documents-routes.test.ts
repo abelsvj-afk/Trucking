@@ -58,6 +58,14 @@ vi.mock("@/services/db/server", () => ({
   createClient: vi.fn(),
 }));
 
+// Staging is dynamically imported by the route only when extraction
+// finished; the mock throws so the proposals_failed path is under
+// test. Every other test in this file has no extraction result, so
+// staging is never attempted there and the mock is never reached.
+vi.mock("@/services/documents/document-proposals", () => ({
+  stageDocumentProposalsForClient: vi.fn().mockRejectedValue(new Error("staging boom")),
+}));
+
 import { createClient } from "@/services/db/server";
 import { POST, GET } from "@/app/api/v1/documents/route";
 import { DELETE } from "@/app/api/v1/documents/[id]/route";
@@ -172,8 +180,37 @@ describe("POST /api/v1/documents", () => {
     expect(res.status).toBe(201);
     // GAP-01: the response additionally reports how many record
     // proposals were staged from the extraction (0 here — the mock
-    // document has no extraction result).
-    expect(await res.json()).toEqual({ ...createdRow, proposals_staged: 0 });
+    // document has no extraction result) and that staging did not
+    // fail (audit D MEDIUM 3: a failed staging must say so).
+    expect(await res.json()).toEqual({ ...createdRow, proposals_staged: 0, proposals_failed: false });
+  });
+
+  it("201s with proposals_failed when staging fails, so the UI can say the document saved but its suggestions didn't (audit D MEDIUM 3)", async () => {
+    const createdRow = {
+      id: "doc-1",
+      company_id: "company-1",
+      related_entity_type: "truck",
+      related_entity_id: VALID_ENTITY_ID,
+      file_name: "bol.pdf",
+      storage_path: "company-1/uuid-bol.pdf",
+      uploaded_at: "2026-08-21T00:00:00Z",
+      created_at: "2026-08-21T00:00:00Z",
+      extraction_status: "done",
+    };
+    vi.mocked(createClient).mockResolvedValue(
+      mockSupabase({ queryResult: { data: createdRow } }) as never,
+    );
+
+    const res = await POST(
+      formDataRequest({
+        file: new File(["hello"], "bol.pdf", { type: "application/pdf" }),
+        related_entity_type: "truck",
+        related_entity_id: VALID_ENTITY_ID,
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ ...createdRow, proposals_staged: 0, proposals_failed: true });
   });
 });
 

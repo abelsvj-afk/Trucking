@@ -174,6 +174,11 @@ export default function HomePage() {
         )}
         {hosWindow.state.status === "loaded" && logs.length > 0 && summary != null && latest != null && (
           <>
+            {hosWindow.state.stale && (
+              <p role="alert">
+                Your hours may be out of date — the last refresh didn&apos;t reach the server. Check Day log.
+              </p>
+            )}
             {summary.warnings.length > 0 ? (
               <p role="alert">{summary.warnings[0]}</p>
             ) : onTheClock ? (

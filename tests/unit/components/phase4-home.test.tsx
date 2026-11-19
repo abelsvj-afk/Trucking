@@ -215,6 +215,8 @@ describe("today's log strip", () => {
     status: "loaded",
     data,
     hos: { carrierTimeZone: "America/New_York" } as HosWindowState extends { hos: infer H } ? H : never,
+    stale: false,
+    staleSinceMs: null,
   });
 
   it("rows link to /fleet/hos?entry=<id>", () => {

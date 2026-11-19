@@ -71,12 +71,17 @@ export default function PaperLogsPage() {
       return;
     }
     setBusy("Reading the grid…");
+    let readFailed = false;
     try {
       await apiClient.readPaperLog(doc.id);
     } catch {
-      // Stored either way: the review screen offers a re-read or entry by hand.
+      // Stored either way: the review screen offers a re-read or
+      // entry by hand - and now says the auto-read failed (audit D
+      // LOW 10), via ?read=failed, instead of landing him on the
+      // review screen with no note.
+      readFailed = true;
     }
-    router.push(`/fleet/hos/paper/${doc.id}`);
+    router.push(`/fleet/hos/paper/${doc.id}${readFailed ? "?read=failed" : ""}`);
   }
 
   return (

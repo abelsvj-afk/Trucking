@@ -23,6 +23,14 @@ export async function register() {
     // due-ness from consolidation_runs, kill-switched in Settings.
     const { startConsolidationScheduler } = await import("@/services/bot/consolidation-scheduler");
     startConsolidationScheduler();
+    // Outbound-call queue sweeper + feed-health check (audit A-M5,
+    // A-m3) - same in-process scheduler pattern: a 5-minute tick whose
+    // due-ness comes from database state, so a missed/lost Telnyx
+    // terminal event can no longer stall every later queued call,
+    // and a dead position feed is told about on a timer instead of
+    // waiting for his next inbound Telegram message.
+    const { startCallingScheduler } = await import("@/services/calling/scheduler");
+    startCallingScheduler();
     // Abel weekly pay-truth report (Intelligence Upgrade Phase D) -
     // same in-process pattern: hourly due-check against
     // pay_report_runs, one report per completed Mon-Sun week.

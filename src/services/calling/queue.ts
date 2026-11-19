@@ -161,3 +161,73 @@ export async function listOutboundCalls(
   }
   return (data ?? []) as OutboundCallRow[];
 }
+
+// --- Stale-claim reaper (audit A-M5) --------------------------------------
+// `claim_next_outbound_call` refuses to claim while ANY row for the
+// company sits in `dialing` or `in_progress` - so a call whose
+// terminal Telnyx event never arrived (webhook misconfigured, retry
+// exhausted, event lost) blocks the whole queue forever. A claimed
+// row is stale when its last update is older than the window below:
+// dialing should resolve in seconds (the Telnyx leg is placed, then
+// the assistant attaches), and a driver call in progress past 4
+// hours is not a call any more - it is a lost terminal event.
+
+/** A `dialing` claim older than this never got its answered event. */
+export const STALE_DIALING_MS = 10 * 60_000;
+/** An `in_progress` call older than this never got its hangup event. */
+export const STALE_IN_PROGRESS_MS = 4 * 60 * 60_000;
+
+/**
+ * The plain-words outcome for a stale claimed row, or null when the
+ * row is still inside its window. Pure, so the thresholds are
+ * testable without a database.
+ */
+export function staleClaimOutcome(
+  status: string,
+  updatedAtMs: number,
+  nowMs: number,
+): string | null {
+  if (status === "dialing" && nowMs - updatedAtMs > STALE_DIALING_MS) {
+    return "Call stalled while dialing — no update arrived from Telnyx, so the queue moved on.";
+  }
+  if (status === "in_progress" && nowMs - updatedAtMs > STALE_IN_PROGRESS_MS) {
+    return "Call ended without a closing update from Telnyx, so the queue moved on.";
+  }
+  return null;
+}
+
+/**
+ * Fail every stale claimed row for the company, freeing the queue
+ * for the next call. Returns how many rows were reaped. Never throws
+ * for a missing table (pre-00100 database) - the queue simply does
+ * not exist there yet.
+ */
+export async function reapStaleOutboundClaims(
+  client: SupabaseClient,
+  companyId: string,
+  nowMs: number = Date.now(),
+): Promise<number> {
+  const { data, error } = await client
+    .from("outbound_calls")
+    .select("id, status, updated_at")
+    .eq("company_id", companyId)
+    .in("status", ["dialing", "in_progress"])
+    .is("deleted_at", null);
+  if (error) {
+    if (isMissingTable(error)) return 0;
+    throw new Error(error.message);
+  }
+  let reaped = 0;
+  for (const row of (data ?? []) as { id: string; status: string; updated_at: string }[]) {
+    const outcome = staleClaimOutcome(row.status, Date.parse(row.updated_at), nowMs);
+    if (!outcome) continue;
+    await updateOutboundCall(client, row.id, companyId, {
+      status: "failed",
+      outcome,
+      ended_at: new Date(nowMs).toISOString(),
+    });
+    console.error(`[calling] reaped stale ${row.status} call ${row.id} - ${outcome}`);
+    reaped += 1;
+  }
+  return reaped;
+}

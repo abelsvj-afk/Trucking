@@ -847,11 +847,12 @@ export function createBrainLiveLocationStore(brain: BotBrainStore, source: Posit
 /**
  * The feed-health tell for a DEAD feed (ELD stopped vehicle §3.1):
  * no fix at all has arrived for 15 minutes while the log says
- * Driving. There is no scheduler in this codebase to fire it on a
- * timer, so the caller runs it best-effort on his next inbound
- * Telegram interaction (webhook route) — one message per stale
- * period, marked on the newest position row so it never repeats
- * until a fresh fix arrives. A tell, never an invented stop.
+ * Driving. The periodic sweep (services/calling/scheduler.ts) fires
+ * it on a timer; the caller below runs it best-effort on his next
+ * inbound Telegram interaction as well, so a tell is never more than
+ * one tick late even when the scheduler hasn't run yet. One message
+ * per stale period, marked on the newest position row so it never
+ * repeats until a fresh fix arrives. A tell, never an invented stop.
  * Returns true when a tell was sent. Never throws.
  */
 export async function maybeSendFeedStaleTell(opts: {

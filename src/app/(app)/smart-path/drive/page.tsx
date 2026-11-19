@@ -176,6 +176,18 @@ export default function DrivePage() {
   // Live awareness (owner 2026-11-17): the latest traffic poll, the
   // hazards already spoken once, and the poll's own pacing.
   const [liveTraffic, setLiveTraffic] = useState<LiveTrafficResponse | null>(null);
+  // Live-poll staleness (audit A-M7): when the 2-minute poll stops
+  // answering, the last good segments stay on screen - but they are
+  // labelled with their age, and after two missed polls in a row the
+  // live layer is cleared so the plan-time picture (which is what the
+  // map falls back to) is what he sees, with the note saying so.
+  const [liveTrafficAtMs, setLiveTrafficAtMs] = useState<number | null>(null);
+  const [liveTrafficFailures, setLiveTrafficFailures] = useState(0);
+  const liveTrafficFailuresRef = useRef(0);
+  // Same class (audit D MEDIUM 4): the Telegram position fallback
+  // poll failing means the map silently stops following the truck.
+  const [positionFallbackStale, setPositionFallbackStale] = useState(false);
+  const fallbackFailuresRef = useRef(0);
   const spokenHazardsRef = useRef<Set<string>>(new Set());
   const livePollBusyRef = useRef(false);
   const sourceResultRef = useRef<RouteCheckResponse | null>(null);
@@ -392,8 +404,10 @@ export default function DrivePage() {
   // Live awareness (owner 2026-11-17): while rolling, ask what's
   // ahead every two minutes - the remaining run from where he is,
   // with the corridor timing the plan already computed. A failed
-  // poll is silent: the last good state stays, and the next poll
-  // retries. Nothing here re-plans; the detour is his tap.
+  // poll no longer stays silent (audit A-M7): the first miss labels
+  // the last good data with its age, and the second miss in a row
+  // clears the live layer so the plan-time picture takes over, with
+  // the note saying so. Nothing here re-plans; the detour is his tap.
   const pollLiveTraffic = useCallback(async () => {
     const currentPlan = planRef.current;
     const currentSession = sessionRef.current;
@@ -416,6 +430,7 @@ export default function DrivePage() {
       .map((pt) => ({ mile: Math.round((pt.mile - drivenLoaded) * 10) / 10, etaAt: pt.etaAt }));
     if (remainingCorridor.length < 1) return;
     livePollBusyRef.current = true;
+    let body: LiveTrafficResponse | null = null;
     try {
       const res = await fetch("/api/v1/smart-path/live-traffic", {
         method: "POST",
@@ -430,42 +445,58 @@ export default function DrivePage() {
           plannedRemainingMinutes: Math.max(1, Math.round(currentPlan.assumedDriveMinutes * (1 - fraction))),
         }),
       });
-      if (!res.ok) return;
-      const body = (await res.json()) as LiveTrafficResponse;
-      setLiveTraffic(body);
-      // Each hazard is spoken once, only when it is close ahead -
-      // never repeated, never for something hours away.
-      if (!mutedRef.current) {
-        const speakOnce = (key: string, line: string) => {
-          if (spokenHazardsRef.current.has(key)) return;
-          spokenHazardsRef.current.add(key);
-          speaker().speak(line);
-        };
-        for (const item of body.traffic.items) {
-          if (item.severity === "minor" || item.mile > 15) continue;
-          speakOnce(
-            `traffic-${item.id}`,
-            `Heads up: ${item.category.toLowerCase()} ahead, about ${Math.round(item.mile)} miles` +
-              `${item.delayMinutes !== null ? `, about ${item.delayMinutes} minute delay` : ""}.`,
-          );
-        }
-        for (const bridge of result.bridges?.items ?? []) {
-          const ahead = bridge.mile - drivenLoaded;
-          if (ahead > 5 || ahead < 0 || (bridge.clearance !== "below" && bridge.clearance !== "tight")) continue;
-          speakOnce(
-            `bridge-${bridge.id}`,
-            `Low bridge ahead in about ${Math.round(ahead)} miles. ` +
-              `${bridge.clearance === "below" ? "It is under your truck." : "It is only just over your truck."}`,
-          );
-        }
-        if (body.traffic.call.decision === "reroute" && body.traffic.call.incidentId) {
-          speakOnce(`call-${body.traffic.call.incidentId}`, body.traffic.call.reason);
-        }
+      if (!res.ok) {
+        liveTrafficFailuresRef.current += 1;
+        setLiveTrafficFailures(liveTrafficFailuresRef.current);
+        if (liveTrafficFailuresRef.current >= 2) setLiveTraffic(null);
+        return;
       }
+      body = (await res.json()) as LiveTrafficResponse;
+      liveTrafficFailuresRef.current = 0;
+      setLiveTrafficFailures(0);
+      setLiveTrafficAtMs(Date.now());
+      setLiveTraffic(body);
     } catch {
-      // Silent - see above.
+      // A failed poll is labelled, not swallowed: the age note
+      // above renders from liveTrafficFailures, and the second miss
+      // in a row clears the live layer (see the !res.ok branch).
+      // Only the fetch/parse is inside this try - a speech failure
+      // below must never count as a poll failure or clear good data.
+      liveTrafficFailuresRef.current += 1;
+      setLiveTrafficFailures(liveTrafficFailuresRef.current);
+      if (liveTrafficFailuresRef.current >= 2) setLiveTraffic(null);
     } finally {
       livePollBusyRef.current = false;
+    }
+    if (!body) return;
+    // Each hazard is spoken once, only when it is close ahead -
+    // never repeated, never for something hours away.
+    if (!mutedRef.current) {
+      const speakOnce = (key: string, line: string) => {
+        if (spokenHazardsRef.current.has(key)) return;
+        spokenHazardsRef.current.add(key);
+        speaker().speak(line);
+      };
+      for (const item of body.traffic.items) {
+        if (item.severity === "minor" || item.mile > 15) continue;
+        speakOnce(
+          `traffic-${item.id}`,
+          `Heads up: ${item.category.toLowerCase()} ahead, about ${Math.round(item.mile)} miles` +
+            `${item.delayMinutes !== null ? `, about ${item.delayMinutes} minute delay` : ""}.`,
+        );
+      }
+      for (const bridge of result.bridges?.items ?? []) {
+        const ahead = bridge.mile - drivenLoaded;
+        if (ahead > 5 || ahead < 0 || (bridge.clearance !== "below" && bridge.clearance !== "tight")) continue;
+        speakOnce(
+          `bridge-${bridge.id}`,
+          `Low bridge ahead in about ${Math.round(ahead)} miles. ` +
+            `${bridge.clearance === "below" ? "It is under your truck." : "It is only just over your truck."}`,
+        );
+      }
+      if (body.traffic.call.decision === "reroute" && body.traffic.call.incidentId) {
+        speakOnce(`call-${body.traffic.call.incidentId}`, body.traffic.call.reason);
+      }
     }
   }, []);
 
@@ -515,19 +546,38 @@ export default function DrivePage() {
     // while (screen off / tab frozen), take Telegram Live Location's latest
     // fix - only if it is itself fresh. Never invents a position.
     fallbackIdRef.current = setInterval(() => {
-      if (Date.now() - lastOwnFixMsRef.current < OWN_FIX_STALE_MS) return;
+      if (Date.now() - lastOwnFixMsRef.current < OWN_FIX_STALE_MS) {
+        // His own GPS is fresh again - the map is following the
+        // truck, so a stale backup feed is no longer the story.
+        if (fallbackFailuresRef.current > 0) {
+          fallbackFailuresRef.current = 0;
+          setPositionFallbackStale(false);
+        }
+        return;
+      }
       void fetch("/api/v1/position", { cache: "no-store" })
-        .then((res) => (res.ok ? res.json() : null))
+        .then((res) => {
+          if (!res.ok) throw new Error(`position feed answered ${res.status}`);
+          return res.json();
+        })
         .then((body: { position?: { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; ageSeconds: number } | null } | null) => {
           const p = body?.position;
           if (!p || p.ageSeconds * 1000 > TELEGRAM_FIX_MAX_AGE_MS) return;
+          fallbackFailuresRef.current = 0;
+          setPositionFallbackStale(false);
           const now = Date.now();
           handleFix(
             { point: { lat: p.lat, lng: p.lng }, accuracyM: p.accuracyM ?? 50, speedMph: p.speedMph, headingDeg: p.headingDeg, atMs: now - p.ageSeconds * 1000 },
             now,
           );
         })
-        .catch(() => {});
+        .catch(() => {
+          // A dead fallback poll used to fail silently while the map
+          // held its last spot (audit D MEDIUM 4) - two misses in a
+          // row label it stale on screen instead.
+          fallbackFailuresRef.current += 1;
+          if (fallbackFailuresRef.current >= 2) setPositionFallbackStale(true);
+        });
     }, FALLBACK_POLL_MS);
   };
 
@@ -680,6 +730,13 @@ export default function DrivePage() {
   const projection = plan && session ? projectClocks(plan, session, nowMs || session.startedAtMs) : null;
   const upcoming = plan && session ? nextManeuver(plan, session.progressFraction) : null;
   const night = easternHour(new Date(nowMs)) >= 20 || easternHour(new Date(nowMs)) < 6;
+  // Live-poll age label (audit A-M7): minutes since the last good
+  // traffic poll, from the page's own ticking clock.
+  const trafficAgeMinutes =
+    liveTrafficAtMs !== null && nowMs > liveTrafficAtMs
+      ? Math.floor((nowMs - liveTrafficAtMs) / 60_000)
+      : 0;
+  const trafficAge = trafficAgeMinutes < 1 ? "less than a minute" : `${trafficAgeMinutes} min`;
   const positionQuality = !session?.lastFix
     ? null
     : session.gpsBannerOn
@@ -847,6 +904,27 @@ export default function DrivePage() {
           {session.gpsBannerOn && mode === "rolling" && (
             <p role="alert" style={{ fontWeight: 700 }}>
               {DRIVE_COPY.gpsLostBanner}
+            </p>
+          )}
+
+          {/* Live-poll staleness (audit A-M7): the last good traffic
+              data is labelled with its age while the poll is missing,
+              and once the live layer has been cleared the note says
+              the plan-time picture is what is on screen. */}
+          {mode === "rolling" && liveTrafficAtMs !== null && liveTrafficFailures > 0 && (
+            <p role="status" style={{ fontWeight: 700 }}>
+              {liveTrafficFailures >= 2
+                ? `Traffic updates stopped — showing the plan-time picture. Last good update ${trafficAge} ago.`
+                : `Traffic data is ${trafficAge} old — the last update didn't come through.`}
+            </p>
+          )}
+
+          {/* Backup-feed staleness (audit D MEDIUM 4): the Telegram
+              fallback poll failing means the map holds its last spot
+              with no signal - now it says so. */}
+          {mode === "rolling" && positionFallbackStale && (
+            <p role="status" style={{ fontWeight: 700 }}>
+              The backup location feed isn&apos;t answering — the map is holding your last known spot.
             </p>
           )}
 

@@ -122,6 +122,13 @@ export const POST = createApiHandler(async (req, ctx) => {
   // surface in the Assistant for his yes; the upload itself never
   // depends on staging succeeding.
   let proposalsStaged = 0;
+  // Honest state (audit D MEDIUM 3): when staging fails the 201
+  // used to say proposals_staged: 0 with only a console.error - the
+  // document looked bare with no reason why. The response now says
+  // the staging failed, so the UI can tell him the document saved
+  // but its suggestions didn't stage. There is no retry endpoint for
+  // staging today; the document itself is intact and readable.
+  let proposalsFailed = false;
   if ((finalRow as { extraction_status?: string } | null)?.extraction_status === "done") {
     try {
       const { stageDocumentProposalsForClient } = await import(
@@ -136,11 +143,12 @@ export const POST = createApiHandler(async (req, ctx) => {
       proposalsStaged = staged?.proposals.length ?? 0;
     } catch (err) {
       console.error("[documents] proposal staging failed", err);
+      proposalsFailed = true;
     }
   }
 
   return NextResponse.json(
-    { ...(finalRow ?? row), proposals_staged: proposalsStaged },
+    { ...(finalRow ?? row), proposals_staged: proposalsStaged, proposals_failed: proposalsFailed },
     { status: 201 },
   );
 });

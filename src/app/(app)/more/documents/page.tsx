@@ -97,6 +97,7 @@ function DocumentsInner() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [docsState, setDocsState] = useState<DocsState>({ status: "loaded", documents: [] });
   const [recentDocs, setRecentDocs] = useState<DocumentWithSignedUrl[]>([]);
   const [pendingRemove, setPendingRemove] = useState<DocumentWithSignedUrl | null>(null);
@@ -229,16 +230,30 @@ function DocumentsInner() {
     event.preventDefault();
     if (!file || !entityId) return;
     setUploadError(null);
+    setUploadNotice(null);
     setUploading(true);
 
     try {
-      await apiClient.uploadDocument({
+      const uploaded = await apiClient.uploadDocument<{
+        proposals_staged?: number;
+        proposals_failed?: boolean;
+      }>({
         file,
         related_entity_type: entityType,
         related_entity_id: entityId,
         doc_type: uploadDocType || undefined,
         situation: uploadSituation || undefined,
       });
+      if (uploaded.proposals_failed) {
+        // Honest state (audit D MEDIUM 3): the document saved, but
+        // its record suggestions didn't stage - nothing is waiting
+        // for his yes yet, and the row must not look bare for no
+        // reason. No retry endpoint exists today; the document
+        // itself is intact and readable.
+        setUploadNotice(
+          "Saved — but its record suggestions didn't stage, so nothing is waiting for your yes yet. The document is filed and readable.",
+        );
+      }
       setFile(null);
       fetchDocuments();
     } catch (err) {
@@ -426,6 +441,7 @@ function DocumentsInner() {
             <option value="business_records">Business records</option>
           </select>
           {uploadError && <p role="alert">{uploadError}</p>}
+          {uploadNotice && <p role="status">{uploadNotice}</p>}
           <button type="submit" disabled={uploading || !file}>
             {uploading ? "Uploading…" : "Upload"}
           </button>
