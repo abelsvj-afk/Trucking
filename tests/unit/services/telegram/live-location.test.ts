@@ -223,3 +223,23 @@ describe("handleLiveLocation - automatic switch to Driving (works with the app c
     expect(m.staged).toHaveLength(0);
   });
 });
+
+describe("auto-switch with the Tracker's 5-second fixes, in town (2026-11-19: 'it stays put until I switch it')", () => {
+  it("slow pull-out + a red light still switches to Driving", async () => {
+    const m = memStore("on_duty");
+    const d = { ...deps(), autoSwitch: vi.fn(async (detectedAtIso: string) => ({ switched: true, startedAt: detectedAtIso })) };
+    let lat = 28;
+    let t = T0;
+    const step = async (mph: number) => {
+      lat += miles((mph * 5) / 3600);
+      t += 5_000;
+      await handleLiveLocation(m.store, { latitude: lat, longitude: -81.7, horizontal_accuracy: 5 }, t, d);
+    };
+    await handleLiveLocation(m.store, { latitude: lat, longitude: -81.7, horizontal_accuracy: 5 }, t, d);
+    for (let i = 0; i < 8; i++) await step(6); // 40 s pulling out at 6 mph (under the old 7.2 mph floor)
+    for (let i = 0; i < 2; i++) await step(0); // 10 s red light
+    for (let i = 0; i < 12; i++) await step(25); // 60 s through town
+    expect(d.autoSwitch).toHaveBeenCalled();
+    expect(d.sendMessage.mock.calls.some((c) => String(c[0]).includes("Switched to Driving"))).toBe(true);
+  });
+});

@@ -62,11 +62,19 @@ describe("stepEpisode", () => {
     expect(e.movingSinceMs).toBe(1000);
   });
 
-  it("stopping ends the drive and starts a stop episode", () => {
+  it("a stop longer than the dip tolerance ends the drive; the stop keeps its first-fix start", () => {
     let e = stepEpisode({ movingSinceMs: 1000, stoppedSinceMs: null }, 0, 5000);
+    expect(e).toEqual({ movingSinceMs: 1000, stoppedSinceMs: 5000 }); // a red light so far
+    e = stepEpisode(e, 1, 21_000); // 16 s stopped
     expect(e).toEqual({ movingSinceMs: null, stoppedSinceMs: 5000 });
-    e = stepEpisode(e, 1, 9000);
-    expect(e.stoppedSinceMs).toBe(5000);
+  });
+
+  it("a red light (stop under 15 s) does not reset the motion run — stop-and-go still reaches the switch (2026-11-19)", () => {
+    let e = stepEpisode(NO_EPISODE, 20, 0);
+    e = stepEpisode(e, 0, 30_000);
+    e = stepEpisode(e, 0, 40_000);
+    e = stepEpisode(e, 18, 45_000);
+    expect(e).toEqual({ movingSinceMs: 0, stoppedSinceMs: null });
   });
 
   it("creeping between the thresholds changes nothing: a slow stretch neither ends a drive nor starts one", () => {
@@ -123,5 +131,17 @@ describe("decideStatusProposal - proposes, with the time the movement really beg
 
   it("no episode, no proposal", () => {
     expect(decideStatusProposal({ ...base, episode: NO_EPISODE, nowMs: NOW, currentStatus: "off_duty" })).toBeNull();
+  });
+});
+
+describe("5-second Tracker fixes (2026-11-19)", () => {
+  it("a good-accuracy pair at ~6 mph reads as moving, not as jitter", async () => {
+    const { deriveSpeedMph, MOVING_MPH } = await import("@/lib/live-motion");
+    // 6 mph for 5 s = 0.00833 mi, under the old 0.01 mi jitter floor
+    const a = { lat: 30, lng: -82, atMs: 0, accuracyM: 5 };
+    const b = { lat: 30 + 0.00833 / 69.09, lng: -82, atMs: 5_000, accuracyM: 5 };
+    expect(deriveSpeedMph(a, b)!).toBeGreaterThanOrEqual(MOVING_MPH);
+    // a poor fix still gets the wide jitter floor
+    expect(deriveSpeedMph({ ...a, accuracyM: 60 }, { ...b, accuracyM: 60 })).toBe(0);
   });
 });
