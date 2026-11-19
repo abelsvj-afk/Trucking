@@ -70,11 +70,15 @@ import DriveParked from "@/components/drive/DriveParked";
 import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
-import { measurePoint, pointAtRoadMiles } from "@/lib/route-measure";
+import { measurePoint, pointAtRoadMiles, stretchAlong } from "@/lib/route-measure";
+import { roadWorkCallout } from "@/lib/drive-hazard-speech";
 import { timeZoneForPosition } from "@/lib/display-zone";
 
 /** Truck stops, rest areas, bridges ahead within this many miles (owner 2026-11-18: "about 30"). */
 const AHEAD_WINDOW_MILES = 30;
+/** Road work is spoken once inside this distance, and striped this far from where it starts. */
+const ROADWORK_CALL_MILES = 2;
+const ROADWORK_STRIPE_MILES = 0.5;
 import { sliceGeometryFromFraction } from "@/lib/smart-path-map-segments";
 import { useDrive3dView } from "@/lib/drive-3d-view";
 import { useSmoothedFix } from "@/lib/drive-position-smoothing";
@@ -88,7 +92,7 @@ import DriveUpcomingList, {
 } from "@/components/drive/DriveUpcomingList";
 import { usePageTitle } from "@/lib/use-page-title";
 import type { LiveTrafficResponse, RouteCheckResponse, TruckPoisResponse } from "@/types/smart-path";
-import type { DriveMapHazard, DriveMapPoi } from "@/components/DriveMap";
+import type { DriveMapHazard, DriveMapPoi, RouteStretch } from "@/components/DriveMap";
 import type { MapSegment } from "@/lib/smart-path-map-segments";
 
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
@@ -191,6 +195,10 @@ export default function DrivePage() {
   // Live awareness (owner 2026-11-17): the latest traffic poll, the
   // hazards already spoken once, and the poll's own pacing.
   const [liveTraffic, setLiveTraffic] = useState<LiveTrafficResponse | null>(null);
+  // Live-traffic miles count from where the truck was WHEN it was
+  // polled; this is that point (loaded-route road miles). Shifting by
+  // the miles driven NOW pushed every stretch ahead of the real slowdown.
+  const [liveTrafficBaseMiles, setLiveTrafficBaseMiles] = useState(0);
   const spokenHazardsRef = useRef<Set<string>>(new Set());
   const livePollBusyRef = useRef(false);
   // Truck POIs (audit-fix B7): the stops on the remaining run, in
@@ -454,6 +462,7 @@ export default function DrivePage() {
       if (!res.ok) return;
       const body = (await res.json()) as LiveTrafficResponse;
       setLiveTraffic(body);
+      setLiveTrafficBaseMiles(drivenLoaded);
       // Each hazard is spoken once, only when it is close ahead -
       // never repeated, never for something hours away.
       if (!mutedRef.current) {
@@ -780,13 +789,13 @@ export default function DrivePage() {
     const live = liveTraffic?.traffic.segments;
     if (live && live.length > 0) {
       return live.map((s) => ({
-        fromMile: s.fromMile + drivenLoadedMiles,
-        toMile: s.toMile + drivenLoadedMiles,
+        fromMile: s.fromMile + liveTrafficBaseMiles,
+        toMile: s.toMile + liveTrafficBaseMiles,
         color: s.color,
       }));
     }
     return sourceResult?.traffic?.segments ?? [];
-  }, [liveTraffic, sourceResult, drivenLoadedMiles]);
+  }, [liveTraffic, sourceResult, liveTrafficBaseMiles]);
   const mapHazards: DriveMapHazard[] = useMemo(() => {
     if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId) return [];
     const totalMiles = sourceResult.route.distanceMiles;
@@ -797,7 +806,7 @@ export default function DrivePage() {
     const shifted = liveItems && liveItems.length > 0;
     for (const item of trafficItems) {
       if (item.severity === "minor") continue;
-      const mile = (shifted ? item.mile + drivenLoadedMiles : item.mile);
+      const mile = (shifted ? item.mile + liveTrafficBaseMiles : item.mile);
       const point = pointAlongRoute(mapGeometry, mile / totalMiles);
       if (!point) continue;
       out.push({
@@ -821,7 +830,7 @@ export default function DrivePage() {
       });
     }
     return out;
-  }, [liveTraffic, sourceResult, plan, mapGeometry, drivenLoadedMiles]);
+  }, [liveTraffic, sourceResult, plan, mapGeometry, liveTrafficBaseMiles]);
   // A bridge under (or only just over) his truck, close ahead.
   const bridgeBelowAhead =
     sourceResult?.bridges?.items.find(
@@ -917,6 +926,18 @@ export default function DrivePage() {
         point,
       });
     }
+    (sourceResult.roadWork?.items ?? []).forEach((work, i) => {
+      const roadMiles = deadheadMiles + work.mile;
+      const point = pointAtRoadMiles(measure, roadMiles);
+      if (!point) return;
+      items.push({
+        id: `roadwork-${i}-${work.mile}`,
+        kind: "roadwork",
+        name: work.exceedsTruck ? `Road work — restriction over your truck: ${work.text}` : `Road work: ${work.text}`,
+        milesAway: roadMiles - truckMiles,
+        point,
+      });
+    });
     return items
       .filter((item) => item.milesAway >= 0 && item.milesAway <= AHEAD_WINDOW_MILES)
       .sort((x, y) => x.milesAway - y.milesAway);
@@ -930,7 +951,7 @@ export default function DrivePage() {
   const mapPois: DriveMapPoi[] = useMemo(
     () =>
       aheadItems
-        .filter((item) => item.kind !== "bridge")
+        .filter((item) => item.kind !== "bridge" && item.kind !== "roadwork")
         .map((item) => ({
           id: item.id,
           point: item.point,
@@ -940,6 +961,43 @@ export default function DrivePage() {
         })),
     [aheadItems],
   );
+  // Hazard stretches on the route line, cut with the same road-miles
+  // measurement as everything else: live traffic in its severity color,
+  // road work striped (owner 2026-11-19, the TruckPath reference). A
+  // work zone's feed gives where it starts, not where it ends, so the
+  // stripe marks the first ROADWORK_STRIPE_MILES — "it starts here".
+  const routeStretches: RouteStretch[] | undefined = useMemo(() => {
+    if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId || !measure) return undefined;
+    const deadheadMiles = sourceResult.deadhead?.distanceMiles ?? 0;
+    const out: RouteStretch[] = mapSegments.map((seg, i) => ({
+      id: `traffic-${i}`,
+      kind: "traffic",
+      color: seg.color,
+      points: stretchAlong(measure, deadheadMiles + seg.fromMile, deadheadMiles + seg.toMile),
+    }));
+    (sourceResult.roadWork?.items ?? []).forEach((work, i) => {
+      const start = deadheadMiles + work.mile;
+      out.push({ id: `roadwork-${i}`, kind: "roadwork", color: "#f97316", points: stretchAlong(measure, start, start + ROADWORK_STRIPE_MILES) });
+    });
+    return out;
+  }, [sourceResult, plan, measure, mapSegments]);
+
+  // Spoken ahead of time (owner 2026-11-19): road work is called out
+  // once, about two miles out, from the same live distance the list
+  // shows. (Traffic and low bridges are already spoken by the live
+  // poll.) Never repeated; muted means muted.
+  useEffect(() => {
+    if (mode !== "rolling" || mutedRef.current) return;
+    for (const item of aheadItems) {
+      if (item.kind !== "roadwork" || item.milesAway > ROADWORK_CALL_MILES) continue;
+      const key = item.id;
+      if (spokenHazardsRef.current.has(key)) continue;
+      spokenHazardsRef.current.add(key);
+      if (!speakerRef.current) speakerRef.current = browserSpeaker();
+      speakerRef.current.speak(roadWorkCallout(item.milesAway, item.name ?? ""));
+    }
+  }, [aheadItems, mode]);
+
   // The remaining run, ticking live: miles with one decimal, minutes
   // from live speed (or the plan's pace), arrival on his clock.
   const upcomingListRemaining: UpcomingListRemaining | null = useMemo(() => {
@@ -1064,6 +1122,7 @@ export default function DrivePage() {
               lastFix={shownFix}
               mapGeometry={driveAheadGeometry}
               motionGeometry={plan.geometry}
+              stretches={routeStretches}
               mapDeadhead={mapDeadhead}
               positionQuality={positionQuality}
               follow={follow}
@@ -1109,6 +1168,7 @@ export default function DrivePage() {
                     position={shownFix?.point ?? null}
                     headingDeg={shownFix?.headingDeg ?? null}
                     motionGeometry={plan.geometry}
+                    stretches={routeStretches}
                     positionQuality={positionQuality}
                     follow
                     onUserPan={() => {}}

@@ -96,6 +96,34 @@ interface DriveMapProps {
   /** The WHOLE route line the truck glides along (truck-motion.ts). `geometry` may be only the part
    * still ahead; the glide needs the line behind the truck too. Defaults to `geometry`. */
   motionGeometry?: LatLng[];
+  /**
+   * Hazard stretches already cut along the route (route-measure.ts
+   * `stretchAlong`, road miles): live traffic in its severity color,
+   * road work striped orange-and-black. When given they replace
+   * `segments` — whose miles are cut against `geometry`, which on the
+   * drive surface is only the part still ahead.
+   */
+  stretches?: RouteStretch[];
+}
+
+export interface RouteStretch {
+  id: string;
+  kind: "traffic" | "roadwork";
+  points: LatLng[];
+  color: string;
+}
+
+function stretchFeatures(stretches: RouteStretch[], kind: RouteStretch["kind"]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: stretches
+      .filter((s) => s.kind === kind && s.points.length >= 2)
+      .map((s) => ({
+        type: "Feature" as const,
+        properties: { color: s.color },
+        geometry: { type: "LineString" as const, coordinates: s.points.map((p) => [p.lng, p.lat]) },
+      })),
+  };
 }
 
 const OSM_STYLE = {
@@ -186,6 +214,7 @@ export default function DriveMap({
   maneuverZoom = null,
   pois = [],
   motionGeometry,
+  stretches,
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -200,7 +229,7 @@ export default function DriveMap({
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
   const framedRef = useRef(false);
-  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois });
+  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, stretches });
   const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
@@ -373,6 +402,7 @@ export default function DriveMap({
       segments: currentSegments,
       hazards: currentHazards,
       pois: currentPois,
+      stretches: currentStretches,
     } = dataRef.current;
     const routeSource = map.getSource("drive-route") as
       | { setData: (data: unknown) => void }
@@ -387,7 +417,11 @@ export default function DriveMap({
     const trafficSource = map.getSource("drive-traffic") as
       | { setData: (data: unknown) => void }
       | undefined;
-    trafficSource?.setData(segmentsToFeatureCollection(geo, currentSegments));
+    trafficSource?.setData(
+      currentStretches ? stretchFeatures(currentStretches, "traffic") : segmentsToFeatureCollection(geo, currentSegments),
+    );
+    const roadworkSource = map.getSource("drive-roadwork") as { setData: (data: unknown) => void } | undefined;
+    roadworkSource?.setData(stretchFeatures(currentStretches ?? [], "roadwork"));
 
     (() => {
       const maplibregl = maplibreRef.current;
@@ -540,6 +574,22 @@ export default function DriveMap({
             "line-opacity": 0.95,
           },
         });
+        // Road work (owner 2026-11-19, the TruckPath reference): the
+        // stretch is striped orange-and-black over the route, like the
+        // barrels — distinct from traffic colors and from the gold line.
+        map.addSource("drive-roadwork", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "drive-roadwork-casing",
+          type: "line",
+          source: "drive-roadwork",
+          paint: { "line-color": "#111827", "line-width": 9, "line-opacity": 0.95 },
+        });
+        map.addLayer({
+          id: "drive-roadwork-stripes",
+          type: "line",
+          source: "drive-roadwork",
+          paint: { "line-color": "#f97316", "line-width": 7, "line-dasharray": [1.2, 1.2] },
+        });
         drawRoute();
         void syncTruckLayer();
       });
@@ -562,9 +612,9 @@ export default function DriveMap({
   }, [drawRoute]);
 
   useEffect(() => {
-    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois };
+    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, stretches };
     drawRoute();
-  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, drawRoute]);
+  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, stretches, drawRoute]);
 
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).

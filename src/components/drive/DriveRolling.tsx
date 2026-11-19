@@ -25,7 +25,7 @@ import {
 import { REROUTE_COPY } from "@/lib/drive-reroute";
 import { formatMinutes } from "@/lib/smart-path";
 import type { MapSegment } from "@/lib/smart-path-map-segments";
-import type { DriveMapHazard, DriveMapPoi } from "@/components/DriveMap";
+import type { DriveMapHazard, DriveMapPoi, RouteStretch } from "@/components/DriveMap";
 
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 
@@ -40,7 +40,7 @@ const MANEUVER_ARROWS = {
 type DriveMapProps = React.ComponentProps<typeof DriveMap>;
 
 export default function DriveRolling({
-  plan, session, lastFix, motionGeometry, mapGeometry, mapDeadhead, positionQuality, follow, onFollow, night, layout,
+  plan, session, lastFix, motionGeometry, stretches, mapGeometry, mapDeadhead, positionQuality, follow, onFollow, night, layout,
   nextStop, upcoming, projection, routeNotice, muted, view3d, onView3dToggle, onReplan, onParked, onSkip, onMuteToggle,
   segments = [], hazards = [],
   pois = [],
@@ -56,6 +56,8 @@ export default function DriveRolling({
   lastFix: DriveFix | null;
   /** The whole drive line the 3D truck glides along (truck-motion.ts). */
   motionGeometry?: LatLng[];
+  /** Hazard stretches on the route line (traffic colors, road-work stripes). */
+  stretches?: RouteStretch[];
   mapGeometry: DriveMapProps["geometry"];
   mapDeadhead: DriveMapProps["deadheadGeometry"];
   positionQuality: DriveMapProps["positionQuality"];
@@ -102,6 +104,7 @@ export default function DriveRolling({
         stopStatus={session.stopStatus}
         position={lastFix?.point ?? null}
         motionGeometry={motionGeometry}
+        stretches={stretches}
         headingDeg={lastFix?.headingDeg ?? null}
         positionQuality={positionQuality}
         follow={follow}

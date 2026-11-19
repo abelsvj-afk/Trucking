@@ -17,7 +17,7 @@ import { viewerTimeZone } from "@/lib/time";
 import { zoneShortLabel } from "@/lib/display-zone";
 
 /** What the list can show: truck POIs plus low/unknown-clearance bridges on the route. */
-export type UpcomingListKind = TruckPoiKind | "bridge";
+export type UpcomingListKind = TruckPoiKind | "bridge" | "roadwork";
 
 export interface UpcomingListManeuver {
   arrow: string;
@@ -50,6 +50,7 @@ interface Props {
 export const POI_META: Record<UpcomingListKind, { badge: string; label: string; color: string }> = {
   truck_stop: { badge: "T", label: "Truck stop", color: "#c9a227" },
   bridge: { badge: "⚠", label: "Low bridge", color: "#b91c1c" },
+  roadwork: { badge: "🚧", label: "Road work", color: "#f97316" },
   fuel: { badge: "⛽", label: "Fuel", color: "#b45309" },
   rest: { badge: "R", label: "Rest area", color: "#2563eb" },
   parking: { badge: "P", label: "Truck parking", color: "#0f766a" },

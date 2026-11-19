@@ -156,3 +156,16 @@ export function bearingDeg(a: LatLng, b: LatLng): number | null {
   const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
+
+/** The stretch of line between two road-miles marks (for colored / striped hazard stretches). */
+export function stretchAlong(m: RouteMeasure, fromMiles: number, toMiles: number): LatLng[] {
+  const lo = Math.max(0, Math.min(fromMiles, toMiles));
+  const hi = Math.min(m.totalRoadMiles, Math.max(fromMiles, toMiles));
+  if (hi <= lo || m.geometry.length < 2) return [];
+  const out: LatLng[] = [pointAtRoadMiles(m, lo)!];
+  m.roadMilesAtVertex.forEach((v, i) => {
+    if (v > lo && v < hi) out.push(m.geometry[i]!);
+  });
+  out.push(pointAtRoadMiles(m, hi)!);
+  return out;
+}

@@ -82,6 +82,18 @@ Together, pulling out of a lot and stop-and-go town driving never held the 90 s 
 
 **The hidden-page gap:** a browser cannot see motion while the page is hidden; that is a platform limit. The Tracker / Telegram feed carries it, and that path is what this fixes.
 
+## Hazards on the route line, spoken ahead (owner 2026-11-19, the reference app)
+
+- **Road work** (state work-zone feeds, already fetched by the route check) is:
+  - drawn as a striped orange-and-black stretch on the route line;
+  - added to the ahead chips;
+  - spoken once, about 2 mi out, with the live distance. When a posted restriction is over his truck, the call says so.
+- A work-zone feed gives where the work starts, not where it ends, so the stripe marks the first 0.5 mi.
+- **Live traffic** stretches keep their severity colors. Two fixes:
+  - they are now cut in road miles on the whole route (they were cut against the part still ahead, so they slid forward as he drove);
+  - live-traffic miles are anchored to where the truck was when they were fetched.
+- Traffic within 15 mi and low bridges within 5 mi were already spoken once by the live poll.
+
 ## Location voice notes
 
 Not built yet: two decisions are the owner's (see the PR).
