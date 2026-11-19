@@ -473,6 +473,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/internal/industry-briefing/run` | POST | internal invoker — secret header, no user session |
 | `/api/internal/research/run` | POST | internal invoker — secret header, no user session |
 | `/api/telegram/webhook` | POST | Telegram webhook — secret token + chat allowlist, fails closed |
+| `/api/telnyx/malik-tools/[companyId]/[tool]` | POST | Malik's webhook tools (docs/design/malik-real-tools.md) — public in `src/proxy.ts`, own checks in order: Telnyx public key configured (else 503, fail closed) → Ed25519 signature (else 401) → company is a real UUID (else 404) → tool is one of Malik's six allowlisted names (else 404) |
 | `/api/v1/account-snapshots/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/account-snapshots/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
 | `/api/v1/account-snapshots` | GET,POST | generic CRUD (contract above) |

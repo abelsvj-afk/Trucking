@@ -1657,3 +1657,30 @@ One row per model call, estimated cost in cents. Estimates, not bills — OpenAI
 - `tier` text not null — scan | rank
 - `estimated_cents` integer not null — ≥ 0
 - `created_at` timestamptz not null default now()
+
+### `malik_tool_calls` — created in 00104
+
+One row per webhook tool call Malik (the phone voice) makes mid-conversation (docs/design/malik-real-tools.md). Written by the service-role client only (the Telnyx tool endpoint). RLS: the company reads its own rows; there are no client writes.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id) on delete cascade
+- `tool_name` text not null — malik_get_active_load | malik_get_delivery_eta | malik_get_hos_hours | malik_get_trip_status | malik_get_load_paperwork | malik_take_message
+- `args` jsonb not null default '{}'
+- `result_text` text — ≤ 2000 chars
+- `duration_ms` integer — ≥ 0
+- `conversation_ref` text — ≤ 120 chars
+- `created_at` timestamptz not null default now()
+
+### `malik_call_reports` — created in 00104
+
+What Malik reports back to Abel: a message a caller left, or a call summary. Written by the service-role client only (the Telnyx webhook and tool endpoint). RLS: the company reads its own rows. At most one call-summary per conversation (unique on company + Telnyx conversation id).
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id) on delete cascade
+- `kind` text not null — message | call-summary
+- `telnyx_conversation_id` text — ≤ 120 chars
+- `caller_name` text — 1–120 chars; `callback_number` text — 1–40 chars
+- `title` text not null — 1–240 chars; `body` text not null — 1–4000 chars
+- `payload` jsonb not null default '{}'
+- `reported_to_group` boolean not null default false; `telegram_message_id` bigint
+- `created_at` timestamptz not null default now()
