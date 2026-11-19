@@ -10,8 +10,9 @@ vi.mock("next/dynamic", () => ({
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock("@/lib/use-live", () => ({ useLiveVersion: () => 0, useLiveConnected: () => false }));
 const activeLoad = vi.fn();
+globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: { notes: [], memberCount: 1 } }), { status: 200 })) as unknown as typeof fetch;
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { activeLoad: (...a: unknown[]) => activeLoad(...a), telegramPosition: vi.fn(async () => ({ position: null })), speedLimit: vi.fn(async () => ({ data: { limitMph: null, roadName: null, unavailable: true } })), list: vi.fn(async () => ({ data: [] })) },
+  apiClient: { activeLoad: (...a: unknown[]) => activeLoad(...a), whereAmI: async () => ({ data: { roadRef: null, roadName: null, mileMarker: null, town: null, state: null } }), telegramPosition: vi.fn(async () => ({ position: null })), speedLimit: vi.fn(async () => ({ data: { limitMph: null, roadName: null, unavailable: true } })), list: vi.fn(async () => ({ data: [] })) },
   ApiClientError: class extends Error {},
 }));
 

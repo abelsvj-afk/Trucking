@@ -6,7 +6,10 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  window.localStorage.clear();
 });
+// The voice-notes poll (Home's map, 2026-11-19): no notes in these tests.
+globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: { notes: [], memberCount: 1 } }), { status: 200 })) as unknown as typeof fetch;
 
 vi.mock("next/dynamic", () => ({
   default: () => (props: { position: { lat: number; lng: number } | null; headingUp?: boolean; headingDeg?: number | null; interactive?: boolean; geometry?: unknown[] }) => (
@@ -24,7 +27,7 @@ vi.mock("next/dynamic", () => ({
 const speedLimit = vi.fn(async (): Promise<{ data: { limitMph: number | null; roadName: string | null; unavailable: boolean } }> => ({ data: { limitMph: null, roadName: null, unavailable: false } }));
 const telegramPosition = vi.fn(async (): Promise<{ position: null | { lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMph: number | null; recordedAt: string; ageSeconds: number } }> => ({ position: null }));
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { create: vi.fn(), telegramPosition: () => telegramPosition(), speedLimit: (...a: unknown[]) => (speedLimit as (...x: unknown[]) => unknown)(...a), list: vi.fn(async () => ({ data: [] })) },
+  apiClient: { create: vi.fn(), telegramPosition: () => telegramPosition(), speedLimit: (...a: unknown[]) => (speedLimit as (...x: unknown[]) => unknown)(...a), whereAmI: async () => ({ data: { roadRef: null, roadName: null, mileMarker: null, town: null, state: null } }), list: vi.fn(async () => ({ data: [] })) },
   ApiClientError: class extends Error {},
 }));
 vi.mock("@/lib/offline-outbox", () => ({ offlineOutbox: { enqueue: vi.fn() } }));
@@ -52,13 +55,15 @@ describe("HomePositionCard (live GPS position on Home)", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("disappears when the fix goes stale instead of showing an old location as live", async () => {
+  it("when the fix goes stale the truck STAYS at its last known spot, clearly marked not live (owner 2026-11-19)", async () => {
     render(<HomePositionCard position={fix(30_000)} />);
     expect(screen.getByTestId("map")).toBeTruthy();
     await act(async () => {
       vi.advanceTimersByTime(POSITION_FRESH_MS);
     });
-    expect(screen.queryByTestId("map")).toBeNull();
+    expect(screen.getByTestId("map").getAttribute("data-lat")).toBe("28.5383");
+    expect(document.body.textContent).toContain("not live");
+    expect(document.body.textContent).toContain("Last known position");
   });
 
   it("Block C: follow mode - heading-up, no touch pan (it must not trap page scroll), truck heading passed through", () => {
@@ -110,15 +115,17 @@ describe("HomePositionCard (live GPS position on Home)", () => {
     const map = screen.getByTestId("map");
     expect(map.getAttribute("data-lat")).toBe("30.1");
     expect(map.getAttribute("data-heading")).toBe("180");
-    expect(document.body.textContent).toContain("Last position from Telegram live location");
+    expect(document.body.textContent).toContain("Position from the Tracker / Telegram");
     expect(document.body.textContent).not.toContain("Phone GPS");
   });
 
-  it("a stale Telegram position (older than 3 min) is not shown", async () => {
-    telegramPosition.mockResolvedValueOnce({ position: { lat: 30.1, lng: -81.2, accuracyM: 20, headingDeg: null, speedMph: null, recordedAt: "x", ageSeconds: 600 } });
-    const { container } = render(<HomePositionCard position={null} />);
+  it("an old server position (older than 3 min) still shows the truck there — as LAST KNOWN, never as live", async () => {
+    telegramPosition.mockResolvedValueOnce({ position: { lat: 30.1, lng: -81.2, accuracyM: 20, headingDeg: null, speedMph: null, recordedAt: "x", ageSeconds: 7200 } });
+    render(<HomePositionCard position={null} />);
     await act(async () => {});
-    expect(container.firstChild).toBeNull();
+    expect(screen.getByTestId("map").getAttribute("data-lat")).toBe("30.1");
+    expect(document.body.textContent).toContain("Last known position · 2 h ago — not live");
+    expect(document.body.textContent).not.toContain("Phone GPS");
   });
 
   it("the device's own fresh fix wins over Telegram's", async () => {
@@ -134,6 +141,7 @@ describe("HomePositionCard (live GPS position on Home)", () => {
     expect(positionAgeText(1000)).toBe("just now");
     expect(positionAgeText(42_000)).toBe("42 s ago");
     expect(positionAgeText(130_000)).toBe("2 min ago");
+    expect(positionAgeText(3 * 3_600_000)).toBe("3 h ago");
   });
 });
 
@@ -160,7 +168,7 @@ describe("StatusSheet GPS location (audit B6)", () => {
 describe("map-first Home: the hero map never silently vanishes", () => {
   it("with no fix the hero says why and how to fix it; the plain card still renders nothing", () => {
     const hero = render(<HomePositionCard position={null} hero />);
-    expect(screen.getByText(/Map off — no fresh location/)).toBeTruthy();
+    expect(screen.getByText(/No position yet/)).toBeTruthy();
     expect(screen.getByText(/hours and pay below are not affected/)).toBeTruthy();
     hero.unmount();
     const { container } = render(<HomePositionCard position={null} />);

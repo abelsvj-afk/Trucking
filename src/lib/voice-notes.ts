@@ -171,3 +171,21 @@ export function freshnessLabel(createdAtMs: number, nowMs: number): string {
   if (hours < 48) return `${hours} h ago`;
   return `${Math.round(hours / 24)} days ago`;
 }
+
+/**
+ * Without a planned route (Home's map, 2026-11-19): a note is "ahead" when it
+ * lies in front of the truck (bearing to it within SAME_DIRECTION_DEG of his
+ * heading), was left going his way, and is within `maxMiles` straight-line.
+ * Returns the straight-line miles, or null when it is not ahead of him.
+ */
+export function milesAheadByBearing(note: { point: LatLng; headingDeg: number | null }, fix: { point: LatLng; headingDeg: number | null }, maxMiles: number): number | null {
+  const miles = haversineMiles(fix.point, note.point);
+  if (miles > maxMiles) return null;
+  if (!sameDirection(note.headingDeg, fix.headingDeg)) return null;
+  if (fix.headingDeg !== null && miles > NEAR_SPOT_MILES) {
+    const kx = Math.cos((fix.point.lat * Math.PI) / 180);
+    const b = ((Math.atan2((note.point.lng - fix.point.lng) * kx, note.point.lat - fix.point.lat) * 180) / Math.PI + 360) % 360;
+    if (angleDiff(b, fix.headingDeg) > SAME_DIRECTION_DEG) return null;
+  }
+  return miles;
+}
