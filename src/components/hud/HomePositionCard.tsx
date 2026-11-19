@@ -47,7 +47,7 @@ const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
 export const POSITION_FRESH_MS = 60_000;
 /** Fix worse than this many metres is drawn as a poor (gray) marker. */
 export const POOR_ACCURACY_M = 50;
-export const FOLLOW_ZOOM = 14.5;
+export const FOLLOW_ZOOM = 15;
 
 export function positionAgeText(ageMs: number): string {
   const s = Math.max(0, Math.round(ageMs / 1000));

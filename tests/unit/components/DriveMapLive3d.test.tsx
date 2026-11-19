@@ -321,7 +321,7 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     await driveOneFix(rendered, driveMap({ lat: 32.06, lng: -91.14 }));
     expect(addedLayers.some((l) => l.id === "drive-truck-3d")).toBe(true);
     const lastEase = easeToCalls[easeToCalls.length - 1]!;
-    expect(lastEase.zoom).toBe(14.5); // the 3D follow default (pulled back 2026-11-19: "the camera is too close")
+    expect(lastEase.zoom).toBe(15); // the 3D follow default (pulled back 2026-11-19: "the camera is too close")
     expect(lastEase.bearing).toBe(180);
     expect(fitBoundsCalls).toHaveLength(0);
   });

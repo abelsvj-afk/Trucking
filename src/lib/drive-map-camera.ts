@@ -20,7 +20,7 @@ export const DRIVE_MAP_PITCH_FLAT = 0;
 /** Fraction of the map height the centre is pushed down in 3D, putting the truck ~72% down the screen. */
 export const DRIVE_MAP_TRUCK_OFFSET_FRACTION = 0.22;
 /** Follow zoom in 3D when the caller sets none — close enough to read the road ahead like a GPS. */
-export const DRIVE_MAP_FOLLOW_ZOOM_3D = 14.5;
+export const DRIVE_MAP_FOLLOW_ZOOM_3D = 15;
 
 export interface DriveMapCameraInput {
   view3d: boolean;
