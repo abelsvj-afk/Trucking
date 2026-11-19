@@ -1453,9 +1453,12 @@ button.hud-ring {
 .hud-locked {
   margin: 0.75rem 0;
   padding: 0.85rem 1rem;
+  /* Plain fallbacks first: browsers without color-mix() keep these. */
+  border: 1px solid var(--color-danger);
   border: 1px solid color-mix(in srgb, var(--color-danger) 55%, transparent);
   border-left: 4px solid var(--color-danger);
   border-radius: 0.75rem;
+  background: var(--color-danger-light);
   background: color-mix(in srgb, var(--color-danger) 9%, var(--color-surface, transparent));
   color: var(--color-text);
 }
@@ -1497,6 +1500,24 @@ button.hud-ring {
   min-height: 2.25rem;
   display: flex;
   align-items: center;
+}
+/* display:flex drops the browser's disclosure arrow: draw our own so it reads as tappable. */
+.hud-locked-more summary::-webkit-details-marker {
+  display: none;
+}
+.hud-locked-more summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.4rem;
+  transition: transform 0.15s ease;
+}
+.hud-locked-more[open] summary::before {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-locked-more summary::before {
+    transition: none;
+  }
 }
 .hud-locked-more ul {
   margin: 0.4rem 0;

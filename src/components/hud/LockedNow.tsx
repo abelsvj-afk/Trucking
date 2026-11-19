@@ -15,7 +15,12 @@ import { formatClock, type HudClock } from "@/lib/hud-clocks";
 function shortReset(clock: HudClock): string | null {
   const reset = clock.reset;
   if (!reset) return clock.key === "cycle" ? "Comes back as your oldest days drop off" : null;
-  return reset.underway ? `Back in ${formatClock(reset.remainingMs)}` : `Needs ${formatClock(reset.requiredMs)} off — starts when you stop`;
+  if (reset.underway) return `Back in ${formatClock(reset.remainingMs)}`;
+  const need = formatClock(reset.requiredMs);
+  // The 30-minute break only needs time NOT DRIVING (on-duty work counts) - never say "off" for it.
+  if (clock.key === "break") return `Needs ${need} not driving — starts when you stop driving`;
+  if (clock.key === "cycle") return `Needs ${need} off duty (the restart) — starts when you stop`;
+  return `Needs ${need} off — starts when you stop`;
 }
 
 export default function LockedNow({ clocks }: { clocks: HudClock[] }) {

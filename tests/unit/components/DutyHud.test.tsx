@@ -341,3 +341,18 @@ describe("status timer (UI audit 2026-11-19)", () => {
     expect(formatStatusTimer(214 * 3_600_000)).toBe("8 d 22 h");
   });
 });
+
+describe("locked card glance lines (UI audit 2026-11-19)", () => {
+  it("never tells him the 30-minute break needs time OFF — it needs time not driving", async () => {
+    const { default: LockedNow } = await import("@/components/hud/LockedNow");
+    const { render, screen } = await import("@testing-library/react");
+    const clock = (key: string, label: string, requiredMs: number) => ({
+      key, label, tone: "expired", remainingMs: 0, totalMs: 1, reset: { underway: false, requiredMs, remainingMs: requiredMs, progressMs: 0, how: "x" },
+    });
+    render(<LockedNow clocks={[clock("break", "Break due in", 30 * 60_000), clock("drive", "Drive", 10 * 3_600_000)] as never} />);
+    const list = screen.getByRole("alert", { name: "What is locked" }).querySelector(".hud-locked-list")!;
+    expect(list.textContent).toContain("Needs 0:30:00 not driving");
+    expect(list.textContent).not.toContain("0:30:00 off");
+    expect(list.textContent).toContain("Needs 10:00:00 off");
+  });
+});
