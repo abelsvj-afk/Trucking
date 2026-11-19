@@ -27,8 +27,8 @@ export interface GlowPaint {
  */
 export function glowPaintAt(nowMs: number, night: boolean, still = false): GlowPaint {
   const phase = still ? 0.75 : 0.5 - 0.5 * Math.cos(((nowMs % GLOW_PERIOD_MS) / GLOW_PERIOD_MS) * 2 * Math.PI);
-  const base = night ? { width: 18, opacity: 0.45 } : { width: 16, opacity: 0.35 };
-  const swing = night ? { width: 10, opacity: 0.4 } : { width: 8, opacity: 0.35 };
+  const base = night ? { width: 22, opacity: 0.55 } : { width: 20, opacity: 0.5 };
+  const swing = night ? { width: 12, opacity: 0.4 } : { width: 10, opacity: 0.4 };
   return {
     width: Math.round((base.width + swing.width * phase) * 10) / 10,
     opacity: Math.round((base.opacity + swing.opacity * phase) * 100) / 100,
@@ -37,4 +37,4 @@ export function glowPaintAt(nowMs: number, night: boolean, still = false): GlowP
 }
 
 /** Gold: the glow's color and the line's own. */
-export const GLOW_COLOR = "#f2b705";
+export const GLOW_COLOR = "#ffd23f";

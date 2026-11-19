@@ -105,3 +105,18 @@ describe("truck motion along the road (one motion system, 2026-11-19)", () => {
     expect(sampleMotion(n, 5000).frame.pose.headingDeg).toBeCloseTo(90, 0);
   });
 });
+
+describe("the truck follows HIS GPS, not the route line (owner 2026-11-19)", () => {
+  it("off the route (but within a mile of the line) the truck is drawn at his real position", async () => {
+    const { buildRouteMeasure } = await import("@/lib/route-measure");
+    // Route runs north along lng -82; he is on a parallel road 0.4 mi east.
+    const line = Array.from({ length: 11 }, (_, i) => ({ lat: 30 + i * 0.01449, lng: -82 }));
+    const measure = buildRouteMeasure([{ geometry: line, roadMiles: 0 }]);
+    const east = -82 + 0.4 / 59.9;
+    let m = feedFix(null, { position: { lat: 30.01, lng: east }, headingDeg: 0 }, 0, measure);
+    m = sampleMotion(m, 0).motion;
+    m = feedFix(m, { position: { lat: 30.02, lng: east }, headingDeg: 0 }, 1000, measure);
+    const mid = sampleMotion(m, 1500).frame.pose.position;
+    expect(mid.lng).toBeCloseTo(east, 6); // never pulled onto the route line
+  });
+});

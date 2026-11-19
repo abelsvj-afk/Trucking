@@ -314,6 +314,10 @@ export default function DriveMap({
   // only re-aims the tilt. Follow zoom and bearing are follow
   // properties, not 3D ones — a flat following map still zooms in
   // and rotates with the heading.
+  // Camera state shared by applyCamera (per-fix ease) and followPose (per-frame glide follow).
+  const cameraTargetRef = useRef<{ zoom: number | null; pitch: number; padTop: number }>({ zoom: null, pitch: 0, padTop: 0 });
+  const userZoomRef = useRef<number | null>(null);
+  const followFrameRef = useRef<number | null>(null);
   const applyCamera = useCallback(
     (pos: LatLng | null) => {
       const map = mapRef.current;
@@ -336,11 +340,14 @@ export default function DriveMap({
           duration: 700,
           pitch: cam.pitch,
           ...(cam.bearing !== null ? { bearing: cam.bearing } : {}),
-          ...(cam.zoom !== null ? { zoom: cam.zoom } : {}),
-          offset: cam.offset,
+          ...(cam.zoom !== null ? { zoom: userZoomRef.current ?? cam.zoom } : {}),
+          // Padding (not offset) pushes the truck down-screen, so the
+          // per-frame glide follower below uses the very same framing.
+          padding: { top: cam.offset[1] * 2, bottom: 0, left: 0, right: 0 },
         });
+        cameraTargetRef.current = { zoom: cam.zoom, pitch: cam.pitch, padTop: cam.offset[1] * 2 };
       } else {
-        map.easeTo({ duration: 700, pitch: cam.pitch, offset: cam.offset });
+        map.easeTo({ duration: 700, pitch: cam.pitch, padding: { top: cam.offset[1] * 2, bottom: 0, left: 0, right: 0 } });
       }
     },
     [headingUp, followZoom, maneuverZoom],
@@ -363,6 +370,54 @@ export default function DriveMap({
   // so getLayer would keep reporting it as present and no retry
   // would ever happen) and the flat 2D icon takes over as the
   // truck. The error is logged in full.
+  // Smooth follow (owner 2026-11-19: "it's still jumping every time it
+  // moves"): once the 3D truck draws, the camera follows the truck AS IT
+  // GLIDES, frame by frame, instead of easing to each raw GPS fix (which
+  // left the view lurching once a second). A zoom HE makes with his
+  // fingers is kept (userZoomRef) — the map no longer yanks it back.
+  const followPose = useCallback((pose: { position: LatLng; headingDeg: number }) => {
+    const map = mapRef.current;
+    if (!map || !followRef.current || !view3dRef.current || followFrameRef.current !== null) return;
+    followFrameRef.current = requestAnimationFrame(() => {
+      followFrameRef.current = null;
+      const t = cameraTargetRef.current;
+      const center = map.getCenter();
+      const zoom = map.getZoom();
+      const bearing = map.getBearing();
+      const pitch = map.getPitch();
+      const targetZoom = userZoomRef.current ?? t.zoom ?? zoom;
+      const nextZoom = zoom + (targetZoom - zoom) * 0.15;
+      const turn = ((((pose.headingDeg - bearing) % 360) + 540) % 360) - 180;
+      const nextBearing = bearing + turn * 0.2;
+      const nextPitch = pitch + (t.pitch - pitch) * 0.15;
+      const moved = Math.abs(center.lng - pose.position.lng) + Math.abs(center.lat - pose.position.lat) > 1e-7;
+      const settling = Math.abs(targetZoom - nextZoom) > 0.01 || Math.abs(turn) > 0.5 || Math.abs(t.pitch - nextPitch) > 0.2;
+      // Nothing to change = no new frame: a parked truck costs nothing.
+      if (!moved && !settling) return;
+      map.jumpTo({
+        center: [pose.position.lng, pose.position.lat],
+        zoom: nextZoom,
+        bearing: nextBearing,
+        pitch: nextPitch,
+        padding: { top: t.padTop, bottom: 0, left: 0, right: 0 },
+      });
+      if (settling) map.triggerRepaint();
+    });
+  }, []);
+  // Keep the glide follower's target in step with the follow / maneuver
+  // zoom (turn zoom eases in through it) without a camera jump.
+  useEffect(() => {
+    const cam = driveMapCamera({
+      view3d,
+      headingDeg: lastHeadingRef.current,
+      headingUp: headingUp || view3d,
+      followZoom: maneuverZoom ?? followZoom,
+      containerHeightPx: containerRef.current?.clientHeight ?? 0,
+      follow,
+    });
+    cameraTargetRef.current = { zoom: cam.zoom, pitch: cam.pitch, padTop: cam.offset[1] * 2 };
+    mapRef.current?.triggerRepaint();
+  }, [view3d, headingUp, maneuverZoom, followZoom, follow]);
   // Handle for map-event retries ("idle"), pointed at syncTruckLayer by the effect below.
   const syncTruckLayerRef = useRef<() => void>(() => {});
   const syncTruckLayer = useCallback(() => {
@@ -402,6 +457,7 @@ export default function DriveMap({
           },
           markTruckLayerFailed,
           () => setTruck3dDrawn(true),
+          (pose) => followPose(pose),
         ),
       );
     } catch (error) {
@@ -422,7 +478,7 @@ export default function DriveMap({
         // Best effort: the layer is dead either way.
       }
     }
-  }, [markTruckLayerFailed]);
+  }, [markTruckLayerFailed, followPose]);
   useEffect(() => {
     syncTruckLayerRef.current = syncTruckLayer;
   }, [syncTruckLayer]);
@@ -571,6 +627,10 @@ export default function DriveMap({
       // re-center is how follow comes back). Programmatic easeTo
       // does not fire dragstart, so the camera never fights itself.
       map.on("dragstart", () => panRef.current());
+      // His own pinch / wheel zoom wins over the follow zoom until he leaves the page.
+      map.on("zoomend", (e: { originalEvent?: unknown }) => {
+        if (e.originalEvent) userZoomRef.current = map.getZoom();
+      });
       // Belt and braces: whenever the map settles, make sure the 3D truck is
       // on it (a no-op when it is, or when 3D is off / has failed).
       map.on("idle", () => syncTruckLayerRef.current());
@@ -616,7 +676,8 @@ export default function DriveMap({
           id: "drive-route-line",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#c9a227", "line-width": 5, "line-opacity": 0.9 },
+          // Bright gold (owner 2026-11-19: "there's still not that bright truck path").
+          paint: { "line-color": "#ffc61a", "line-width": 7, "line-opacity": 1 },
         });
         // Live awareness: colored stretches over the route line,
         // each feature carrying its severity color.
@@ -694,17 +755,12 @@ export default function DriveMap({
       // stops asking for frames once it arrives (truck-motion.ts).
       map.triggerRepaint();
       if (truck3dDrawn) {
-        // The 3D truck is drawing: it IS the truck. No flat icon.
+        // The 3D truck is drawing: it IS the truck. No flat icon, and the
+        // camera follows the glide frame by frame (followPose) — no
+        // per-fix camera jump here.
         positionMarkerRef.current?.remove();
         positionMarkerRef.current = null;
         positionElRef.current = null;
-        if (followRef.current) {
-          const now = Date.now();
-          if (now - lastCameraMoveRef.current >= 1000) {
-            lastCameraMoveRef.current = now;
-            applyCamera(position);
-          }
-        }
         return;
       }
       // Not drawn yet (or never will on this phone): the flat truck below shows meanwhile.

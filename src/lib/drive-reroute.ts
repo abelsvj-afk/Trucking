@@ -8,6 +8,7 @@
 //      route is truck-checked. A car route never silently replaces a truck
 //      route - the old plan stays and he is told plainly.
 
+import { bearingDeg, buildRouteMeasure, measurePoint } from "./route-measure";
 import type { DrivePlanSnapshot } from "@/lib/drive";
 import { buildDrivePlan } from "@/lib/drive";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -150,4 +151,33 @@ export const REROUTE_COPY = {
 
 export function reroutedSpeech(milesToGo: number): string {
   return `New truck-checked route. ${Math.round(milesToGo)} miles to go.`;
+}
+
+/** Going the wrong way: rolling this far off the route's own direction. */
+export const WRONG_WAY_DEG = 120;
+/** Only judged at real road speed: slow GPS headings are noise. */
+export const WRONG_WAY_MIN_MPH = 10;
+
+/**
+ * Owner 2026-11-19: he drove past the turn and kept going along a road
+ * the route also uses, the OTHER way — still on the line, so the
+ * distance check never saw him "off route" and no reroute came. Wrong
+ * way = on the line (within OFF_ROUTE_MILES) but heading more than
+ * WRONG_WAY_DEG away from the route's direction at that point, at road
+ * speed. The caller treats it like off-route (same 25 s hold, same
+ * 2-minute reroute limit), so one bad heading never triggers a reroute.
+ */
+export function isWrongWay(
+  point: LatLng,
+  geometry: LatLng[],
+  headingDeg: number | null,
+  speedMph: number | null,
+): boolean {
+  if (headingDeg === null || speedMph === null || speedMph < WRONG_WAY_MIN_MPH || geometry.length < 2) return false;
+  const at = measurePoint(buildRouteMeasure([{ geometry, roadMiles: 0 }]), point);
+  if (!at || at.offRouteMiles > OFF_ROUTE_MILES) return false;
+  const routeBearing = bearingDeg(geometry[at.segment]!, geometry[at.segment + 1]!);
+  if (routeBearing === null) return false;
+  const diff = Math.abs((((headingDeg - routeBearing) % 360) + 540) % 360 - 180);
+  return diff > WRONG_WAY_DEG;
 }

@@ -286,7 +286,7 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     expect(lastEase.zoom).toBe(15.5);
     expect(lastEase.bearing).toBe(90);
     expect(lastEase.pitch).toBe(60);
-    expect((lastEase.offset as [number, number])[1]).toBe(88); // 22% of 400
+    expect((lastEase.padding as { top: number }).top).toBe(176); // truck pushed down-screen: 2 x 22% of 400
     // No whole-route framing while following.
     expect(fitBoundsCalls).toHaveLength(0);
 

@@ -105,6 +105,8 @@ export function createTruckMapLayer(
   onRenderFailure?: (error: unknown) => void,
   /** Called once, after the first frame the 3D truck really drew — the map then hides the flat icon (one truck, never two). */
   onFirstFrame?: () => void,
+  /** Every drawn frame: where the truck is drawn, so the camera can follow the GLIDE, not the raw fixes. */
+  onPose?: (pose: { position: LatLng; headingDeg: number }, animating: boolean) => void,
 ): CustomLayerInterface {
   let map: MapLibreMap | null = null;
   let renderer: THREE.WebGLRenderer | null = null;
@@ -129,8 +131,9 @@ export function createTruckMapLayer(
       map = mapInstance;
       camera = new THREE.Camera();
       scene = new THREE.Scene();
-      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-      const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+      // three.js r155+ uses physical light units: the old 0.9 / 1.2 drew a dark truck.
+      scene.add(new THREE.AmbientLight(0xffffff, 2.4));
+      const sun = new THREE.DirectionalLight(0xffffff, 2.6);
       sun.position.set(0.5, 0.8, 1);
       scene.add(sun);
       const model = buildTruckModel();
@@ -189,6 +192,7 @@ export function createTruckMapLayer(
           reportedFirstFrame = true;
           onFirstFrame?.();
         }
+        onPose?.(pose, animating);
         if (animating) map.triggerRepaint();
       } catch (error) {
         if (!reportedRenderError) {

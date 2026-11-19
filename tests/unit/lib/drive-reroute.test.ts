@@ -143,3 +143,15 @@ describe("evaluateRerouteResult - only a truck-checked route may replace the pla
     expect(evaluateRerouteResult(empty, CHECKED_AT)).toEqual({ ok: false, reason: "no-route" });
   });
 });
+
+describe("wrong way along the route counts as off route (owner 2026-11-19)", () => {
+  it("rolling the opposite direction on the route line is wrong way; same direction, slow, or off the line is not", async () => {
+    const { isWrongWay } = await import("@/lib/drive-reroute");
+    const north = Array.from({ length: 11 }, (_, i) => ({ lat: 30 + i * 0.01449, lng: -82 }));
+    const onLine = { lat: 30.05, lng: -82 };
+    expect(isWrongWay(onLine, north, 180, 55)).toBe(true); // southbound on a northbound route
+    expect(isWrongWay(onLine, north, 5, 55)).toBe(false);
+    expect(isWrongWay(onLine, north, 180, 4)).toBe(false); // parking-lot speed: heading is noise
+    expect(isWrongWay(onLine, north, null, 55)).toBe(false);
+  });
+});

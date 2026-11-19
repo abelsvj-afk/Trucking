@@ -29,11 +29,22 @@ const METERS_PER_MILE = 1609.344;
 export const TIRE_RADIUS_M = 0.5;
 /** Glide time bounds. Fixes come ~1-5 s apart; a long gap still glides in at most 2.5 s. */
 const MIN_GLIDE_MS = 300;
-const MAX_GLIDE_MS = 2_500;
+// Up to 6 s: the Tracker / Telegram feed sends every ~5 s, and the glide
+// should fill the whole gap instead of finishing early and sitting still.
+const MAX_GLIDE_MS = 6_000;
 /** A jump farther than this is a teleport (first fix, app resumed): snap, don't glide across the map. */
 const SNAP_DISTANCE_M = 2_000;
 /** Moved less than this between fixes = standing still: keep the nose where it was. */
 const STILL_M = 3;
+/**
+ * The glide follows the route line ONLY when both fixes are this close
+ * to it (owner 2026-11-19: "the truck stays attached to the route" after
+ * he left it, "floating off to the left" of the road). It used to be the
+ * 1.5-mile "on route" band — anywhere within 1.5 miles the truck was drawn
+ * ON THE LINE, not at his GPS. Now it is 30 m: on the road with the line it
+ * follows the curve; anywhere else the truck goes straight to his real position.
+ */
+export const GLIDE_ON_LINE_MILES = 0.02;
 
 export interface TruckPose {
   position: LatLng;
@@ -131,7 +142,7 @@ export function feedFix(
     const b = measurePoint(measure, fix.position);
     // Only glide along the line when both ends are on it AND the truck
     // went forward — backing up or a U-turn off the line glides straight.
-    if (a?.onRoute && b?.onRoute && b.roadMiles >= a.roadMiles) {
+    if (a && b && a.offRouteMiles <= GLIDE_ON_LINE_MILES && b.offRouteMiles <= GLIDE_ON_LINE_MILES && b.roadMiles >= a.roadMiles) {
       route = { measure, fromMiles: a.roadMiles, toMiles: b.roadMiles };
       if (b.roadMiles - a.roadMiles > 0) toHeading = headingAtRoadMiles(measure, b.roadMiles) ?? toHeading;
     }
@@ -153,8 +164,10 @@ export function feedFix(
 /** The pose to draw now; advances the tire roll by the ground covered since the last frame. */
 export function sampleMotion(motion: TruckMotion, nowMs: number): { motion: TruckMotion; frame: TruckFrame } {
   const t = motion.durationMs <= 0 ? 1 : Math.min(1, Math.max(0, (nowMs - motion.startMs) / motion.durationMs));
-  // Ease out: the truck settles onto the fix instead of stopping dead.
-  const e = 1 - (1 - t) * (1 - t);
+  // Linear: the glide lasts about as long as the gap to the next fix, so
+  // the truck rolls at an even speed from fix to fix. (An ease-out slowed
+  // it to a stop at every fix — the owner saw that as jumping.)
+  const e = t;
   let position: LatLng;
   let headingDeg: number;
   if (t >= 1) {
