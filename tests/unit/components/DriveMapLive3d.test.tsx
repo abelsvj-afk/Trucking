@@ -117,6 +117,7 @@ const fakes = vi.hoisted(() => {
       return target.set(0, 0);
     }
     setSize() {}
+    resetState() {}
     render(scene: object, camera: object) {
       state.rendererRenderCalls.push({ scene, camera });
     }
@@ -285,7 +286,7 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     // The model itself: render the layer and read where the truck lands.
     layer!.render(
       {} as never,
-      { modelViewProjectionMatrix: IDENTITY_MVP } as unknown as CustomRenderMethodInput,
+      { defaultProjectionData: { mainMatrix: IDENTITY_MVP } } as unknown as CustomRenderMethodInput,
     );
     expect(rendererRenderCalls).toHaveLength(1);
     const camera = rendererRenderCalls[0]!.camera as THREE.Camera;
@@ -397,7 +398,7 @@ describe("DriveMap live 3D (Home + Drive surfaces)", () => {
     expect(layer).toBeDefined();
     layer!.render(
       {} as never,
-      { modelViewProjectionMatrix: IDENTITY_MVP } as unknown as CustomRenderMethodInput,
+      { defaultProjectionData: { mainMatrix: IDENTITY_MVP } } as unknown as CustomRenderMethodInput,
     );
     expect(rendererRenderCalls).toHaveLength(1);
     rendered.unmount();
