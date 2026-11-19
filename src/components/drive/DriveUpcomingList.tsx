@@ -15,6 +15,7 @@ import { useState } from "react";
 import type { TruckPoiKind } from "@/services/integrations/overpass-truck-pois";
 import { viewerTimeZone } from "@/lib/time";
 import { zoneShortLabel } from "@/lib/display-zone";
+import { speedTone } from "@/lib/drive-where";
 
 /** What the list can show: truck POIs plus low/unknown-clearance bridges on the route. */
 export type UpcomingListKind = TruckPoiKind | "bridge" | "roadwork";
@@ -45,7 +46,13 @@ interface Props {
   maneuver: UpcomingListManeuver | null;
   pois: UpcomingListPoi[];
   remaining: UpcomingListRemaining | null;
+  /** Posted limit (OSM, null = unknown → no limit shown) and GPS speed (TruckPath-style box, 2026-11-19). */
+  speed?: { limitMph: number | null; speedMph: number | null } | null;
+  /** "I-10 W · MM245" / "Greenville · FL" — only known parts. */
+  where?: { top: string | null; bottom: string | null } | null;
 }
+
+const TONE_COLOR = { normal: "#111827", over: "#ea580c", well_over: "#dc2626" } as const;
 
 export const POI_META: Record<UpcomingListKind, { badge: string; label: string; color: string }> = {
   truck_stop: { badge: "T", label: "Truck stop", color: "#c9a227" },
@@ -95,9 +102,10 @@ export function formatMinutesLeft(minutes: number): string {
 /** Chips shown before More (TruckPath shows three). */
 const CHIPS_SHOWN = 3;
 
-export default function DriveUpcomingList({ maneuver, pois, remaining }: Props) {
+export default function DriveUpcomingList({ maneuver, pois, remaining, speed = null, where = null }: Props) {
   const [expanded, setExpanded] = useState(false);
-  if (!maneuver && pois.length === 0 && !remaining) return null;
+  if (!maneuver && pois.length === 0 && !remaining && !speed && !where?.top && !where?.bottom) return null;
+  const tone = speedTone(speed?.speedMph ?? null, speed?.limitMph ?? null);
   const exit = maneuver ? exitNumber(maneuver.instruction) : null;
   return (
     <div
@@ -211,6 +219,34 @@ export default function DriveUpcomingList({ maneuver, pois, remaining }: Props) 
               {expanded ? "▴ Less" : "▾ More"}
             </button>
           ) : null}
+        </div>
+      )}
+      {(speed || where?.top || where?.bottom) && (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: "8px" }}>
+          {speed && (speed.limitMph !== null || speed.speedMph !== null) && (
+            <div
+              style={{ display: "flex", gap: "8px", background: "rgba(255,255,255,0.95)", borderRadius: "10px", padding: "4px 8px", boxShadow: "0 1px 4px rgba(0,0,0,.3)" }}
+            >
+              {speed.limitMph !== null && (
+                <div role="img" aria-label={`Speed limit ${speed.limitMph}`} style={{ border: "2px solid #111827", borderRadius: "6px", padding: "0 6px", textAlign: "center", color: "#111827" }}>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 800, lineHeight: 1.1 }}>{speed.limitMph}</div>
+                  <div style={{ fontSize: "0.65rem", fontWeight: 700 }}>LIMIT</div>
+                </div>
+              )}
+              {speed.speedMph !== null && (
+                <div aria-label={`Your speed ${Math.round(speed.speedMph)} miles per hour`} style={{ textAlign: "center", color: TONE_COLOR[tone] }}>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 800, lineHeight: 1.1 }}>{Math.round(speed.speedMph)}</div>
+                  <div style={{ fontSize: "0.65rem", fontWeight: 700 }}>MPH</div>
+                </div>
+              )}
+            </div>
+          )}
+          {(where?.top || where?.bottom) && (
+            <div style={{ background: "rgba(255,255,255,0.95)", color: "#374151", borderRadius: "10px", padding: "4px 10px", boxShadow: "0 1px 4px rgba(0,0,0,.3)", textAlign: "center", maxWidth: "200px" }}>
+              {where?.top && <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#111827" }}>{where.top}</div>}
+              {where?.bottom && <div style={{ fontSize: "0.85rem" }}>{where.bottom}</div>}
+            </div>
+          )}
         </div>
       )}
       {remaining && (

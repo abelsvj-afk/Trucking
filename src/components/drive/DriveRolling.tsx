@@ -50,6 +50,8 @@ export default function DriveRolling({
   upcomingListManeuver = null,
   upcomingListPois = [],
   upcomingListRemaining = null,
+  upcomingListSpeed = null,
+  upcomingListWhere = null,
 }: {
   plan: DrivePlanSnapshot;
   session: DriveSession;
@@ -89,6 +91,8 @@ export default function DriveRolling({
   upcomingListManeuver?: UpcomingListManeuver | null;
   upcomingListPois?: UpcomingListPoi[];
   upcomingListRemaining?: UpcomingListRemaining | null;
+  upcomingListSpeed?: { limitMph: number | null; speedMph: number | null } | null;
+  upcomingListWhere?: { top: string | null; bottom: string | null } | null;
 }) {
   // The miles below read the live fraction when the page has one —
   // the smoothed fix moves between GPS fixes, so 7.8 ticks to 7.7
@@ -121,6 +125,8 @@ export default function DriveRolling({
         maneuver={upcomingListManeuver}
         pois={upcomingListPois}
         remaining={upcomingListRemaining}
+        speed={upcomingListSpeed}
+        where={upcomingListWhere}
       />
     </div>
     {!follow && (

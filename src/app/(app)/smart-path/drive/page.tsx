@@ -72,6 +72,9 @@ import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
 import { measurePoint, pointAtRoadMiles, stretchAlong } from "@/lib/route-measure";
 import { roadWorkCallout } from "@/lib/drive-hazard-speech";
+import { useSpeedLimit } from "@/lib/use-speed-limit";
+import { useWhereAmI } from "@/lib/use-where-am-i";
+import { wherePillLines } from "@/lib/drive-where";
 import { timeZoneForPosition } from "@/lib/display-zone";
 
 /** Truck stops, rest areas, bridges ahead within this many miles (owner 2026-11-18: "about 30"). */
@@ -1000,6 +1003,18 @@ export default function DrivePage() {
 
   // The remaining run, ticking live: miles with one decimal, minutes
   // from live speed (or the plan's pace), arrival on his clock.
+  // TruckPath-style speed box + "where am I" pill (owner 2026-11-19).
+  // Limit: OSM maxspeed for the road under the truck (null = no box
+  // number, never a guess). Speed: the GPS fix's own speed.
+  const limitPosition = useMemo(
+    () => (mode === "rolling" && shownFix ? { lat: shownFix.point.lat, lng: shownFix.point.lng, accuracyM: shownFix.accuracyM, atMs: shownFix.atMs } : null),
+    [mode, shownFix],
+  );
+  const limitMph = useSpeedLimit(limitPosition, shownFix?.headingDeg ?? null, true);
+  const speedBox = mode === "rolling" ? { limitMph, speedMph: shownFix?.speedMph ?? null } : null;
+  const whereHere = useWhereAmI(mode === "rolling" ? (shownFix?.point ?? null) : null, shownFix?.headingDeg ?? null);
+  const wherePill = useMemo(() => wherePillLines(whereHere, shownFix?.headingDeg ?? null), [whereHere, shownFix]);
+
   const upcomingListRemaining: UpcomingListRemaining | null = useMemo(() => {
     if (!plan || !session) return null;
     const milesLeft = Math.max(0, (1 - liveFraction) * plan.totalMiles);
@@ -1148,6 +1163,8 @@ export default function DrivePage() {
               upcomingListManeuver={upcomingListManeuver}
               upcomingListPois={upcomingListPois}
               upcomingListRemaining={upcomingListRemaining}
+              upcomingListSpeed={speedBox}
+              upcomingListWhere={wherePill}
             />
           )}
 
@@ -1184,6 +1201,8 @@ export default function DrivePage() {
                     maneuver={upcomingListManeuver}
                     pois={upcomingListPois}
                     remaining={upcomingListRemaining}
+                    speed={speedBox}
+                    where={wherePill}
                   />
                 </div>
               }

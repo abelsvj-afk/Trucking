@@ -577,6 +577,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/memories` | DELETE,GET,PATCH | custom (see section / design doc) |
 | `/api/v1/what-i-know` | GET,POST | custom (see section / design doc) |
 | `/api/v1/map/speed-limit` | GET | custom (see section / design doc) |
+| `/api/v1/map/where` | GET | custom (see section / design doc) |
 | `/api/v1/briefing-image` | GET | custom (see section / design doc) |
 | `/api/v1/news-image` | GET | custom (see section / design doc) |
 | `/api/v1/paper-logs/[id]` | GET | custom (see section / design doc) |
@@ -674,3 +675,7 @@ Authenticated. Returns `{ data: { limitMph: number | null, roadName: string | nu
 ### Roadside inspection mode (migration 00086; `docs/design/eld-roadside-overlay.md`)
 - `GET /api/v1/roadside/packet` (session) → `{ data: { subject, text, fileName, periodStart, periodEnd } }` — the current inspection packet (today + previous 7 days, Eastern), built server-side from the one HOS read. The packet is a convenience copy and says so in its own text; it contains no pay/money data.
 - `POST /api/v1/roadside/send` (session) `{ to }` → builds + files the packet, saves it as a standalone owner@ draft, and sends it through `sendApprovedDraft` with the packet attached as a file (the /roadside page shows the full packet and the recipient before its Send button — that confirmation is the approval). Returns `{ data: { sent: true, to, subject, packetId, warning? } }`; a staging failure (e.g. migration 00086 not applied yet) → `503 packet_staging_failed` with nothing sent; a refused/failed send → `422 packet_send_failed` with the plain reason.
+
+### Drive map pill (`GET /api/v1/map/where?lat=&lng=&heading=`) — 2026-11-19
+
+Authenticated. `lat`/`lng` required numbers, `heading` optional 0–360. Returns `{ data: { roadRef, roadName, mileMarker, town, state, source: "OpenStreetMap" } }`. Each field is `null` when OSM does not record it, or when the lookup is unavailable. It never estimates: no milestone node nearby means no mile marker. Road + milestone come from Overpass; town + two-letter state come from Nominatim reverse geocoding. Both are server-side and cached (road ~110 m cells / 10 min, town ~1 km cells / 1 h); Nominatim is called at most once a second. Design: `docs/design/map-finish.md`.

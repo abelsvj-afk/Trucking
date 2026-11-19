@@ -90,6 +90,29 @@ describe("DriveUpcomingList (the left-hand cards)", () => {
     expect(screen.getByText(/8m 20s/)).toBeTruthy();
   });
 
+  it("shows the speed box (limit + MPH, orange when over) and the where-am-I pill (2026-11-19)", () => {
+    render(
+      <DriveUpcomingList
+        maneuver={null}
+        pois={[]}
+        remaining={null}
+        speed={{ limitMph: 70, speedMph: 74 }}
+        where={{ top: "I-10 W · MM245", bottom: "Greenville · FL" }}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Speed limit 70" })).toBeTruthy();
+    const mph = screen.getByLabelText("Your speed 74 miles per hour") as HTMLElement;
+    expect(mph.style.color).toBe("rgb(234, 88, 12)");
+    expect(screen.getByText("I-10 W · MM245")).toBeTruthy();
+    expect(screen.getByText("Greenville · FL")).toBeTruthy();
+  });
+
+  it("no known limit: no limit plate, never a guess", () => {
+    render(<DriveUpcomingList maneuver={null} pois={[]} remaining={null} speed={{ limitMph: null, speedMph: 55 }} />);
+    expect(screen.queryByText("LIMIT")).toBeNull();
+    expect(screen.getByText("55")).toBeTruthy();
+  });
+
   it("renders nothing when there is nothing ahead", () => {
     const { container } = render(<DriveUpcomingList maneuver={null} pois={[]} remaining={null} />);
     expect(container.firstChild).toBeNull();
