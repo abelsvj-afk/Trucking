@@ -18,12 +18,16 @@
 // looked like he needed to turn around when he didn't). Callers pass
 // the remaining geometry in `geometry`; there is no traveled overlay.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
 import { truckIconSvg } from "@/lib/truck-icon";
+import { buildRouteMeasure } from "@/lib/route-measure";
+import { GLOW_COLOR, GLOW_TICK_MS, glowPaintAt } from "@/lib/route-glow";
+
+const GLOW_START = glowPaintAt(0, false, true);
 import { createTruckMapLayer, TRUCK_MAP_LAYER_ID, type TruckLayerState } from "@/lib/truck-map-layer";
 import { DRIVE_MAP_PITCH_3D, driveMapCamera } from "@/lib/drive-map-camera";
 import { segmentsToFeatureCollection, type MapSegment } from "@/lib/smart-path-map-segments";
@@ -37,6 +41,19 @@ export interface DriveMapHazard {
   badge: string;
   color: string;
   title: string;
+}
+
+/** Truck-relevant POI marker (audit-fix B7): fuel, rest area, truck parking. */
+export interface DriveMapPoi {
+  id: string;
+  point: LatLng;
+  badge: string;
+  color: string;
+  title: string;
+  /** Voice notes (2026-11-19): shake + pulse until listened and passed (CSS transform/opacity only). */
+  alert?: boolean;
+  /** Tap the bubble (voice notes: play it). */
+  onTap?: () => void;
 }
 
 // The maplibre namespace is imported exactly once, when the map is
@@ -76,6 +93,41 @@ interface DriveMapProps {
   segments?: MapSegment[];
   /** Live awareness: bridge / delay markers on the route. */
   hazards?: DriveMapHazard[];
+  /** Maneuver zoom (audit-fix B7): the target zoom while closing on a turn/exit; null = normal follow zoom. */
+  maneuverZoom?: number | null;
+  /** Truck-relevant POIs on the route (audit-fix B7). */
+  pois?: DriveMapPoi[];
+  /** The WHOLE route line the truck glides along (truck-motion.ts). `geometry` may be only the part
+   * still ahead; the glide needs the line behind the truck too. Defaults to `geometry`. */
+  motionGeometry?: LatLng[];
+  /**
+   * Hazard stretches already cut along the route (route-measure.ts
+   * `stretchAlong`, road miles): live traffic in its severity color,
+   * road work striped orange-and-black. When given they replace
+   * `segments` — whose miles are cut against `geometry`, which on the
+   * drive surface is only the part still ahead.
+   */
+  stretches?: RouteStretch[];
+}
+
+export interface RouteStretch {
+  id: string;
+  kind: "traffic" | "roadwork";
+  points: LatLng[];
+  color: string;
+}
+
+function stretchFeatures(stretches: RouteStretch[], kind: RouteStretch["kind"]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: stretches
+      .filter((s) => s.kind === kind && s.points.length >= 2)
+      .map((s) => ({
+        type: "Feature" as const,
+        properties: { color: s.color },
+        geometry: { type: "LineString" as const, coordinates: s.points.map((p) => [p.lng, p.lat]) },
+      })),
+  };
 }
 
 const OSM_STYLE = {
@@ -163,6 +215,10 @@ export default function DriveMap({
   label,
   segments = [],
   hazards = [],
+  maneuverZoom = null,
+  pois = [],
+  motionGeometry,
+  stretches,
 }: DriveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -172,11 +228,12 @@ export default function DriveMap({
   const maplibreRef = useRef<MapLibreNamespace | null>(null);
   const stopMarkersRef = useRef<MapLibreMarker[]>([]);
   const hazardMarkersRef = useRef<MapLibreMarker[]>([]);
+  const poiMarkersRef = useRef<MapLibreMarker[]>([]);
   const positionMarkerRef = useRef<MapLibreMarker | null>(null);
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
   const framedRef = useRef(false);
-  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards });
+  const dataRef = useRef({ geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, stretches });
   const frameRouteRef = useRef(frameRoute);
   const followRef = useRef(follow);
   const panRef = useRef(onUserPan);
@@ -192,6 +249,18 @@ export default function DriveMap({
   // be lost that way and the truck stayed invisible until the next
   // one).
   const truckLayerStateRef = useRef<TruckLayerState | null>(null);
+  // The line the truck glides along (route-measure.ts); line miles are
+  // enough for drawing, so no road-miles calibration here.
+  const glideLine = motionGeometry ?? geometry;
+  const motionMeasure = useMemo(
+    () => (glideLine.length >= 2 ? buildRouteMeasure([{ geometry: glideLine, roadMiles: 0 }]) : null),
+    [glideLine],
+  );
+  const motionMeasureRef = useRef(motionMeasure);
+  useEffect(() => {
+    motionMeasureRef.current = motionMeasure;
+    if (truckLayerStateRef.current) truckLayerStateRef.current = { ...truckLayerStateRef.current, measure: motionMeasure };
+  }, [motionMeasure]);
   // The 3D layer failed to initialise on this mount (on a real phone
   // that is the WebGL1 fallback: three.js r163+ refuses a WebGL1
   // context, while MapLibre silently falls back to one when WebGL2
@@ -204,9 +273,19 @@ export default function DriveMap({
   const [truckLayerFailed, setTruckLayerFailed] = useState(false);
   const truckLayerFailedRef = useRef(false);
   const markTruckLayerFailed = useCallback((error: unknown) => {
-    console.error("[DriveMap] 3D truck layer failed to initialise; falling back to the flat truck icon.", error);
+    console.error("[DriveMap] 3D truck layer failed; falling back to the flat truck icon.", error);
     truckLayerFailedRef.current = true;
     setTruckLayerFailed(true);
+    // Take the dead layer off the map (deferred: this can be called
+    // from inside the layer's own render, where removing it is unsafe).
+    setTimeout(() => {
+      const map = mapRef.current;
+      try {
+        if (map?.getLayer(TRUCK_MAP_LAYER_ID)) map.removeLayer(TRUCK_MAP_LAYER_ID);
+      } catch {
+        // Best effort: the flat icon is the truck either way.
+      }
+    }, 0);
   }, []);
   useEffect(() => {
     view3dRef.current = view3d;
@@ -238,7 +317,11 @@ export default function DriveMap({
         view3d: view3dRef.current,
         headingDeg: lastHeadingRef.current,
         headingUp: headingUp || view3dRef.current,
-        followZoom,
+        // Maneuver zoom (audit-fix B7): while closing on a turn the
+        // target zoom is the maneuver's, and easeTo glides there;
+        // past it the prop goes back to null and the camera eases
+        // out to the normal follow zoom on its own.
+        followZoom: maneuverZoom ?? followZoom,
         containerHeightPx: containerRef.current?.clientHeight ?? 0,
         follow: followRef.current,
       });
@@ -255,7 +338,7 @@ export default function DriveMap({
         map.easeTo({ duration: 700, pitch: cam.pitch, offset: cam.offset });
       }
     },
-    [headingUp, followZoom],
+    [headingUp, followZoom, maneuverZoom],
   );
 
   // The 3D truck model lives in a MapLibre custom layer (real
@@ -299,6 +382,7 @@ export default function DriveMap({
             const mc = maplibregl.MercatorCoordinate.fromLngLat([pos.lng, pos.lat], 0);
             return { x: mc.x, y: mc.y, z: mc.z, metersPerUnit: mc.meterInMercatorCoordinateUnits() };
           },
+          markTruckLayerFailed,
         ),
       );
     } catch (error) {
@@ -321,6 +405,8 @@ export default function DriveMap({
       stopStatus: statuses,
       segments: currentSegments,
       hazards: currentHazards,
+      pois: currentPois,
+      stretches: currentStretches,
     } = dataRef.current;
     const routeSource = map.getSource("drive-route") as
       | { setData: (data: unknown) => void }
@@ -335,7 +421,11 @@ export default function DriveMap({
     const trafficSource = map.getSource("drive-traffic") as
       | { setData: (data: unknown) => void }
       | undefined;
-    trafficSource?.setData(segmentsToFeatureCollection(geo, currentSegments));
+    trafficSource?.setData(
+      currentStretches ? stretchFeatures(currentStretches, "traffic") : segmentsToFeatureCollection(geo, currentSegments),
+    );
+    const roadworkSource = map.getSource("drive-roadwork") as { setData: (data: unknown) => void } | undefined;
+    roadworkSource?.setData(stretchFeatures(currentStretches ?? [], "roadwork"));
 
     (() => {
       const maplibregl = maplibreRef.current;
@@ -369,6 +459,45 @@ export default function DriveMap({
           "font-size:12px;font-weight:700;padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);";
         return new maplibregl.Marker({ element: el })
           .setLngLat([hazard.point.lng, hazard.point.lat])
+          .addTo(map);
+      });
+
+      // Truck POI markers (audit-fix B7): fuel, rest areas, truck
+      // parking — the same plain-badge shape as hazards, so the map
+      // stays glanceable. No popup while rolling; the list beside
+      // the map carries the names and live distances.
+      for (const marker of poiMarkersRef.current) marker.remove();
+      poiMarkersRef.current = currentPois.map((poi) => {
+        const el = document.createElement("div");
+        el.style.cssText =
+          `background:#fff;color:${poi.color};border:2px solid ${poi.color};border-radius:9999px;` +
+          "min-width:24px;height:24px;display:flex;align-items:center;justify-content:center;" +
+          "font-size:12px;font-weight:700;padding:0 5px;box-shadow:0 1px 4px rgba(0,0,0,.4);";
+        if (poi.alert) {
+          // Pulse ring on the marker, shake on an INNER span — MapLibre
+          // positions the marker element itself with transform.
+          el.classList.add("voice-note-alert");
+          const inner = document.createElement("span");
+          inner.className = "voice-note-shake";
+          inner.textContent = poi.badge;
+          el.appendChild(inner);
+        } else {
+          el.textContent = poi.badge;
+        }
+        if (poi.onTap) {
+          const tap = poi.onTap;
+          el.setAttribute("role", "button");
+          el.setAttribute("aria-label", poi.title);
+          el.style.cursor = "pointer";
+          el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            tap();
+          });
+        } else {
+          el.setAttribute("aria-hidden", "true");
+        }
+        return new maplibregl.Marker({ element: el })
+          .setLngLat([poi.point.lng, poi.point.lat])
           .addTo(map);
       });
 
@@ -410,6 +539,10 @@ export default function DriveMap({
       // re-center is how follow comes back). Programmatic easeTo
       // does not fire dragstart, so the camera never fights itself.
       map.on("dragstart", () => panRef.current());
+      // The GL context can be lost mid-drive (phone memory pressure,
+      // app switching). The 3D truck cannot draw without it — the flat
+      // icon takes over rather than leaving no truck at all.
+      map.on("webglcontextlost", () => markTruckLayerFailed(new Error("WebGL context lost")));
       map.on("load", () => {
         map.addSource("drive-deadhead", {
           type: "geojson",
@@ -434,7 +567,8 @@ export default function DriveMap({
           id: "drive-route-glow",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#f2b705", "line-width": 12, "line-opacity": 0.4, "line-blur": 6 },
+          // Pulsating golden glow (owner 2026-11-18) — the pulse effect below animates width + opacity.
+          paint: { "line-color": GLOW_COLOR, "line-width": GLOW_START.width, "line-opacity": GLOW_START.opacity, "line-blur": GLOW_START.blur },
         });
         map.addLayer({
           id: "drive-route-casing",
@@ -465,6 +599,22 @@ export default function DriveMap({
             "line-opacity": 0.95,
           },
         });
+        // Road work (owner 2026-11-19, the TruckPath reference): the
+        // stretch is striped orange-and-black over the route, like the
+        // barrels — distinct from traffic colors and from the gold line.
+        map.addSource("drive-roadwork", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "drive-roadwork-casing",
+          type: "line",
+          source: "drive-roadwork",
+          paint: { "line-color": "#111827", "line-width": 9, "line-opacity": 0.95 },
+        });
+        map.addLayer({
+          id: "drive-roadwork-stripes",
+          type: "line",
+          source: "drive-roadwork",
+          paint: { "line-color": "#f97316", "line-width": 7, "line-dasharray": [1.2, 1.2] },
+        });
         drawRoute();
         void syncTruckLayer();
       });
@@ -487,9 +637,9 @@ export default function DriveMap({
   }, [drawRoute]);
 
   useEffect(() => {
-    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards };
+    dataRef.current = { geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, stretches };
     drawRoute();
-  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, drawRoute]);
+  }, [geometry, deadheadGeometry, stops, stopStatus, segments, hazards, pois, stretches, drawRoute]);
 
   // Position marker + follow camera. Camera moves at most 1 Hz
   // and only on real movement (G-5 battery discipline).
@@ -501,7 +651,7 @@ export default function DriveMap({
     // not a timer). A null position never clears the last real fix.
     lastPositionRef.current = position;
     lastHeadingRef.current = headingDeg;
-    if (position) truckLayerStateRef.current = { position, headingDeg };
+    if (position) truckLayerStateRef.current = { position, headingDeg, measure: motionMeasureRef.current };
     const map = mapRef.current;
     if (!map || !position) return;
     if (view3dRef.current && !truckLayerFailed) {
@@ -556,6 +706,41 @@ export default function DriveMap({
       }
     }
   }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, applyCamera]);
+
+  // The pulsating golden glow on the route (owner 2026-11-18). Two
+  // paint values on one layer, ~8 updates a second (route-glow.ts) —
+  // paused while the page is hidden, held still for reduced motion.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const still =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    const apply = () => {
+      const map = mapRef.current;
+      if (!map || !map.getLayer("drive-route-glow")) return;
+      const paint = glowPaintAt(Date.now(), night, still);
+      map.setPaintProperty("drive-route-glow", "line-width", paint.width);
+      map.setPaintProperty("drive-route-glow", "line-opacity", paint.opacity);
+      map.setPaintProperty("drive-route-glow", "line-blur", paint.blur);
+    };
+    const start = () => {
+      if (timer || still) return;
+      timer = setInterval(apply, GLOW_TICK_MS);
+    };
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+    apply();
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [night]);
 
   // Toggling 3D re-aims the camera and swaps the truck now — not only on the next fix.
   // 3D on: the HTML marker goes away (the model takes its place) and the layer is added.

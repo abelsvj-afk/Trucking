@@ -34,6 +34,7 @@ import * as THREE from "three";
 import type { CustomLayerInterface, Map as MapLibreMap } from "maplibre-gl";
 import { buildTruckModel } from "./truck-model";
 import { feedFix, sampleMotion, type TruckMotion } from "./truck-motion";
+import type { RouteMeasure } from "./route-measure";
 import type { LatLng } from "./smart-path";
 
 export const TRUCK_MAP_LAYER_ID = "drive-truck-3d";
@@ -52,6 +53,8 @@ export interface TruckMercatorPosition {
 export interface TruckLayerState {
   position: LatLng;
   headingDeg: number | null;
+  /** The route line: with it the truck glides along the road (truck-motion.ts). */
+  measure?: RouteMeasure | null;
 }
 
 /**
@@ -96,16 +99,21 @@ export function computeTruckMatrix(
 export function createTruckMapLayer(
   getState: () => TruckLayerState | null,
   project: (position: LatLng) => TruckMercatorPosition,
+  /** Called once when drawing fails MID-DRIVE (owner 2026-11-19: a
+   * visible truck always beats an invisible one) — the map then puts
+   * the flat gold truck icon back. */
+  onRenderFailure?: (error: unknown) => void,
 ): CustomLayerInterface {
   let map: MapLibreMap | null = null;
   let renderer: THREE.WebGLRenderer | null = null;
   let scene: THREE.Scene | null = null;
   let camera: THREE.Camera | null = null;
   const size = new THREE.Vector2();
-  // A render failure must not kill the map's frame (and the truck
-  // with it) without a trace: log the first one in full, then keep
-  // trying on later frames — a transient GL error heals, a
-  // persistent one stays visible in the log instead of vanishing.
+  // A render failure must not kill the map's frame without a trace,
+  // and must not leave the driver with NO truck: the first one is
+  // logged in full and reported (onRenderFailure), and the map swaps
+  // in the flat icon (DriveMap). Before 2026-11-19 a mid-drive
+  // failure only logged, and the truck went invisible.
   let reportedRenderError = false;
   let wheels: THREE.Mesh[] = [];
   let motion: TruckMotion | null = null;
@@ -159,8 +167,9 @@ export function createTruckMapLayer(
         const now = performance.now();
         motion = feedFix(
           motion,
-          { position: state.position, headingDeg: state.headingDeg ?? motion?.to.headingDeg ?? 0 },
+          { position: state.position, headingDeg: state.headingDeg },
           now,
+          state.measure ?? null,
         );
         const sampled = sampleMotion(motion, now);
         motion = sampled.motion;
@@ -177,7 +186,8 @@ export function createTruckMapLayer(
       } catch (error) {
         if (!reportedRenderError) {
           reportedRenderError = true;
-          console.error("[truck-map-layer] 3D truck render failed; the truck will be missing until the next good frame.", error);
+          console.error("[truck-map-layer] 3D truck render failed mid-drive; the flat truck icon takes over.", error);
+          onRenderFailure?.(error);
         }
       }
     },

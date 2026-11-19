@@ -287,6 +287,11 @@ export const apiClient = {
     request<{ data: { limitMph: number | null; roadName: string | null; unavailable: boolean } }>(
       `/api/v1/map/speed-limit?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}${headingDeg !== null ? `&heading=${Math.round(headingDeg)}` : ""}`,
     ),
+  /** Drive map pill (2026-11-19): road number, nearest mile marker, town + state - OSM, nulls when unknown. */
+  whereAmI: (lat: number, lng: number, headingDeg: number | null) =>
+    request<{ data: { roadRef: string | null; roadName: string | null; mileMarker: string | null; town: string | null; state: string | null } }>(
+      `/api/v1/map/where?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}${headingDeg !== null ? `&heading=${Math.round(headingDeg)}` : ""}`,
+    ),
   /** Block A: ask the server to switch to Driving from detected sustained motion (stamped at the detection time). */
   autoMotionSwitch: (detectedAtIso: string, submissionId: string) =>
     request<{ data: { switched: boolean; reason?: string; startedAt?: string; deduplicated?: boolean } }>(

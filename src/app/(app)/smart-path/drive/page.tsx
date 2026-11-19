@@ -41,6 +41,7 @@ import {
   skipNextStop,
   skipSpeech,
   speechForEvent,
+  planMeasure,
   type DriveFix,
   type DrivePlanSnapshot,
   type DriveSession,
@@ -69,11 +70,38 @@ import DriveParked from "@/components/drive/DriveParked";
 import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
+import { headingAtRoadMiles, measurePoint, pointAtRoadMiles, stretchAlong } from "@/lib/route-measure";
+import { roadWorkCallout } from "@/lib/drive-hazard-speech";
+import { useSpeedLimit } from "@/lib/use-speed-limit";
+import { useWhereAmI } from "@/lib/use-where-am-i";
+import { wherePillLines } from "@/lib/drive-where";
+import { useVoiceNotes } from "@/lib/use-voice-notes";
+import { freshnessLabel, sameDirection, stackVoiceNotes, VOICE_NOTE_LABEL, type VoiceNoteStack } from "@/lib/voice-notes";
+import VoiceNoteRecorder from "@/components/drive/VoiceNoteRecorder";
+import { timeZoneForPosition } from "@/lib/display-zone";
+
+/** Truck stops, rest areas, bridges ahead within this many miles (owner 2026-11-18: "about 30"). */
+const AHEAD_WINDOW_MILES = 30;
+/** Road work is spoken once inside this distance, and striped this far from where it starts. */
+const ROADWORK_CALL_MILES = 2;
+const ROADWORK_STRIPE_MILES = 0.5;
+/** A voice note counts as on this road within this distance of the line; spoken once inside VOICE_CALL_MILES. */
+const VOICE_ON_ROUTE_MILES = 0.25;
+const VOICE_CALL_MILES = 1;
 import { sliceGeometryFromFraction } from "@/lib/smart-path-map-segments";
 import { useDrive3dView } from "@/lib/drive-3d-view";
+import { useSmoothedFix } from "@/lib/drive-position-smoothing";
+import { maneuverZoomTarget } from "@/lib/drive-maneuver-zoom";
+import { DRIVE_MAP_FOLLOW_ZOOM_3D } from "@/lib/drive-map-camera";
+import DriveUpcomingList, {
+  POI_META,
+  type UpcomingListManeuver,
+  type UpcomingListPoi,
+  type UpcomingListRemaining,
+} from "@/components/drive/DriveUpcomingList";
 import { usePageTitle } from "@/lib/use-page-title";
-import type { LiveTrafficResponse, RouteCheckResponse } from "@/types/smart-path";
-import type { DriveMapHazard } from "@/components/DriveMap";
+import type { LiveTrafficResponse, RouteCheckResponse, TruckPoisResponse } from "@/types/smart-path";
+import type { DriveMapHazard, DriveMapPoi, RouteStretch } from "@/components/DriveMap";
 import type { MapSegment } from "@/lib/smart-path-map-segments";
 
 const DriveMap = dynamic(() => import("@/components/DriveMap"), { ssr: false });
@@ -176,8 +204,17 @@ export default function DrivePage() {
   // Live awareness (owner 2026-11-17): the latest traffic poll, the
   // hazards already spoken once, and the poll's own pacing.
   const [liveTraffic, setLiveTraffic] = useState<LiveTrafficResponse | null>(null);
+  // Live-traffic miles count from where the truck was WHEN it was
+  // polled; this is that point (loaded-route road miles). Shifting by
+  // the miles driven NOW pushed every stretch ahead of the real slowdown.
+  const [liveTrafficBaseMiles, setLiveTrafficBaseMiles] = useState(0);
   const spokenHazardsRef = useRef<Set<string>>(new Set());
   const livePollBusyRef = useRef(false);
+  // Truck POIs (audit-fix B7): the stops on the remaining run, in
+  // miles along the loaded leg — the page shifts them by what he has
+  // driven, so each list distance stays live as he rolls.
+  const [truckPois, setTruckPois] = useState<TruckPoisResponse["items"] | null>(null);
+  const truckPoisBusyRef = useRef(false);
   const sourceResultRef = useRef<RouteCheckResponse | null>(null);
   const mutedRef = useRef(false);
   useEffect(() => {
@@ -376,6 +413,7 @@ export default function DrivePage() {
       spokenManeuversRef.current = new Set();
       spokenHazardsRef.current = new Set();
       setLiveTraffic(null);
+      setTruckPois(null);
       offRouteRef.current = INITIAL_OFF_ROUTE;
       setRouteNotice("Rerouted — new truck-checked route.");
       speaker().speak(reroutedSpeech(outcome.milesToGo));
@@ -433,6 +471,7 @@ export default function DrivePage() {
       if (!res.ok) return;
       const body = (await res.json()) as LiveTrafficResponse;
       setLiveTraffic(body);
+      setLiveTrafficBaseMiles(drivenLoaded);
       // Each hazard is spoken once, only when it is close ahead -
       // never repeated, never for something hours away.
       if (!mutedRef.current) {
@@ -469,12 +508,57 @@ export default function DrivePage() {
     }
   }, []);
 
+  // Truck POIs (audit-fix B7): once when the run starts (and again
+  // after a reroute), ask what truck stops, fuel, rest areas, and
+  // truck parking sit on the remaining run. A failed fetch is
+  // silent: the list simply stays empty, and the next run retries.
+  // The answer's miles are relative to the geometry sent, so they
+  // are shifted here by what he had already driven when asked.
+  const fetchTruckPois = useCallback(async () => {
+    const currentPlan = planRef.current;
+    const currentSession = sessionRef.current;
+    const result = sourceResultRef.current;
+    if (!currentPlan || !currentSession || !result || modeRef.current !== "rolling") return;
+    const fix = currentSession.lastFix;
+    if (!fix) return;
+    if (!result.corridor || !("points" in result.corridor) || result.corridor.points.length < 2) return;
+    if (truckPoisBusyRef.current) return;
+    const deadheadMiles = result.deadhead?.distanceMiles ?? 0;
+    const loadedTotal = result.route.distanceMiles;
+    if (loadedTotal <= 0) return;
+    const drivenLoaded = Math.max(0, currentSession.progressFraction * currentPlan.totalMiles - deadheadMiles);
+    if (drivenLoaded >= loadedTotal - 1) return; // nearly there - nothing ahead to list
+    const fraction = drivenLoaded / loadedTotal;
+    const remainingGeometry = sliceGeometryFromFraction(result.route.geometry, fraction);
+    if (remainingGeometry.length < 2) return;
+    truckPoisBusyRef.current = true;
+    try {
+      const res = await fetch("/api/v1/smart-path/truck-pois", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          geometry: remainingGeometry,
+          totalMiles: Math.round((loadedTotal - drivenLoaded) * 10) / 10,
+        }),
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as TruckPoisResponse;
+      if (body.status !== "ok") return;
+      setTruckPois(body.items.map((item) => ({ ...item, mile: item.mile + drivenLoaded })));
+    } catch {
+      // Silent - see above.
+    } finally {
+      truckPoisBusyRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     if (mode !== "rolling") return;
     void pollLiveTraffic();
+    void fetchTruckPois();
     const id = setInterval(() => void pollLiveTraffic(), LIVE_POLL_MS);
     return () => clearInterval(id);
-  }, [mode, pollLiveTraffic]);
+  }, [mode, pollLiveTraffic, fetchTruckPois]);
 
   const startWatching = () => {
     if (!("geolocation" in navigator)) {
@@ -678,7 +762,6 @@ export default function DrivePage() {
       ? plan.stops[session.nextStopIndex]!
       : null;
   const projection = plan && session ? projectClocks(plan, session, nowMs || session.startedAtMs) : null;
-  const upcoming = plan && session ? nextManeuver(plan, session.progressFraction) : null;
   const night = easternHour(new Date(nowMs)) >= 20 || easternHour(new Date(nowMs)) < 6;
   const positionQuality = !session?.lastFix
     ? null
@@ -715,13 +798,13 @@ export default function DrivePage() {
     const live = liveTraffic?.traffic.segments;
     if (live && live.length > 0) {
       return live.map((s) => ({
-        fromMile: s.fromMile + drivenLoadedMiles,
-        toMile: s.toMile + drivenLoadedMiles,
+        fromMile: s.fromMile + liveTrafficBaseMiles,
+        toMile: s.toMile + liveTrafficBaseMiles,
         color: s.color,
       }));
     }
     return sourceResult?.traffic?.segments ?? [];
-  }, [liveTraffic, sourceResult, drivenLoadedMiles]);
+  }, [liveTraffic, sourceResult, liveTrafficBaseMiles]);
   const mapHazards: DriveMapHazard[] = useMemo(() => {
     if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId) return [];
     const totalMiles = sourceResult.route.distanceMiles;
@@ -732,7 +815,7 @@ export default function DrivePage() {
     const shifted = liveItems && liveItems.length > 0;
     for (const item of trafficItems) {
       if (item.severity === "minor") continue;
-      const mile = (shifted ? item.mile + drivenLoadedMiles : item.mile);
+      const mile = (shifted ? item.mile + liveTrafficBaseMiles : item.mile);
       const point = pointAlongRoute(mapGeometry, mile / totalMiles);
       if (!point) continue;
       out.push({
@@ -756,7 +839,7 @@ export default function DrivePage() {
       });
     }
     return out;
-  }, [liveTraffic, sourceResult, plan, mapGeometry, drivenLoadedMiles]);
+  }, [liveTraffic, sourceResult, plan, mapGeometry, liveTrafficBaseMiles]);
   // A bridge under (or only just over) his truck, close ahead.
   const bridgeBelowAhead =
     sourceResult?.bridges?.items.find(
@@ -775,6 +858,268 @@ export default function DrivePage() {
     [shownFix, mapGeometry],
   );
   const driveAheadGeometry = driveProgress?.onRoute ? driveProgress.ahead : mapGeometry;
+
+  // ---- audit-fix B7: one smooth, live map experience -------------------
+  // The truck glides between fixes (no jumping), and every distance
+  // on the screen reads from the gliding fix — so the miles tick
+  // down with decimals as he rolls instead of sitting still until
+  // the next GPS fix lands. When the glide has nothing to work from
+  // (parked, preview, off route) the session's own fraction stands.
+  const measure = useMemo(() => (plan ? planMeasure(plan) : null), [plan]);
+  const smoothedFix = useSmoothedFix(shownFix, measure, mode === "rolling");
+  const displayFix = mode === "rolling" ? (smoothedFix ?? shownFix) : shownFix;
+  const liveFraction = useMemo(() => {
+    if (!displayFix || !plan || !session || !sourceResult || sourceResult.load.id !== plan.loadId) {
+      return session?.progressFraction ?? 0;
+    }
+    // ONE measurement (route-measure.ts): road miles by segment
+    // projection — the same one the session, turns, stops and truck
+    // stops use, so every number on the screen agrees.
+    if (!measure || measure.totalRoadMiles <= 0) return session.progressFraction;
+    const at = measurePoint(measure, displayFix.point);
+    if (!at?.onRoute) return session.progressFraction;
+    return Math.max(0, Math.min(1, at.roadMiles / measure.totalRoadMiles));
+  }, [displayFix, plan, session, sourceResult, measure]);
+  const liveUpcoming = plan && session ? nextManeuver(plan, liveFraction) : null;
+  // Miles already driven on the loaded leg, from the LIVE fraction —
+  // every "miles ahead" below is measured from the gliding truck.
+  const drivenLoadedLive =
+    plan && session && sourceResult && sourceResult.load.id === plan.loadId
+      ? Math.max(0, liveFraction * plan.totalMiles - (sourceResult.deadhead?.distanceMiles ?? 0))
+      : 0;
+  // Maneuver zoom: while closing on a turn or exit the camera eases
+  // in from ~4.5 miles out; straight-ahead stays at follow zoom.
+  const maneuverZoomValue =
+    liveUpcoming !== null
+      ? maneuverZoomTarget({
+          milesAway: liveUpcoming.milesAway,
+          direction: maneuverDirection(liveUpcoming.maneuver.instruction),
+          instruction: liveUpcoming.maneuver.instruction,
+          baseZoom: DRIVE_MAP_FOLLOW_ZOOM_3D,
+        })
+      : null;
+  const maneuverZoomProp = maneuverZoomValue === DRIVE_MAP_FOLLOW_ZOOM_3D ? null : maneuverZoomValue;
+  const upcomingListManeuver: UpcomingListManeuver | null = liveUpcoming
+    ? {
+        arrow: MANEUVER_ARROWS[maneuverDirection(liveUpcoming.maneuver.instruction)],
+        instruction: liveUpcoming.maneuver.instruction,
+        milesAway: liveUpcoming.milesAway,
+      }
+    : null;
+  // Location voice notes (owner 2026-11-18/19): coworkers' notes on
+  // this road, going this way, ahead — a shaking, pulsing bubble on the
+  // map and a chip with the miles ticking down; tap to listen from far
+  // ahead. Done for him once he has listened AND passed it (or 30 min
+  // after listening); still there for the next driver.
+  const voiceFix = useMemo(
+    () => (mode === "rolling" && shownFix ? { point: shownFix.point, headingDeg: shownFix.headingDeg } : null),
+    [mode, shownFix],
+  );
+  const voice = useVoiceNotes(voiceFix, mode === "rolling");
+  const voiceAhead = useMemo(() => {
+    if (!plan || !measure || voice.notes.length === 0) return [];
+    const truckMiles = liveFraction * plan.totalMiles;
+    const out: { stack: VoiceNoteStack; milesAway: number }[] = [];
+    for (const stack of stackVoiceNotes(voice.notes)) {
+      const at = measurePoint(measure, stack.lead.point);
+      if (!at || at.offRouteMiles > VOICE_ON_ROUTE_MILES) continue;
+      // Only notes for drivers going THIS way down the road.
+      if (!sameDirection(stack.lead.headingDeg, headingAtRoadMiles(measure, at.roadMiles))) continue;
+      const milesAway = at.roadMiles - truckMiles;
+      if (milesAway < -0.3 || milesAway > AHEAD_WINDOW_MILES) continue;
+      out.push({ stack, milesAway: Math.max(0, milesAway) });
+    }
+    return out.sort((a, b) => a.milesAway - b.milesAway);
+  }, [plan, measure, voice.notes, liveFraction]);
+
+  // One spoken heads-up per note, about a mile out.
+  useEffect(() => {
+    if (mode !== "rolling" || mutedRef.current) return;
+    for (const { stack, milesAway } of voiceAhead) {
+      if (milesAway > VOICE_CALL_MILES) continue;
+      const key = `voice-${stack.lead.id}`;
+      if (spokenHazardsRef.current.has(key)) continue;
+      spokenHazardsRef.current.add(key);
+      if (!speakerRef.current) speakerRef.current = browserSpeaker();
+      speakerRef.current.speak(`Voice note from a driver ahead: ${VOICE_NOTE_LABEL[stack.lead.kind].toLowerCase()}, in ${milesAway.toFixed(1)} miles. Tap it to listen.`);
+    }
+  }, [voiceAhead, mode]);
+
+  const voiceChips: UpcomingListPoi[] = useMemo(
+    () =>
+      voiceAhead.map(({ stack, milesAway }) => {
+        const lead = stack.lead;
+        const listened = lead.listenedAtMs !== null;
+        const others = stack.notes.length > 1 ? ` · ${stack.notes.length} drivers` : "";
+        return {
+          id: `voice-${lead.id}`,
+          kind: "voice" as const,
+          name: VOICE_NOTE_LABEL[lead.kind],
+          milesAway,
+          alert: true,
+          detail: `${voice.playing === lead.id ? "Playing…" : freshnessLabel(lead.createdAtMs, nowMs || lead.createdAtMs)}${others}`,
+          onTap: () => void voice.listen(lead.id),
+          actions: listened
+            ? [
+                { label: "It's gone", onClick: () => stack.notes.forEach((n) => void voice.report(n.id, "gone")) },
+                { label: "Wrong note", onClick: () => void voice.report(lead.id, "bad") },
+              ]
+            : undefined,
+        };
+      }),
+    [voiceAhead, voice, nowMs],
+  );
+  const voicePois: DriveMapPoi[] = useMemo(
+    () =>
+      voiceAhead.map(({ stack }) => ({
+        id: `voice-${stack.lead.id}`,
+        point: stack.lead.point,
+        badge: "🎙",
+        color: "#c9a227",
+        title: `Voice note: ${VOICE_NOTE_LABEL[stack.lead.kind]}. Tap to listen.`,
+        alert: true,
+        onTap: () => void voice.listen(stack.lead.id),
+      })),
+    [voiceAhead, voice],
+  );
+
+  // What's ahead — truck stops, rest areas, fuel, parking (OSM, free)
+  // and low/unknown-clearance bridges — in ONE list that feeds both
+  // the map icons and the left-hand chips, so they can never disagree.
+  // Every distance is road miles from the same measurement as the
+  // truck (route-measure.ts), live from the gliding fix: 7.8, 7.7…
+  // Nearest first, within 30 miles.
+  const aheadItems = useMemo(() => {
+    if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId || !measure) return [];
+    const truckMiles = liveFraction * plan.totalMiles;
+    const deadheadMiles = sourceResult.deadhead?.distanceMiles ?? 0;
+    const items: (UpcomingListPoi & { point: { lat: number; lng: number } })[] = [];
+    for (const item of truckPois ?? []) {
+      const at = measurePoint(measure, item.point);
+      if (!at?.onRoute) continue;
+      items.push({ id: `poi-${item.id}`, kind: item.kind, name: item.name, milesAway: at.roadMiles - truckMiles, point: item.point });
+    }
+    for (const bridge of sourceResult.bridges?.items ?? []) {
+      if (bridge.clearance === "ok") continue;
+      const roadMiles = deadheadMiles + bridge.mile;
+      const point = pointAtRoadMiles(measure, roadMiles);
+      if (!point) continue;
+      items.push({
+        id: `bridge-${bridge.id}`,
+        kind: "bridge",
+        name: bridge.clearance === "below" ? "Low bridge" : "Bridge — check clearance",
+        milesAway: roadMiles - truckMiles,
+        point,
+      });
+    }
+    (sourceResult.roadWork?.items ?? []).forEach((work, i) => {
+      const roadMiles = deadheadMiles + work.mile;
+      const point = pointAtRoadMiles(measure, roadMiles);
+      if (!point) return;
+      items.push({
+        id: `roadwork-${i}-${work.mile}`,
+        kind: "roadwork",
+        name: work.exceedsTruck ? `Road work — restriction over your truck: ${work.text}` : `Road work: ${work.text}`,
+        milesAway: roadMiles - truckMiles,
+        point,
+      });
+    });
+    return items
+      .filter((item) => item.milesAway >= 0 && item.milesAway <= AHEAD_WINDOW_MILES)
+      .sort((x, y) => x.milesAway - y.milesAway);
+  }, [truckPois, sourceResult, plan, measure, liveFraction]);
+  // Voice notes first: they are what a coworker took the trouble to say.
+  const upcomingListPois: UpcomingListPoi[] = useMemo(
+    () => [...voiceChips, ...aheadItems.map(({ id, kind, name, milesAway }) => ({ id, kind, name, milesAway }))],
+    [aheadItems, voiceChips],
+  );
+  // Bridges already have their own map markers (mapHazards); the
+  // icons here are the truck POIs.
+  const mapPois: DriveMapPoi[] = useMemo(
+    () =>
+      aheadItems
+        .filter((item) => item.kind !== "bridge" && item.kind !== "roadwork")
+        .map((item) => ({
+          id: item.id,
+          point: item.point,
+          badge: POI_META[item.kind].badge,
+          color: POI_META[item.kind].color,
+          title: item.name ?? POI_META[item.kind].label,
+        }))
+        .concat(voicePois),
+    [aheadItems, voicePois],
+  );
+  // Hazard stretches on the route line, cut with the same road-miles
+  // measurement as everything else: live traffic in its severity color,
+  // road work striped (owner 2026-11-19, the TruckPath reference). A
+  // work zone's feed gives where it starts, not where it ends, so the
+  // stripe marks the first ROADWORK_STRIPE_MILES — "it starts here".
+  const routeStretches: RouteStretch[] | undefined = useMemo(() => {
+    if (!sourceResult || !plan || sourceResult.load.id !== plan.loadId || !measure) return undefined;
+    const deadheadMiles = sourceResult.deadhead?.distanceMiles ?? 0;
+    const out: RouteStretch[] = mapSegments.map((seg, i) => ({
+      id: `traffic-${i}`,
+      kind: "traffic",
+      color: seg.color,
+      points: stretchAlong(measure, deadheadMiles + seg.fromMile, deadheadMiles + seg.toMile),
+    }));
+    (sourceResult.roadWork?.items ?? []).forEach((work, i) => {
+      const start = deadheadMiles + work.mile;
+      out.push({ id: `roadwork-${i}`, kind: "roadwork", color: "#f97316", points: stretchAlong(measure, start, start + ROADWORK_STRIPE_MILES) });
+    });
+    return out;
+  }, [sourceResult, plan, measure, mapSegments]);
+
+  // Spoken ahead of time (owner 2026-11-19): road work is called out
+  // once, about two miles out, from the same live distance the list
+  // shows. (Traffic and low bridges are already spoken by the live
+  // poll.) Never repeated; muted means muted.
+  useEffect(() => {
+    if (mode !== "rolling" || mutedRef.current) return;
+    for (const item of aheadItems) {
+      if (item.kind !== "roadwork" || item.milesAway > ROADWORK_CALL_MILES) continue;
+      const key = item.id;
+      if (spokenHazardsRef.current.has(key)) continue;
+      spokenHazardsRef.current.add(key);
+      if (!speakerRef.current) speakerRef.current = browserSpeaker();
+      speakerRef.current.speak(roadWorkCallout(item.milesAway, item.name ?? ""));
+    }
+  }, [aheadItems, mode]);
+
+  // The remaining run, ticking live: miles with one decimal, minutes
+  // from live speed (or the plan's pace), arrival on his clock.
+  // TruckPath-style speed box + "where am I" pill (owner 2026-11-19).
+  // Limit: OSM maxspeed for the road under the truck (null = no box
+  // number, never a guess). Speed: the GPS fix's own speed.
+  const limitPosition = useMemo(
+    () => (mode === "rolling" && shownFix ? { lat: shownFix.point.lat, lng: shownFix.point.lng, accuracyM: shownFix.accuracyM, atMs: shownFix.atMs } : null),
+    [mode, shownFix],
+  );
+  const limitMph = useSpeedLimit(limitPosition, shownFix?.headingDeg ?? null, true);
+  const speedBox = mode === "rolling" ? { limitMph, speedMph: shownFix?.speedMph ?? null } : null;
+  const whereHere = useWhereAmI(mode === "rolling" ? (shownFix?.point ?? null) : null, shownFix?.headingDeg ?? null);
+  const wherePill = useMemo(() => wherePillLines(whereHere, shownFix?.headingDeg ?? null), [whereHere, shownFix]);
+
+  const upcomingListRemaining: UpcomingListRemaining | null = useMemo(() => {
+    if (!plan || !session) return null;
+    const milesLeft = Math.max(0, (1 - liveFraction) * plan.totalMiles);
+    // nowMs is the page's clock state (the 1-second tick keeps it
+    // current); when it is 0 the run has no clock yet, so no ETA.
+    if (milesLeft === 0) return { milesLeft: 0, minutesLeft: 0, etaAt: nowMs > 0 ? new Date(nowMs) : null };
+    let minutesLeft: number | null = null;
+    if (displayFix && displayFix.speedMph !== null && displayFix.speedMph >= 10) {
+      minutesLeft = (milesLeft / displayFix.speedMph) * 60;
+    } else if (plan.assumedDriveMinutes > 0 && plan.totalMiles > 0) {
+      minutesLeft = (milesLeft / (plan.totalMiles / (plan.assumedDriveMinutes / 60))) * 60;
+    }
+    return {
+      milesLeft,
+      minutesLeft,
+      etaAt: minutesLeft !== null && nowMs > 0 ? new Date(nowMs + minutesLeft * 60_000) : null,
+      // Shown in the zone the truck is in now (TruckPath does the same), never UTC.
+      timeZone: displayFix ? timeZoneForPosition(displayFix.point.lat, displayFix.point.lng) : undefined,
+    };
+  }, [plan, session, liveFraction, displayFix, nowMs]);
 
   if (mode === "loading") {
     return (
@@ -876,6 +1221,8 @@ export default function DrivePage() {
               session={session}
               lastFix={shownFix}
               mapGeometry={driveAheadGeometry}
+              motionGeometry={plan.geometry}
+              stretches={routeStretches}
               mapDeadhead={mapDeadhead}
               positionQuality={positionQuality}
               follow={follow}
@@ -883,7 +1230,7 @@ export default function DrivePage() {
               night={night}
               layout={layout}
               nextStop={nextStop}
-              upcoming={upcoming}
+              upcoming={liveUpcoming}
               projection={projection}
               routeNotice={routeNotice}
               muted={muted}
@@ -895,6 +1242,15 @@ export default function DrivePage() {
               onMuteToggle={handleMuteToggle}
               segments={mapSegments}
               hazards={mapHazards}
+              pois={mapPois}
+              maneuverZoom={maneuverZoomProp}
+              progressFractionOverride={liveFraction}
+              upcomingListManeuver={upcomingListManeuver}
+              upcomingListPois={upcomingListPois}
+              upcomingListRemaining={upcomingListRemaining}
+              upcomingListSpeed={speedBox}
+              upcomingListWhere={wherePill}
+              upcomingListRecorder={<VoiceNoteRecorder fix={voiceFix} roadRef={whereHere?.roadRef ?? null} onSaved={voice.onSaved} />}
             />
           )}
 
@@ -906,38 +1262,52 @@ export default function DrivePage() {
             <DriveGlance
               clocks={<DriveClocks dark />}
               map={
-                <DriveMap
-                  geometry={driveAheadGeometry}
-                  deadheadGeometry={mapDeadhead}
-                  stops={plan.stops}
-                  stopStatus={session.stopStatus}
-                  position={shownFix?.point ?? null}
-                  headingDeg={lastFix?.headingDeg ?? null}
-                  positionQuality={positionQuality}
-                  follow
-                  onUserPan={() => {}}
-                  night={night}
-                  height="30vh"
-                  view3d={view3d}
-                  segments={mapSegments}
-                  hazards={mapHazards}
-                />
+                <div style={{ position: "relative" }}>
+                  <DriveMap
+                    geometry={driveAheadGeometry}
+                    deadheadGeometry={mapDeadhead}
+                    stops={plan.stops}
+                    stopStatus={session.stopStatus}
+                    position={shownFix?.point ?? null}
+                    headingDeg={shownFix?.headingDeg ?? null}
+                    motionGeometry={plan.geometry}
+                    stretches={routeStretches}
+                    positionQuality={positionQuality}
+                    follow
+                    onUserPan={() => {}}
+                    night={night}
+                    height="30vh"
+                    view3d={view3d}
+                    segments={mapSegments}
+                    hazards={mapHazards}
+                    maneuverZoom={maneuverZoomProp}
+                    pois={mapPois}
+                  />
+                  <DriveUpcomingList
+                    maneuver={upcomingListManeuver}
+                    pois={upcomingListPois}
+                    remaining={upcomingListRemaining}
+                    speed={speedBox}
+                    where={wherePill}
+                    recorder={<VoiceNoteRecorder fix={voiceFix} roadRef={whereHere?.roadRef ?? null} onSaved={voice.onSaved} />}
+                  />
+                </div>
               }
               nextStop={
                 nextStop
                   ? {
                       name: nextStop.name,
-                      milesAway: Math.max(0, (nextStop.fraction - session.progressFraction) * plan.totalMiles),
+                      milesAway: Math.max(0, (nextStop.fraction - liveFraction) * plan.totalMiles),
                       badge: nextStop.lifeBadge ?? null,
                     }
                   : null
               }
               upcoming={
-                upcoming
+                liveUpcoming
                   ? {
-                      arrow: MANEUVER_ARROWS[maneuverDirection(upcoming.maneuver.instruction)],
-                      instruction: upcoming.maneuver.instruction,
-                      milesAway: upcoming.milesAway,
+                      arrow: MANEUVER_ARROWS[maneuverDirection(liveUpcoming.maneuver.instruction)],
+                      instruction: liveUpcoming.maneuver.instruction,
+                      milesAway: liveUpcoming.milesAway,
                     }
                   : null
               }

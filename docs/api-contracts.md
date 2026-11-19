@@ -577,6 +577,12 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/memories` | DELETE,GET,PATCH | custom (see section / design doc) |
 | `/api/v1/what-i-know` | GET,POST | custom (see section / design doc) |
 | `/api/v1/map/speed-limit` | GET | custom (see section / design doc) |
+| `/api/v1/map/where` | GET | custom (see section / design doc) |
+| `/api/v1/voice-notes` | GET,POST | custom (docs/design/voice-notes.md) |
+| `/api/v1/voice-notes/[id]` | DELETE | custom (docs/design/voice-notes.md) |
+| `/api/v1/voice-notes/[id]/audio` | GET | custom (docs/design/voice-notes.md) |
+| `/api/v1/voice-notes/[id]/view` | POST | custom (docs/design/voice-notes.md) |
+| `/api/v1/voice-notes/[id]/report` | POST | custom (docs/design/voice-notes.md) |
 | `/api/v1/briefing-image` | GET | custom (see section / design doc) |
 | `/api/v1/news-image` | GET | custom (see section / design doc) |
 | `/api/v1/paper-logs/[id]` | GET | custom (see section / design doc) |
@@ -604,6 +610,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/business-credit` | GET | custom (see section / design doc) |
 | `/api/v1/smart-path/route-check` | POST | custom (see section / design doc) |
 | `/api/v1/smart-path/live-traffic` | POST | custom (see section / design doc) |
+| `/api/v1/smart-path/truck-pois` | POST | custom (see section / design doc) |
 | `/api/v1/tax-packet` | GET | custom (see section / design doc) |
 | `/api/v1/trailers/[id]/restore` | POST | generic CRUD (contract above) |
 | `/api/v1/trailers/[id]` | DELETE,GET,PATCH | generic CRUD (contract above) |
@@ -646,6 +653,7 @@ All below: auth = session; company scope by RLS; errors use the standard envelop
 - `telegram` webhook: also accepts `edited_message` / `message.location` (Live Location fixes; processed after the allowlist + dedup claim, never answered in chat).
 - `smart-path/route-check` response adds optional `traffic?` (live awareness, `docs/design/smart-path-live-awareness.md`): `{ status: ok|unavailable, items: [{ id, mile, endMile, etaAt, category, severity: severe|moderate|minor, color, delayMinutes, text, startsAt, endsAt, from, to, roadNumbers }], segments: [{ fromMile, toMile, color }], call: { decision: reroute|stay|none, delayMinutes, savesMinutes, clearsAt, reason, incidentId }, notes[], asOf }` — TomTom live incidents mapped to route miles (free tier, `TOMTOM_API_KEY`; absent key or down provider → `unavailable`, never invented traffic); the call says reroute only when a truck-checked detour saves ≥10 min, stay when the delay clears before he gets there or no detour compares. `bridges?` (same doc): `{ status: ok|unavailable, items: [{ id, mile, etaAt, clearance: below|tight|ok|unknown, limitIn, truckHeightIn, text }], notes[], asOf }` — Overpass bridges with a recorded `maxheight` judged against his truck's height; an unrecorded bridge is never listed as cleared. Both advisory, never changing the verdict. Request adds optional `avoid?: [{ lat, lng, radiusMiles }]` (max 5) for a truck-checked detour around a reported delay.
 - `smart-path/live-traffic` (live awareness, `docs/design/smart-path-live-awareness.md`): `POST /api/v1/smart-path/live-traffic`, authenticated owner session. Body: the REMAINING run — `{ geometry: [{ lat, lng }] (≥2), totalMiles, corridor: [{ mile, etaAt (ISO | null) }] (≥1), currentMile (default 0), currentPoint: { lat, lng }, destination: { lat, lng }, vehicle?: { heightIn, lengthIn, weightLbs } (nullable fields), plannedRemainingMinutes? }`, mile 0 = his position. Returns `200` with `{ traffic: <same traffic section as route-check>, avoidCircles: [{ lat, lng, radiusMiles }] }` — the detour is compared against the same truck routing chain (ORS `avoid_polygons` / Valhalla `exclude_polygons`; OSRM refuses avoid) and the call recomputed with it; a car-only detour or routing failure leaves the no-detour call standing. Nothing is stored. Errors: `400` for a bad body.
+- `smart-path/truck-pois` (drive map, audit-fix B7 2026-11-18): `POST /api/v1/smart-path/truck-pois`, authenticated owner session. Body: the REMAINING run — `{ geometry: [{ lat, lng }] (≥2), totalMiles }`, mile 0 = his position. Returns `200` with `{ status: ok|unavailable, items: [{ id, kind: fuel|rest|parking, name (string | null), mile, point: { lat, lng } }], notes[], asOf }` — truck stops, fuel, rest areas, and truck parking from OpenStreetMap via Overpass (keyless, free); a stop the route projection cannot put on the line is dropped, never shown with a made-up distance; Overpass down → `unavailable`, never invented stops. Nothing is stored. Errors: `400` for a bad body.
 
 ### Trailer assignment and trip documents (2026-11-05)
 - `drivers` create/update accept `assigned_trailer_id` (uuid or null); `loads` create/update accept `trailer_id` (uuid or null) — migration 00066 (**unapplied until King applies it**; the UI sends these fields only when the owner changes them, and Abel's `create_load` folds `trailer_id` into notes if the column is missing).
@@ -672,3 +680,30 @@ Authenticated. Returns `{ data: { limitMph: number | null, roadName: string | nu
 ### Roadside inspection mode (migration 00086; `docs/design/eld-roadside-overlay.md`)
 - `GET /api/v1/roadside/packet` (session) → `{ data: { subject, text, fileName, periodStart, periodEnd } }` — the current inspection packet (today + previous 7 days, Eastern), built server-side from the one HOS read. The packet is a convenience copy and says so in its own text; it contains no pay/money data.
 - `POST /api/v1/roadside/send` (session) `{ to }` → builds + files the packet, saves it as a standalone owner@ draft, and sends it through `sendApprovedDraft` with the packet attached as a file (the /roadside page shows the full packet and the recipient before its Send button — that confirmation is the approval). Returns `{ data: { sent: true, to, subject, packetId, warning? } }`; a staging failure (e.g. migration 00086 not applied yet) → `503 packet_staging_failed` with nothing sent; a refused/failed send → `422 packet_send_failed` with the plain reason.
+
+### Drive map pill (`GET /api/v1/map/where?lat=&lng=&heading=`) — 2026-11-19
+
+Authenticated. `lat`/`lng` required numbers, `heading` optional 0–360. Returns `{ data: { roadRef, roadName, mileMarker, town, state, source: "OpenStreetMap" } }`. Each field is `null` when OSM does not record it, or when the lookup is unavailable. It never estimates: no milestone node nearby means no mile marker. Road + milestone come from Overpass; town + two-letter state come from Nominatim reverse geocoding. Both are server-side and cached (road ~110 m cells / 10 min, town ~1 km cells / 1 h); Nominatim is called at most once a second. Design: `docs/design/map-finish.md`.
+
+### Location voice notes (`/api/v1/voice-notes`) — 2026-11-19, migration 00101
+
+All routes are authenticated, and row-level security scopes them to the caller's company. Design: `docs/design/voice-notes.md`.
+
+- `GET /api/v1/voice-notes?lat=&lng=&radius=` (radius 1–60 mi, default 35) → `{ data: { notes: VoiceNoteRecord[], memberCount } }`. Returns only the notes still meant for the caller:
+  - not his own;
+  - not expired, removed, or cleared by enough reports;
+  - not already done for him.
+- `GET /api/v1/voice-notes?mine=1` → the caller's own live notes.
+- `POST /api/v1/voice-notes`, multipart:
+  - `audio` (webm/ogg/mp4/mpeg/aac, ≤ 1.5 MB);
+  - `kind` (traffic|roadwork|bridge|hazard|tip);
+  - `lat`, `lng`;
+  - `heading` (0–359 or empty);
+  - `roadRef` (≤ 20 chars);
+  - `durationS` (≤ 30 s, + 1 s slack).
+
+  Returns `201 { data: { id } }`. The expiry is set from `kind`.
+- `GET /api/v1/voice-notes/:id/audio` → `{ data: { url } }`, a 5-minute signed link.
+- `POST /api/v1/voice-notes/:id/view` `{ listened?: true, passed?: true }` → never un-sets a time already recorded.
+- `POST /api/v1/voice-notes/:id/report` `{ kind: "gone" | "bad" }` → one report per driver per kind.
+- `DELETE /api/v1/voice-notes/:id` → author only; sets `removed_at`.

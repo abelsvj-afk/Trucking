@@ -8,3 +8,39 @@
 @import "./styles/01-tokens.css";
 @import "./styles/02-base.css";
 @import "./styles/03-components.css";
+
+/* Location voice notes (2026-11-19): the bubble shakes and pulses until the
+   driver has listened AND passed it. Transform + opacity only, so the phone's
+   compositor animates it without layout or paint work. Wrapped in an inner
+   animation on ::after for the pulse ring, so the marker's own transform
+   (MapLibre positions markers with transform) is never overwritten. */
+.voice-note-alert {
+  position: relative;
+}
+.voice-note-alert::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 3px solid #c9a227;
+  animation: voice-note-pulse 1.4s ease-out infinite;
+  pointer-events: none;
+}
+.voice-note-shake {
+  display: inline-block;
+  animation: voice-note-shake 1.6s ease-in-out infinite;
+}
+@keyframes voice-note-pulse {
+  0% { transform: scale(0.8); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+@keyframes voice-note-shake {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  65% { transform: rotate(-14deg); }
+  72% { transform: rotate(12deg); }
+  79% { transform: rotate(-9deg); }
+  86% { transform: rotate(6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-note-alert::after, .voice-note-shake { animation: none; }
+}

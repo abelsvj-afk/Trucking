@@ -2,6 +2,7 @@
 // turns the short way, rolls its tires by the ground covered, and
 // stops asking for frames once it reaches the fix.
 import { describe, expect, it } from "vitest";
+import { buildRouteMeasure } from "@/lib/route-measure";
 import { feedFix, lerpHeading, sampleMotion, TIRE_RADIUS_M, type TruckPose } from "@/lib/truck-motion";
 
 const A: TruckPose = { position: { lat: 35, lng: -80 }, headingDeg: 90 };
@@ -69,5 +70,38 @@ describe("truck motion", () => {
     expect(lerpHeading(350, 10, 0.5)).toBeCloseTo(0);
     expect(lerpHeading(10, 350, 0.5)).toBeCloseTo(0);
     expect(lerpHeading(90, 180, 0.5)).toBeCloseTo(135);
+  });
+});
+
+describe("truck motion along the road (one motion system, 2026-11-19)", () => {
+  // An L: north 1 mile, then east 1 mile.
+  const L = [
+    { lat: 30, lng: -82 },
+    { lat: 30.01449, lng: -82 },
+    { lat: 30.01449, lng: -81.9833 },
+  ];
+  const measure = buildRouteMeasure([{ geometry: L, roadMiles: 0 }]);
+
+  it("follows the road through a corner instead of cutting across it", () => {
+    let m = feedFix(null, { position: { lat: 30.007, lng: -82 }, headingDeg: 0 }, 0, measure);
+    m = sampleMotion(m, 0).motion;
+    m = feedFix(m, { position: { lat: 30.01449, lng: -81.991 }, headingDeg: null }, 1000, measure);
+    // Mid-glide the truck is ON the line (either leg), not on the diagonal chord.
+    const mid = sampleMotion(m, 1350).frame.pose.position;
+    const onNorthLeg = Math.abs(mid.lng - -82) < 1e-6;
+    const onEastLeg = Math.abs(mid.lat - 30.01449) < 1e-6;
+    expect(onNorthLeg || onEastLeg).toBe(true);
+  });
+
+  it("points the nose the way it is travelling, even when the GPS heading is missing or wrong", () => {
+    let m = feedFix(null, { position: { lat: 30.002, lng: -82 }, headingDeg: 180 }, 0, measure);
+    m = sampleMotion(m, 0).motion;
+    m = feedFix(m, { position: { lat: 30.006, lng: -82 }, headingDeg: 180 }, 1000, measure);
+    expect(sampleMotion(m, 5000).frame.pose.headingDeg).toBeCloseTo(0, 0); // north, the road's way
+    // Off the route: the bearing between the fixes
+    let n = feedFix(null, { position: { lat: 31, lng: -80 }, headingDeg: null }, 0);
+    n = sampleMotion(n, 0).motion;
+    n = feedFix(n, { position: { lat: 31, lng: -79.999 }, headingDeg: null }, 1000);
+    expect(sampleMotion(n, 5000).frame.pose.headingDeg).toBeCloseTo(90, 0);
   });
 });

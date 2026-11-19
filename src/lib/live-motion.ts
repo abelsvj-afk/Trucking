@@ -7,6 +7,7 @@
 // proposal waits for his yes, and the time it carries is when the
 // movement actually began.
 
+import { DIP_TOLERANCE_MS } from "./sustained-motion";
 import type { DutyStatus } from "@/types/entities";
 import { episodeKey } from "./stopped-vehicle";
 
@@ -29,6 +30,16 @@ export const MAX_SPEED_INTERVAL_MS = 5 * 60_000;
 export const MAX_ACCURACY_M = 100;
 /** Distance a stationary phone appears to wander is not movement: below this it is zero. */
 export const JITTER_FLOOR_MILES = 0.01;
+/**
+ * The jitter floor for two GOOD fixes (both accuracies known and within
+ * GOOD_ACCURACY_M). 2026-11-19: the Tracker now sends a fix every 5 s,
+ * and 0.01 mi in 5 s is 7.2 mph — every slower pair (pulling out of a
+ * lot, creeping through town) read as 0 mph, reset the motion run, and
+ * the switch back to Driving never fired. A good fix wanders far less
+ * than 16 m, so it gets a floor under the 5 mph moving line.
+ */
+export const GOOD_FIX_JITTER_FLOOR_MILES = 0.004;
+export const GOOD_ACCURACY_M = 20;
 
 export interface PositionFix extends LatLng {
   atMs: number;
@@ -42,7 +53,9 @@ export function deriveSpeedMph(prev: PositionFix | null, cur: PositionFix): numb
   if (dt < MIN_SPEED_INTERVAL_MS || dt > MAX_SPEED_INTERVAL_MS) return null;
   if ((cur.accuracyM ?? 0) > MAX_ACCURACY_M || (prev.accuracyM ?? 0) > MAX_ACCURACY_M) return null;
   const miles = haversineMiles(prev, cur);
-  if (miles < JITTER_FLOOR_MILES) return 0;
+  const good =
+    cur.accuracyM !== null && prev.accuracyM !== null && cur.accuracyM <= GOOD_ACCURACY_M && prev.accuracyM <= GOOD_ACCURACY_M;
+  if (miles < (good ? GOOD_FIX_JITTER_FLOOR_MILES : JITTER_FLOOR_MILES)) return 0;
   return miles / (dt / 3_600_000);
 }
 
@@ -69,7 +82,17 @@ export const NO_EPISODE: MotionEpisode = { movingSinceMs: null, stoppedSinceMs: 
 export function stepEpisode(state: MotionEpisode, speedMph: number | null, atMs: number): MotionEpisode {
   if (speedMph === null || !Number.isFinite(speedMph)) return state;
   if (speedMph >= MOVING_MPH) return { movingSinceMs: state.movingSinceMs ?? atMs, stoppedSinceMs: null };
-  if (speedMph <= STOPPED_MPH) return { movingSinceMs: null, stoppedSinceMs: state.stoppedSinceMs ?? atMs };
+  if (speedMph <= STOPPED_MPH) {
+    const stoppedSinceMs = state.stoppedSinceMs ?? atMs;
+    // A red light or a stop-and-go crawl is not the end of a drive:
+    // a stop shorter than DIP_TOLERANCE_MS keeps the motion run (the
+    // open-app detector has always done this; the feed path did not,
+    // so city driving never held the 90 s the switch needs). The stop
+    // is still recorded from its first fix, so the stop side keeps
+    // its true start.
+    const inDip = state.movingSinceMs !== null && atMs - stoppedSinceMs <= DIP_TOLERANCE_MS;
+    return { movingSinceMs: inDip ? state.movingSinceMs : null, stoppedSinceMs };
+  }
   return state;
 }
 
