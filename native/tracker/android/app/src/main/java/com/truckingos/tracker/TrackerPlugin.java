@@ -63,6 +63,15 @@ public class TrackerPlugin extends Plugin {
         }
     }
 
+    /** Open the drive map screen (MapActivity: screen kept on, floats small when he leaves it). */
+    @PluginMethod
+    public void openMap(PluginCall call) {
+        android.content.Intent intent = new android.content.Intent(getContext(), MapActivity.class);
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(intent);
+        call.resolve();
+    }
+
     @PluginMethod
     public void stop(PluginCall call) {
         TrackerService.stop(getContext());

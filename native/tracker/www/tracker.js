@@ -278,6 +278,17 @@ const guarded = (fn) => () => {
 
 toggleBtn.addEventListener("click", guarded(() => (running ? stop() : start())));
 $("open-settings").addEventListener("click", () => openSettings());
+$("open-map").addEventListener("click", async () => {
+  if (!Tracker || typeof Tracker.openMap !== "function") {
+    $("status").textContent = "The map screen needs the Android app.";
+    return;
+  }
+  try {
+    await Tracker.openMap();
+  } catch (e) {
+    $("status").textContent = "Couldn't open the map: " + (e && e.message ? e.message : String(e));
+  }
+});
 $("close-settings").addEventListener("click", () => closeSettings());
 $("save-settings").addEventListener("click", guarded(saveSettings));
 $("clear-log").addEventListener("click", () => {

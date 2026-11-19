@@ -76,6 +76,7 @@ import { useSpeedLimit } from "@/lib/use-speed-limit";
 import { useWhereAmI } from "@/lib/use-where-am-i";
 import { wherePillLines } from "@/lib/drive-where";
 import { useVoiceNotes } from "@/lib/use-voice-notes";
+import { useScreenWakeLock } from "@/lib/use-screen-wake-lock";
 import { freshnessLabel, sameDirection, stackVoiceNotes, VOICE_NOTE_LABEL, type VoiceNoteStack } from "@/lib/voice-notes";
 import VoiceNoteRecorder from "@/components/drive/VoiceNoteRecorder";
 import { timeZoneForPosition } from "@/lib/display-zone";
@@ -159,6 +160,8 @@ const LIVE_POLL_MS = 120_000;
 export default function DrivePage() {
   usePageTitle("Drive");
   const [mode, setMode] = useState<Mode>("loading");
+  // The screen stays on while the drive map is open (owner 2026-11-19).
+  const wakeLock = useScreenWakeLock(mode === "rolling" || mode === "parked");
   const [plan, setPlan] = useState<DrivePlanSnapshot | null>(null);
   const [sourceResult, setSourceResult] = useState<RouteCheckResponse | null>(null);
   const [resumeAvailable, setResumeAvailable] = useState(false);
@@ -1212,6 +1215,13 @@ export default function DrivePage() {
           {mode === "rolling" && bridgeBelowAhead && (
             <p role="alert" style={{ fontWeight: 700 }}>
               ⚠ {bridgeBelowAhead.text}
+            </p>
+          )}
+
+          {(mode === "rolling" || mode === "parked") && (wakeLock === "unsupported" || wakeLock === "refused") && (
+            <p role="status" className="row-sub">
+              This browser can&apos;t keep the screen on. For a map that stays awake (and floats small), open it from the
+              Tracker app: Open the map.
             </p>
           )}
 

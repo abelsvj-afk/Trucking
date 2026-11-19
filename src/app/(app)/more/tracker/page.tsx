@@ -61,6 +61,26 @@ export default function TrackerPage() {
         </ol>
       </section>
 
+      <section aria-label="The map in the Tracker">
+        <h2>The map while you drive (1.2.0)</h2>
+        <ul>
+          <li>
+            In the Tracker, tap <strong>Open the map</strong>. It keeps the screen on, and the first time you open it, log in
+            to the app there.
+          </li>
+          <li>
+            Press <strong>Home</strong> (or switch apps) and the map floats small over everything. Drag it anywhere, pinch to
+            resize, tap it to bring it back full size.
+          </li>
+          <li>
+            If it closes instead of floating: phone Settings → Apps → Trucking OS Tracker → Picture-in-picture →{" "}
+            <strong>Allowed</strong>.
+          </li>
+          <li>The floating hours clock can now be dragged anywhere too.</li>
+          <li>Updating from 1.1.x installs right over it — no uninstall, your server address and key stay.</li>
+        </ul>
+      </section>
+
       <BackgroundTrackingSettings keysOnly />
     </div>
   );
