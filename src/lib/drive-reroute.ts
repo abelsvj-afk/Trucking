@@ -8,7 +8,7 @@
 //      route is truck-checked. A car route never silently replaces a truck
 //      route - the old plan stays and he is told plainly.
 
-import { bearingDeg, buildRouteMeasure, measurePoint } from "./route-measure";
+import { bearingDeg } from "./route-measure";
 import type { DrivePlanSnapshot } from "@/lib/drive";
 import { buildDrivePlan } from "@/lib/drive";
 import type { RouteCheckResponse } from "@/types/smart-path";
@@ -161,11 +161,16 @@ export const WRONG_WAY_MIN_MPH = 10;
 /**
  * Owner 2026-11-19: he drove past the turn and kept going along a road
  * the route also uses, the OTHER way — still on the line, so the
- * distance check never saw him "off route" and no reroute came. Wrong
- * way = on the line (within OFF_ROUTE_MILES) but heading more than
- * WRONG_WAY_DEG away from the route's direction at that point, at road
- * speed. The caller treats it like off-route (same 25 s hold, same
- * 2-minute reroute limit), so one bad heading never triggers a reroute.
+ * distance check never saw him "off route" and no reroute came.
+ *
+ * Wrong way = at road speed, the route runs near him (within
+ * OFF_ROUTE_MILES) but NONE of the route's nearby stretches runs his
+ * way (all differ by more than WRONG_WAY_DEG). Checking every nearby
+ * stretch, not just the nearest, matters: an out-and-back run (up an
+ * interstate to the pickup, back down it later) has the return leg in
+ * the opposite lanes a few yards away — the nearest stretch can be that
+ * return leg while he is driving exactly right. The caller treats wrong
+ * way like off route (same 25 s hold, same 2-minute reroute limit).
  */
 export function isWrongWay(
   point: LatLng,
@@ -174,10 +179,17 @@ export function isWrongWay(
   speedMph: number | null,
 ): boolean {
   if (headingDeg === null || speedMph === null || speedMph < WRONG_WAY_MIN_MPH || geometry.length < 2) return false;
-  const at = measurePoint(buildRouteMeasure([{ geometry, roadMiles: 0 }]), point);
-  if (!at || at.offRouteMiles > OFF_ROUTE_MILES) return false;
-  const routeBearing = bearingDeg(geometry[at.segment]!, geometry[at.segment + 1]!);
-  if (routeBearing === null) return false;
-  const diff = Math.abs((((headingDeg - routeBearing) % 360) + 540) % 360 - 180);
-  return diff > WRONG_WAY_DEG;
+  let nearby = 0;
+  for (let i = 1; i < geometry.length; i++) {
+    const a = geometry[i - 1]!;
+    const b = geometry[i]!;
+    const d = distanceToRouteMiles(point, [a, b]);
+    if (d === null || d > OFF_ROUTE_MILES) continue;
+    const bearing = bearingDeg(a, b);
+    if (bearing === null) continue;
+    nearby += 1;
+    const diff = Math.abs((((headingDeg - bearing) % 360) + 540) % 360 - 180);
+    if (diff <= WRONG_WAY_DEG) return false; // some stretch of the route here runs his way
+  }
+  return nearby > 0;
 }

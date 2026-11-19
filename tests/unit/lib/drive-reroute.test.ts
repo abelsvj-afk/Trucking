@@ -155,3 +155,17 @@ describe("wrong way along the route counts as off route (owner 2026-11-19)", () 
     expect(isWrongWay(onLine, north, null, 55)).toBe(false);
   });
 });
+
+describe("wrong way never fires on an out-and-back run (review 2026-11-19)", () => {
+  it("northbound beside the route's own southbound return leg is NOT wrong way", async () => {
+    const { isWrongWay } = await import("@/lib/drive-reroute");
+    const up = Array.from({ length: 11 }, (_, i) => ({ lat: 30 + i * 0.01449, lng: -82 }));
+    // Return leg in the opposite lanes, 30 yards east, coming back down.
+    const down = [...up].reverse().map((p) => ({ lat: p.lat, lng: p.lng + 0.0003 }));
+    const route = [...up, ...down];
+    // He is in the return lanes (nearest stretch = the southbound leg) heading north, correctly on the way up.
+    expect(isWrongWay({ lat: 30.05, lng: -81.9997 }, route, 0, 60)).toBe(false);
+    // Genuinely wrong way: southbound with only a northbound route nearby.
+    expect(isWrongWay({ lat: 30.05, lng: -82 }, up, 180, 60)).toBe(true);
+  });
+});
