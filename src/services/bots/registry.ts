@@ -93,14 +93,22 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     displayName: "Tracker",
     seat: "check-calls and ETA",
     status: "planned",
+    // Scope from its governing file (docs/bots/tracker/CLAUDE.md):
+    // loads + documents READ+WRITE (status, ETA, check-call log, BOL/POD
+    // filing — reversible internal writes, automatic); HOS READ (warn
+    // only, never edit a log); money NONE; email READ-WRITE (a status
+    // update to a broker/shipper is still an execute-class action, so
+    // the guardrails hold it to an approved proposal); maps READ;
+    // app-actions READ-WRITE (post status, update the load); calls
+    // GATED (check-calls on the shared number, owner-approved plan).
     toolScope: {
-      loads: "read",
+      loads: "read-write",
       hos: "read",
       money: "none",
-      documents: "read",
-      email: "none",
+      documents: "read-write",
+      email: "read-write",
       maps: "read",
-      "app-actions": "draft",
+      "app-actions": "read-write",
       calls: "gated",
       signature: "never",
     },
@@ -230,3 +238,6 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
 
 /** Bots wired into the Telegram group in this phase (Phase 0). */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout"];
+
+/** Bots wired into the Telegram group in Phase 2 — Phase 0 seats plus Tracker. */
+export const GROUP_SEATS_PHASE_2: BotSlug[] = ["abel", "dispatch-scout", "tracker"];

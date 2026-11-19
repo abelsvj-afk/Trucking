@@ -43,6 +43,19 @@ export const DRAFT_ACTION_KINDS = [
   "draft_invoice",
   "draft_work_order",
   "internal_note",
+  // Tracker internal writes (governing file: reversible internal writes
+  // are automatic) — check-call log, load status/ETA update, POD/BOL
+  // filing, detention-clock start. Anything anyone outside the app
+  // would see stays execute-class (send_to_broker, send_to_shipper,
+  // call_outbound) and needs an approved proposal.
+  "log_check_call",
+  "update_load_status",
+  // "record_document" is the internal write — recording a received
+  // POD/BOL in the packet. It is NOT the execute-class "file_document"
+  // (filing a document with an outside party), which stays denied
+  // without an approved proposal. Same word, different action.
+  "record_document",
+  "start_detention",
 ] as const;
 
 export type DraftActionKind = (typeof DRAFT_ACTION_KINDS)[number];

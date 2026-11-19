@@ -8,12 +8,18 @@
 // database, no network — so the same message always routes the same
 // way and the tests can prove it.
 //
-// Phase 0 wires only Abel + Dispatch Scout into the room. The router
-// still names the intended bot for the other seats; the group handler
+// The router only says who a message is FOR. Whether the target speaks
+// is the target bot's own decision (Tracker: decideTrackerSpeech in
+// services/bots/tracker.ts — the team-room rule, owner 2026-11-19: a
+// bot speaks when it has something to add, answers another bot that
+// addresses it, and stays quiet when it has nothing to add).
+//
+// Phase 2 wires Tracker into the room alongside Abel + Dispatch Scout.
+// The router still names the intended bot for the other seats; the group handler
 // answers those with "not in the room yet" instead of pretending the
 // bot is there.
 
-import { GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
+import { GROUP_SEATS_PHASE_2, isBotSlug, type BotSlug } from "./registry";
 
 export interface GroupMessageInput {
   text: string;
@@ -48,8 +54,13 @@ const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
 
 const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
   {
+    // Scout finds loads — the bare word "load" alone is NOT a Scout
+    // keyword: every Tracker sentence about a load in progress ("what's
+    // the eta on this load?", "the load was refused") contains it, and
+    // routing those to Scout stole Tracker's job. Load-seeking phrases
+    // only.
     slug: "dispatch-scout",
-    patterns: [/\bload\b/i, /\brate\b/i, /\bbroker\b/i, /\bdeadhead\b/i, /\bper mile\b/i, /\bshortlist\b/i, /\bpickup\b/i, /\bdelivery\b/i],
+    patterns: [/\bnew load\b/i, /\bnext load\b/i, /\bfind (me )?(a )?load\b/i, /\bload board\b/i, /\brate\b/i, /\bbroker\b/i, /\bdeadhead\b/i, /\bper mile\b/i, /\bshortlist\b/i],
   },
   {
     slug: "compliance-watchdog",
@@ -64,8 +75,12 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
     patterns: [/\binspection\b/i, /\bmaintenance\b/i, /\bshop\b/i, /\bbreakdown\b/i, /\btire\b/i],
   },
   {
+    // Check-call verbs and escalation words are Tracker's job — a
+    // status sentence ("delivered at Dollar Tree", "the load was
+    // refused") routes here, not to Scout. "detention pay" is Billing's
+    // and sits above this entry, so it still wins for pay questions.
     slug: "tracker",
-    patterns: [/\beta\b/i, /\bcheck.call\b/i, /\bcheck call\b/i, /\bshipper\b/i, /\breceiver\b/i, /\bpod\b/i, /\bbol\b/i],
+    patterns: [/\beta\b/i, /\bcheck.call\b/i, /\bcheck call\b/i, /\bshipper\b/i, /\breceiver\b/i, /\bpod\b/i, /\bbol\b/i, /\bpicked up\b/i, /\bdelivered\b/i, /\barrived\b/i, /\bdeparted\b/i, /\ben route\b/i, /\bdetention\b/i, /\brefused\b/i, /\breschedul(e|ing)\b/i, /\bundeliverable\b/i],
   },
   {
     slug: "auditor",
@@ -82,21 +97,21 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
       target: input.replyToBotSlug,
       via: "reply",
       shouldAnswer: true,
-      seated: GROUP_SEATS_PHASE_0.includes(input.replyToBotSlug),
+      seated: GROUP_SEATS_PHASE_2.includes(input.replyToBotSlug),
     };
   }
 
   // A name mention goes to the named bot.
   for (const { slug, patterns } of MENTION_PATTERNS) {
     if (patterns.some((pattern) => pattern.test(text))) {
-      return { target: slug, via: "mention", shouldAnswer: true, seated: GROUP_SEATS_PHASE_0.includes(slug) };
+      return { target: slug, via: "mention", shouldAnswer: true, seated: GROUP_SEATS_PHASE_2.includes(slug) };
     }
   }
 
   // A job keyword goes to the bot whose job it is.
   for (const { slug, patterns } of KEYWORD_ROUTES) {
     if (patterns.some((pattern) => pattern.test(text))) {
-      return { target: slug, via: "keyword", shouldAnswer: true, seated: GROUP_SEATS_PHASE_0.includes(slug) };
+      return { target: slug, via: "keyword", shouldAnswer: true, seated: GROUP_SEATS_PHASE_2.includes(slug) };
     }
   }
 

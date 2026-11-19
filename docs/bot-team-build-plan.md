@@ -210,6 +210,87 @@ drafts — owner approves every shop), Billing (drafter — invoices drafted
 same day as delivery paperwork, sending gated by his approval). Each joins
 the same group, same registry, same guardrails.
 
+### Phase 2 shape — the group IS the channel (owner rule 2026-11-19)
+
+The group chat is a team room and the shared channel: everything the
+owner posts there lands for all the bots, and when Abel needs Tracker,
+Abel posts the message in the group chat too, addressed to Tracker, and
+Tracker picks it up there. The messages live in the room where everyone
+can see them — not a database-only relay the owner never sees.
+
+Each bot is its own Telegram account with its own profile photo
+(individual faces — the owner rejected the one-face model). The face
+registry is `src/services/bots/faces.ts` (slug, display name, BotFather
+username, photo reference, token env var name, webhook path — never a
+token value).
+
+Telegram mechanics, verified 2026-11-19 against Telegram's own docs
+(core.telegram.org/api/bots/bot-to-bot, /bots/faq): Bot-to-Bot
+Communication Mode (Bot API 9.6, April 2026) must be enabled for every
+bot in @BotFather, and Group Privacy Mode disabled (or group admin), or
+bots do not see each other's messages at all — that is the default. With
+the mode on, a bot receives another bot's message when mentioned by
+command (`/command@TargetBot`) or in direct reply (at least one of the
+two bots needs the mode on); as admin or privacy-disabled it also
+receives other bots' messages without a mention or reply. Go-live
+checklist per bot (manual @BotFather steps, no API flips them): create
+the bot, enable Bot-to-Bot Communication Mode, disable Group Privacy
+Mode (or make it a group admin), re-add it to the group after any
+privacy change, put its token in a Fly secret named in `faces.ts`.
+Until the mode is on for a bot, bot-to-bot delivery falls back to the
+handoff queue (`bot_handoffs`) with the room post still visible to the
+owner. Loop guards are in code: a bot answers another bot only when
+addressed by name or in reply, never its own chatter, never unprompted;
+handoff chains depth-capped at 3; the group-message log dedupes by
+Telegram message id.
+
+Per-bot webhooks are the activation step not yet built: each bot's
+webhook calls the group handler with its own `faceBotSlug`, and the
+deterministic router decides once — only the face the message routes to
+acts (the face gate in `services/bots/group.ts`), and only Abel's face
+handles owner decisions ("yes"/"no"). Without a `faceBotSlug` the
+handler behaves as in the single-bot deployment: it acts on every
+routed message.
+
+### Research patterns applied in the Tracker build (2026-11-19)
+
+Source: `~/workspace/research_notes/open-source-multi-agent-team-20261119-2022/report.md`.
+No new framework adopted — Mastra is the first choice if the
+shared-backend crew adopts one later, OpenAI Agents SDK (TS) the
+simplest, LangGraph.js the most durable and steepest; AutoGen (archived
+Oct 2026) and MetaGPT (stale since early 2026) avoided. The patterns
+below are applied in code, not as a future note:
+
+- Supervisor-first: one deterministic router (`services/bots/router.ts`);
+  Abel is the boss for what needs the owner's attention, and owner
+  decisions are handled only by Abel's face (`services/bots/group.ts`).
+  Tracker falls through to Abel when it has nothing to add.
+- Handoff payload = validated state only: `buildHandoffPayload` in
+  `services/bots/tracker.ts` carries loadRef, objective, then — never
+  a transcript; `bot_handoffs` rows are the work items.
+- Shared state/summaries, not full transcripts: group turns pass the
+  system prompt + memories + one handoff summary line with `history: []`
+  (`services/bots/group.ts` `handleTrackerTurn`).
+- One model router + per-agent scoped tools: `router.ts` + the scope
+  table in `services/bots/registry.ts` (Tracker: loads read-write, HOS
+  read, money none, documents read-write, email read-write, maps read,
+  app-actions read-write, calls gated, signature never).
+- Server-side enforcement via Supabase RLS, not prompts:
+  migration `00105_bot_tracker.sql` (RLS on `bot_check_calls`,
+  `bot_detention_clocks`, `bot_doc_packets`, `bot_handoffs`) plus code
+  enforcement in `services/bots/guardrails.ts`; prompts are
+  defense-in-depth only.
+- Human-in-the-loop as a structural interrupt/suspend: proposals are
+  rows with a yes/no grammar, a live-deadline check, and a guardrail
+  refusal even with approval while no execution path exists
+  (`services/bots/group.ts`, `guardrails.ts`).
+- Single-writer ownership per thread/job: `claimHandoff` (only the
+  named bot, only while open) and the face gate (only the routed face
+  acts) in `services/bots/group.ts`; `decideProposal` is idempotent.
+- Postgres job claiming + idempotency keys + bounded loops:
+  `bot_handoffs` claiming + idempotency key in `services/bots/store.ts`,
+  `MAX_HANDOFF_DEPTH = 3` in `services/bots/tracker.ts`.
+
 ## Phase 3 — Animated in-app room (LATER — owner decision 2026-11-19)
 
 **Do NOT build in the baseline. Telegram first; the animated room second,
