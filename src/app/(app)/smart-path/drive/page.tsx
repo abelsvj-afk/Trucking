@@ -70,11 +70,14 @@ import DriveParked from "@/components/drive/DriveParked";
 import DriveRunEnded from "@/components/drive/DriveRunEnded";
 import { easternHour, formatMinutes, pointAlongRoute } from "@/lib/smart-path";
 import { routeProgress } from "@/lib/route-progress";
-import { measurePoint, pointAtRoadMiles, stretchAlong } from "@/lib/route-measure";
+import { headingAtRoadMiles, measurePoint, pointAtRoadMiles, stretchAlong } from "@/lib/route-measure";
 import { roadWorkCallout } from "@/lib/drive-hazard-speech";
 import { useSpeedLimit } from "@/lib/use-speed-limit";
 import { useWhereAmI } from "@/lib/use-where-am-i";
 import { wherePillLines } from "@/lib/drive-where";
+import { useVoiceNotes } from "@/lib/use-voice-notes";
+import { freshnessLabel, sameDirection, stackVoiceNotes, VOICE_NOTE_LABEL, type VoiceNoteStack } from "@/lib/voice-notes";
+import VoiceNoteRecorder from "@/components/drive/VoiceNoteRecorder";
 import { timeZoneForPosition } from "@/lib/display-zone";
 
 /** Truck stops, rest areas, bridges ahead within this many miles (owner 2026-11-18: "about 30"). */
@@ -82,6 +85,9 @@ const AHEAD_WINDOW_MILES = 30;
 /** Road work is spoken once inside this distance, and striped this far from where it starts. */
 const ROADWORK_CALL_MILES = 2;
 const ROADWORK_STRIPE_MILES = 0.5;
+/** A voice note counts as on this road within this distance of the line; spoken once inside VOICE_CALL_MILES. */
+const VOICE_ON_ROUTE_MILES = 0.25;
+const VOICE_CALL_MILES = 1;
 import { sliceGeometryFromFraction } from "@/lib/smart-path-map-segments";
 import { useDrive3dView } from "@/lib/drive-3d-view";
 import { useSmoothedFix } from "@/lib/drive-position-smoothing";
@@ -900,6 +906,83 @@ export default function DrivePage() {
         milesAway: liveUpcoming.milesAway,
       }
     : null;
+  // Location voice notes (owner 2026-11-18/19): coworkers' notes on
+  // this road, going this way, ahead — a shaking, pulsing bubble on the
+  // map and a chip with the miles ticking down; tap to listen from far
+  // ahead. Done for him once he has listened AND passed it (or 30 min
+  // after listening); still there for the next driver.
+  const voiceFix = useMemo(
+    () => (mode === "rolling" && shownFix ? { point: shownFix.point, headingDeg: shownFix.headingDeg } : null),
+    [mode, shownFix],
+  );
+  const voice = useVoiceNotes(voiceFix, mode === "rolling");
+  const voiceAhead = useMemo(() => {
+    if (!plan || !measure || voice.notes.length === 0) return [];
+    const truckMiles = liveFraction * plan.totalMiles;
+    const out: { stack: VoiceNoteStack; milesAway: number }[] = [];
+    for (const stack of stackVoiceNotes(voice.notes)) {
+      const at = measurePoint(measure, stack.lead.point);
+      if (!at || at.offRouteMiles > VOICE_ON_ROUTE_MILES) continue;
+      // Only notes for drivers going THIS way down the road.
+      if (!sameDirection(stack.lead.headingDeg, headingAtRoadMiles(measure, at.roadMiles))) continue;
+      const milesAway = at.roadMiles - truckMiles;
+      if (milesAway < -0.3 || milesAway > AHEAD_WINDOW_MILES) continue;
+      out.push({ stack, milesAway: Math.max(0, milesAway) });
+    }
+    return out.sort((a, b) => a.milesAway - b.milesAway);
+  }, [plan, measure, voice.notes, liveFraction]);
+
+  // One spoken heads-up per note, about a mile out.
+  useEffect(() => {
+    if (mode !== "rolling" || mutedRef.current) return;
+    for (const { stack, milesAway } of voiceAhead) {
+      if (milesAway > VOICE_CALL_MILES) continue;
+      const key = `voice-${stack.lead.id}`;
+      if (spokenHazardsRef.current.has(key)) continue;
+      spokenHazardsRef.current.add(key);
+      if (!speakerRef.current) speakerRef.current = browserSpeaker();
+      speakerRef.current.speak(`Voice note from a driver ahead: ${VOICE_NOTE_LABEL[stack.lead.kind].toLowerCase()}, in ${milesAway.toFixed(1)} miles. Tap it to listen.`);
+    }
+  }, [voiceAhead, mode]);
+
+  const voiceChips: UpcomingListPoi[] = useMemo(
+    () =>
+      voiceAhead.map(({ stack, milesAway }) => {
+        const lead = stack.lead;
+        const listened = lead.listenedAtMs !== null;
+        const others = stack.notes.length > 1 ? ` · ${stack.notes.length} drivers` : "";
+        return {
+          id: `voice-${lead.id}`,
+          kind: "voice" as const,
+          name: VOICE_NOTE_LABEL[lead.kind],
+          milesAway,
+          alert: true,
+          detail: `${voice.playing === lead.id ? "Playing…" : freshnessLabel(lead.createdAtMs, nowMs || lead.createdAtMs)}${others}`,
+          onTap: () => void voice.listen(lead.id),
+          actions: listened
+            ? [
+                { label: "It's gone", onClick: () => stack.notes.forEach((n) => void voice.report(n.id, "gone")) },
+                { label: "Wrong note", onClick: () => void voice.report(lead.id, "bad") },
+              ]
+            : undefined,
+        };
+      }),
+    [voiceAhead, voice, nowMs],
+  );
+  const voicePois: DriveMapPoi[] = useMemo(
+    () =>
+      voiceAhead.map(({ stack }) => ({
+        id: `voice-${stack.lead.id}`,
+        point: stack.lead.point,
+        badge: "🎙",
+        color: "#c9a227",
+        title: `Voice note: ${VOICE_NOTE_LABEL[stack.lead.kind]}. Tap to listen.`,
+        alert: true,
+        onTap: () => void voice.listen(stack.lead.id),
+      })),
+    [voiceAhead, voice],
+  );
+
   // What's ahead — truck stops, rest areas, fuel, parking (OSM, free)
   // and low/unknown-clearance bridges — in ONE list that feeds both
   // the map icons and the left-hand chips, so they can never disagree.
@@ -945,9 +1028,10 @@ export default function DrivePage() {
       .filter((item) => item.milesAway >= 0 && item.milesAway <= AHEAD_WINDOW_MILES)
       .sort((x, y) => x.milesAway - y.milesAway);
   }, [truckPois, sourceResult, plan, measure, liveFraction]);
+  // Voice notes first: they are what a coworker took the trouble to say.
   const upcomingListPois: UpcomingListPoi[] = useMemo(
-    () => aheadItems.map(({ id, kind, name, milesAway }) => ({ id, kind, name, milesAway })),
-    [aheadItems],
+    () => [...voiceChips, ...aheadItems.map(({ id, kind, name, milesAway }) => ({ id, kind, name, milesAway }))],
+    [aheadItems, voiceChips],
   );
   // Bridges already have their own map markers (mapHazards); the
   // icons here are the truck POIs.
@@ -961,8 +1045,9 @@ export default function DrivePage() {
           badge: POI_META[item.kind].badge,
           color: POI_META[item.kind].color,
           title: item.name ?? POI_META[item.kind].label,
-        })),
-    [aheadItems],
+        }))
+        .concat(voicePois),
+    [aheadItems, voicePois],
   );
   // Hazard stretches on the route line, cut with the same road-miles
   // measurement as everything else: live traffic in its severity color,
@@ -1165,6 +1250,7 @@ export default function DrivePage() {
               upcomingListRemaining={upcomingListRemaining}
               upcomingListSpeed={speedBox}
               upcomingListWhere={wherePill}
+              upcomingListRecorder={<VoiceNoteRecorder fix={voiceFix} roadRef={whereHere?.roadRef ?? null} onSaved={voice.onSaved} />}
             />
           )}
 
@@ -1203,6 +1289,7 @@ export default function DrivePage() {
                     remaining={upcomingListRemaining}
                     speed={speedBox}
                     where={wherePill}
+                    recorder={<VoiceNoteRecorder fix={voiceFix} roadRef={whereHere?.roadRef ?? null} onSaved={voice.onSaved} />}
                   />
                 </div>
               }

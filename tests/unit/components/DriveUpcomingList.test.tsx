@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import DriveUpcomingList from "@/components/drive/DriveUpcomingList";
 
@@ -111,6 +111,28 @@ describe("DriveUpcomingList (the left-hand cards)", () => {
     render(<DriveUpcomingList maneuver={null} pois={[]} remaining={null} speed={{ limitMph: null, speedMph: 55 }} />);
     expect(screen.queryByText("LIMIT")).toBeNull();
     expect(screen.getByText("55")).toBeTruthy();
+  });
+
+  it("a voice note chip shakes and pulses, plays on tap, and offers It's gone / Wrong note after listening", () => {
+    const listen = vi.fn();
+    const gone = vi.fn();
+    render(
+      <DriveUpcomingList
+        maneuver={null}
+        remaining={null}
+        pois={[
+          { id: "v1", kind: "voice", name: "Low bridge", milesAway: 4.3, alert: true, detail: "12 min ago", onTap: listen, actions: [{ label: "It's gone", onClick: gone }] },
+        ]}
+      />,
+    );
+    const chip = screen.getByRole("button", { name: /Low bridge, 4\.3 miles\. Tap to listen\./ });
+    expect(chip.className).toContain("voice-note-alert");
+    expect(screen.getByText("12 min ago")).toBeTruthy();
+    fireEvent.click(chip);
+    expect(listen).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "It's gone" }));
+    expect(gone).toHaveBeenCalled();
+    expect(listen).toHaveBeenCalledTimes(1); // the action never also plays
   });
 
   it("renders nothing when there is nothing ahead", () => {

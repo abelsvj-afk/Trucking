@@ -11,14 +11,14 @@
 // Times read on the driver's clock — the phone's own timezone (he
 // crosses zones on the road) — never UTC, never a bare server time.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { TruckPoiKind } from "@/services/integrations/overpass-truck-pois";
 import { viewerTimeZone } from "@/lib/time";
 import { zoneShortLabel } from "@/lib/display-zone";
 import { speedTone } from "@/lib/drive-where";
 
 /** What the list can show: truck POIs plus low/unknown-clearance bridges on the route. */
-export type UpcomingListKind = TruckPoiKind | "bridge" | "roadwork";
+export type UpcomingListKind = TruckPoiKind | "bridge" | "roadwork" | "voice";
 
 export interface UpcomingListManeuver {
   arrow: string;
@@ -31,6 +31,13 @@ export interface UpcomingListPoi {
   kind: UpcomingListKind;
   name: string | null;
   milesAway: number;
+  /** Voice notes: shake + pulse until listened and passed; tap to listen. */
+  alert?: boolean;
+  onTap?: () => void;
+  /** e.g. "Low bridge · 12 min ago · 2 drivers" */
+  detail?: string;
+  /** After listening: "It's gone" / "Wrong note". */
+  actions?: { label: string; onClick: () => void }[];
 }
 
 export interface UpcomingListRemaining {
@@ -50,6 +57,8 @@ interface Props {
   speed?: { limitMph: number | null; speedMph: number | null } | null;
   /** "I-10 W · MM245" / "Greenville · FL" — only known parts. */
   where?: { top: string | null; bottom: string | null } | null;
+  /** The mic (VoiceNoteRecorder), bottom-right over the map. */
+  recorder?: ReactNode;
 }
 
 const TONE_COLOR = { normal: "#111827", over: "#ea580c", well_over: "#dc2626" } as const;
@@ -58,6 +67,7 @@ export const POI_META: Record<UpcomingListKind, { badge: string; label: string; 
   truck_stop: { badge: "T", label: "Truck stop", color: "#c9a227" },
   bridge: { badge: "⚠", label: "Low bridge", color: "#b91c1c" },
   roadwork: { badge: "🚧", label: "Road work", color: "#f97316" },
+  voice: { badge: "🎙", label: "Voice note", color: "#c9a227" },
   fuel: { badge: "⛽", label: "Fuel", color: "#b45309" },
   rest: { badge: "R", label: "Rest area", color: "#2563eb" },
   parking: { badge: "P", label: "Truck parking", color: "#0f766a" },
@@ -102,9 +112,9 @@ export function formatMinutesLeft(minutes: number): string {
 /** Chips shown before More (TruckPath shows three). */
 const CHIPS_SHOWN = 3;
 
-export default function DriveUpcomingList({ maneuver, pois, remaining, speed = null, where = null }: Props) {
+export default function DriveUpcomingList({ maneuver, pois, remaining, speed = null, where = null, recorder = null }: Props) {
   const [expanded, setExpanded] = useState(false);
-  if (!maneuver && pois.length === 0 && !remaining && !speed && !where?.top && !where?.bottom) return null;
+  if (!maneuver && pois.length === 0 && !remaining && !speed && !where?.top && !where?.bottom && !recorder) return null;
   const tone = speedTone(speed?.speedMph ?? null, speed?.limitMph ?? null);
   const exit = maneuver ? exitNumber(maneuver.instruction) : null;
   return (
@@ -164,10 +174,19 @@ export default function DriveUpcomingList({ maneuver, pois, remaining, speed = n
         <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-start" }}>
           {(expanded ? pois : pois.slice(0, CHIPS_SHOWN)).map((poi) => {
             const meta = POI_META[poi.kind];
+            const tappable = Boolean(poi.onTap);
             return (
               <div
                 key={poi.id}
+                role={tappable ? "button" : undefined}
+                tabIndex={tappable ? 0 : undefined}
+                aria-label={tappable ? `${poi.name ?? meta.label}, ${Math.max(0, poi.milesAway).toFixed(1)} miles. Tap to listen.` : undefined}
+                onClick={poi.onTap}
+                onKeyDown={tappable ? (e) => (e.key === "Enter" || e.key === " ") && poi.onTap?.() : undefined}
+                className={poi.alert ? "voice-note-alert" : undefined}
                 style={{
+                  pointerEvents: tappable || poi.actions ? "auto" : undefined,
+                  flexWrap: "wrap",
                   background: "rgba(255,255,255,0.95)",
                   color: "#111827",
                   borderRadius: "10px",
@@ -195,17 +214,35 @@ export default function DriveUpcomingList({ maneuver, pois, remaining, speed = n
                     fontWeight: 800,
                   }}
                 >
-                  {meta.badge}
+                  <span className={poi.alert ? "voice-note-shake" : undefined}>{meta.badge}</span>
                 </span>
-                {expanded && (
+                {(expanded || poi.kind === "voice") && (
                   <span style={{ fontSize: "1rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {poi.name ?? meta.label}
+                    {poi.detail && <span style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#4b5563" }}>{poi.detail}</span>}
                   </span>
                 )}
                 <span style={{ fontSize: "1.25rem", fontWeight: 800, marginLeft: "auto", whiteSpace: "nowrap" }}>
                   {Math.max(0, poi.milesAway).toFixed(1)}
                   <span style={{ fontSize: "0.9rem", fontWeight: 600 }}> mi</span>
                 </span>
+                {poi.actions && (
+                  <span style={{ display: "flex", gap: "6px", width: "100%" }}>
+                    {poi.actions.map((a) => (
+                      <button
+                        key={a.label}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          a.onClick();
+                        }}
+                        style={{ flex: 1, padding: "6px", fontWeight: 700 }}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -249,6 +286,7 @@ export default function DriveUpcomingList({ maneuver, pois, remaining, speed = n
           )}
         </div>
       )}
+      {recorder && <div style={{ position: "absolute", right: "8px", bottom: "96px" }}>{recorder}</div>}
       {remaining && (
         <div
           style={{

@@ -50,6 +50,10 @@ export interface DriveMapPoi {
   badge: string;
   color: string;
   title: string;
+  /** Voice notes (2026-11-19): shake + pulse until listened and passed (CSS transform/opacity only). */
+  alert?: boolean;
+  /** Tap the bubble (voice notes: play it). */
+  onTap?: () => void;
 }
 
 // The maplibre namespace is imported exactly once, when the map is
@@ -465,12 +469,33 @@ export default function DriveMap({
       for (const marker of poiMarkersRef.current) marker.remove();
       poiMarkersRef.current = currentPois.map((poi) => {
         const el = document.createElement("div");
-        el.textContent = poi.badge;
-        el.setAttribute("aria-hidden", "true");
         el.style.cssText =
           `background:#fff;color:${poi.color};border:2px solid ${poi.color};border-radius:9999px;` +
           "min-width:24px;height:24px;display:flex;align-items:center;justify-content:center;" +
           "font-size:12px;font-weight:700;padding:0 5px;box-shadow:0 1px 4px rgba(0,0,0,.4);";
+        if (poi.alert) {
+          // Pulse ring on the marker, shake on an INNER span — MapLibre
+          // positions the marker element itself with transform.
+          el.classList.add("voice-note-alert");
+          const inner = document.createElement("span");
+          inner.className = "voice-note-shake";
+          inner.textContent = poi.badge;
+          el.appendChild(inner);
+        } else {
+          el.textContent = poi.badge;
+        }
+        if (poi.onTap) {
+          const tap = poi.onTap;
+          el.setAttribute("role", "button");
+          el.setAttribute("aria-label", poi.title);
+          el.style.cursor = "pointer";
+          el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            tap();
+          });
+        } else {
+          el.setAttribute("aria-hidden", "true");
+        }
         return new maplibregl.Marker({ element: el })
           .setLngLat([poi.point.lng, poi.point.lat])
           .addTo(map);

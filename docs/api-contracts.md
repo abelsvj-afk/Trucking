@@ -679,3 +679,26 @@ Authenticated. Returns `{ data: { limitMph: number | null, roadName: string | nu
 ### Drive map pill (`GET /api/v1/map/where?lat=&lng=&heading=`) — 2026-11-19
 
 Authenticated. `lat`/`lng` required numbers, `heading` optional 0–360. Returns `{ data: { roadRef, roadName, mileMarker, town, state, source: "OpenStreetMap" } }`. Each field is `null` when OSM does not record it, or when the lookup is unavailable. It never estimates: no milestone node nearby means no mile marker. Road + milestone come from Overpass; town + two-letter state come from Nominatim reverse geocoding. Both are server-side and cached (road ~110 m cells / 10 min, town ~1 km cells / 1 h); Nominatim is called at most once a second. Design: `docs/design/map-finish.md`.
+
+### Location voice notes (`/api/v1/voice-notes`) — 2026-11-19, migration 00101
+
+All routes are authenticated, and row-level security scopes them to the caller's company. Design: `docs/design/voice-notes.md`.
+
+- `GET /api/v1/voice-notes?lat=&lng=&radius=` (radius 1–60 mi, default 35) → `{ data: { notes: VoiceNoteRecord[], memberCount } }`. Returns only the notes still meant for the caller:
+  - not his own;
+  - not expired, removed, or cleared by enough reports;
+  - not already done for him.
+- `GET /api/v1/voice-notes?mine=1` → the caller's own live notes.
+- `POST /api/v1/voice-notes`, multipart:
+  - `audio` (webm/ogg/mp4/mpeg/aac, ≤ 1.5 MB);
+  - `kind` (traffic|roadwork|bridge|hazard|tip);
+  - `lat`, `lng`;
+  - `heading` (0–359 or empty);
+  - `roadRef` (≤ 20 chars);
+  - `durationS` (≤ 30 s, + 1 s slack).
+
+  Returns `201 { data: { id } }`. The expiry is set from `kind`.
+- `GET /api/v1/voice-notes/:id/audio` → `{ data: { url } }`, a 5-minute signed link.
+- `POST /api/v1/voice-notes/:id/view` `{ listened?: true, passed?: true }` → never un-sets a time already recorded.
+- `POST /api/v1/voice-notes/:id/report` `{ kind: "gone" | "bad" }` → one report per driver per kind.
+- `DELETE /api/v1/voice-notes/:id` → author only; sets `removed_at`.

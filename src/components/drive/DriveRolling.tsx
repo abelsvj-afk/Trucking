@@ -52,6 +52,7 @@ export default function DriveRolling({
   upcomingListRemaining = null,
   upcomingListSpeed = null,
   upcomingListWhere = null,
+  upcomingListRecorder = null,
 }: {
   plan: DrivePlanSnapshot;
   session: DriveSession;
@@ -93,6 +94,7 @@ export default function DriveRolling({
   upcomingListRemaining?: UpcomingListRemaining | null;
   upcomingListSpeed?: { limitMph: number | null; speedMph: number | null } | null;
   upcomingListWhere?: { top: string | null; bottom: string | null } | null;
+  upcomingListRecorder?: React.ReactNode;
 }) {
   // The miles below read the live fraction when the page has one —
   // the smoothed fix moves between GPS fixes, so 7.8 ticks to 7.7
@@ -127,6 +129,7 @@ export default function DriveRolling({
         remaining={upcomingListRemaining}
         speed={upcomingListSpeed}
         where={upcomingListWhere}
+        recorder={upcomingListRecorder}
       />
     </div>
     {!follow && (
