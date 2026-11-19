@@ -229,6 +229,7 @@ export default function DriveMap({
   const stopMarkersRef = useRef<MapLibreMarker[]>([]);
   const hazardMarkersRef = useRef<MapLibreMarker[]>([]);
   const poiMarkersRef = useRef<MapLibreMarker[]>([]);
+  const markerSigRef = useRef({ stops: "", hazards: "", pois: "" });
   const positionMarkerRef = useRef<MapLibreMarker | null>(null);
   const positionElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraMoveRef = useRef(0);
@@ -352,6 +353,10 @@ export default function DriveMap({
     },
     [headingUp, followZoom, maneuverZoom],
   );
+  const applyCameraRef = useRef<(pos: LatLng | null) => void>(() => {});
+  useEffect(() => {
+    applyCameraRef.current = applyCamera;
+  }, [applyCamera]);
 
   // The 3D truck model lives in a MapLibre custom layer (real
   // geometry, not an icon). Added when the 3D view is on, removed
@@ -526,6 +531,15 @@ export default function DriveMap({
     (() => {
       const maplibregl = maplibreRef.current;
       if (!maplibregl) return;
+      // Markers are rebuilt ONLY when what they show changed (review
+      // 2026-11-19): the lists are recomputed on every GPS update (live
+      // miles), and tearing down every marker each time flickered and
+      // cost battery for nothing.
+      const stopSig = JSON.stringify(currentStops.map((stop, i) => [stop.badge, stop.kind, statuses[i] ?? "pending", stop.point.lat, stop.point.lng]));
+      const hazardSig = JSON.stringify(currentHazards.map((h) => [h.id, h.badge, h.color, h.point.lat, h.point.lng]));
+      const poiSig = JSON.stringify(currentPois.map((p) => [p.id, p.badge, p.color, p.title, Boolean(p.alert), p.point.lat, p.point.lng]));
+      if (stopSig !== markerSigRef.current.stops) {
+      markerSigRef.current.stops = stopSig;
       for (const marker of stopMarkersRef.current) marker.remove();
       stopMarkersRef.current = currentStops.map((stop, i) => {
         const status = statuses[i] ?? "pending";
@@ -542,8 +556,12 @@ export default function DriveMap({
           .addTo(map);
       });
 
+      }
+
       // Hazard markers: a plain badge, no popup while rolling — the
       // banner above the map carries the words.
+      if (hazardSig !== markerSigRef.current.hazards) {
+      markerSigRef.current.hazards = hazardSig;
       for (const marker of hazardMarkersRef.current) marker.remove();
       hazardMarkersRef.current = currentHazards.map((hazard) => {
         const el = document.createElement("div");
@@ -558,10 +576,14 @@ export default function DriveMap({
           .addTo(map);
       });
 
+      }
+
       // Truck POI markers (audit-fix B7): fuel, rest areas, truck
       // parking — the same plain-badge shape as hazards, so the map
       // stays glanceable. No popup while rolling; the list beside
       // the map carries the names and live distances.
+      if (poiSig !== markerSigRef.current.pois) {
+      markerSigRef.current.pois = poiSig;
       for (const marker of poiMarkersRef.current) marker.remove();
       poiMarkersRef.current = currentPois.map((poi) => {
         const el = document.createElement("div");
@@ -596,6 +618,7 @@ export default function DriveMap({
           .setLngLat([poi.point.lng, poi.point.lat])
           .addTo(map);
       });
+      }
 
       // Whole-route framing is for plan/overview only. While following,
       // the follow camera owns the framing — fitting the whole route
@@ -873,8 +896,11 @@ export default function DriveMap({
       }
     }
     void syncTruckLayer();
-    applyCamera(lastPositionRef.current);
-  }, [view3d, headingUp, truckLayerFailed, applyCamera, syncTruckLayer]);
+    // Through a ref: applyCamera changes identity with the turn zoom (every
+    // GPS update near a turn), and re-running this "3D toggled" step each
+    // time fired a camera ease that fought the smooth follower.
+    applyCameraRef.current(lastPositionRef.current);
+  }, [view3d, headingUp, truckLayerFailed, syncTruckLayer]);
 
   return (
     <div
