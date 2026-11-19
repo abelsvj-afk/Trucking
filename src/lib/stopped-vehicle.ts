@@ -23,25 +23,12 @@ export const STOP_REPROMPT_MS = 60 * 60_000;
 export const STOP_PROPOSAL_EXPIRY_MS = 2 * 60 * 60_000;
 /** No fix for this long while the log says Driving: the feed is stale, say so — never guess a stop. */
 export const FEED_STALE_MS = 15 * 60_000;
-/** The only status ever auto-applied to stopped time. */
-export const STOPPED_STATUS: DutyStatus = "on_duty";
 /** A position jump bigger than this, inside a corrected window, contradicts the correction (GPS jitter is ~0.01 mi). */
 export const CORRECTION_JUMP_MILES = 0.05;
 
 /** Stable identity of one stop episode: the stop start IS the key (a creep that restarts the episode gets a new one). */
 export function episodeKey(stoppedSinceMs: number): string {
   return `stop:${stoppedSinceMs}`;
-}
-
-/** The 5-minute prompt is due: stopped long enough, log still says Driving. */
-export function stopPromptDue(input: {
-  stoppedSinceMs: number | null;
-  nowMs: number;
-  currentStatus: DutyStatus | null;
-}): boolean {
-  const { stoppedSinceMs, nowMs, currentStatus } = input;
-  if (stoppedSinceMs === null || currentStatus !== "driving") return false;
-  return nowMs - stoppedSinceMs >= STOP_PROMPT_MS;
 }
 
 /** The minute-6 auto-switch is due: stopped 6 minutes, prompt already shown, a minute of silence since. */

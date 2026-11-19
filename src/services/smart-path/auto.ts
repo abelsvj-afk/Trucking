@@ -38,10 +38,11 @@ export interface AutoRunResult {
 
 /** The active-load builder routes to the next stop itself; Smart Path routes once, below, so that step is skipped. */
 const SKIP_ROUTING: RoutingProvider = {
+  name: "skipped",
   getRoute: async () => {
     throw new RoutingUnavailableError("skipped: Smart Path routes the run itself");
   },
-} as unknown as RoutingProvider;
+};
 
 const labelOf = (l: Pick<Load, "origin" | "destination" | "trip_number">) => `${l.trip_number ? `Trip ${l.trip_number}: ` : ""}${l.origin} → ${l.destination}`;
 

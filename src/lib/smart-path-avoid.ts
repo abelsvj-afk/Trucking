@@ -58,8 +58,3 @@ export function avoidCirclesToValhallaPolygons(
     circleToPolygonRing(c).map(([lng, lat]) => ({ lat, lon: lng })),
   ]);
 }
-
-/** The center point of a circle, for re-plotting on the map. */
-export function avoidCircleCenter(circle: AvoidCircleInput): LatLng {
-  return { lat: circle.lat, lng: circle.lng };
-}

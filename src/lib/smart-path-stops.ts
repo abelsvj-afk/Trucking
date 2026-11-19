@@ -7,7 +7,7 @@
 // inside his 8pm-8am fast.
 
 import type { TruckAppliance } from "@/types/entities";
-import { formatMinutes, isInFastWindow, type LatLng } from "./smart-path";
+import { isInFastWindow, type LatLng } from "./smart-path";
 import { formatMoney } from "@/lib/money-format";
 
 // ----------------------------------------------------------------------- fuel
@@ -259,10 +259,4 @@ export function planFoodStops(
     );
   }
   return { mode, groceryPlan, stops, suppressedByFast, lines };
-}
-
-/** Small shared formatter for stop lists in the UI. */
-export function describeDetour(detourMiles: number): string {
-  if (detourMiles < 0.1) return "right on the route";
-  return `${detourMiles.toFixed(1)} mi off the route (about ${formatMinutes((detourMiles / 35) * 60)} of driving)`;
 }

@@ -10,7 +10,7 @@ const DOC = { fileName: "inspection-packet.txt", contentType: "text/plain", text
 
 describe("sendTelegramDocument", () => {
   it("posts the file to the owner's chat via sendDocument", async () => {
-    const calls: { url: string; init: Record<string, unknown> }[] = [];
+    const calls: { url: string; init: RequestInit }[] = [];
     const ok = await sendTelegramDocument(DOC, {
       env: ENV,
       fetchFn: async (url, init) => { calls.push({ url, init }); return { ok: true }; },

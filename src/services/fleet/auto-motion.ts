@@ -316,11 +316,6 @@ export async function applyAutoStopSwitch(opts: {
   return { switched: true, startedAt, windowEndsAt, message };
 }
 
-/** The auto-stop notice — the confirmation message itself (it carries the 14-hour honesty line). */
-export function autoStopNotice(message: string): string {
-  return message;
-}
-
 export interface AutoRestResult {
   switched: boolean;
   reason?: string;

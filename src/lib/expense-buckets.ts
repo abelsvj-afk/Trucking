@@ -20,8 +20,6 @@ import { termsForDate, type PayTermsRow } from "./paycheck";
 
 export type ExpenseBucket = "business" | "pay_deduction";
 
-export const EXPENSE_BUCKETS: readonly ExpenseBucket[] = ["business", "pay_deduction"];
-
 export const BUCKET_LABELS: Record<ExpenseBucket, string> = {
   business: "Business expense",
   pay_deduction: "Pay deduction — comes out of the check",

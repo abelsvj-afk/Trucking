@@ -14,23 +14,10 @@ import {
   movedDuringCorrection,
   stopAutoSwitchDue,
   stopCorrectionConfirmation,
-  stopPromptDue,
   stopRepromptAllowed,
 } from "@/lib/stopped-vehicle";
 
 const T0 = 1_800_000_000_000;
-
-describe("stopPromptDue", () => {
-  it("fires at 5 min stopped while the log says Driving", () => {
-    expect(stopPromptDue({ stoppedSinceMs: T0, nowMs: T0 + STOP_PROMPT_MS, currentStatus: "driving" })).toBe(true);
-    expect(stopPromptDue({ stoppedSinceMs: T0, nowMs: T0 + STOP_PROMPT_MS - 1, currentStatus: "driving" })).toBe(false);
-  });
-
-  it("never fires when not Driving, or with no stop episode", () => {
-    expect(stopPromptDue({ stoppedSinceMs: T0, nowMs: T0 + 60 * 60_000, currentStatus: "on_duty" })).toBe(false);
-    expect(stopPromptDue({ stoppedSinceMs: null, nowMs: T0 + 60 * 60_000, currentStatus: "driving" })).toBe(false);
-  });
-});
 
 describe("stopAutoSwitchDue — minute 6, on silence, On Duty only", () => {
   it("fires at minute 6 when the prompt was shown at minute 5", () => {

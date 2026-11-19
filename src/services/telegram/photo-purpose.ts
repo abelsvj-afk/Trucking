@@ -198,20 +198,6 @@ export async function loadPhotoPurposeAsk(
   return { id: row.id, args: row.arguments, summary: row.summary, createdAt: row.created_at };
 }
 
-export async function clearPhotoPurposeAsk(
-  client: SupabaseClient,
-  companyId: string,
-  id: string,
-): Promise<void> {
-  const { error } = await client
-    .from("bot_pending_actions")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("company_id", companyId)
-    .is("deleted_at", null);
-  if (error) console.error("[telegram] failed to clear photo purpose ask", error.message);
-}
-
 /**
  * Doc-intake hunt DH-4: claims an ask ATOMICALLY and reports whether
  * THIS caller won. The conditional update only lands while the row

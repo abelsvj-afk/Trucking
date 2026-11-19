@@ -2,7 +2,6 @@
 // (and the Research tab) cannot disagree (live audit 2026-11-07: they told different stories about the same feeds). Pure.
 
 import type { ResearchPageData } from "@/types/entities";
-import { cleanResearchError } from "@/lib/research-errors";
 
 export type FeedState = "off" | "setup" | "stale" | "degraded" | "ok";
 
@@ -35,6 +34,3 @@ export function feedStatus(page: Pick<ResearchPageData, "engine_enabled" | "runn
   }
   return { state: "ok", text: "News is running and every source is answering.", failing: [] };
 }
-
-/** Cleaned reason for one failing watcher, for the Research tab. */
-export const watcherReason = (lastError: string | null): string | null => (lastError ? cleanResearchError(lastError) : null);

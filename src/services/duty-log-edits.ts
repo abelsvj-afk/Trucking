@@ -74,7 +74,7 @@ export async function recordClockReset(
   client: SupabaseClient,
   input: { companyId: string; dutyLog: DutyLog; resetAtIso: string; reason: string },
 ): Promise<boolean> {
-  const snapshot = input.dutyLog as unknown as Record<string, unknown>;
+  const snapshot: Record<string, unknown> = { ...input.dutyLog };
   return recordDutyLogEdit(client, {
     companyId: input.companyId,
     dutyLogId: input.dutyLog.id,

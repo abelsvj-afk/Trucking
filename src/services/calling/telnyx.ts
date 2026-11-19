@@ -3,7 +3,7 @@
 // AI assistant, list TTS voices, and verify webhook signatures. Secrets
 // never appear in an error message or a log.
 
-import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import type { CallingConfig } from "./config";
 
 export class TelnyxError extends Error {
@@ -197,11 +197,4 @@ export function verifyTelnyxSignature(
   } catch {
     return false;
   }
-}
-
-/** Constant-time compare for short secrets (kept for webhook-adjacent checks). */
-export function safeEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a, "utf8");
-  const bb = Buffer.from(b, "utf8");
-  return ba.length === bb.length && timingSafeEqual(ba, bb);
 }

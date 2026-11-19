@@ -76,7 +76,6 @@ export const paperLogExtractionSchema = z.object({
 });
 
 export type PaperLogExtraction = z.infer<typeof paperLogExtractionSchema>;
-export type PaperLogSegment = z.infer<typeof paperLogSegmentSchema>;
 
 const SYSTEM_PROMPT = `You read a truck driver's paper daily log sheet (the hand-drawn hours-of-service grid) for the driver himself. You are given one photo of one day's sheet.
 

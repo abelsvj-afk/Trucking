@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { useVehicleMotion, useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
+import { useVehicleMotionDetail } from "@/lib/use-vehicle-motion";
 
 afterEach(() => {
   cleanup();
@@ -11,8 +11,10 @@ afterEach(() => {
   delete navigator.geolocation;
 });
 
+// The state machine is exercised through the live hook (useVehicleMotionDetail);
+// the thin useVehicleMotion wrapper over its `.state` was deleted as dead code.
 function Probe() {
-  return <p>{useVehicleMotion()}</p>;
+  return <p>{useVehicleMotionDetail().state}</p>;
 }
 
 type Cb = (p: { coords: { speed: number | null; latitude?: number; longitude?: number; accuracy?: number } }) => void;
@@ -44,7 +46,7 @@ const mph = (m: number) => m / 2.23694;
 const send = (c: { speed: number | null; latitude?: number; longitude?: number; accuracy?: number }) =>
   onFix!({ coords: { latitude: 28, longitude: -81.7, accuracy: 10, ...c } });
 
-describe("useVehicleMotion", () => {
+describe("useVehicleMotionDetail state", () => {
   it("is 'unknown' until the first reading - never assumed stopped", async () => {
     await act(async () => void render(<Probe />));
     expect(screen.getByText("unknown")).toBeTruthy();

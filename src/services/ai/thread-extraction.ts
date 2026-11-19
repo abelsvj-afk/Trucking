@@ -68,7 +68,6 @@ export const threadExtractionSchema = z.object({
 
 export type ThreadExtraction = z.infer<typeof threadExtractionSchema>;
 export type ThreadParticipant = ThreadExtraction["participants"][number];
-export type ThreadMessageDraft = ThreadExtraction["messages"][number];
 
 function buildSystemPrompt(ownerName: string | null): string {
   return `You read the TEXT of a trucking work conversation the driver forwarded or pasted (dispatch, broker, shipper, or the truck owner he drives for). Turn it into a structured thread record.
@@ -115,19 +114,4 @@ export async function extractThreadStructure(
     user: `CONVERSATION TEXT:\n${conversationText}`,
   });
   return parseThreadExtraction(raw);
-}
-
-/** The grounding text Abel quotes when he shows the owner a reconstruction. */
-export function formatThreadExtraction(x: ThreadExtraction): string {
-  const lines = [
-    `THREAD DRAFT (reconstructed from the conversation - bodies verbatim, NOT recorded yet):`,
-    `Participants: ${x.participants.map((p) => `${p.name} (${p.role})`).join(", ")}.`,
-    `Language: ${x.language}. Messages: ${x.messages.length}.`,
-  ];
-  if (x.the_ask) {
-    lines.push(`The ask: ${x.the_ask}${x.ask_of ? ` — of ${x.ask_of}` : ""}${x.deadline_text ? ` — deadline: ${x.deadline_text}` : ""}. Status: ${x.unanswered ? "UNANSWERED" : "answered in-thread"}.`);
-  } else {
-    lines.push("No open ask in this conversation.");
-  }
-  return lines.join("\n");
 }

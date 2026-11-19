@@ -14,7 +14,6 @@
 // the legal one.
 
 import {
-  buildSegments,
   findShortClockAnchor,
   sumMs,
   type RestPeriod,
@@ -99,13 +98,4 @@ export function computeSplitOffer(
   // A split that leaves him nothing to drive on is not an offer.
   if (driveLeftAfterMs <= 0 || windowLeftAfterMs <= 0) return null;
   return { neededRestMs, windowMovesToMs, driveLeftAfterMs, windowLeftAfterMs };
-}
-
-/** Convenience wrapper for duty rows (the shape the HUD already holds). */
-export function computeSplitOfferFromRows(
-  rows: { duty_status: Segment["status"]; started_at: string }[],
-  nowMs: number,
-  opts: { dayStartMs?: number | null } = {},
-): SplitOffer | null {
-  return computeSplitOffer(buildSegments(rows, nowMs), nowMs, opts);
 }

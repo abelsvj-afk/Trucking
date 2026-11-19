@@ -77,10 +77,6 @@ export function isWatchTopic(value: string): value is WatchTopic {
   return (WATCH_TOPICS as readonly string[]).includes(value);
 }
 
-export function watchTopicDef(key: string): WatchTopicDef | null {
-  return isWatchTopic(key) ? WATCH_TOPIC_DEFS[key] : null;
-}
-
 /**
  * Which standing topic a watcher signal belongs to. Watcher topics
  * are the TRACKED_TOPICS vocabulary (fuel/rates/regulation/…) - all

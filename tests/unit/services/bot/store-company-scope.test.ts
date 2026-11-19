@@ -121,6 +121,9 @@ describe("Telegram brain store: every query is scoped to the configured company 
     expect(unscoped, `queries not scoped to the configured company:\n${[...new Set(unscoped)].join("\n")}`).toEqual([]);
   });
 
+  // ~8.3s by design: it runs every bot tool (>50) x 2 arg sets, over
+  // Vitest's 5s default timeout (vitest.config.ts sets no testTimeout).
+  // The scoping assertions pass; only the wall clock needs room.
   it("every bot tool (read and write) is scoped to the configured company too", async () => {
     const { client, queries } = recordingClient();
     const store = createBotStore(client as never, A, "telegram");
@@ -158,5 +161,5 @@ describe("Telegram brain store: every query is scoped to the configured company 
       }
     }
     expect(unscoped, `tool queries not scoped to the configured company:\n${[...new Set(unscoped)].join("\n")}`).toEqual([]);
-  });
+  }, 60_000);
 });

@@ -50,10 +50,3 @@ export function annoyanceSignal(category: string, rows: OutcomeRow[], now: Date)
   const total = wApproved + wDeclined;
   return total === 0 ? 0 : wDeclined / total;
 }
-
-/** One plain-words line for a nonzero signal, or null. */
-export function annoyanceLine(category: string, signal: number): string | null {
-  if (signal <= 0) return null;
-  const pct = Math.round(signal * 100);
-  return `He has been turning down ${category} suggestions lately (annoyance ${pct}%) — suggest less of it, and only when he asks.`;
-}

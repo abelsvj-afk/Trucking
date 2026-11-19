@@ -1262,7 +1262,13 @@ async function handleCallbackQuery(
     await answer("That button doesn't work anymore.");
     return "callback_ignored";
   }
-  const [, pendingId, choice] = match as unknown as [string, string, string];
+  const [, pendingId, choice] = match;
+  // The pattern has two non-optional capture groups, so a match always
+  // carries both — the guard is only for the type system, not a live path.
+  if (pendingId === undefined || choice === undefined) {
+    await answer("That button doesn't work anymore.");
+    return "callback_ignored";
+  }
 
   // §3.4: the capability gate applies to taps too - off means the
   // question settles nothing (the photo stays stored-unfiled).
