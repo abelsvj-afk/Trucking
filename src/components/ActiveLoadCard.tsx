@@ -51,11 +51,13 @@ export default function ActiveLoadCard() {
         {load.miles ? ` · ${load.miles.toLocaleString()} mi` : ""}
       </p>
       {window && <p className="row-sub">{window}</p>}
-      {load.rate_cents !== null && (
+      {load.rate_cents !== null && load.rate_cents > 0 && (
         <p className="row-sub">
           Rate {formatMoney(load.rate_cents)} — operational revenue, counted when delivered (not cash received).
         </p>
       )}
+      {/* UI audit 2026-11-19: "Rate $0.00" read as broken; no rate entered is said plainly. */}
+      {load.rate_cents === 0 && <p className="row-sub">No rate entered on this load yet.</p>}
       {overdue && (
         <p role="status" className="hud-note">
           This load&apos;s delivery date has passed and it&apos;s still open. Mark it complete if it delivered.

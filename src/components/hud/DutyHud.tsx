@@ -43,6 +43,18 @@ function hmWords(ms: number): string {
   return h > 0 ? `${h}h${rest ? ` ${rest}m` : ""}` : `${rest}m`;
 }
 
+/**
+ * Time in the current status. Under a day it ticks as h:mm:ss; past a day
+ * (UI audit 2026-11-19: "214:01:34" read as broken) it says "8 d 22 h".
+ */
+export function formatStatusTimer(ms: number): string {
+  const totalMin = Math.floor(Math.max(0, ms) / 60_000);
+  if (totalMin < 24 * 60) return formatClock(ms);
+  const d = Math.floor(totalMin / (24 * 60));
+  const h = Math.floor((totalMin % (24 * 60)) / 60);
+  return `${d} d ${h} h`;
+}
+
 export default function DutyHud() {
   const { state, retry, refresh } = useHosWindow();
   const nowMs = useNowTick();
@@ -182,7 +194,7 @@ export default function DutyHud() {
           <p className="hud-status">
             <strong>{HUD_STATUS_LABELS[clocks.status]}</strong>{" "}
             <span className="hud-status-timer" aria-label="Time in this status">
-              {formatClock(nowMs - clocks.statusSinceMs)}
+              {formatStatusTimer(nowMs - clocks.statusSinceMs)}
             </span>
           </p>
           <p className="row-sub">

@@ -333,3 +333,11 @@ describe("DutyHud - an expired clock shows what is locked and the reset counting
     expect(screen.getByRole("button", { name: /^Driving$/ }).textContent).not.toContain("not legal");
   });
 });
+
+describe("status timer (UI audit 2026-11-19)", () => {
+  it("ticks h:mm:ss under a day and reads in days past one", async () => {
+    const { formatStatusTimer } = await import("@/components/hud/DutyHud");
+    expect(formatStatusTimer(2 * 3_600_000 + 5 * 60_000 + 9_000)).toBe("2:05:09");
+    expect(formatStatusTimer(214 * 3_600_000)).toBe("8 d 22 h");
+  });
+});

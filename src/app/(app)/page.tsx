@@ -18,8 +18,8 @@ import { useHosWindow } from "@/lib/use-hos-window";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import DutyHud from "@/components/hud/DutyHud";
-import DayLogMini from "@/components/hud/DayLogMini";
 import TodaysLogStrip from "@/components/TodaysLogStrip";
+import DayLogMini from "@/components/hud/DayLogMini";
 import QuickAction from "@/components/QuickAction";
 import NewsBanner from "@/components/NewsBanner";
 import SetupChecklist from "@/components/SetupChecklist";
@@ -139,14 +139,17 @@ export default function HomePage() {
           from today's log; tap opens the full Day log. Fed by the
           hosWindow this page already loads. */}
       <DayLogMini window={hosWindow.state} nowMs={nowMs} />
+      {/* Today's entries, each with its Fix link — the duty grid's companion (UI audit 2026-11-19). */}
+      <TodaysLogStrip window={hosWindow.state} nowMs={nowMs} />
+      {/* Where today's hours came from, when it was a paper log (img-maint lane). */}
+      {paperLabel && (
+        <p className="row-sub">
+          {paperLabel} <Link href="/fleet/hos">Day log</Link>
+        </p>
+      )}
 
       {/* Pay preview stays visible near the top of Home, under the mini log. */}
       <DriverPayHomeCard />
-
-      {/* Today's log strip (Phase 4, spec §2.4): an ADDITION under the
-          pay card — no live block moves or loses its door. Fed by the
-          hosWindow this page already loads. */}
-      <TodaysLogStrip window={hosWindow.state} nowMs={nowMs} />
 
       <NewsBanner />
 
@@ -245,13 +248,6 @@ export default function HomePage() {
           />
         </div>
       </Reveal>
-
-      {logs.length > 0 && (
-        <p className="row-sub">
-          {paperLabel && <>{paperLabel} </>}
-          <Link href="/fleet/hos">Day log</Link>
-        </p>
-      )}
 
       {showBusinessSummary && (
       <Reveal aria-label="This month's financial summary" index={3}>
