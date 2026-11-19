@@ -1,14 +1,22 @@
 // Spoken turn instructions for Drive Mode (audit D5, 2026-11-04). Pure.
-// A maneuver is announced at most twice: once about half a mile out and
-// once close in. A maneuver first seen already close announces only the
-// close one (never a stale "in half a mile" when he is at the turn), and
-// nothing repeats. The instruction text is the routing provider's own;
-// this adds only the distance lead-in.
+// A maneuver is announced at most three times: once on the approach
+// (audit-fix B7, 2026-11-18 — about four and a half miles out, turns
+// and exits only, so he hears it coming while the map is zooming in),
+// once about half a mile out and once close in. A maneuver first seen
+// already close announces only the close one (never a stale "in half
+// a mile" when he is at the turn), and nothing repeats. The
+// instruction text is the routing provider's own; this adds only the
+// distance lead-in.
 
 import type { RouteManeuver } from "@/services/integrations/routing";
+import { maneuverDirection } from "./drive";
 
 export const FAR_MILES = 0.6;
 export const NEAR_MILES = 0.15;
+/** The approach call-out: the top of its band, and the bottom —
+// inside the band it fires once as he crosses it, never again. */
+export const APPROACH_MILES = 4.5;
+export const APPROACH_MIN_MILES = 4.0;
 
 export interface UpcomingManeuver {
   maneuver: RouteManeuver;
@@ -27,7 +35,7 @@ function distanceWords(miles: number): string {
   return "a quarter mile";
 }
 
-const keyOf = (m: RouteManeuver, tier: "far" | "near") => `${m.atFraction.toFixed(6)}:${m.instruction}:${tier}`;
+const keyOf = (m: RouteManeuver, tier: "approach" | "far" | "near") => `${m.atFraction.toFixed(6)}:${m.instruction}:${tier}`;
 
 export function maneuverAnnouncement(
   upcoming: UpcomingManeuver | null,
@@ -37,8 +45,10 @@ export function maneuverAnnouncement(
   const { maneuver, milesAway } = upcoming;
   const text = maneuver.instruction.replace(/[.\s]+$/, "");
   if (!text) return null;
+  const direction = maneuverDirection(maneuver.instruction);
   const near = keyOf(maneuver, "near");
   const far = keyOf(maneuver, "far");
+  const approach = keyOf(maneuver, "approach");
 
   if (milesAway <= NEAR_MILES) {
     if (spoken.has(near)) return null;
@@ -48,6 +58,21 @@ export function maneuverAnnouncement(
   if (milesAway <= FAR_MILES) {
     if (spoken.has(far)) return null;
     return { keys: [far], line: `In ${distanceWords(milesAway)}, ${text.charAt(0).toLowerCase()}${text.slice(1)}.` };
+  }
+  // The approach: a turn or exit a few miles out gets one early
+  // call-out ("in about four and a half miles, take exit ...") so
+  // the voice walks him into the zoom. Straight-ahead never gets
+  // one — "stay on the road" four miles early is noise — and the
+  // band keeps it a single crossing: a maneuver first seen inside
+  // the band still announces, one first seen below it does not get
+  // a stale early call.
+  if (
+    (direction === "left" || direction === "right" || direction === "uturn") &&
+    milesAway <= APPROACH_MILES &&
+    milesAway >= APPROACH_MIN_MILES &&
+    !spoken.has(approach)
+  ) {
+    return { keys: [approach], line: `In ${distanceWords(milesAway)}, ${text.charAt(0).toLowerCase()}${text.slice(1)}.` };
   }
   return null;
 }
