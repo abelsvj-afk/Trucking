@@ -101,12 +101,14 @@ describe("Home, whole page", () => {
     expect(document.body.textContent).not.toContain("Operating result");
     expect(document.body.textContent).not.toMatch(/profit/i);
 
-    const order = ["Duty status and clocks", "News", "Your next step", "Active load"].map((label) => {
+    // Home order (owner 2026-11-19, "do your recommendations"): road-first -
+    // hours, next step, the load - with news folded under "More on Home".
+    const order = ["Duty status and clocks", "Your next step", "Active load", "News"].map((label) => {
       const el = document.querySelector(`[aria-label="${label}"]`);
       return el ? Array.from(document.querySelectorAll("*")).indexOf(el) : -1;
     });
     expect(order.every((i) => i >= 0)).toBe(true);
-    // HUD first, then banner, then next step, then active load.
+    // HUD first, then next step, then active load; news is in the fold below.
     expect([...order]).toEqual([...order].sort((x, y) => x - y));
   });
 

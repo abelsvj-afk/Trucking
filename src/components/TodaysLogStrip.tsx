@@ -55,10 +55,12 @@ export default function TodaysLogStrip({
   nowMs: number;
 }) {
   return (
-    <Card ariaLabel="Today's log" className="todays-log">
+    <Card ariaLabel="Today's entries" className="todays-log">
+      {/* UI audit 2026-11-19: this sat further down as a second "Today's log" card with a second "Full day →",
+          duplicating the duty grid above. It is now the grid's companion right under it: the entries, each
+          with its Fix link — the grid already carries the "Full day" door. */}
       <div className="todays-log-head">
-        <h2>Today&apos;s log</h2>
-        <Link href="/fleet/hos">Full day →</Link>
+        <h2>Today&apos;s entries</h2>
       </div>
       {window.status === "loading" && <p className="row-sub">Checking today&apos;s log…</p>}
       {window.status === "error" && (

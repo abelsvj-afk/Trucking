@@ -18,8 +18,8 @@ import { useHosWindow } from "@/lib/use-hos-window";
 import { ListLoading, ListError } from "@/components/ListStates";
 import PageHeader from "@/components/PageHeader";
 import DutyHud from "@/components/hud/DutyHud";
-import DayLogMini from "@/components/hud/DayLogMini";
 import TodaysLogStrip from "@/components/TodaysLogStrip";
+import DayLogMini from "@/components/hud/DayLogMini";
 import QuickAction from "@/components/QuickAction";
 import NewsBanner from "@/components/NewsBanner";
 import SetupChecklist from "@/components/SetupChecklist";
@@ -139,19 +139,21 @@ export default function HomePage() {
           from today's log; tap opens the full Day log. Fed by the
           hosWindow this page already loads. */}
       <DayLogMini window={hosWindow.state} nowMs={nowMs} />
-
-      {/* Pay preview stays visible near the top of Home, under the mini log. */}
-      <DriverPayHomeCard />
-
-      {/* Today's log strip (Phase 4, spec §2.4): an ADDITION under the
-          pay card — no live block moves or loses its door. Fed by the
-          hosWindow this page already loads. */}
+      {/* Today's entries, each with its Fix link — the duty grid's companion (UI audit 2026-11-19). */}
       <TodaysLogStrip window={hosWindow.state} nowMs={nowMs} />
+      {/* Where today's hours came from, when it was a paper log (img-maint lane). */}
+      {paperLabel && (
+        <p className="row-sub">
+          {paperLabel} <Link href="/fleet/hos">Day log</Link>
+        </p>
+      )}
 
-      <NewsBanner />
-
-      <SetupChecklist />
-
+      {/* Home order (owner 2026-11-19, UI audit: "it needs to not feel
+          cheap"): what he needs on the road first — the map and hours
+          above with today's duty grid right under them (owner order
+          2026-11-17), then the one thing to do, the load, its plan, pay,
+          roadside and the quick buttons. Everything else
+          is folded under "More on Home" (still on the page, one tap). */}
       <Reveal aria-label="Your next step" className="next-step" index={0}>
         <h2>Your next step</h2>
         {hosWindow.state.status === "loading" && <p>Checking your hours…</p>}
@@ -195,6 +197,13 @@ export default function HomePage() {
         )}
       </Reveal>
 
+      <ActiveLoadCard />
+
+      <ActivePlanCard />
+
+      {/* Pay preview stays visible near the top of Home, under the mini log. */}
+      <DriverPayHomeCard />
+
       <Reveal aria-label="Roadside inspection" index={1}>
         <Link href="/roadside" className="roadside-entry">
           <ShieldCheck size={22} strokeWidth={1.75} aria-hidden="true" /> Roadside inspection — your hours packet, ready to show alongside the carrier ELD
@@ -204,12 +213,6 @@ export default function HomePage() {
           carrier&apos;s ELD and your paper log are the legal record.
         </p>
       </Reveal>
-
-      <ActiveLoadCard />
-
-      <ActivePlanCard />
-
-      <DayWrapCard />
 
       <Reveal aria-label="Quick actions" index={1}>
         <h2>Quick actions</h2>
@@ -246,12 +249,19 @@ export default function HomePage() {
         </div>
       </Reveal>
 
-      {logs.length > 0 && (
-        <p className="row-sub">
-          {paperLabel && <>{paperLabel} </>}
-          <Link href="/fleet/hos">Day log</Link>
-        </p>
-      )}
+
+      <SetupChecklist />
+
+      <details className="home-more">
+        <summary>
+          <span className="home-more-title">
+            More on Home
+            <span className="home-more-sub">News · day wrap · Ask Abel</span>
+          </span>
+        </summary>
+      <NewsBanner />
+
+      <DayWrapCard />
 
       {showBusinessSummary && (
       <Reveal aria-label="This month's financial summary" index={3}>
@@ -299,6 +309,19 @@ export default function HomePage() {
           "Log a fuel stop: $120 at Pilot",
         ]}
       />
+      </details>
+
+
+
+
+
+
+
+
+
+
+
+
     </div>
   );
 }
