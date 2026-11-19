@@ -206,7 +206,9 @@ function SmartPathInner() {
     const last = readLastRun(params.get("load_id"));
     // Show the kept plan at once (after hydration, so server and phone agree on first paint).
     if (last) queueMicrotask(() => !cancelled && setRun({ status: "done", out: last.out, savedAtMs: last.savedAtMs }));
-    if (last && Date.now() - last.savedAtMs < RECHECK_AFTER_MS) return () => {
+    // Skip the quiet re-check only for a plan made for THIS load: opened
+    // without one (the tab bar), the active load may have changed since.
+    if (last && params.get("load_id") && Date.now() - last.savedAtMs < RECHECK_AFTER_MS) return () => {
       cancelled = true;
     };
     void fetchPlan({ loadId: params.get("load_id"), leaveAt: "", prefs: readPrefs() }).then((r) => {

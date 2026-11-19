@@ -380,6 +380,7 @@ export default function DriveMap({
     if (!map || !followRef.current || !view3dRef.current || followFrameRef.current !== null) return;
     followFrameRef.current = requestAnimationFrame(() => {
       followFrameRef.current = null;
+      if (mapRef.current !== map) return; // the map was removed (page left) meanwhile
       const t = cameraTargetRef.current;
       const center = map.getCenter();
       const zoom = map.getZoom();
@@ -418,6 +419,11 @@ export default function DriveMap({
     cameraTargetRef.current = { zoom: cam.zoom, pitch: cam.pitch, padTop: cam.offset[1] * 2 };
     mapRef.current?.triggerRepaint();
   }, [view3d, headingUp, maneuverZoom, followZoom, follow]);
+  // Re-centring (follow back on) hands the zoom back to the map, so the
+  // turn zoom works again after he pinch-zoomed.
+  useEffect(() => {
+    if (follow) userZoomRef.current = null;
+  }, [follow]);
   // Handle for map-event retries ("idle"), pointed at syncTruckLayer by the effect below.
   const syncTruckLayerRef = useRef<() => void>(() => {});
   const syncTruckLayer = useCallback(() => {
@@ -444,6 +450,8 @@ export default function DriveMap({
           // Already gone (e.g. removed by the failure path below).
         }
       }
+      // A re-added layer must draw again before the flat truck goes away.
+      setTruck3dDrawn(false);
       return;
     }
     if (truckLayerFailedRef.current || has) return;
@@ -669,7 +677,9 @@ export default function DriveMap({
           id: "drive-route-casing",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 },
+          // Dark edge (was white): the gold line stays distinct from OSM's own
+          // yellow/orange highways on the light day map, and reads at night.
+          paint: { "line-color": "#111827", "line-width": 11, "line-opacity": 0.85 },
         });
         // The remaining route, glowing brand gold (#c9a227) — the only line on the map.
         map.addLayer({
@@ -723,6 +733,8 @@ export default function DriveMap({
       // exactly what makes the three.js 3D layer refuse to initialise
       // (2026-11-17: the truck vanished after repeated Home
       // show/hide flips, each leaking a context).
+      if (followFrameRef.current !== null) cancelAnimationFrame(followFrameRef.current);
+      followFrameRef.current = null;
       const map = mapRef.current;
       if (map) {
         map.remove();

@@ -32,11 +32,11 @@ export interface TruckModelParts {
   cab: THREE.Mesh;
 }
 
-const CAB_COLOR = 0xf2b705; // bright brand gold (owner 2026-11-19: "the truck is dark ... it should be bright")
-const HOOD_COLOR = 0xf2b705;
+const CAB_COLOR = 0xf8fafc; // bright white cab against the gold box (owner 2026-11-19: "it should be bright")
+const HOOD_COLOR = 0xf8fafc;
 const CHASSIS_COLOR = 0x4b5563;
-const TRAILER_COLOR = 0xf8fafc; // bright white box — reads on day and night tiles
-const TRAILER_REAR_COLOR = 0xf2b705; // gold rear doors
+const TRAILER_COLOR = 0xffc61a; // bright gold box — white vanished on the light day map
+const TRAILER_REAR_COLOR = 0xe0a800; // darker gold rear doors
 const WINDOW_COLOR = 0x60a5fa;
 const TANK_COLOR = 0x9ca3af; // aluminium
 const STACK_COLOR = 0x6b7280;
