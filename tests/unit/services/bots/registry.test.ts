@@ -53,7 +53,16 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats only Abel and Dispatch Scout in the Phase 0 group", () => {
-    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual(["abel", "dispatch-scout"].sort());
+  it("seats all seven bots in the group — the shared turn is the seat", () => {
+    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual([...BOT_SLUGS].sort());
+  });
+
+  it("corrects the three scope mismatches the shared-reasoning audit found", () => {
+    // Maintenance maps: governing file READ (nearest shop, route to it).
+    expect(toolScopeFor("maintenance", "maps")).toBe("read");
+    // Compliance Watchdog maps: governing file NO ACCESS.
+    expect(toolScopeFor("compliance-watchdog", "maps")).toBe("none");
+    // Tracker email: governing file WRITE-GATED; the turn offers reads.
+    expect(toolScopeFor("tracker", "email")).toBe("read");
   });
 });

@@ -39,6 +39,9 @@ import {
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
 import { handleBotTeamGroupUpdate } from "@/services/bots/group";
 import { createBotTeamStore } from "@/services/bots/store";
+import { runBotGroupTurn, type BotTurnInput } from "@/services/bots/turn";
+import { botDisplayName } from "@/services/bots/reasoning";
+import type { BotSlug } from "@/services/bots/registry";
 import type { BotBrainStore } from "@/services/bot/store";
 import { createTelegramBurstCollector, type TelegramBurstItem } from "@/services/telegram/burst";
 import { handleTelegramPhotoIntelligent } from "@/services/telegram/photo-intelligence";
@@ -195,26 +198,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const groupChat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
   if (groupChat?.type === "group" || groupChat?.type === "supergroup") {
     const teamStore = createBotTeamStore(config.companyId);
-    // Lazy provider: no key = no runChat, and the group says so
-    // honestly instead of failing.
-    const runChat = process.env.OPENAI_API_KEY
-      ? async (input: {
-          userText: string;
-          history: { role: "user" | "assistant"; text: string }[];
-          instructions: { kind: string; content: string }[];
-        }): Promise<string | null> => {
-          const output = await runBotChat(new OpenAiProvider(), {
-            userText: input.userText,
-            history: input.history,
-            snapshotText: null,
-            instructions: input.instructions.map((row) => ({
-              kind: row.kind === "fact" ? ("fact" as const) : ("instruction" as const),
-              content: row.content,
-              created_at: new Date().toISOString(),
-            })),
-            memories: [],
-          });
-          return output.reply;
+    const brainStore = createTelegramBrainStore(config.companyId);
+    // Lazy provider: no key = no runBotTurn, and the group says so
+    // honestly instead of failing. One shared turn per bot, with
+    // that bot's scoped tools — see services/bots/turn.ts.
+    const runBotTurn = process.env.OPENAI_API_KEY
+      ? (input: BotTurnInput) =>
+          runBotGroupTurn({ provider: new OpenAiProvider(), teamStore, brainStore }, input)
+      : undefined;
+    // Individual faces (owner rule 2026-11-19): each bot posts
+    // under its own Telegram account. Scout's token landed in Fly
+    // 2026-11-19 ~2:35 PM CT (TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN,
+    // live since v115); the other bots join as their tokens land.
+    // Until a bot has a token, its replies go through the group's
+    // bot with its name first.
+    const scoutToken = process.env.TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN;
+    const sendAsBot = scoutToken
+      ? async (slug: BotSlug, chatId: number, text: string) => {
+          if (slug === "dispatch-scout") return sendTelegramMessage(scoutToken, chatId, text);
+          return sendTelegramMessage(botToken, chatId, `${botDisplayName(slug)}: ${text}`);
         }
       : undefined;
     await handleBotTeamGroupUpdate(update, {
@@ -224,7 +226,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       companyId: config.companyId,
       store: teamStore,
       sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
-      runChat,
+      sendAsBot,
+      runBotTurn,
     });
     return NextResponse.json({ ok: true });
   }

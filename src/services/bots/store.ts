@@ -72,6 +72,29 @@ export interface GroupMessageInput {
   routedToBotSlug?: BotSlug | null;
 }
 
+export interface GroupMessageRow {
+  telegram_message_id: number;
+  sender_kind: "owner" | "bot";
+  sender_ref: string;
+  text: string;
+  routed_to_bot_slug: BotSlug | null;
+  created_at: string;
+}
+
+export interface LoadLedgerRow {
+  load_ref: string;
+  broker_name: string | null;
+  origin: string | null;
+  destination: string | null;
+  rate_cents_per_loaded_mile: number | null;
+  loaded_miles: number | null;
+  deadhead_miles: number | null;
+  pay_cents: number | null;
+  outcome: LoadOutcome;
+  notes: string | null;
+  created_at: string;
+}
+
 function serviceRoleClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -109,6 +132,22 @@ export interface BotTeamStore {
   recordSpend(input: { botSlug: BotSlug; model: string; tier: "scan" | "rank"; estimatedCents: number }): Promise<void>;
   spentThisMonthCents(sinceIso: string): Promise<number>;
   loadBotMemories(botSlug: BotSlug): Promise<BotMemoryRow[]>;
+  /**
+   * Save one memory for a bot (fact / rule / preference / correction
+   * / watch-out). The shared turn writes corrections and watch-outs
+   * through this; there was no write method before (memories were
+   * seeded, never learned into).
+   */
+  saveBotMemory(input: {
+    botSlug: BotSlug;
+    kind: BotMemoryRow["kind"];
+    content: string;
+    source: string;
+  }): Promise<BotMemoryRow>;
+  /** Recent group messages, oldest first, for turn history. */
+  loadRecentGroupMessages(telegramChatId: number, limit?: number): Promise<GroupMessageRow[]>;
+  /** Recent load outcomes, newest first, for Scout's learning block. */
+  loadRecentLoadOutcomes(limit?: number): Promise<LoadLedgerRow[]>;
 }
 
 export function createBotTeamStore(companyId: string | null): BotTeamStore | null {
@@ -267,6 +306,45 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
         .limit(100);
       if (error) fail("loadBotMemories", error);
       return (data ?? []) as BotMemoryRow[];
+    },
+
+    async saveBotMemory(input) {
+      const { data, error } = await client
+        .from("bot_team_memories")
+        .insert({
+          company_id: companyId,
+          bot_slug: input.botSlug,
+          kind: input.kind,
+          content: input.content,
+          source: input.source,
+        })
+        .select()
+        .single();
+      if (error || !data) fail("saveBotMemory", error);
+      return data as BotMemoryRow;
+    },
+
+    async loadRecentGroupMessages(telegramChatId, limit = 10) {
+      const { data, error } = await client
+        .from("bot_group_messages")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("telegram_chat_id", telegramChatId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) fail("loadRecentGroupMessages", error);
+      return ((data ?? []) as GroupMessageRow[]).reverse();
+    },
+
+    async loadRecentLoadOutcomes(limit = 5) {
+      const { data, error } = await client
+        .from("bot_load_ledger")
+        .select("*")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) fail("loadRecentLoadOutcomes", error);
+      return (data ?? []) as LoadLedgerRow[];
     },
   };
 }

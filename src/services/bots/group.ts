@@ -1,6 +1,17 @@
 // Telegram group mode for the bot team (Phase 0 baseline).
-// One private group, him + the bots. Every bot hears every message;
-// only the relevant one answers, the rest stay quiet.
+// One private group, him + the bots. Every bot hears the OWNER's
+// messages; only the relevant one answers, the rest stay quiet.
+// Each bot has its own Telegram account and profile photo and
+// messages as itself (individual faces, owner rule 2026-11-19).
+//
+// The Telegram mechanic that bounds this room (Bots FAQ, verified
+// 2026-11-19): bots never see messages from other bots,
+// regardless of mode — so a bot hears the owner, never another
+// bot. Handoffs therefore travel inside the app: when a bot's
+// answer names another bot, the handler runs that bot's turn once
+// (one hop per incoming message, bounded) and that bot answers
+// under its own name. The owner sees the team-room behavior; the
+// plumbing underneath is the shared backend, not Telegram.
 //
 // This handler runs BEFORE the 1:1 path (services/telegram/
 // dispatch-bot.ts), which still serves only the owner's private chat
@@ -12,8 +23,10 @@
 // - No TELEGRAM_GROUP_CHAT_ID configured = groups ignored, as today.
 // - A message from anyone but the owner (TELEGRAM_ALLOWED_CHAT_ID)
 //   is ignored silently. The room has no third parties.
-// - A message from another bot is logged and ignored — bots do not
-//   answer each other unprompted, or the room would talk to itself.
+// - A message from another bot is logged and ignored — Telegram
+//   never delivers one bot's message to another bot, so no bot
+//   message should ever arrive here at all; the guard stays
+//   because a human could forward one.
 // - No store configured = the room still answers, but nothing is
 //   logged and proposals cannot be recorded; the reply says so.
 //
@@ -25,28 +38,28 @@
 // callback queries the 1:1 path would ignore, so plain words are the
 // honest channel until group callbacks are wired (Phase 1).
 //
-// Abel's group answers use runBotChat with context assembled in code:
-// recent group history + the bot's stored memories. They do NOT yet
-// carry the live company snapshot the 1:1 path loads — a group answer
-// never states a live figure it has not loaded. That snapshot is a
-// Phase 1 gap, listed in the PR.
+// A denied load draft teaches the bot that staged it: its Auditor
+// flags become correction memories (services/bots/outcomes.ts),
+// and a second correction of the same field becomes a watch-out
+// read into every later turn — Abel's corrections-learning,
+// shared.
+//
+// Every seated bot answers through the shared turn
+// (services/bots/turn.ts): the same reasoning, the same memory
+// and learning shape, its own scoped tools and its own identity.
+// The turn carries the live company snapshot — a group answer
+// never states a live figure it has not loaded.
 
 import { randomUUID } from "node:crypto";
 import { auditLoadDraft } from "./auditor";
-import { createBrowserRuntime, type BrowserRuntime } from "./browser-runtime";
-import {
-  parseCostPreferences,
-  parseScanRequest,
-  recordShortlistDecision,
-  runScoutScan,
-  type ScoutScanResult,
-} from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
+import { recordBotCorrection } from "./outcomes";
+import { botDisplayName } from "./reasoning";
 import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply } from "./router";
-import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
+import type { BotTurnInput, BotTurnResult } from "./turn";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 
 export interface GroupHandlerDeps {
@@ -59,34 +72,19 @@ export interface GroupHandlerDeps {
   store: BotTeamStore | null;
   sendMessage: (chatId: number, text: string) => Promise<number[]>;
   /**
-   * Abel's chat turn. Built lazily by the caller (the OpenAI provider
-   * throws without a key); undefined = the group says AI is not
-   * configured instead of failing.
+   * Post as a named bot under its own Telegram account (individual
+   * faces). When absent — no per-bot tokens are configured yet —
+   * bot replies go through sendMessage with the bot's name first.
+   * Wiring the tokens is a Phase 1 step; the fallback keeps the
+   * room working today.
    */
-  runChat?: (input: {
-    userText: string;
-    history: { role: "user" | "assistant"; text: string }[];
-    instructions: { kind: string; content: string }[];
-  }) => Promise<string | null>;
+  sendAsBot?: (slug: BotSlug, chatId: number, text: string) => Promise<number[]>;
   /**
-   * The shared-browser runtime for board scans. Built from env when
-   * absent (createBrowserRuntime); tests pass their own.
+   * One bot's shared turn. Built lazily by the caller (the OpenAI
+   * provider throws without a key); undefined = the group says AI
+   * is not configured instead of failing.
    */
-  browserRuntime?: BrowserRuntime;
-  /**
-   * The Scout scan run. Defaults to runScoutScan; tests pass a stub
-   * so a scan never waits on human-pace gaps in a test.
-   */
-  scoutScan?: (input: {
-    origin: string;
-    costPerMileCents: number;
-    floorPerAllMileCents: number;
-    dieselCentsPerGallon: number;
-    mpg: number;
-    equipment?: string | null;
-    maxShortlist?: number;
-    runId?: string;
-  }, deps: { runtime: BrowserRuntime; store: BotTeamStore | null }) => Promise<ScoutScanResult>;
+  runBotTurn?: (input: BotTurnInput) => Promise<BotTurnResult>;
 }
 
 export type GroupHandleResult = "handled" | "ignored" | "disabled";
@@ -131,7 +129,12 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   const text = sender.text;
   const store = deps.store;
 
-  // Log the owner's message first (best-effort: a logging failure is
+  // Recent group history FIRST, so it does not include this message
+  // (the turn gets userText separately). Best-effort: a failed load
+  // means the turn answers without history, never no answer.
+  const history = await loadGroupHistory(store, chat.id);
+
+  // Log the owner's message (best-effort: a logging failure is
   // loud in the console but never fails the reply).
   if (store && text !== null && sender.messageId !== null) {
     try {
@@ -157,7 +160,10 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   const route = routeGroupMessage({ text, senderKind: "owner" });
 
   // A decision ("yes" / "no" / "2 yes") answers the newest open
-  // proposal — the same grammar as the 1:1 waiting list.
+  // proposal — the same grammar as the 1:1 waiting list. A denial
+  // of a load draft teaches the bot that staged it: the Auditor's
+  // flags become correction memories (a second correction of the
+  // same field becomes a watch-out).
   const decision = parseGroupDecision(text);
   if (decision && store) {
     try {
@@ -168,17 +174,6 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
         return "handled";
       }
       const decided = await store.decideProposal(target.id, decision.decision, "owner");
-      // A denied shortlist writes its loads to the ledger as
-      // skipped — that is the outcome the learning reads. An
-      // approved shortlist writes nothing yet; the "booked" row
-      // lands when the load is actually booked.
-      if (target.kind === "load-shortlist" && decision.decision === "denied") {
-        try {
-          await recordShortlistDecision(store, target, "denied");
-        } catch (err) {
-          console.error("[bot-team] shortlist decision ledger write failed", err);
-        }
-      }
       await store.logAudit({
         botSlug: target.bot_slug,
         actor: "owner",
@@ -186,6 +181,20 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
         targetRef: target.id,
         detail: { title: target.title, via: "group" },
       });
+      if (decision.decision === "denied") {
+        for (const flag of deniedFlagsOf(target)) {
+          try {
+            await recordBotCorrection(store, {
+              botSlug: target.bot_slug,
+              field: flag.field,
+              detail: flag.detail,
+              sourceRef: target.id,
+            });
+          } catch (err) {
+            console.error("[bot-team] correction record failed", err);
+          }
+        }
+      }
       await deps.sendMessage(
         chat.id,
         decision.decision === "approved"
@@ -207,143 +216,142 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
   if (!route.shouldAnswer) return "handled";
 
-  // Dispatch Scout in this phase: a scan request walks the ranked
-  // boards at human pace and posts a shortlist proposal; a forwarded
-  // dispatch gets worked up into an auditor-checked proposal.
+  // Dispatch Scout: a forwarded dispatch gets worked up into an
+  // auditor-checked proposal, in code (numbers out of the text,
+  // never invented). Anything else goes to the shared turn, which
+  // carries the boards-not-live note — a board question gets a
+  // plain "not yet", never invented loads.
   if (route.target === "dispatch-scout") {
-    if (isScanRequest(text)) {
-      await handleScoutScan(chat.id, text, deps);
-      return "handled";
-    }
     const looksLikeDispatch = /\b(pickup|delivery|rate|broker|load)\b/i.test(text) && /\d/.test(text);
-    if (!looksLikeDispatch) {
-      await deps.sendMessage(
-        chat.id,
-        "Dispatch Scout: say 'scout, scan from <city, ST>' and I'll check the boards. Or forward me a dispatch and I'll work it up.",
-      );
+    if (looksLikeDispatch) {
+      await handleScoutWorkup(chat.id, text, deps);
       return "handled";
     }
-    await handleScoutWorkup(chat.id, text, deps);
-    return "handled";
   }
 
-  // Abel: group chat turn, with the spend cap in front of the model.
-  if (!deps.runChat) {
-    await deps.sendMessage(chat.id, "Abel: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
+  // Every seated bot answers through the shared turn.
+  if (!deps.runBotTurn) {
+    await deps.sendMessage(
+      chat.id,
+      `${botDisplayName(route.target)}: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.`,
+    );
     return "handled";
   }
-  if (store) {
-    try {
-      const spent = await store.spentThisMonthCents(monthStartIso());
-      if (capReached(spent, monthlyCapCents())) {
-        await deps.sendMessage(chat.id, `Abel: ${SPEND_CAP_REACHED_TEXT}`);
-        return "handled";
-      }
-    } catch (err) {
-      console.error("[bot-team] spend check failed — refusing the model call", err);
-      await deps.sendMessage(chat.id, "Abel: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.");
-      return "handled";
-    }
-  }
+  const runId = randomUUID();
   try {
-    const memories = store ? await store.loadBotMemories("abel") : [];
-    const reply = await deps.runChat({
+    const result = await deps.runBotTurn({
+      slug: route.target,
       userText: text,
-      history: [],
-      instructions: memories.map((row) => ({ kind: row.kind, content: row.content })),
+      history,
+      telegramChatId: chat.id,
+      runId,
     });
-    const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
-    if (store) {
+    await postBotReply(chat.id, route.target, result.reply, deps);
+    // One internal handoff: the answer names another bot, so that
+    // bot takes the work and answers under its own name. One hop —
+    // the handoff turn is terminal, so the room cannot talk to
+    // itself. (A Telegram handoff cannot work at all: bots never
+    // see each other's messages.)
+    if (result.handoffTo && result.handoffTo !== route.target) {
       try {
-        await store.recordSpend({
-          botSlug: "abel",
-          model: modelForTier("scan"),
-          tier: "scan",
-          estimatedCents: estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: answer.length }),
+        const handoff = await deps.runBotTurn({
+          slug: result.handoffTo,
+          userText: text,
+          history,
+          telegramChatId: chat.id,
+          runId,
+          handoff: { fromBot: route.target, objective: text, summary: result.reply },
         });
+        await postBotReply(chat.id, result.handoffTo, handoff.reply, deps);
       } catch (err) {
-        console.error("[bot-team] spend record failed", err);
+        console.error("[bot-team] group handoff turn failed", err);
       }
     }
-    await deps.sendMessage(chat.id, `Abel: ${answer}`);
   } catch (err) {
-    console.error("[bot-team] group Abel turn failed", err);
-    await deps.sendMessage(chat.id, "Abel: that turn failed on my side — nothing was booked or sent. Try again in a moment.");
+    console.error("[bot-team] group turn failed", err);
+    await deps.sendMessage(
+      chat.id,
+      `${botDisplayName(route.target)}: that turn failed on my side — nothing was booked or sent. Try again in a moment.`,
+    );
   }
   return "handled";
 }
 
-/** "scan the boards", "find loads", "shortlist" — a scan request, not a forwarded dispatch. */
-function isScanRequest(text: string): boolean {
-  return /\bscan\b/i.test(text) || /\bfind\b[^.]*\bloads?\b/i.test(text) || /\bshortlist\b/i.test(text);
+/** Recent group messages as turn history, oldest first. */
+async function loadGroupHistory(
+  store: BotTeamStore | null,
+  telegramChatId: number,
+): Promise<{ role: "user" | "assistant"; text: string }[]> {
+  if (!store) return [];
+  try {
+    const rows = await store.loadRecentGroupMessages(telegramChatId, 10);
+    return rows.map((row) => ({
+      role: row.sender_kind === "bot" ? ("assistant" as const) : ("user" as const),
+      text: row.text,
+    }));
+  } catch (err) {
+    console.error("[bot-team] group history load failed", err);
+    return [];
+  }
 }
 
 /**
- * Run a board scan from the group. The scan takes a minute or more
- * (human-pace gaps between board reads), so this acks at once and
- * the scan posts its shortlist when it finishes — the webhook never
- * waits on it. Numbers are never invented: the cost inputs come from
- * the Scout's stored preferences, or from the message itself, and a
- * missing one stops the run with a plain-words ask.
+ * Post one bot's reply and log it as a group message, so later
+ * turns see it. With per-bot tokens configured (sendAsBot) the
+ * bot posts under its own account; without them the fallback
+ * posts through the group's bot with the bot's name first.
  */
-async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
+async function postBotReply(chatId: number, slug: BotSlug, reply: string, deps: GroupHandlerDeps): Promise<void> {
+  let messageIds: number[] = [];
+  try {
+    messageIds = deps.sendAsBot
+      ? await deps.sendAsBot(slug, chatId, reply)
+      : await deps.sendMessage(chatId, `${botDisplayName(slug)}: ${reply}`);
+  } catch (err) {
+    console.error("[bot-team] bot reply send failed", err);
+    return;
+  }
   const store = deps.store;
-  const runtime = deps.browserRuntime ?? createBrowserRuntime();
-  if (runtime.route === "not-configured") {
-    await deps.sendMessage(chatId, "Dispatch Scout: I can't scan boards yet — the shared browser isn't set up on the server. No board was read.");
-    return;
-  }
-  const { origin, equipment } = parseScanRequest(text);
-  if (!origin) {
-    await deps.sendMessage(chatId, "Dispatch Scout: where's the truck right now? Say 'scout, scan from Panama City, FL' and I'll check the boards.");
-    return;
-  }
-  let memories: { content: string }[] = [];
-  if (store) {
-    try {
-      memories = await store.loadBotMemories("dispatch-scout");
-    } catch (error) {
-      console.error("[bot-team] scout scan memories failed — asking for the numbers instead", error);
-    }
-  }
-  // The message itself can carry the numbers; it wins over memory.
-  const prefs = { ...parseCostPreferences(memories), ...parseCostPreferences([{ content: text }]) };
-  const { costPerMileCents, floorPerAllMileCents, dieselCentsPerGallon, mpg } = prefs;
-  const missing: string[] = [];
-  if (costPerMileCents === undefined) missing.push("cost per mile");
-  if (floorPerAllMileCents === undefined) missing.push("floor (lowest profit per all mile you'll run for)");
-  if (dieselCentsPerGallon === undefined) missing.push("diesel price");
-  if (mpg === undefined) missing.push("miles per gallon");
-  if (missing.length > 0) {
-    await deps.sendMessage(
-      chatId,
-      `Dispatch Scout: I need ${missing.join(", ")} before I can price loads — say them once and I'll remember them. Nothing was read yet.`,
-    );
-    return;
-  }
-  // Unreachable in practice — missing.length === 0 proves all four are
-  // set — but the compiler needs the explicit check to narrow them.
-  if (costPerMileCents === undefined || floorPerAllMileCents === undefined || dieselCentsPerGallon === undefined || mpg === undefined) {
-    return;
-  }
-  const runId = randomUUID();
-  const watch = runtime.watchUrl(runId);
-  await deps.sendMessage(
-    chatId,
-    `Dispatch Scout: scanning TruLOS first, then Trucker Path, then JustTracking — I'll post the shortlist here.${watch ? ` Watch the browser live: ${watch}` : ""}`,
-  );
-  const run = deps.scoutScan ?? runScoutScan;
-  void run(
-    { origin, costPerMileCents, floorPerAllMileCents, dieselCentsPerGallon, mpg, equipment, runId },
-    { runtime, store },
-  )
-    .then(async (result) => {
-      await deps.sendMessage(chatId, result.summary);
-    })
-    .catch(async (error) => {
-      console.error("[bot-team] scout scan failed", error);
-      await deps.sendMessage(chatId, "Dispatch Scout: the scan failed on my side — nothing was booked or sent. Say 'scout, scan' to try again.");
+  if (!store) return;
+  try {
+    await store.recordGroupMessage({
+      telegramChatId: chatId,
+      telegramMessageId: messageIds[0] ?? 0,
+      senderKind: "bot",
+      senderRef: slug,
+      text: reply.slice(0, 4000),
+      routedToBotSlug: slug,
     });
+  } catch (err) {
+    console.error("[bot-team] bot reply log failed", err);
+  }
+}
+
+/**
+ * The Auditor flags carried by a denied proposal, for the
+ * corrections-learning record. Load drafts carry `flags`; shortlists
+ * carry per-load `audit` entries. Anything else carries none.
+ */
+function deniedFlagsOf(target: ProposalRow): { field: string; detail: string }[] {
+  const payload = target.payload ?? {};
+  const readFlags = (value: unknown): { field: string; detail: string }[] => {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const flag = entry as { field?: unknown; detail?: unknown };
+      return typeof flag.field === "string" && typeof flag.detail === "string"
+        ? [{ field: flag.field, detail: flag.detail }]
+        : [];
+    });
+  };
+  if (target.kind === "load-draft") return readFlags(payload.flags);
+  if (target.kind === "load-shortlist") {
+    const audit = Array.isArray(payload.audit) ? payload.audit : [];
+    return audit.flatMap((entry) =>
+      entry && typeof entry === "object" ? readFlags((entry as { flags?: unknown }).flags) : [],
+    );
+  }
+  return [];
 }
 
 /**

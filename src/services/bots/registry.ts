@@ -98,7 +98,10 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
       hos: "read",
       money: "none",
       documents: "read",
-      email: "none",
+      // Governing file: WRITE-GATED (send a status update). The
+      // turn offers reads only; sending stays proposal-gated
+      // (propose_message / propose_status_update), so "read" here.
+      email: "read",
       maps: "read",
       "app-actions": "draft",
       calls: "gated",
@@ -116,7 +119,9 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
       money: "none",
       documents: "read",
       email: "none",
-      maps: "read",
+      // Governing file: NO map access. The baseline had "read";
+      // corrected 2026-11-19 (shared-reasoning audit).
+      maps: "none",
       "app-actions": "flag",
       calls: "never",
       signature: "never",
@@ -133,7 +138,10 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
       money: "read",
       documents: "read",
       email: "read",
-      maps: "none",
+      // Governing file: READ (nearest shop, route to the shop).
+      // The baseline had "none"; corrected 2026-11-19
+      // (shared-reasoning audit).
+      maps: "read",
       "app-actions": "draft",
       calls: "gated",
       signature: "never",
@@ -228,5 +236,19 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
   return (Object.keys(scope) as ToolGroup[]).filter((group) => scope[group] !== "none" && scope[group] !== "never");
 }
 
-/** Bots wired into the Telegram group in this phase (Phase 0). */
-export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout"];
+/**
+ * Bots seated in the Telegram group. All seven: the shared turn IS
+ * the seat — a bot with the shared brain, its own memories, its own
+ * scoped tools, and its own Telegram account answers in the room
+ * (individual faces, owner rule 2026-11-19). Kept under the Phase 0
+ * name because the router, handler, and plan doc reference it.
+ */
+export const GROUP_SEATS_PHASE_0: BotSlug[] = [
+  "abel",
+  "dispatch-scout",
+  "tracker",
+  "compliance-watchdog",
+  "maintenance",
+  "billing",
+  "auditor",
+];

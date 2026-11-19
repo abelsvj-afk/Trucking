@@ -1,6 +1,15 @@
 // Group-chat routing (Phase 0 baseline; plan docs/bot-team-build-plan.md).
-// One private group, him + the bots. Every bot hears every message;
-// only the relevant one answers, the rest stay quiet.
+// One private group, him + the bots. Every bot hears the OWNER's
+// messages; only the relevant one answers, the rest stay quiet.
+//
+// Telegram's own rule (Bots FAQ, verified 2026-11-19): bots never
+// see messages from other bots, regardless of mode — so a bot
+// hears the owner, never another bot. Handoffs therefore travel
+// inside the app (the coordinator runs the next bot's turn;
+// mentionedBotByName below finds the handoff), never as bot-to-bot
+// Telegram messages. Each bot has its own Telegram account and
+// profile photo and messages as itself (individual faces, owner
+// rule 2026-11-19).
 //
 // Routing order: a reply to a bot's message goes to that bot; a name
 // mention goes to the named bot; a job keyword goes to the bot whose
@@ -8,10 +17,8 @@
 // database, no network — so the same message always routes the same
 // way and the tests can prove it.
 //
-// Phase 0 wires only Abel + Dispatch Scout into the room. The router
-// still names the intended bot for the other seats; the group handler
-// answers those with "not in the room yet" instead of pretending the
-// bot is there.
+// All seven bots are seated in the room (shared-reasoning PR):
+// the shared turn IS the seat.
 
 import { GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
 
@@ -115,4 +122,29 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
 export function unseatedReply(target: BotSlug): string {
   const name = target === "dispatch-scout" ? "Dispatch Scout" : target;
   return `${name} isn't in the room yet — that seat comes in a later phase. Abel can take this one for now.`;
+}
+
+/**
+ * Name-only mention patterns, for handoffs: a bot's answer naming
+ * another bot by NAME hands the work to that bot. Job words are
+ * NOT names — "I'll dispatch this" is not a handoff to Scout, and
+ * "check the math" is not a handoff to the Auditor. The first
+ * named bot wins; the caller excludes the bot that just spoke.
+ */
+const HANDOFF_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
+  { slug: "abel", patterns: [/\babel\b/i] },
+  { slug: "dispatch-scout", patterns: [/\bdispatch scout\b/i, /\bscout\b/i] },
+  { slug: "tracker", patterns: [/\btracker\b/i] },
+  { slug: "compliance-watchdog", patterns: [/\bcompliance watchdog\b/i, /\bwatchdog\b/i] },
+  { slug: "maintenance", patterns: [/\bmaintenance\b/i] },
+  { slug: "billing", patterns: [/\bbilling\b/i] },
+  { slug: "auditor", patterns: [/\bauditor\b/i] },
+];
+
+export function mentionedBotByName(text: string, excludeSlug?: BotSlug): BotSlug | null {
+  for (const { slug, patterns } of HANDOFF_PATTERNS) {
+    if (slug === excludeSlug) continue;
+    if (patterns.some((pattern) => pattern.test(text))) return slug;
+  }
+  return null;
 }
