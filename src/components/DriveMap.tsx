@@ -358,11 +358,24 @@ export default function DriveMap({
   // so getLayer would keep reporting it as present and no retry
   // would ever happen) and the flat 2D icon takes over as the
   // truck. The error is logged in full.
+  // Handle for map-event retries ("idle"), pointed at syncTruckLayer by the effect below.
+  const syncTruckLayerRef = useRef<() => void>(() => {});
   const syncTruckLayer = useCallback(() => {
     const map = mapRef.current;
     const maplibregl = maplibreRef.current;
-    if (!map || !maplibregl || !map.isStyleLoaded()) return;
-    const has = Boolean(map.getLayer(TRUCK_MAP_LAYER_ID));
+    // NOT `isStyleLoaded()` (2026-11-19, the truck never appeared on the
+    // owner's phone): that is false whenever any SOURCE is still loading,
+    // and the load handler calls this right after adding the route
+    // sources — so it always bailed and nothing tried again. The style
+    // itself is what addLayer needs; a not-ready style is retried below.
+    if (!map || !maplibregl) return;
+    let has: boolean;
+    try {
+      has = Boolean(map.getLayer(TRUCK_MAP_LAYER_ID));
+    } catch {
+      map.once("idle", () => syncTruckLayerRef.current());
+      return;
+    }
     if (!view3dRef.current) {
       if (has) {
         try {
@@ -386,6 +399,16 @@ export default function DriveMap({
         ),
       );
     } catch (error) {
+      // The style not being ready is not a failure: try again when the map settles.
+      if (error instanceof Error && /style is not done loading/i.test(error.message)) {
+        try {
+          if (map.getLayer(TRUCK_MAP_LAYER_ID)) map.removeLayer(TRUCK_MAP_LAYER_ID);
+        } catch {
+          // nothing registered
+        }
+        map.once("idle", () => syncTruckLayerRef.current());
+        return;
+      }
       markTruckLayerFailed(error);
       try {
         if (map.getLayer(TRUCK_MAP_LAYER_ID)) map.removeLayer(TRUCK_MAP_LAYER_ID);
@@ -394,6 +417,9 @@ export default function DriveMap({
       }
     }
   }, [markTruckLayerFailed]);
+  useEffect(() => {
+    syncTruckLayerRef.current = syncTruckLayer;
+  }, [syncTruckLayer]);
 
   const drawRoute = useCallback(() => {
     const map = mapRef.current;
@@ -539,6 +565,9 @@ export default function DriveMap({
       // re-center is how follow comes back). Programmatic easeTo
       // does not fire dragstart, so the camera never fights itself.
       map.on("dragstart", () => panRef.current());
+      // Belt and braces: whenever the map settles, make sure the 3D truck is
+      // on it (a no-op when it is, or when 3D is off / has failed).
+      map.on("idle", () => syncTruckLayerRef.current());
       // The GL context can be lost mid-drive (phone memory pressure,
       // app switching). The 3D truck cannot draw without it — the flat
       // icon takes over rather than leaving no truck at all.

@@ -71,9 +71,14 @@ const fakes = vi.hoisted(() => {
     on(event: string, cb: () => void) {
       if (event === "load") state.loadHandler = cb;
     }
+    // Like the real MapLibre right after the load handler adds the route
+    // sources: they are still loading, so this is FALSE (2026-11-19 — the
+    // old fake said true, which hid that the truck was never added).
     isStyleLoaded() {
-      return true;
+      return false;
     }
+    once() {}
+    setPaintProperty() {}
     getCanvas() {
       return { clientWidth: 500, clientHeight: 400 };
     }

@@ -59,6 +59,8 @@ interface Props {
   where?: { top: string | null; bottom: string | null } | null;
   /** The mic (VoiceNoteRecorder), bottom-right over the map. */
   recorder?: ReactNode;
+  /** Keep clear of the map's own bottom overlay (Home's speed badge), in px. */
+  bottomInsetPx?: number;
 }
 
 const TONE_COLOR = { normal: "#111827", over: "#ea580c", well_over: "#dc2626" } as const;
@@ -112,7 +114,7 @@ export function formatMinutesLeft(minutes: number): string {
 /** Chips shown before More (TruckPath shows three). */
 const CHIPS_SHOWN = 3;
 
-export default function DriveUpcomingList({ maneuver, pois, remaining, speed = null, where = null, recorder = null }: Props) {
+export default function DriveUpcomingList({ maneuver, pois, remaining, speed = null, where = null, recorder = null, bottomInsetPx = 0 }: Props) {
   const [expanded, setExpanded] = useState(false);
   if (!maneuver && pois.length === 0 && !remaining && !speed && !where?.top && !where?.bottom && !recorder) return null;
   const tone = speedTone(speed?.speedMph ?? null, speed?.limitMph ?? null);
@@ -127,7 +129,7 @@ export default function DriveUpcomingList({ maneuver, pois, remaining, speed = n
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        padding: "8px",
+        padding: `8px 8px ${8 + bottomInsetPx}px`,
         gap: "8px",
       }}
     >

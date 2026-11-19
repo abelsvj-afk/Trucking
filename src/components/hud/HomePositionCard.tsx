@@ -14,13 +14,22 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Sheet from "@/components/Sheet";
 import { useDrive3dView } from "@/lib/drive-3d-view";
 import { useNowTick } from "@/lib/use-now-tick";
 import { useActiveRoute } from "@/lib/use-active-route";
 import { useSpeedLimit } from "@/lib/use-speed-limit";
-import { useServerPosition } from "@/lib/use-server-position";
+import { rememberPosition, useServerPosition, type ServerPosition } from "@/lib/use-server-position";
+import { useWhereAmI } from "@/lib/use-where-am-i";
+import { wherePillLines } from "@/lib/drive-where";
+import { useVoiceNotes } from "@/lib/use-voice-notes";
+import { freshnessLabel, milesAheadByBearing, stackVoiceNotes, VOICE_NOTE_LABEL, type VoiceNoteStack } from "@/lib/voice-notes";
+import { maneuverDirection } from "@/lib/drive";
+import DriveUpcomingList, { type UpcomingListManeuver, type UpcomingListPoi } from "@/components/drive/DriveUpcomingList";
+import VoiceNoteRecorder from "@/components/drive/VoiceNoteRecorder";
+
+const HOME_ARROWS = { left: "⬅", right: "➡", straight: "⬆", uturn: "↩", arrive: "⚑" } as const;
 import { routeProgress } from "@/lib/route-progress";
 import { useActiveNavigation } from "@/lib/use-active-navigation";
 import { etaAgainstClocks, formatMiles, liveGuidance } from "@/lib/active-navigation";
@@ -39,7 +48,12 @@ export const FOLLOW_ZOOM = 15.5;
 
 export function positionAgeText(ageMs: number): string {
   const s = Math.max(0, Math.round(ageMs / 1000));
-  return s < 5 ? "just now" : s < 60 ? `${s} s ago` : `${Math.round(s / 60)} min ago`;
+  if (s < 5) return "just now";
+  if (s < 60) return `${s} s ago`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
 }
 
 export default function HomePositionCard({
@@ -131,13 +145,32 @@ export default function HomePositionCard({
   // This device's own fix wins. Without one (just reopened, GPS warming up, permission off) fall back to
   // the position Telegram Live Location last reported - labelled as Telegram's, with its age.
   const deviceFresh = devicePosition !== null && nowMs - devicePosition.atMs <= POSITION_FRESH_MS;
-  const server = useServerPosition(!deviceFresh);
+  const serverFix = useServerPosition(!deviceFresh);
+  // The phone's own last fix, gone old, still marks where the truck was (when the server has nothing newer).
+  const deviceLastKnown: ServerPosition | null =
+    !deviceFresh && devicePosition
+      ? { lat: devicePosition.lat, lng: devicePosition.lng, accuracyM: devicePosition.accuracyM, atMs: devicePosition.atMs, headingDeg: deviceHeading, speedMph: null, stale: true, source: "remembered" }
+      : null;
+  const server = serverFix && (!deviceLastKnown || serverFix.atMs >= deviceLastKnown.atMs) ? serverFix : deviceLastKnown;
   const fromServer = !deviceFresh && server !== null;
   const position: VehiclePosition | null = deviceFresh ? devicePosition : server;
   const headingDeg = fromServer ? server.headingDeg : deviceHeading;
   const speedMph = fromServer ? server.speedMph : deviceSpeed;
   // Motion from a server fix is judged from its own speed, never assumed: unknown speed = unknown.
-  const motion: MotionState = fromServer ? (server.speedMph === null ? "unknown" : server.speedMph >= 5 ? "moving" : "stopped") : deviceMotion;
+  // A last-known (stale) fix says nothing about motion now.
+  const stale = fromServer && server.stale;
+  const motion: MotionState = fromServer
+    ? stale || server.speedMph === null
+      ? "unknown"
+      : server.speedMph >= 5
+        ? "moving"
+        : "stopped"
+    : deviceMotion;
+  // Remember every LIVE fix on this phone, so the truck can always be shown where it was last seen.
+  useEffect(() => {
+    if (deviceFresh && devicePosition) rememberPosition({ lat: devicePosition.lat, lng: devicePosition.lng, atMs: devicePosition.atMs, headingDeg: deviceHeading });
+    else if (server && !server.stale && server.source === "server") rememberPosition({ lat: server.lat, lng: server.lng, atMs: server.atMs, headingDeg: server.headingDeg });
+  }, [deviceFresh, devicePosition, deviceHeading, server]);
   // ACTIVE-LOAD NAVIGATION: the automatic route to the active load's next stop (no Smart Path run needed). It feeds the SAME route-line
   // mechanism a Smart Path run uses (DriveMap's geometry, remaining part only — the line clears behind the truck); a saved Smart Path run is the fallback when there is none.
   const nav = useActiveNavigation(position ? { lat: position.lat, lng: position.lng, accuracyM: position.accuracyM } : null, headingDeg, speedMph);
@@ -157,6 +190,51 @@ export default function HomePositionCard({
   );
   // The zone the truck is in, for the ETA label (map fix 2026-11-12): the card used to say "ET" always.
   const displayZone = useMemo(() => (position ? timeZoneForPosition(position.lat, position.lng) : HOME_TIME_ZONE), [position]);
+
+  // The TruckPath-style pieces on HOME's map too (owner 2026-11-19: "none of the new features" showed —
+  // they had been built on the Drive screen only). Live position only: a last-known spot gets none of them.
+  const liveFix = useMemo(
+    () => (position && !stale ? { point: { lat: position.lat, lng: position.lng }, headingDeg } : null),
+    [position, stale, headingDeg],
+  );
+  const whereHere = useWhereAmI(liveFix?.point ?? null, headingDeg);
+  const wherePill = useMemo(() => wherePillLines(whereHere, headingDeg), [whereHere, headingDeg]);
+  const voice = useVoiceNotes(liveFix, liveFix !== null);
+  const voiceChips: UpcomingListPoi[] = useMemo(() => {
+    if (!liveFix) return [];
+    return stackVoiceNotes(voice.notes)
+      .map((stack) => ({ stack, miles: milesAheadByBearing(stack.lead, liveFix, 30) }))
+      .filter((x): x is { stack: VoiceNoteStack; miles: number } => x.miles !== null)
+      .sort((a, b) => a.miles - b.miles)
+      .map(({ stack, miles }) => ({
+        id: `voice-${stack.lead.id}`,
+        kind: "voice" as const,
+        name: VOICE_NOTE_LABEL[stack.lead.kind],
+        milesAway: miles,
+        alert: true,
+        detail: `${voice.playing === stack.lead.id ? "Playing…" : freshnessLabel(stack.lead.createdAtMs, nowMs)}${stack.notes.length > 1 ? ` · ${stack.notes.length} drivers` : ""}`,
+        onTap: () => void voice.listen(stack.lead.id),
+        actions:
+          stack.lead.listenedAtMs !== null
+            ? [
+                { label: "It's gone", onClick: () => stack.notes.forEach((n) => void voice.report(n.id, "gone")) },
+                { label: "Wrong note", onClick: () => void voice.report(stack.lead.id, "bad") },
+              ]
+            : undefined,
+      }));
+  }, [liveFix, voice, nowMs]);
+  const voicePois = useMemo(
+    () =>
+      voiceChips.map((c) => {
+        const note = voice.notes.find((n) => `voice-${n.id}` === c.id)!;
+        return { id: c.id, point: note.point, badge: "🎙", color: "#c9a227", title: `Voice note: ${c.name}. Tap to listen.`, alert: true, onTap: c.onTap };
+      }),
+    [voiceChips, voice.notes],
+  );
+  const homeManeuver: UpcomingListManeuver | null =
+    nav.route && guidance?.onRoute && guidance.next
+      ? { arrow: HOME_ARROWS[maneuverDirection(guidance.next.instruction)], instruction: guidance.next.instruction, milesAway: guidance.next.inMiles }
+      : null;
   // Collapsed (after every hook): the map block only — the handle
   // stays so the same control brings the map back.
   if (hero && collapsed) {
@@ -210,6 +288,15 @@ export default function HomePositionCard({
           night={false}
           height={hero ? (fullscreen ? "min(62vh, 720px)" : "clamp(220px, 50vh, 600px)") : "min(40vh, 340px)"}
           label={route ? "Map following your truck along your planned route" : "Map following your truck"}
+          pois={voicePois}
+        />
+        <DriveUpcomingList
+          maneuver={homeManeuver}
+          pois={voiceChips}
+          remaining={null}
+          where={liveFix ? wherePill : null}
+          recorder={liveFix ? <VoiceNoteRecorder fix={liveFix} roadRef={whereHere?.roadRef ?? null} onSaved={voice.onSaved} /> : null}
+          bottomInsetPx={72}
         />
         <div className="home-map-overlay">
           <SpeedLimitBadge limitMph={limit} />
@@ -219,6 +306,12 @@ export default function HomePositionCard({
           </div>
         </div>
       </div>
+      {stale && (
+        <p role="status" className="home-map-stale">
+          <strong>Last known position · {positionAgeText(age)} — not live.</strong> Open the Tracker app (or allow location here) to
+          follow the truck again.
+        </p>
+      )}
       {/* --- Active-load navigation: guidance lines. Plain elements only - no layout or styling of the Home surface is changed. --- */}
       {nav.route && !nav.route.truckLegal && (
         <p role="alert" data-testid="not-truck-legal">
@@ -282,7 +375,12 @@ export default function HomePositionCard({
         ) : (
           <>No route set — showing your position only · </>
         )}
-        {fromServer ? "Last position from Telegram live location" : "Phone GPS"} · ±{Math.round(position.accuracyM)} m · {positionAgeText(age)} ·{" "}
+        {fromServer
+          ? stale
+            ? `Last known position (${server.source === "remembered" ? "saved on this phone" : "from the Tracker / Telegram"}) — not live`
+            : "Position from the Tracker / Telegram"
+          : "Phone GPS"}{" "}
+        · ±{Math.round(position.accuracyM)} m · {positionAgeText(age)} ·{" "}
         <Link href="/smart-path">{route ? "Route details" : "Plan a route"}</Link>
       </p>
       {floatSheet}
@@ -312,8 +410,9 @@ function NoFixCard({
     >
       {controls}
       <p role="status">
-        <strong>Map off — no fresh location.</strong> Allow location for this site in your browser, or share Telegram Live Location with
-        Abel, and your truck appears here. Your hours and pay below are not affected.
+        <strong>No position yet.</strong> Start the Tracker app on this phone, allow location for this site, or share Telegram Live
+        Location with Abel — your truck appears here and stays at its last known spot after that. Your hours and pay below are not
+        affected.
       </p>
       <p className="row-sub">
         <Link href="/smart-path">Plan a route</Link>

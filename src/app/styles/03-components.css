@@ -2854,3 +2854,14 @@ main .money-weeks li { padding: 0; }
 .sp-hours-tight { color: #f0b429; font-weight: 600; }
 .sp-hours-hint { font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.25rem 0; }
 .sp-eld { border: 1px solid var(--border, #333); border-radius: 10px; padding: 0.5rem 0.75rem; display: grid; gap: 0.3rem; }
+
+/* Home map: the truck is at its LAST KNOWN spot, not live (2026-11-19). Under the map, never over its controls. */
+.home-map-stale {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  border: 2px solid #c9a227;
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  font-size: 0.95rem;
+}
