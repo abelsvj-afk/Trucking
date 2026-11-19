@@ -31,7 +31,16 @@
 // never states a live figure it has not loaded. That snapshot is a
 // Phase 1 gap, listed in the PR.
 
+import { randomUUID } from "node:crypto";
 import { auditLoadDraft } from "./auditor";
+import { createBrowserRuntime, type BrowserRuntime } from "./browser-runtime";
+import {
+  parseCostPreferences,
+  parseScanRequest,
+  recordShortlistDecision,
+  runScoutScan,
+  type ScoutScanResult,
+} from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
 import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
@@ -59,6 +68,25 @@ export interface GroupHandlerDeps {
     history: { role: "user" | "assistant"; text: string }[];
     instructions: { kind: string; content: string }[];
   }) => Promise<string | null>;
+  /**
+   * The shared-browser runtime for board scans. Built from env when
+   * absent (createBrowserRuntime); tests pass their own.
+   */
+  browserRuntime?: BrowserRuntime;
+  /**
+   * The Scout scan run. Defaults to runScoutScan; tests pass a stub
+   * so a scan never waits on human-pace gaps in a test.
+   */
+  scoutScan?: (input: {
+    origin: string;
+    costPerMileCents: number;
+    floorPerAllMileCents: number;
+    dieselCentsPerGallon: number;
+    mpg: number;
+    equipment?: string | null;
+    maxShortlist?: number;
+    runId?: string;
+  }, deps: { runtime: BrowserRuntime; store: BotTeamStore | null }) => Promise<ScoutScanResult>;
 }
 
 export type GroupHandleResult = "handled" | "ignored" | "disabled";
@@ -140,6 +168,17 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
         return "handled";
       }
       const decided = await store.decideProposal(target.id, decision.decision, "owner");
+      // A denied shortlist writes its loads to the ledger as
+      // skipped — that is the outcome the learning reads. An
+      // approved shortlist writes nothing yet; the "booked" row
+      // lands when the load is actually booked.
+      if (target.kind === "load-shortlist" && decision.decision === "denied") {
+        try {
+          await recordShortlistDecision(store, target, "denied");
+        } catch (err) {
+          console.error("[bot-team] shortlist decision ledger write failed", err);
+        }
+      }
       await store.logAudit({
         botSlug: target.bot_slug,
         actor: "owner",
@@ -168,15 +207,19 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
   if (!route.shouldAnswer) return "handled";
 
-  // Dispatch Scout in this phase: no load board is live yet, so a
-  // board question gets the honest answer; a forwarded dispatch gets
-  // worked up into an auditor-checked proposal.
+  // Dispatch Scout in this phase: a scan request walks the ranked
+  // boards at human pace and posts a shortlist proposal; a forwarded
+  // dispatch gets worked up into an auditor-checked proposal.
   if (route.target === "dispatch-scout") {
+    if (isScanRequest(text)) {
+      await handleScoutScan(chat.id, text, deps);
+      return "handled";
+    }
     const looksLikeDispatch = /\b(pickup|delivery|rate|broker|load)\b/i.test(text) && /\d/.test(text);
     if (!looksLikeDispatch) {
       await deps.sendMessage(
         chat.id,
-        "Dispatch Scout: I can't scan boards yet — that starts when you name the board. Forward me a dispatch and I'll work it up.",
+        "Dispatch Scout: say 'scout, scan from <city, ST>' and I'll check the boards. Or forward me a dispatch and I'll work it up.",
       );
       return "handled";
     }
@@ -228,6 +271,79 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     await deps.sendMessage(chat.id, "Abel: that turn failed on my side — nothing was booked or sent. Try again in a moment.");
   }
   return "handled";
+}
+
+/** "scan the boards", "find loads", "shortlist" — a scan request, not a forwarded dispatch. */
+function isScanRequest(text: string): boolean {
+  return /\bscan\b/i.test(text) || /\bfind\b[^.]*\bloads?\b/i.test(text) || /\bshortlist\b/i.test(text);
+}
+
+/**
+ * Run a board scan from the group. The scan takes a minute or more
+ * (human-pace gaps between board reads), so this acks at once and
+ * the scan posts its shortlist when it finishes — the webhook never
+ * waits on it. Numbers are never invented: the cost inputs come from
+ * the Scout's stored preferences, or from the message itself, and a
+ * missing one stops the run with a plain-words ask.
+ */
+async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
+  const store = deps.store;
+  const runtime = deps.browserRuntime ?? createBrowserRuntime();
+  if (runtime.route === "not-configured") {
+    await deps.sendMessage(chatId, "Dispatch Scout: I can't scan boards yet — the shared browser isn't set up on the server. No board was read.");
+    return;
+  }
+  const { origin, equipment } = parseScanRequest(text);
+  if (!origin) {
+    await deps.sendMessage(chatId, "Dispatch Scout: where's the truck right now? Say 'scout, scan from Panama City, FL' and I'll check the boards.");
+    return;
+  }
+  let memories: { content: string }[] = [];
+  if (store) {
+    try {
+      memories = await store.loadBotMemories("dispatch-scout");
+    } catch (error) {
+      console.error("[bot-team] scout scan memories failed — asking for the numbers instead", error);
+    }
+  }
+  // The message itself can carry the numbers; it wins over memory.
+  const prefs = { ...parseCostPreferences(memories), ...parseCostPreferences([{ content: text }]) };
+  const { costPerMileCents, floorPerAllMileCents, dieselCentsPerGallon, mpg } = prefs;
+  const missing: string[] = [];
+  if (costPerMileCents === undefined) missing.push("cost per mile");
+  if (floorPerAllMileCents === undefined) missing.push("floor (lowest profit per all mile you'll run for)");
+  if (dieselCentsPerGallon === undefined) missing.push("diesel price");
+  if (mpg === undefined) missing.push("miles per gallon");
+  if (missing.length > 0) {
+    await deps.sendMessage(
+      chatId,
+      `Dispatch Scout: I need ${missing.join(", ")} before I can price loads — say them once and I'll remember them. Nothing was read yet.`,
+    );
+    return;
+  }
+  // Unreachable in practice — missing.length === 0 proves all four are
+  // set — but the compiler needs the explicit check to narrow them.
+  if (costPerMileCents === undefined || floorPerAllMileCents === undefined || dieselCentsPerGallon === undefined || mpg === undefined) {
+    return;
+  }
+  const runId = randomUUID();
+  const watch = runtime.watchUrl(runId);
+  await deps.sendMessage(
+    chatId,
+    `Dispatch Scout: scanning TruLOS first, then Trucker Path, then JustTracking — I'll post the shortlist here.${watch ? ` Watch the browser live: ${watch}` : ""}`,
+  );
+  const run = deps.scoutScan ?? runScoutScan;
+  void run(
+    { origin, costPerMileCents, floorPerAllMileCents, dieselCentsPerGallon, mpg, equipment, runId },
+    { runtime, store },
+  )
+    .then(async (result) => {
+      await deps.sendMessage(chatId, result.summary);
+    })
+    .catch(async (error) => {
+      console.error("[bot-team] scout scan failed", error);
+      await deps.sendMessage(chatId, "Dispatch Scout: the scan failed on my side — nothing was booked or sent. Say 'scout, scan' to try again.");
+    });
 }
 
 /**
