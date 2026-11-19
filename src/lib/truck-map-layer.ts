@@ -5,11 +5,24 @@
 // turns to its real heading; the map's tilt gives it the angle, the
 // shading gives it the depth.
 //
-// Two things this layer deliberately does NOT do:
-// - It never calls `map.triggerRepaint()` from inside `render` —
-//   that would loop the renderer forever and drain the battery.
-//   The DriveMap position effect repaints when a new fix arrives.
-// - It never invents a position: with no fix, nothing is drawn.
+// Driving (owner 2026-11-19): between fixes the truck GLIDES to the
+// new position and turns the short way round, and the tires roll by
+// the ground covered (truck-motion.ts). The layer asks for the next
+// frame only while a glide is in progress — once the truck reaches
+// the fix it stops repainting, so a parked truck costs no frames.
+// The DriveMap position effect repaints when a new fix arrives.
+// It never invents a position: with no fix, nothing is drawn.
+//
+// Two MapLibre 5 rules this layer depends on (2026-11-19: both were
+// missing and the truck was never visible):
+// - The truck is placed in 0..1 Mercator units, so it must be drawn
+//   with `defaultProjectionData.mainMatrix`. MapLibre 5's
+//   `modelViewProjectionMatrix` is in pixel-world units — with it
+//   the truck lands off screen at the world's corner.
+// - three.js shares MapLibre's GL context, so `renderer.resetState()`
+//   runs before every draw; without it three.js trusts a stale state
+//   cache and its draws go to MapLibre's programs (GL errors, nothing
+//   drawn).
 //
 // Scale, stated plainly: a true-scale rig is ~5 px at follow zoom
 // 15, so the model is drawn 10x true size (like every GPS vehicle
@@ -20,6 +33,7 @@
 import * as THREE from "three";
 import type { CustomLayerInterface, Map as MapLibreMap } from "maplibre-gl";
 import { buildTruckModel } from "./truck-model";
+import { feedFix, sampleMotion, type TruckMotion } from "./truck-motion";
 import type { LatLng } from "./smart-path";
 
 export const TRUCK_MAP_LAYER_ID = "drive-truck-3d";
@@ -41,8 +55,9 @@ export interface TruckLayerState {
 }
 
 /**
- * The full projection for the truck model: the map's
- * model-view-projection matrix, then into Mercator world space at the
+ * The full projection for the truck model: MapLibre 5's
+ * `defaultProjectionData.mainMatrix` (0..1 Mercator world → clip)
+ * , then into Mercator world space at the
  * truck's position, then the heading rotation around the vertical,
  * then the model's own up (three.js Y-up to map Z-up). Pure — the
  * heading math is unit-tested without any GL context.
@@ -54,13 +69,13 @@ export interface TruckLayerState {
  * there (0 = north, 90 = east).
  */
 export function computeTruckMatrix(
-  modelViewProjectionMatrix: ArrayLike<number>,
+  mainMatrix: ArrayLike<number>,
   merc: TruckMercatorPosition,
   headingDeg: number,
   exaggeration: number = TRUCK_MODEL_EXAGGERATION,
 ): THREE.Matrix4 {
   const scale = merc.metersPerUnit * exaggeration;
-  const m = new THREE.Matrix4().fromArray(modelViewProjectionMatrix);
+  const m = new THREE.Matrix4().fromArray(mainMatrix);
   const l = new THREE.Matrix4()
     .makeTranslation(merc.x, merc.y, merc.z)
     .scale(new THREE.Vector3(scale, -scale, scale));
@@ -92,6 +107,8 @@ export function createTruckMapLayer(
   // trying on later frames — a transient GL error heals, a
   // persistent one stays visible in the log instead of vanishing.
   let reportedRenderError = false;
+  let wheels: THREE.Mesh[] = [];
+  let motion: TruckMotion | null = null;
 
   return {
     id: TRUCK_MAP_LAYER_ID,
@@ -105,7 +122,9 @@ export function createTruckMapLayer(
       const sun = new THREE.DirectionalLight(0xffffff, 1.2);
       sun.position.set(0.5, 0.8, 1);
       scene.add(sun);
-      scene.add(buildTruckModel().group);
+      const model = buildTruckModel();
+      wheels = model.wheels;
+      scene.add(model.group);
       renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
       renderer.autoClear = false;
     },
@@ -125,6 +144,8 @@ export function createTruckMapLayer(
       scene = null;
       camera = null;
       map = null;
+      wheels = [];
+      motion = null;
     },
     render(_gl, options) {
       const state = getState();
@@ -135,14 +156,24 @@ export function createTruckMapLayer(
         if (size.x !== canvas.clientWidth || size.y !== canvas.clientHeight) {
           renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
         }
-        camera.projectionMatrix.copy(
-          computeTruckMatrix(
-            options.modelViewProjectionMatrix,
-            project(state.position),
-            state.headingDeg ?? 0,
-          ),
+        const now = performance.now();
+        motion = feedFix(
+          motion,
+          { position: state.position, headingDeg: state.headingDeg ?? motion?.to.headingDeg ?? 0 },
+          now,
         );
+        const sampled = sampleMotion(motion, now);
+        motion = sampled.motion;
+        const { pose, wheelAngle, animating } = sampled.frame;
+        // Wheels lie on their axle (rotation.z = 90°); rotation.x then
+        // rolls them about the axle — positive rolls the top forward.
+        for (const wheel of wheels) wheel.rotation.x = wheelAngle;
+        camera.projectionMatrix.copy(
+          computeTruckMatrix(options.defaultProjectionData.mainMatrix, project(pose.position), pose.headingDeg),
+        );
+        renderer.resetState();
         renderer.render(scene, camera);
+        if (animating) map.triggerRepaint();
       } catch (error) {
         if (!reportedRenderError) {
           reportedRenderError = true;

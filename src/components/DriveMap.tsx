@@ -506,8 +506,8 @@ export default function DriveMap({
     if (!map || !position) return;
     if (view3dRef.current && !truckLayerFailed) {
       // No HTML marker in 3D view — the model IS the truck. Repaint
-      // so the model moves with the fix (the layer never repaints
-      // itself, or it would loop forever).
+      // so the layer sees the new fix; it then glides to it and
+      // stops asking for frames once it arrives (truck-motion.ts).
       map.triggerRepaint();
       if (followRef.current) {
         const now = Date.now();
