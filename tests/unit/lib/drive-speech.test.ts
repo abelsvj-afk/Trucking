@@ -82,3 +82,28 @@ describe("createSpeaker", () => {
     expect(synth.cancels).toBe(2);
   });
 });
+
+describe("his ElevenLabs voice, with the phone's voice as the fallback (2026-11-19)", () => {
+  it("plays the saved clip when there is one, and says it with the phone voice when there isn't", async () => {
+    const { createSpeaker } = await import("@/lib/drive-speech");
+    const said: string[] = [];
+    const synth = { speak: (u: { text: string }) => void said.push(u.text), cancel: () => undefined };
+    const played: string[] = [];
+    const sp = createSpeaker({
+      synth: synth as never,
+      storage: null,
+      createUtterance: (text) => ({ text }) as never,
+      clip: async (text) => (text.startsWith("Road") ? "https://signed/clip.mp3" : null),
+      play: (url) => {
+        played.push(url);
+        return { stop: () => undefined, done: Promise.resolve() };
+      },
+    });
+    sp.speak("Road work ahead in 1.8 miles.");
+    await new Promise((r) => setTimeout(r, 0));
+    sp.speak("Low bridge ahead.");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(played).toEqual(["https://signed/clip.mp3"]);
+    expect(said).toEqual(["Low bridge ahead."]);
+  });
+});
