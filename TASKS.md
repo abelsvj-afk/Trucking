@@ -269,3 +269,15 @@ the carrier's system; the disclaimer stays verbatim on HOS surfaces.
 - [x] Decomposition 2026-11-05 (behavior-preserving): `store.ts` 1664 -> 949, `tools-write.ts` 1780 -> 1153, `dispatch-bot.ts` 1104 -> 1051.
 - [x] Wave 4 tests 2026-11-05: service-role company-scope (brain store + every bot tool), injection-authority, driver_positions per-company, isolation seeders 60/60, tenant-fk + documents-trigger SQL tests.
 - [ ] Remaining: see docs/work-queue.md (apply 00068-00071 live; state-rule rows; WZDx feeds; further decomposition; Wave 4 items 2/3/5, E2E, real-browser a11y/performance; Wave 6 units only on owner approval).
+
+## Stage 9 — Bot team baseline (2026-11-19, owner: "get it started")
+
+- [x] Bot team baseline, branch feat/bot-team-baseline-2026-11-19 off main e1d946d, NOT merged, NOT deployed. Plan docs/bot-team-build-plan.md (Phases 0-4; animated in-app faces are Phase 3, LATER, presentation only). Spec: the 7 bots governing files in docs/bots, PR #95, NOT merged.
+- [x] Migration 00103_bot_team.sql AUTHORED, NOT applied: bot_identities (7 seeded), bot_memories, bot_load_ledger, bot_proposals, bot_audit_log, bot_group_rooms, bot_group_messages, bot_spend_ledger. RLS by company_id on every table; money integer cents. 00102 skipped (claimed twice by unmerged B1/B8).
+- [x] src/services/bots: registry (tool scopes per governing file), guardrails (propose-only in code; no execution path in Phase 0), auditor (recomputes pay/miles/windows), router (reply, then mention, then keyword, then Abel), spend (tiers plus $10/mo hard cap, estimates not bills), store (service-role, company-scoped), group (Telegram group mode for Abel + Dispatch Scout), calling (STUB ONLY — refuses every call).
+- [x] Webhook: group/supergroup updates route to the team handler; the 1:1 path is untouched and still ignores groups. Proposals API GET/POST /api/bots/proposals (session-auth, company-scoped).
+- [x] Tests in tests/unit/services/bots: 45 tests, 7 files, all passing (targeted run). Full gate numbers in PROJECT_STATE.md.
+- [ ] Phase 1: approved-proposal execution; Dispatch Scout live (board choice + access still the owner's step); learn-from-every-load loop first cut.
+- [ ] Phase 2: Tracker, Compliance Watchdog, Maintenance, Billing seats in the room.
+- [ ] Phase 3: animated in-app room (Grok-style faces) — same backend, presentation only. NOT built.
+- [ ] Phase 4: calling live — Telnyx outbound unlocked via API 2026-11-19; still open: ElevenLabs voice pick + AI assistant connection + test call on his word.

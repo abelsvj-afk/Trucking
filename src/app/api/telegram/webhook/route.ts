@@ -37,6 +37,8 @@ import {
   type TelegramUpdate,
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
+import { handleBotTeamGroupUpdate } from "@/services/bots/group";
+import { createBotTeamStore } from "@/services/bots/store";
 import type { BotBrainStore } from "@/services/bot/store";
 import { createTelegramBurstCollector, type TelegramBurstItem } from "@/services/telegram/burst";
 import { handleTelegramPhotoIntelligent } from "@/services/telegram/photo-intelligence";
@@ -185,6 +187,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const botToken = config.botToken;
+
+  // Bot team group mode (Phase 0 baseline; docs/bot-team-build-plan.md):
+  // group/supergroup updates go to the team handler. The 1:1 path
+  // below still serves only the owner's private chat and still ignores
+  // every group. Rate limiting above already applies to groups too.
+  const groupChat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
+  if (groupChat?.type === "group" || groupChat?.type === "supergroup") {
+    const teamStore = createBotTeamStore(config.companyId);
+    // Lazy provider: no key = no runChat, and the group says so
+    // honestly instead of failing.
+    const runChat = process.env.OPENAI_API_KEY
+      ? async (input: {
+          userText: string;
+          history: { role: "user" | "assistant"; text: string }[];
+          instructions: { kind: string; content: string }[];
+        }): Promise<string | null> => {
+          const output = await runBotChat(new OpenAiProvider(), {
+            userText: input.userText,
+            history: input.history,
+            snapshotText: null,
+            instructions: input.instructions.map((row) => ({
+              kind: row.kind === "fact" ? ("fact" as const) : ("instruction" as const),
+              content: row.content,
+              created_at: new Date().toISOString(),
+            })),
+            memories: [],
+          });
+          return output.reply;
+        }
+      : undefined;
+    await handleBotTeamGroupUpdate(update, {
+      botToken,
+      allowedChatId: config.allowedChatId,
+      groupChatId: config.groupChatId ?? null,
+      companyId: config.companyId,
+      store: teamStore,
+      sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
+      runChat,
+    });
+    return NextResponse.json({ ok: true });
+  }
   // Personality: stickers come from a public sticker set (TELEGRAM_STICKER_SET; default Telegram's AnimatedEmojies).
   const personality = createPersonalitySenders(botToken, { stickerSet: process.env.TELEGRAM_STICKER_SET, tenorKey: process.env.TENOR_API_KEY });
   // v2 (§8): the brain store powers the agent loop (tools, proposals,
