@@ -10,13 +10,14 @@
 
 import type { RouteManeuver } from "@/services/integrations/routing";
 import { maneuverDirection } from "./drive";
+import { maneuverZoomProfile } from "./drive-maneuver-zoom";
 
 export const FAR_MILES = 0.6;
 export const NEAR_MILES = 0.15;
-/** The approach call-out: the top of its band, and the bottom —
-// inside the band it fires once as he crosses it, never again. */
-export const APPROACH_MILES = 4.5;
-export const APPROACH_MIN_MILES = 4.0;
+/** The approach call-out fires as the zoom starts (drive-maneuver-zoom.ts:
+ * ~4.5 mi for a highway exit, ~1.5 mi for a street turn), once, inside a
+ * band this deep below that start — never a stale early call. */
+export const APPROACH_BAND_MILES = 0.5;
 
 export interface UpcomingManeuver {
   maneuver: RouteManeuver;
@@ -66,10 +67,11 @@ export function maneuverAnnouncement(
   // band keeps it a single crossing: a maneuver first seen inside
   // the band still announces, one first seen below it does not get
   // a stale early call.
+  const profile = maneuverZoomProfile(maneuver.instruction, direction);
   if (
-    (direction === "left" || direction === "right" || direction === "uturn") &&
-    milesAway <= APPROACH_MILES &&
-    milesAway >= APPROACH_MIN_MILES &&
+    profile &&
+    milesAway <= profile.startMiles &&
+    milesAway >= profile.startMiles - APPROACH_BAND_MILES &&
     !spoken.has(approach)
   ) {
     return { keys: [approach], line: `In ${distanceWords(milesAway)}, ${text.charAt(0).toLowerCase()}${text.slice(1)}.` };

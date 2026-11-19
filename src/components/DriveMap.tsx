@@ -25,6 +25,9 @@ import type { LatLng } from "@/lib/smart-path";
 import type { DriveStop, DriveStopStatus } from "@/lib/drive";
 import { truckIconSvg } from "@/lib/truck-icon";
 import { buildRouteMeasure } from "@/lib/route-measure";
+import { GLOW_COLOR, GLOW_TICK_MS, glowPaintAt } from "@/lib/route-glow";
+
+const GLOW_START = glowPaintAt(0, false, true);
 import { createTruckMapLayer, TRUCK_MAP_LAYER_ID, type TruckLayerState } from "@/lib/truck-map-layer";
 import { DRIVE_MAP_PITCH_3D, driveMapCamera } from "@/lib/drive-map-camera";
 import { segmentsToFeatureCollection, type MapSegment } from "@/lib/smart-path-map-segments";
@@ -505,7 +508,8 @@ export default function DriveMap({
           id: "drive-route-glow",
           type: "line",
           source: "drive-route",
-          paint: { "line-color": "#f2b705", "line-width": 12, "line-opacity": 0.4, "line-blur": 6 },
+          // Pulsating golden glow (owner 2026-11-18) — the pulse effect below animates width + opacity.
+          paint: { "line-color": GLOW_COLOR, "line-width": GLOW_START.width, "line-opacity": GLOW_START.opacity, "line-blur": GLOW_START.blur },
         });
         map.addLayer({
           id: "drive-route-casing",
@@ -627,6 +631,41 @@ export default function DriveMap({
       }
     }
   }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, applyCamera]);
+
+  // The pulsating golden glow on the route (owner 2026-11-18). Two
+  // paint values on one layer, ~8 updates a second (route-glow.ts) —
+  // paused while the page is hidden, held still for reduced motion.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const still =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    const apply = () => {
+      const map = mapRef.current;
+      if (!map || !map.getLayer("drive-route-glow")) return;
+      const paint = glowPaintAt(Date.now(), night, still);
+      map.setPaintProperty("drive-route-glow", "line-width", paint.width);
+      map.setPaintProperty("drive-route-glow", "line-opacity", paint.opacity);
+      map.setPaintProperty("drive-route-glow", "line-blur", paint.blur);
+    };
+    const start = () => {
+      if (timer || still) return;
+      timer = setInterval(apply, GLOW_TICK_MS);
+    };
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+    apply();
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [night]);
 
   // Toggling 3D re-aims the camera and swaps the truck now — not only on the next fix.
   // 3D on: the HTML marker goes away (the model takes its place) and the layer is added.

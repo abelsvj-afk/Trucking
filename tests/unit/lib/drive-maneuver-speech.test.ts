@@ -68,3 +68,13 @@ describe("maneuverAnnouncement (spoken turns)", () => {
     expect(maneuverAnnouncement({ maneuver: turn, milesAway: 3.9 }, new Set())).toBeNull();
   });
 });
+
+describe("approach call-out matches the zoom start (2026-11-19)", () => {
+  it("a street turn is called out ~1.5 mi out, once", async () => {
+    const { maneuverAnnouncement } = await import("@/lib/drive-maneuver-speech");
+    const street = { instruction: "Turn left onto Oak Ave.", distanceMiles: 0.3, atFraction: 0.5 };
+    expect(maneuverAnnouncement({ maneuver: street, milesAway: 4.4 }, new Set())).toBeNull();
+    const a = maneuverAnnouncement({ maneuver: street, milesAway: 1.4 }, new Set())!;
+    expect(a.line).toBe("In 1.4 miles, turn left onto Oak Ave.");
+  });
+});

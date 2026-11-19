@@ -876,6 +876,7 @@ export default function DrivePage() {
       ? maneuverZoomTarget({
           milesAway: liveUpcoming.milesAway,
           direction: maneuverDirection(liveUpcoming.maneuver.instruction),
+          instruction: liveUpcoming.maneuver.instruction,
           baseZoom: DRIVE_MAP_FOLLOW_ZOOM_3D,
         })
       : null;

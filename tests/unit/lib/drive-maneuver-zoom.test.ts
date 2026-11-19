@@ -1,51 +1,48 @@
+// Maneuver zoom (owner 2026-11-18): ease in from a few miles out for
+// turns and exits only — farther out for highway exits, closer in for
+// tight turns — and ease back out after.
 import { describe, expect, it } from "vitest";
-import {
-  isTurnManeuver,
-  maneuverZoomTarget,
-  MANEUVER_ZOOM_BOOST_CLOSE,
-  MANEUVER_ZOOM_BOOST_FAR,
-  MANEUVER_ZOOM_START_MILES,
-} from "@/lib/drive-maneuver-zoom";
+import { EXIT_ZOOM, TURN_ZOOM, isTurnManeuver, maneuverZoomProfile, maneuverZoomTarget } from "@/lib/drive-maneuver-zoom";
 
-describe("maneuverZoomTarget (the map zooms in on turns)", () => {
-  const base = 15;
+const BASE = 15;
 
-  it("stays at follow zoom for straight-ahead and arrival", () => {
-    expect(maneuverZoomTarget({ milesAway: 1, direction: "straight", baseZoom: base })).toBe(base);
-    expect(maneuverZoomTarget({ milesAway: 1, direction: "arrive", baseZoom: base })).toBe(base);
+describe("maneuver zoom", () => {
+  it("never zooms for straight-ahead or arrival", () => {
+    expect(maneuverZoomTarget({ milesAway: 1, direction: "straight", instruction: "Continue on I-10 W", baseZoom: BASE })).toBe(BASE);
+    expect(maneuverZoomTarget({ milesAway: 0.2, direction: "arrive", instruction: "Arrive at destination", baseZoom: BASE })).toBe(BASE);
+    expect(isTurnManeuver("straight", "Stay on I-10 W")).toBe(false);
   });
 
-  it("stays at follow zoom farther out than the approach", () => {
-    expect(
-      maneuverZoomTarget({ milesAway: MANEUVER_ZOOM_START_MILES + 0.5, direction: "right", baseZoom: base }),
-    ).toBe(base);
+  it("a highway exit starts at ~4.5 mi (the owner's example) — even worded without left/right", () => {
+    expect(maneuverZoomProfile("Take exit 174 toward Tallahassee", "straight")).toBe(EXIT_ZOOM);
+    expect(maneuverZoomTarget({ milesAway: 4.6, direction: "straight", instruction: "Take exit 174", baseZoom: BASE })).toBe(BASE);
+    const start = maneuverZoomTarget({ milesAway: 4.4, direction: "straight", instruction: "Take exit 174", baseZoom: BASE });
+    const close = maneuverZoomTarget({ milesAway: 0.3, direction: "straight", instruction: "Take exit 174", baseZoom: BASE });
+    expect(start).toBeGreaterThan(BASE);
+    expect(close).toBeCloseTo(BASE + EXIT_ZOOM.boostClose);
   });
 
-  it("starts zooming in at the approach and zooms more close in", () => {
-    const atStart = maneuverZoomTarget({ milesAway: MANEUVER_ZOOM_START_MILES, direction: "right", baseZoom: base });
-    const mid = maneuverZoomTarget({ milesAway: 2.5, direction: "right", baseZoom: base });
-    const close = maneuverZoomTarget({ milesAway: 0.5, direction: "right", baseZoom: base });
-    expect(atStart).toBeCloseTo(base + MANEUVER_ZOOM_BOOST_FAR, 6);
-    expect(mid).toBeGreaterThan(atStart);
-    expect(close).toBeCloseTo(base + MANEUVER_ZOOM_BOOST_CLOSE, 6);
-    expect(close).toBeGreaterThan(mid);
+  it("a tight street turn starts later (~1.5 mi) and zooms closer than an exit", () => {
+    const instruction = "Turn right onto Main St";
+    expect(maneuverZoomProfile(instruction, "right")).toBe(TURN_ZOOM);
+    expect(maneuverZoomTarget({ milesAway: 3, direction: "right", instruction, baseZoom: BASE })).toBe(BASE);
+    const close = maneuverZoomTarget({ milesAway: 0.1, direction: "right", instruction, baseZoom: BASE });
+    expect(close).toBeCloseTo(BASE + TURN_ZOOM.boostClose);
+    expect(TURN_ZOOM.boostClose).toBeGreaterThan(EXIT_ZOOM.boostClose);
   });
 
-  it("holds the closest zoom inside the close band, and eases back out once passed", () => {
-    expect(maneuverZoomTarget({ milesAway: 0.1, direction: "left", baseZoom: base })).toBeCloseTo(
-      base + MANEUVER_ZOOM_BOOST_CLOSE,
-      6,
-    );
-    // A turn already behind him is the next maneuver's problem: this
-    // one reports follow zoom, so the camera glides back out.
-    expect(maneuverZoomTarget({ milesAway: -1, direction: "left", baseZoom: base })).toBe(base);
+  it("eases in continuously as he closes, and back to base once passed", () => {
+    const at = (m: number) => maneuverZoomTarget({ milesAway: m, direction: "right", instruction: "Take the ramp on the right", baseZoom: BASE });
+    expect(at(3)).toBeGreaterThan(at(4));
+    expect(at(1)).toBeGreaterThan(at(3));
+    expect(at(-0.1)).toBe(BASE);
   });
+});
 
-  it("covers left, right, and U-turns", () => {
-    expect(isTurnManeuver("left")).toBe(true);
-    expect(isTurnManeuver("right")).toBe(true);
-    expect(isTurnManeuver("uturn")).toBe(true);
-    expect(isTurnManeuver("straight")).toBe(false);
-    expect(isTurnManeuver("arrive")).toBe(false);
+describe("turns onto highways", () => {
+  it("a turn onto a US/I/state highway gets the far-out approach (the owner's 'In 4.4 miles, turn right…')", () => {
+    expect(maneuverZoomProfile("Turn right onto US-231", "right")).toBe(EXIT_ZOOM);
+    expect(maneuverZoomProfile("Turn left onto I-75 N", "left")).toBe(EXIT_ZOOM);
+    expect(maneuverZoomProfile("Turn left onto Oak Ave", "left")).toBe(TURN_ZOOM);
   });
 });
