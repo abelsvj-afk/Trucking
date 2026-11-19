@@ -105,18 +105,102 @@ Deliberately NOT in Phase 0: live load-board login (needs his board choice
 use (pad empty); the remaining four seats (Tracker, Compliance Watchdog,
 Maintenance, Billing) — their files exist, their wiring comes in Phase 2.
 
-## Phase 1 — Dispatch Scout live
+## Phase 1 — Dispatch Scout live (built 2026-11-19, branch `feat/dispatch-scout-boards-2026-11-19`)
 
-- Load-board reading: official API first where one exists; cloud browser
-  at human pace second (credentials secured, never shown), only after he
-  names the board and supplies access.
-- Shortlists of 3–5 loads with rate, loaded + deadhead miles, $ per loaded
-  mile, $ per ALL miles, broker credit/days-to-pay, windows — judged on
-  the round trip, exit priced, two loads ahead where possible.
-- Learn-from-every-load loop, first cut: every outcome lands in the ledger
-  (booked / skipped / cancelled, pay, miles, deadhead, fuel, detention);
-  weekly rule suggestions for the owner to approve ("don't take city
-  deliveries under $X") — never auto-applied.
+- **Boards, ranked, free first:** TruLOS (no login at all), Trucker Path
+  TruckLoads (free tier, no MC to start), JustTracking (free, no authority
+  to start). The Scout walks them in that order and falls down the list
+  when a board has nothing worth shortlisting. Paid boards (DAT,
+  Truckstop, 123Loadboard) and broker apps (TruckSmarter, Uber Freight,
+  Amazon Relay, C.H. Robinson, Loadsmart) join only when the owner
+  subscribes / his own authority is active — they are listed, never
+  read. There is no free public API for these boards.
+- **Browser runtime (design: docs/bot-team-browser-runtime.md):** a
+  SEPARATE always-on VM the bots share ("trucking-browser"), NOT a
+  headless browser behind the Fly backend — the app machines auto-stop
+  when idle, so no logged-in session survives there, and Chromium on a
+  1 GB shared-cpu machine risks OOM. The VM owns the real browser
+  session and the logged-in profile; the app talks to it over HTTP
+  (`POST /read`, shared-secret header) at human pace (20s between
+  reads, max 3 boards per run, 60s read timeout). Official API first
+  wherever one exists. Credentials are Fly secrets only, never in the
+  repo. Cost estimate in the design doc: ~$7–8/month (1 GB machine +
+  small volume), labeled an estimate to confirm on Fly's pricing page;
+  provisioning is a new recurring bill and needs the owner's word.
+- **Live watch (owner requirement 2026-11-19):** the VM runs the browser
+  under Xvfb and serves it via noVNC — the owner opens a watch link
+  from his phone and sees the live browser (what board, what load, what
+  is being clicked), with a STOP button and takeover of that same
+  browser session. `watchUrl(runId)` / `stopRun(runId)` on the runtime
+  client; the run id is a random per-run token, live only while the run
+  is live plus a short grace.
+- **24/7 always-on (settled 2026-11-19):** the same VM is the 24/7 home
+  — scan schedule 30 min 6 AM–9 PM ET, hourly overnight; heartbeat
+  every 5 min, flagged down in the group after 15 min of silence.
+  Quiet hours 9 PM–6 AM ET: scanning continues, anything the owner
+  would see holds until morning unless time-sensitive (pickup within
+  6 hours). Never book/pay/sign/message a broker without the owner;
+  the 00103 `bot_spend_ledger` $10/month cap gates every model call.
+- **Shortlists of 3–5 loads** with rate, loaded + deadhead miles, $ per
+  loaded mile, $ per ALL miles, broker credit/days-to-pay, pickup
+  windows — judged on the round trip, exit priced (Florida warns in
+  this cut). Propose-only: `bot_proposals` rows of kind
+  "load-shortlist", Auditor-checked before the owner sees them.
+- **Learn-from-every-load loop, first cut:** every load the scan looked
+  at and did NOT shortlist lands in `bot_load_ledger` at scan time with
+  outcome "skipped" and the plain-words reason; a denied shortlist
+  writes its loads as skipped too. A shortlisted load gets its row when
+  the owner decides (denied → skipped; approved → nothing yet, the
+  "booked" row lands when the load is actually booked). `learnPreferences`
+  reads the ledger (needs ≥3 booked loads before it suggests a floor) and
+  never auto-applies anything.
+- **Group wiring:** "scout, scan from <city, ST>" runs a scan; the Scout
+  asks for the truck's origin and for any missing cost inputs (cost per
+  mile, floor, diesel, mpg — from stored preferences or the message
+  itself) instead of inventing them. The scan acks at once and posts the
+  shortlist when it finishes.
+- **Honest limits in this cut:** the browser VM does not exist yet, so
+  no live board read has been performed and the read/watch/stop paths
+  are unproven against a real worker. Deadhead comes from the board
+  when the board gives it and from nowhere else — free boards usually
+  do not, so those loads are unpriceable and skipped with the reason
+  (deadhead via the app's routing is the next build). The app-side
+  proposals route does not yet write ledger rows for a denied
+  shortlist (only the group decision handler does). Registry status for
+  dispatch-scout stays "planned" until the VM exists and a live read
+  is proven.
+
+### Bot identity (owner rules, 2026-11-19)
+
+- **Abel is NOT Malik, and Scout is neither of them.** Malik is the
+  name of the Telnyx AI assistant that calls on the shared number
+  (+1 320-369-0102) in the Will voice. Abel is the owner's bot — his
+  own name, his own voice (not picked yet; NOT Will, NOT Malik). Scout
+  is his own bot with his own name: **Dispatch Scout**.
+- **Scout's voice (recommended, needs the owner's approval): Brian**
+  (ElevenLabs `nPczCjzI2devNBz1zQrb`, male, middle-aged, American) —
+  a steady professional dispatcher voice for broker calls, clearly
+  distinct from Malik's Will (young, relaxed optimist) and from
+  whatever voice Abel gets. Alternate: Chris
+  (`iP95p4xoKVk53GoZ742B`, male, middle-aged, American). Roger is NOT
+  reused for Scout — it was Malik's first voice, and reusing it would
+  blur the identities. No British or Australian voices (the owner
+  wants American). The voice is recorded here only — per-bot voice
+  wiring in code is not built yet; voices live at the Telnyx assistant
+  level today.
+- **Scout's photo:** isekai anime mixed with Jesus/faith imagery —
+  radiant warm light, halo, hopeful anime look — the same style as all
+  seven bot photos (a separate photo job is making them; Scout's photo
+  just has to match). Scout's is distinct by color and symbol:
+  **deep teal + a gold compass rose / map symbol**, so he reads as the
+  load-finder at a glance. Abel currently just has the business logo —
+  every bot gets its own image so the owner can tell them apart in the
+  group chat.
+- **Bots that never call need no voice:** Compliance Watchdog and
+  Auditor show their info through the app / Telegram chat only.
+  Billing gets Bella (female, `hpp4J3VqNfWAUOO0d1Us`) when that
+  assistant is built. Tracker and Maintenance get their own distinct
+  voices later, same rule — one voice per calling bot, never shared.
 
 ## Phase 2 — Remaining seats
 

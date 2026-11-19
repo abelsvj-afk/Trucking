@@ -26,6 +26,8 @@ interface StubState {
   spentCents: number;
   audit: { action: string; targetRef: string | null }[];
   groupMessages: { text: string }[];
+  memories?: { content: string }[];
+  ledger?: { loadRef: string; outcome: string; notes: string | null }[];
 }
 
 function makeStub(state: StubState): BotTeamStore {
@@ -63,7 +65,9 @@ function makeStub(state: StubState): BotTeamStore {
     logAudit: async (input) => {
       state.audit.push({ action: input.action, targetRef: input.targetRef ?? null });
     },
-    recordLoadOutcome: async () => {},
+    recordLoadOutcome: async (input) => {
+      if (state.ledger) state.ledger.push({ loadRef: input.loadRef, outcome: input.outcome, notes: input.notes ?? null });
+    },
     ensureGroupRoom: async () => {},
     recordGroupMessage: async (input) => {
       state.groupMessages.push({ text: input.text });
@@ -72,7 +76,15 @@ function makeStub(state: StubState): BotTeamStore {
       state.spentCents += input.estimatedCents;
     },
     spentThisMonthCents: async () => state.spentCents,
-    loadBotMemories: async () => [],
+    loadBotMemories: async () =>
+      (state.memories ?? []).map((memory, index) => ({
+        id: `memory-${index + 1}`,
+        bot_slug: "dispatch-scout",
+        kind: "preference",
+        source: "test",
+        content: memory.content,
+        created_at: new Date().toISOString(),
+      })),
   };
 }
 
@@ -193,5 +205,106 @@ describe("bot-team group mode", () => {
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
     expect(sent[0]).toMatch(/isn't in the room yet/);
+  });
+
+  it("asks where the truck is when a scan names no origin", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      browserRuntime: {
+        route: "shared-vm",
+        readBoard: async () => ({ boardSlug: "trulos", status: "ok", loads: [], note: "ok", readAtIso: new Date().toISOString() }),
+        watchUrl: () => "https://browser.example/watch/run-1",
+        stopRun: async () => ({ stopped: true, reason: "Stopped." }),
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("scout, scan"), deps);
+    expect(sent[0]).toMatch(/where's the truck right now/);
+  });
+
+  it("asks for the missing cost numbers instead of inventing them", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      browserRuntime: {
+        route: "shared-vm",
+        readBoard: async () => ({ boardSlug: "trulos", status: "ok", loads: [], note: "ok", readAtIso: new Date().toISOString() }),
+        watchUrl: () => "https://browser.example/watch/run-1",
+        stopRun: async () => ({ stopped: true, reason: "Stopped." }),
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("scout, scan from Panama City, FL"), deps);
+    expect(sent[0]).toMatch(/I need cost per mile/);
+    expect(sent[0]).toMatch(/Nothing was read yet/);
+  });
+
+  it("acks a scan, then posts the shortlist summary when the run finishes", async () => {
+    const state: StubState = {
+      proposals: [],
+      spentCents: 0,
+      audit: [],
+      groupMessages: [],
+      memories: [{ content: "cost per mile: $1.20" }, { content: "floor: 50c" }, { content: "diesel $3.50" }, { content: "mpg 7" }],
+    };
+    const { deps, sent } = makeDeps(state, {
+      browserRuntime: {
+        route: "shared-vm",
+        readBoard: async () => ({ boardSlug: "trulos", status: "ok", loads: [], note: "ok", readAtIso: new Date().toISOString() }),
+        watchUrl: (runId: string) => `https://browser.example/watch/${runId}`,
+        stopRun: async () => ({ stopped: true, reason: "Stopped." }),
+      },
+      scoutScan: async () => ({
+        runId: "run-1",
+        boardReports: [{ boardSlug: "trulos", status: "ok", loadsSeen: 1, note: "ok" }],
+        loadsSeen: 1,
+        shortlistCount: 1,
+        skippedCount: 0,
+        proposalId: "proposal-1",
+        watchUrl: "https://browser.example/watch/run-1",
+        timeSensitive: false,
+        summary: "Dispatch Scout — shortlist from Panama City, FL:\n1. Panama City, FL → Atlanta, GA — $1,850",
+      }),
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("scout, scan from Panama City, FL"), deps);
+    expect(sent[0]).toMatch(/scanning TruLOS first/);
+    expect(sent[0]).toContain("https://browser.example/watch/");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toContain("Panama City, FL → Atlanta, GA");
+  });
+
+  it("writes skipped ledger rows when the owner denies a shortlist, none on approval", async () => {
+    const shortlistRow: ProposalRow = {
+      id: "proposal-9",
+      company_id: "company-1",
+      bot_slug: "dispatch-scout",
+      kind: "load-shortlist",
+      title: "Shortlist — 1 load from Panama City, FL",
+      payload: {
+        loads: [
+          {
+            board: "trulos",
+            externalRef: "trulos:abc",
+            origin: "Panama City, FL",
+            destination: "Atlanta, GA",
+            payCents: 185000,
+            loadedMiles: 500,
+            deadheadMiles: 100,
+            perLoadedMileCents: 370,
+            brokerName: "Acme Logistics",
+          },
+        ],
+      },
+      source_ref: "scout-scan:run-1",
+      status: "proposed",
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      decided_by: null,
+    };
+    const state: StubState = { proposals: [shortlistRow], spentCents: 0, audit: [], groupMessages: [], ledger: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(makeUpdate("no"), deps);
+    expect(sent[sent.length - 1]).toMatch(/^Dropped:/);
+    expect(state.ledger).toHaveLength(1);
+    expect(state.ledger?.[0]?.outcome).toBe("skipped");
+    expect(state.ledger?.[0]?.notes).toContain("passed on the shortlist");
   });
 });
