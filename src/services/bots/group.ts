@@ -182,7 +182,9 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
         (deps.groupChatId
           ? `I saw your message in a group (chat id ${chat.id}), but the server is set up for a different group (${deps.groupChatId}), so I stayed quiet there.`
           : `I saw your message in a group (chat id ${chat.id}), but the server isn't set up for a bot group yet, so I stayed quiet there.`) +
-          ` To turn the group on, set the Fly secret TELEGRAM_GROUP_CHAT_ID to ${chat.id} (King can do it), then send a message in the group again.`,
+          ` To turn the group on, set the Fly secret TELEGRAM_GROUP_CHAT_ID to ${chat.id} (King can do it), then send a message in the group again.` +
+          ` Also turn OFF the bot's privacy mode, or it only hears messages that @mention it: in Telegram open @BotFather, choose /setprivacy,` +
+          ` pick this bot, choose Disable — then remove the bot from the group and add it back.`,
         nowMs,
       );
       return "unconfigured";

@@ -365,3 +365,20 @@ describe("Abel in the group when the bot-team tables are missing", () => {
     expect(sent.join(" ")).toContain("migration 00103");
   });
 });
+
+describe("adding the bot to a group (2026-11-19)", () => {
+  it("the 'bot was added' service message (delivered even in privacy mode) gets the owner the id AND the privacy-mode fix", async () => {
+    resetGroupSetupNotices();
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const owner: string[] = [];
+    const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
+    const update = makeUpdate("");
+    const msg = update.message as Record<string, unknown>;
+    delete msg.text;
+    msg.new_chat_members = [{ id: 7777, is_bot: true, first_name: "Abel" }];
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("unconfigured");
+    expect(sent).toEqual([]);
+    expect(owner[0]).toContain(String(GROUP_ID));
+    expect(owner[0]).toContain("/setprivacy");
+  });
+});
