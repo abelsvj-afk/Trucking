@@ -126,14 +126,26 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     slug: "maintenance",
     displayName: "Maintenance",
     seat: "PM and inspections",
-    status: "planned",
+    // Wired 2026-11-19 (branch feat/bot-maintenance-2026-11-19):
+    // scopes from docs/bots/maintenance/CLAUDE.md. Loads READ,
+    // HOS none, Money READ (estimates, to show the owner only),
+    // Documents "draft" (read + file records by truck — internal
+    // writes only; execute-class sign/file stays impossible),
+    // Email "draft" (draft a shop/vendor message; sending is
+    // execute-class, needs an approved proposal, no execution path
+    // yet), Maps READ (nearest shop, route to the shop), App
+    // "draft" (work-order drafts, PM reminders), Calls "gated"
+    // (shops/vendors, owner-approved call plan, shared number,
+    // logged), Signature never. "live" means wired in code — not
+    // deployed; deploy is still the owner's separate tap.
+    status: "live",
     toolScope: {
       loads: "read",
       hos: "none",
       money: "read",
-      documents: "read",
-      email: "read",
-      maps: "none",
+      documents: "draft",
+      email: "draft",
+      maps: "read",
       "app-actions": "draft",
       calls: "gated",
       signature: "never",
@@ -228,5 +240,5 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
   return (Object.keys(scope) as ToolGroup[]).filter((group) => scope[group] !== "none" && scope[group] !== "never");
 }
 
-/** Bots wired into the Telegram group in this phase (Phase 0). */
-export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout"];
+/** Bots wired into the Telegram group. Phase 0: Abel + Dispatch Scout. Maintenance joins in Phase 2 (2026-11-19). */
+export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout", "maintenance"];

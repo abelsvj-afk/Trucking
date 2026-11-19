@@ -240,6 +240,52 @@ const PREDICTION_RULES =
   "FORECAST, DON'T BLOCK: from state you already have - his clocks, his week's pattern, a load's dates - you may say what happens next ('at this pace your 70-hour clock runs out Thursday') as advice, with the pace and the numbers behind it. " +
   "A forecast is advisory text only: it never blocks, refuses, or gates an answer or an action, and it is labeled as a forecast ('at this pace'), never stated as a fact about the future.";
 
+/**
+ * The reasoning forms Abel reasons with, as one shared list.
+ *
+ * Owner rule 2026-11-19: every bot gets the SAME reasoning Abel has —
+ * same brain, different jobs/tools. These are the fourteen reasoning
+ * blocks in Abel's own system prompt above (nine from the 2026-11-10
+ * reasoning layer, PR #59, plus the five Frontier-1 forms from
+ * 2026-11-11). The count in the brief says "ten"; the prompt carries
+ * fourteen, so all fourteen are exported here and none is dropped —
+ * the shared-reasoning engine (branch feat/shared-reasoning-2026-11-19,
+ * not landed yet) reconciles this list to its canonical set when it
+ * lands, and every bot then imports from the engine instead of here.
+ *
+ * NOT in this list, deliberately: LEARNING_RULES (outcome logging —
+ * the corrections-learning loop, a separate piece of the shared
+ * engine), FLEET_RULES / EMAIL_RULES (Abel's domain rules, not
+ * reasoning forms), and PLAIN_TALK / PAY_SAFETY / STYLE / FLAIR /
+ * TOOL_SELECTION (talk and tool rules, not reasoning forms). A bot
+ * that needs those takes them from its own governing file, not from
+ * Abel's prompt.
+ *
+ * Read-only export: editing the text of a block here changes Abel.
+ * Bots consume the list verbatim through services/bots/reasoning.ts.
+ */
+export interface ReasoningForm {
+  form: string;
+  text: string;
+}
+
+export const ABEL_REASONING_BLOCKS: ReasoningForm[] = [
+  { form: "temporal", text: TEMPORAL_RULES },
+  { form: "contextual", text: CONTEXTUAL_RULES },
+  { form: "causal", text: CAUSAL_RULES },
+  { form: "self-correction", text: SELF_CORRECTION_RULES },
+  { form: "episodic", text: EPISODIC_RULES },
+  { form: "theory-of-mind", text: THEORY_OF_MIND_RULES },
+  { form: "value-learning", text: VALUE_LEARNING_RULES },
+  { form: "consolidation", text: CONSOLIDATION_RULES },
+  { form: "restraint", text: RESTRAINT_RULES },
+  { form: "chained", text: CHAINED_REASONING_RULES },
+  { form: "verification", text: VERIFICATION_RULES },
+  { form: "uncertainty", text: UNCERTAINTY_RULES },
+  { form: "tradeoff", text: TRADEOFF_RULES },
+  { form: "prediction", text: PREDICTION_RULES },
+];
+
 /** Learning (owner 2026-11-07): how he answered a proposal. Best-effort - never throws, never slows or breaks the turn. */
 async function logOutcome(store: BotBrainStore, row: { tool_name: string; arguments: Record<string, unknown>; summary: string; source_quote?: string | null }, outcome: Outcome): Promise<void> {
   try {

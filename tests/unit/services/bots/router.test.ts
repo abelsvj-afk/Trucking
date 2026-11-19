@@ -24,11 +24,30 @@ describe("group routing", () => {
     expect(route.via).toBe("reply");
   });
 
-  it("names the Auditor for a check, but marks the seat unseated in Phase 0", () => {
+  it("names the Auditor for a check, but marks the seat unseated — and never promises Abel will do the specialist's job", () => {
     const route = routeGroupMessage({ text: "Auditor, check this math", senderKind: "owner" });
     expect(route.target).toBe("auditor");
     expect(route.seated).toBe(false);
     expect(unseatedReply("auditor")).toMatch(/isn't in the room yet/);
+    expect(unseatedReply("auditor")).toMatch(/doesn't do a specialist's job himself/);
+    expect(unseatedReply("auditor")).not.toMatch(/can take this one/);
+  });
+
+  it("routes a Maintenance mention to Maintenance, seated", () => {
+    const route = routeGroupMessage({ text: "Maintenance, when is my DOT inspection due?", senderKind: "owner" });
+    expect(route.target).toBe("maintenance");
+    expect(route.via).toBe("mention");
+    expect(route.seated).toBe(true);
+    expect(route.shouldAnswer).toBe(true);
+  });
+
+  it("routes Maintenance job words to Maintenance by keyword, seated", () => {
+    for (const text of ["my tire is flat", "file a DVIR for the brakes", "draft a work order for the brakes"]) {
+      const route = routeGroupMessage({ text, senderKind: "owner" });
+      expect(route.target).toBe("maintenance");
+      expect(route.via).toBe("keyword");
+      expect(route.seated).toBe(true);
+    }
   });
 
   it("defaults everything else to Abel", () => {

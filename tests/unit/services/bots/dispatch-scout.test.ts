@@ -86,6 +86,8 @@ function makeStore(state: StubState): BotTeamStore {
     recordSpend: async () => {},
     spentThisMonthCents: async () => 0,
     loadBotMemories: async () => [],
+    claimJob: async () => true,
+    releaseJob: async () => {},
   };
 }
 

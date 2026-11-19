@@ -14,6 +14,7 @@
 // bot is there.
 
 import { GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
+import { MAINTENANCE_KEYWORD_PATTERNS, MAINTENANCE_MENTION_PATTERNS } from "./maintenance";
 
 export interface GroupMessageInput {
   text: string;
@@ -41,7 +42,7 @@ const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "dispatch-scout", patterns: [/\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i] },
   { slug: "tracker", patterns: [/\btracker\b/i] },
   { slug: "compliance-watchdog", patterns: [/\bwatchdog\b/i, /\bcompliance\b/i, /\bsafety\b/i] },
-  { slug: "maintenance", patterns: [/\bmaintenance\b/i, /\bshop\b/i, /\brepair\b/i] },
+  { slug: "maintenance", patterns: MAINTENANCE_MENTION_PATTERNS.map((entry) => entry.pattern) },
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i] },
   { slug: "auditor", patterns: [/\bauditor\b/i, /\bcheck (this|that|it)\b/i, /\bverify\b/i] },
 ];
@@ -61,7 +62,7 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
   },
   {
     slug: "maintenance",
-    patterns: [/\binspection\b/i, /\bmaintenance\b/i, /\bshop\b/i, /\bbreakdown\b/i, /\btire\b/i],
+    patterns: MAINTENANCE_KEYWORD_PATTERNS.map((entry) => entry.pattern),
   },
   {
     slug: "tracker",
@@ -111,8 +112,13 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
   };
 }
 
-/** The one-line reply when a message routes to a seat not wired yet. */
+/**
+ * The one-line reply when a message routes to a seat not wired yet.
+ * Abel never does a specialist's job himself (owner group-routing
+ * rule 2026-11-19), so this promises no stand-in — the job waits for
+ * its seat.
+ */
 export function unseatedReply(target: BotSlug): string {
   const name = target === "dispatch-scout" ? "Dispatch Scout" : target;
-  return `${name} isn't in the room yet — that seat comes in a later phase. Abel can take this one for now.`;
+  return `${name} isn't in the room yet — that seat comes in a later phase. Abel doesn't do a specialist's job himself, so this one waits for its seat.`;
 }

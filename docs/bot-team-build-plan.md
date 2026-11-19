@@ -210,6 +210,77 @@ drafts — owner approves every shop), Billing (drafter — invoices drafted
 same day as delivery paperwork, sending gated by his approval). Each joins
 the same group, same registry, same guardrails.
 
+- **Maintenance is wired** (branch `feat/bot-maintenance-2026-11-19`,
+  DO-NOT-MERGE PR, not merged, not deployed): registry scopes from its
+  governing file, seated in the group, group routing (speaks only on
+  clear routing — mention / reply / Abel-routed — or its own turn;
+  keyword-only stays quiet and Abel routes via the `ROUTE: maintenance`
+  handoff), DVIR defect intake, work-order drafts, shop call plans —
+  all as proposals, all idempotent per Telegram message. All fourteen
+  of Abel's reasoning forms, verbatim, through
+  `src/services/bots/reasoning.ts` (interim — the shared-reasoning
+  engine replaces that import when it lands). Individual faces: posts
+  from its own Telegram token when configured, shared-token fallback
+  with a text label until then. The six research patterns are applied
+  (supervisor-first, validated-state handoffs, no transcripts,
+  server-side enforcement, proposals as the structural HITL interrupt,
+  single-writer, bounded loops, per-message idempotency); no framework
+  adopted — Mastra is the first choice for a later migration
+  evaluation. Still open after this branch: the scheduler/cron that
+  posts due own-turns (the check + post functions exist and are
+  tested; nothing calls them yet), live fleet-table reads for PM/DVIR
+  state (the group has no company snapshot — the baseline's Phase 1
+  gap), Maintenance's own 1:1 chat (no second bot token provisioned),
+  and call/shop-message execution (Phase 1 / Phase 4).
+
+### Team-room shape — the Telegram limit (verified 2026-11-19)
+
+Telegram's own Bots FAQ (`core.telegram.org/bots/faq`): "bots will not
+be able to see messages from other bots regardless of mode." The
+"every bot hears every message" picture in this plan does not work as
+stated on Telegram. The shape used — **INDIVIDUAL FACES (owner
+decision 2026-11-19; the research report's one-face model was
+rejected)**: each bot has its own Telegram account + profile photo
+and messages as itself in the group. The server hears every owner
+message and routes it to one bot's logic; bots coordinate internally
+through Supabase (proposals, audit log, memories), never by seeing
+each other's Telegram messages. The owner sees the team-room
+behaviour; the plumbing is individual accounts + shared state.
+What blocks full individual-face operation: only Abel's bot token
+exists today — each other bot's token is provisioned by the owner in
+BotFather (account + profile photo + `TELEGRAM_<BOT>_BOT_TOKEN` Fly
+secret) and its webhook registered; until then that bot falls back to
+the shared token with a "Name: " text label
+(`src/services/bots/sending.ts`, wired for Maintenance in
+`src/services/bots/group.ts`). Setup the owner must do in BotFather
+for the group to work at all: Privacy Mode OFF for each bot (or make
+it a group admin) — with privacy mode ON the bot only receives
+addressed commands and replies, and plain owner messages never reach
+the handler. Re-add the bot to the group after changing the setting.
+Alternative for later, owner decision, NOT built: Forum Topics —
+one topic per agent in a supergroup.
+
+### Frameworks — no new framework adopted (2026-11-19)
+
+Open-source multi-agent research
+(`research_notes/open-source-multi-agent-team-20261119-2022/report.md`)
+recommends Mastra first (TS-first agents + typed durable workflows +
+suspend/resume human-in-the-loop + `@mastra/pg`, Apache-2.0 core),
+OpenAI Agents SDK (TypeScript) simplest (handoffs first-class, MIT),
+LangGraph.js most durable but steepest. None is adopted in the bot
+builds: five crews are building in parallel on the baseline's plain-TS
+supervisor / router / guardrails / store, which already carries the
+patterns that matter (supervisor-first routing, handoff = validated
+state only, shared state not transcripts, server-side enforcement via
+RLS + code, proposals as the structural human-in-the-loop interrupt,
+single-writer proposals, bounded loops, per-message idempotency).
+Adopting Mastra (or another framework) is a separate migration
+decision for the owner, after the five seats land — not a silent
+change inside a bot branch. Avoid: Microsoft AutoGen (archived Oct
+2026), MetaGPT (stale since early 2026). No open-source project was
+found running a small business end-to-end in Telegram — borrow the
+patterns, not a whole project.
+
 ## Phase 3 — Animated in-app room (LATER — owner decision 2026-11-19)
 
 **Do NOT build in the baseline. Telegram first; the animated room second,

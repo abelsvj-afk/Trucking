@@ -109,6 +109,18 @@ export interface BotTeamStore {
   recordSpend(input: { botSlug: BotSlug; model: string; tier: "scan" | "rank"; estimatedCents: number }): Promise<void>;
   spentThisMonthCents(sinceIso: string): Promise<number>;
   loadBotMemories(botSlug: BotSlug): Promise<BotMemoryRow[]>;
+  /**
+   * Postgres job claiming (single-writer ownership per thread/job):
+   * claim a job key for this bot. True = claimed, or re-claimed
+   * after the previous claim expired (stale claims die on their TTL,
+   * default 5 minutes). False = another live claim holds it — the
+   * caller must not run the workup. The claim is the in-flight
+   * guard only; the proposal row stays the durable idempotency
+   * record, so a claim lost to a race still cannot file twice.
+   */
+  claimJob(jobKey: string, botSlug: BotSlug, ttlMs?: number): Promise<boolean>;
+  /** Release a claim after the workup (the proposal row stays). */
+  releaseJob(jobKey: string): Promise<void>;
 }
 
 export function createBotTeamStore(companyId: string | null): BotTeamStore | null {
@@ -267,6 +279,44 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
         .limit(100);
       if (error) fail("loadBotMemories", error);
       return (data ?? []) as BotMemoryRow[];
+    },
+
+    async claimJob(jobKey, botSlug, ttlMs = 5 * 60 * 1000) {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
+      // Take over a stale claim atomically (one UPDATE, one row).
+      // When no claim exists, or the live one is still inside its
+      // TTL, the update touches nothing and the insert decides:
+      // it succeeds (no claim — ours now) or conflicts on the
+      // primary key (a live claim holds it — we do not run).
+      // A lost race still cannot file twice: the proposal row's
+      // source-ref check is the durable guard behind this one.
+      const { data: taken, error: takeError } = await client
+        .from("bot_job_claims")
+        .update({ bot_slug: botSlug, claimed_at: now.toISOString(), expires_at: expiresAt })
+        .eq("company_id", companyId)
+        .eq("job_key", jobKey)
+        .lt("expires_at", now.toISOString())
+        .select("job_key");
+      if (takeError) fail("claimJob", takeError);
+      if (taken && taken.length > 0) return true;
+      const { error } = await client.from("bot_job_claims").insert({
+        company_id: companyId,
+        job_key: jobKey,
+        bot_slug: botSlug,
+        claimed_at: now.toISOString(),
+        expires_at: expiresAt,
+      });
+      if (!error) return true;
+      // A conflict here means a live claim holds the key. Any
+      // other error is a failure, not a "no" — say so loudly.
+      if (typeof error.code === "string" && error.code === "23505") return false;
+      return fail("claimJob", error);
+    },
+
+    async releaseJob(jobKey) {
+      const { error } = await client.from("bot_job_claims").delete().eq("company_id", companyId).eq("job_key", jobKey);
+      if (error) fail("releaseJob", error);
     },
   };
 }

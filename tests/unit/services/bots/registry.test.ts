@@ -53,7 +53,27 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats only Abel and Dispatch Scout in the Phase 0 group", () => {
-    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual(["abel", "dispatch-scout"].sort());
+  it("gives Maintenance its governing-file scope: HOS none, documents/email draft, maps read, calls gated, signature never", () => {
+    expect(toolScopeFor("maintenance", "loads")).toBe("read");
+    expect(toolScopeFor("maintenance", "hos")).toBe("none");
+    expect(toolScopeFor("maintenance", "money")).toBe("read");
+    expect(toolScopeFor("maintenance", "documents")).toBe("draft");
+    expect(toolScopeFor("maintenance", "email")).toBe("draft");
+    expect(toolScopeFor("maintenance", "maps")).toBe("read");
+    expect(toolScopeFor("maintenance", "app-actions")).toBe("draft");
+    expect(toolScopeFor("maintenance", "calls")).toBe("gated");
+    expect(toolScopeFor("maintenance", "signature")).toBe("never");
+    expect(canRead("maintenance", "hos")).toBe(false);
+    expect(canDraft("maintenance", "documents")).toBe(true);
+    expect(canDraft("maintenance", "email")).toBe(true);
+    expect(canDraft("maintenance", "hos")).toBe(false);
+    expect(canFlag("maintenance", "loads")).toBe(false);
+    expect(visibleToolGroups("maintenance")).not.toContain("hos");
+    expect(visibleToolGroups("maintenance")).not.toContain("signature");
+    expect(BOT_REGISTRY["maintenance"].status).toBe("live");
+  });
+
+  it("seats Abel, Dispatch Scout, and Maintenance in the group", () => {
+    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual(["abel", "dispatch-scout", "maintenance"].sort());
   });
 });
