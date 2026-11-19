@@ -1519,3 +1519,38 @@ Abel's outbound phone calls (docs/design/outbound-calling.md): one row per call 
 - `deleted_at` timestamptz
 
 _00100 (2026-11-17): `companies.call_voice_id` text — the voice he picked for Abel's outbound calls (a Telnyx voice id, or null for the Telnyx default built-in voice). Set in Settings → Abel and AI → "Voice on calls"; the ElevenLabs key itself lives in the Telnyx portal as an Integration Secret, never here._
+
+### `voice_notes` — created in 00101
+
+Location voice notes (docs/design/voice-notes.md): a short recording pinned to a spot, for coworkers coming the same way. RLS: everyone in the company reads; insert only as yourself (`author_id = auth.uid()`); only the author updates (removes).
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `author_id` uuid not null references auth.users (id)
+- `kind` text not null — traffic | roadwork | bridge | hazard | tip
+- `lat`, `lng` double precision not null (range-checked)
+- `heading_deg` double precision — direction of travel when left, 0–359, nullable
+- `road_ref` text — ≤ 20 chars, nullable
+- `storage_path` text not null — `<company_id>/voice-notes/<uuid>.<ext>` in the private `documents` bucket
+- `duration_s` double precision not null — > 0 and ≤ 60
+- `created_at` timestamptz not null default now()
+- `expires_at` timestamptz — set from `kind`; null = until cleared
+- `removed_at` timestamptz — the author removed it
+
+### `voice_note_views` — created in 00101
+
+One row per (note, driver): when he listened and when he passed it. RLS: a driver reads and writes only his own rows.
+
+- `note_id` uuid references voice_notes (id) on delete cascade; `user_id` uuid references auth.users (id); primary key (note_id, user_id)
+- `company_id` uuid not null references companies (id)
+- `listened_at`, `passed_at` timestamptz
+
+### `voice_note_reports` — created in 00101
+
+"It's gone" / "wrong note" reports, one of each kind per driver per note. Enough reports clear the note for everyone (threshold by fleet size via `company_member_count()`). RLS: the company reads; a driver files only his own.
+
+- `note_id` uuid references voice_notes (id) on delete cascade; `user_id` uuid references auth.users (id); `kind` text — gone | bad; primary key (note_id, user_id, kind)
+- `company_id` uuid not null references companies (id)
+- `created_at` timestamptz not null default now()
+
+Function `company_member_count()` (00101, security definer): returns only the number of `user_profiles` rows in the caller's company.
