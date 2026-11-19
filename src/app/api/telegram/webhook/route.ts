@@ -224,6 +224,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       companyId: config.companyId,
       store: teamStore,
       sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
+      // Says privately why the group is silent (missing / changed group id).
+      notifyOwner: config.allowedChatId
+        ? async (text) => {
+            await sendTelegramMessage(botToken, Number(config.allowedChatId), text);
+          }
+        : undefined,
       runChat,
     });
     return NextResponse.json({ ok: true });
