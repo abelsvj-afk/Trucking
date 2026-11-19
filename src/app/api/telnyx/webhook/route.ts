@@ -22,6 +22,7 @@ import { getCallingConfig } from "@/services/calling/config";
 import { claimNextOutboundCall, findOutboundCallByControlId, updateOutboundCall } from "@/services/calling/queue";
 import { dialOutboundCallRow } from "@/services/calling/dialer";
 import { verifyTelnyxSignature } from "@/services/calling/telnyx";
+import { recordMalikCallReport } from "@/services/calling/malik-tools";
 
 function serviceRoleClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,8 +42,81 @@ interface TelnyxEvent {
       transcript?: string;
       summary?: string;
       result?: string;
+      from?: unknown;
     };
   };
+}
+
+function callerNumber(value: unknown): string | null {
+  if (typeof value === "string" && value) return value;
+  if (value && typeof value === "object" && "phone_number" in value) {
+    const phone = (value as { phone_number: unknown }).phone_number;
+    return typeof phone === "string" && phone ? phone : null;
+  }
+  return null;
+}
+
+/**
+ * Inbound calls — a call Malik answered has no outbound_calls row, so
+ * the outbound flow above never sees it. Its outcome still belongs to
+ * Abel: one call-summary report per Telnyx conversation, filled in as
+ * the events arrive (ended first, transcript/outcome when the insights
+ * event lands). Events that arrive out of order must not clobber the
+ * transcript, so the thin events only create the row.
+ * The company is the single-company deployment id (same as the
+ * Telegram webhook); without it the report has nowhere to live.
+ */
+async function handleInboundCallEvent(
+  client: SupabaseClient,
+  eventType: string,
+  payload: NonNullable<TelnyxEvent["data"]>["payload"],
+): Promise<void> {
+  const companyId = process.env.TELEGRAM_COMPANY_ID ?? "";
+  if (!companyId) {
+    console.error("[telnyx] inbound call event with no TELEGRAM_COMPANY_ID — call report not recorded");
+    return;
+  }
+  const conversationId = typeof payload?.conversation_id === "string" ? payload.conversation_id : null;
+  if (!conversationId) return;
+  const caller = callerNumber(payload?.from);
+  const basePayload = { call_control_id: payload?.call_control_id ?? null, caller_number: caller };
+  try {
+    if (eventType === "call.conversation_insights.generated") {
+      const summary = typeof payload?.summary === "string" ? payload.summary : "";
+      const transcript = typeof payload?.transcript === "string" ? payload.transcript : "";
+      const body =
+        [summary, transcript ? `Transcript:\n${transcript}` : ""].filter(Boolean).join("\n\n").slice(0, 4000) ||
+        "Call ended — no transcript yet.";
+      await recordMalikCallReport(client, companyId, {
+        kind: "call-summary",
+        telnyxConversationId: conversationId,
+        callbackNumber: caller,
+        title: "Call on the company line",
+        body,
+        payload: { ...basePayload, summary, transcript },
+      });
+    } else if (eventType === "call.conversation.ended" || eventType === "call.hangup") {
+      // Thin event: create the row (no group post yet — the insights
+      // event posts it with the transcript when it arrives). Never
+      // overwrite a richer report that already landed.
+      const cause = typeof payload?.hangup_cause === "string" ? payload.hangup_cause : "";
+      await recordMalikCallReport(
+        client,
+        companyId,
+        {
+          kind: "call-summary",
+          telnyxConversationId: conversationId,
+          callbackNumber: caller,
+          title: "Call on the company line",
+          body: eventType === "call.hangup" && cause ? `Call ended (${cause}).` : "Call ended — waiting for the transcript.",
+          payload: basePayload,
+        },
+        { postToGroup: false, onlyCreate: true },
+      );
+    }
+  } catch (err) {
+    console.error("[telnyx] inbound call report failed", err);
+  }
 }
 
 function eventCallControlId(event: TelnyxEvent): string | null {
@@ -91,7 +165,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ received: true });
   }
-  if (!row) return NextResponse.json({ received: true });
+  if (!row) {
+    // No queued outbound call with this control id — a call Malik
+    // answered. Report it to Abel instead of dropping it.
+    await handleInboundCallEvent(client, eventType, event.data?.payload ?? {});
+    return NextResponse.json({ received: true });
+  }
   const payload = event.data?.payload ?? {};
   const now = new Date().toISOString();
 

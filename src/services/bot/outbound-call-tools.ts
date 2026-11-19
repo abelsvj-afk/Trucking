@@ -213,5 +213,38 @@ export function buildOutboundCallTools(store: BotBrainStore, deps: OutboundCallT
     },
   };
 
-  return [placeCall, listCalls];
+  const listMalikReports: AgentTool = {
+    name: "list_malik_call_reports",
+    description:
+      "What Malik (the phone voice) heard on inbound calls and the messages he took: call summaries with transcripts, and messages left for the owner, newest first. Use when the owner asks what Malik heard, who called, or what message someone left. A report that didn't reach the group chat yet is labeled so — the group only gets it once TELEGRAM_GROUP_CHAT_ID is set.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "How many recent reports (default 5, max 20)." },
+      },
+    },
+    access: "read",
+    async run(args) {
+      const limit = Math.min(20, Math.max(1, typeof args.limit === "number" ? Math.floor(args.limit) : 5));
+      const { data, error } = await client
+        .from("malik_call_reports")
+        .select("kind, title, body, reported_to_group, created_at")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) return "I couldn't read Malik's call reports.";
+      const rows = (data ?? []) as { kind: string; title: string; body: string; reported_to_group: boolean; created_at: string }[];
+      if (rows.length === 0) return "Malik hasn't taken any messages or finished any calls yet.";
+      return rows
+        .map((row) => {
+          const when = formatCallTime(row.created_at);
+          const label = row.kind === "message" ? "Message" : "Call";
+          const group = row.reported_to_group ? "" : " (not in the group chat yet)";
+          return `• ${when} — ${label}: ${row.title}${group}\n  ${row.body.slice(0, 600)}`;
+        })
+        .join("\n");
+    },
+  };
+
+  return [placeCall, listCalls, listMalikReports];
 }
