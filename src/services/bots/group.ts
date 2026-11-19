@@ -2,6 +2,11 @@
 // One private group, him + the bots. Every bot hears every message;
 // only the relevant one answers, the rest stay quiet.
 //
+// Seats wired so far: Abel and Dispatch Scout (Phase 0/1) and
+// Compliance Watchdog (Phase 2, services/bots/compliance-watchdog.ts)
+// — a message routed to the Watchdog runs its full deadline + HOS +
+// legality check and the report posts under its own name.
+//
 // This handler runs BEFORE the 1:1 path (services/telegram/
 // dispatch-bot.ts), which still serves only the owner's private chat
 // and still ignores every group. The webhook route sends group and
@@ -41,6 +46,7 @@ import {
   runScoutScan,
   type ScoutScanResult,
 } from "./dispatch-scout";
+import { createWatchdogData, runWatchdogCheck, type WatchdogReport } from "./compliance-watchdog";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
 import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
@@ -87,6 +93,12 @@ export interface GroupHandlerDeps {
     maxShortlist?: number;
     runId?: string;
   }, deps: { runtime: BrowserRuntime; store: BotTeamStore | null }) => Promise<ScoutScanResult>;
+  /**
+   * The Watchdog's full check (deadlines + HOS + legality).
+   * Defaults to runWatchdogCheck over the company-scoped data;
+   * tests pass a stub.
+   */
+  watchdogCheck?: (input: { store: BotTeamStore | null; companyId: string | null }) => Promise<WatchdogReport>;
 }
 
 export type GroupHandleResult = "handled" | "ignored" | "disabled";
@@ -227,6 +239,17 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     return "handled";
   }
 
+  // Compliance Watchdog: any message routed to it runs the full
+  // check — the deadline register, the one HOS read, and the
+  // pre-booking legality verdict — and the report posts as the
+  // Watchdog itself. Alerts only: it never edits a log, never
+  // calls anyone, and what reaches the owner beyond this room is
+  // Abel's decision, not this bot's.
+  if (route.target === "compliance-watchdog") {
+    await handleWatchdogCheck(chat.id, deps);
+    return "handled";
+  }
+
   // Abel: group chat turn, with the spend cap in front of the model.
   if (!deps.runChat) {
     await deps.sendMessage(chat.id, "Abel: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
@@ -344,6 +367,30 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
       console.error("[bot-team] scout scan failed", error);
       await deps.sendMessage(chatId, "Dispatch Scout: the scan failed on my side — nothing was booked or sent. Say 'scout, scan' to try again.");
     });
+}
+
+/**
+ * Run one Watchdog check from the group and post the report as the
+ * Watchdog. A failure is loud and clears no one — the fallback text
+ * says the check read nothing, so a broken check can never look
+ * like an all-clear.
+ */
+async function handleWatchdogCheck(chatId: number, deps: GroupHandlerDeps): Promise<void> {
+  const run = deps.watchdogCheck ?? defaultWatchdogCheck;
+  try {
+    const report = await run({ store: deps.store, companyId: deps.companyId });
+    await deps.sendMessage(chatId, `Compliance Watchdog:\n${report.summary}`);
+  } catch (error) {
+    console.error("[bot-team] watchdog check failed", error);
+    await deps.sendMessage(
+      chatId,
+      "Compliance Watchdog: my check failed on my side — I read nothing, so I'm clearing no one. Try again in a moment.",
+    );
+  }
+}
+
+async function defaultWatchdogCheck(input: { store: BotTeamStore | null; companyId: string | null }): Promise<WatchdogReport> {
+  return runWatchdogCheck({ store: input.store, data: createWatchdogData(input.companyId) });
 }
 
 /**

@@ -210,6 +210,45 @@ drafts — owner approves every shop), Billing (drafter — invoices drafted
 same day as delivery paperwork, sending gated by his approval). Each joins
 the same group, same registry, same guardrails.
 
+### Compliance Watchdog — built 2026-11-19 (branch `feat/bot-watchdog-2026-11-19`, PR marked DO NOT MERGE, owner review only; NO migration)
+
+`src/services/bots/compliance-watchdog.ts`, seated in the group room
+(`GROUP_SEATS_PHASE_0` + a group-handler branch, injectable like the
+Scout's scan). One check, three reads, all read-only:
+
+- **Deadlines** from the `credentials` register (medical card, CDL,
+  annual inspection, registration / IRP, insurance — the same rows
+  Abel's deadline list reads). Expired = red, inside the amber window
+  (30 days, settable from the bot's stored memories) = amber, missing
+  required paper = red block. Clearinghouse queries, the drug-test
+  pool, MVR and DVIR defects are NOT in that register, so the bot
+  does not claim to watch them — the checklist names only what it
+  reads.
+- **Hours** from the ONE server-side HOS read (`loadHosWindow`) —
+  the engine's warnings classified (limit reached = red, break due =
+  amber), plus a forward amber when the cycle has ≤5h left. The bot
+  computes no hours of its own and holds no write path to duty_logs.
+- **Pre-booking legality verdict** (`checkLoadLegality`): plain
+  words — legal to run or not, with the blockers named. Unread
+  records are never a pass: unverified never runs. The verdict
+  states the rule and the risk; it clears no one — the owner
+  decides.
+
+Every raised alert is written to `bot_audit_log`
+(`alert_raised` / `watchdog_check`); the group post goes out under
+the Watchdog's own name. Guardrails hold by construction: flag is
+its only allowed action class; `change_hos_log`, calls, booking,
+pay and signing are denied even with an approved proposal. A
+scheduled proactive sweep calls the same `runWatchdogCheck` — the
+sweep scheduler itself belongs to the always-on VM design (as with
+Scout's) and is not built here. The bot's own Telegram token comes
+from the owner later; until then it speaks in the group through the
+shared handler under its own name, like Scout. One known mismatch,
+flagged not silently fixed: the governing file grants documents
+read+write and gated email, while the merged registry grants
+documents read / email none — the build stays inside the registry;
+widening it is a separate owner call.
+
 ## Phase 3 — Animated in-app room (LATER — owner decision 2026-11-19)
 
 **Do NOT build in the baseline. Telegram first; the animated room second,

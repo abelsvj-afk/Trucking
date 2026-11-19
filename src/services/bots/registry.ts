@@ -228,5 +228,11 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
   return (Object.keys(scope) as ToolGroup[]).filter((group) => scope[group] !== "none" && scope[group] !== "never");
 }
 
-/** Bots wired into the Telegram group in this phase (Phase 0). */
-export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout"];
+/**
+ * Bots wired into the Telegram group room. Abel and Dispatch
+ * Scout are the Phase 0 / Phase 1 seats; Compliance Watchdog
+ * joins in Phase 2 (services/bots/compliance-watchdog.ts) — it
+ * speaks as itself in the room, alerts only, never calls anyone.
+ * The remaining seats join as their builds land.
+ */
+export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout", "compliance-watchdog"];
