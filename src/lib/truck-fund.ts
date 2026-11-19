@@ -39,12 +39,6 @@ export const TRUCK_PRICE_BANDS: Record<
 // existing buckets; his Finance rules decide, the app displays).
 export const EMERGENCY_FUND_TARGET_CENTS = 1_000_000; // $10,000
 
-export const FUND_LABELS: Record<FundKey, string> = {
-  truck_fund: "Truck Fund",
-  business_credit: "Business-credit bucket",
-  emergency_fund: "Emergency fund",
-};
-
 export function formatDollars(cents: number): string {
   return formatMoney(cents);
 }

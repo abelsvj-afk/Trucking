@@ -1,7 +1,7 @@
 // The honest health of the company inbox (docs/design/company-inbox.md section 8). "Connected" requires a poll that
 // succeeded within the last three intervals - a green light never sits on a dead connection.
 
-import { getAllEmailConfigs, describeConfig, MAILBOXES, MAILBOX_LABEL, type EmailConfigResult, type Mailbox } from "./config";
+import { getAllEmailConfigs, describeConfig, MAILBOXES, type EmailConfigResult, type Mailbox } from "./config";
 import type { PollState } from "./store";
 
 export type EmailHealth = "off" | "waiting" | "connected" | "stale" | "failing";
@@ -51,5 +51,3 @@ export function buildAllStatuses(
 ): EmailStatus[] {
   return MAILBOXES.map((m) => buildEmailStatus(m, configs[m], states[m], now, etLabel));
 }
-
-export const mailboxName = (m: Mailbox): string => MAILBOX_LABEL[m];

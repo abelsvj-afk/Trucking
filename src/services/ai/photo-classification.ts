@@ -48,8 +48,6 @@ export const photoAlternateSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-export type PhotoAlternate = z.infer<typeof photoAlternateSchema>;
-
 /**
  * The purpose's fields, in the single classifier call (design
  * §3.1: for vehicle/odometer/log photos this one call IS the read;

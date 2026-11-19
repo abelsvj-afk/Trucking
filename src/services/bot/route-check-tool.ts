@@ -137,15 +137,9 @@ type FuelCandidateParity = RankedFuelCandidate & {
  */
 function fuelPriceText(candidate: FuelCandidateParity): string {
   if (candidate.usedEstimate) {
-    const formatFuelPriceLine = (
-      smartPathStops as unknown as {
-        formatFuelPriceLine?: (c: FuelCandidateParity) => string;
-      }
-    ).formatFuelPriceLine;
-    if (typeof formatFuelPriceLine === "function") {
-      const text = formatFuelPriceLine(candidate);
-      if (text) return text;
-    }
+    // The stops lib's formatter (P1-6) — a real export, called directly.
+    const text = smartPathStops.formatFuelPriceLine(candidate);
+    if (text) return text;
     if (candidate.estimatedPricePerGallonCents != null) {
       return (
         `≈${dollars(candidate.estimatedPricePerGallonCents)}/gal (est.` +

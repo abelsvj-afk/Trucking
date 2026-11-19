@@ -104,9 +104,3 @@ export function detectLearningGaps(states: TopicKnowledgeState[], now: Date = ne
   const rank = (g: LearningGap) => (g.kind === "baseline" ? 0 : 1);
   return gaps.sort((a, b) => rank(a) - rank(b));
 }
-
-/** The plain-words "why" line for a topic, used when Abel explains a proposal. */
-export function gapReasonLabel(gap: LearningGap): string {
-  const def = WATCH_TOPIC_DEFS[gap.watchTopic];
-  return `${def.label}: ${gap.reason}`;
-}

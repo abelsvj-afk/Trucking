@@ -36,8 +36,6 @@ export const MAINTENANCE_TEMPLATES: MaintenanceTemplate[] = [
   { key: "trans_diff_fluid", label: "Transmission & differential fluid", intervalMiles: 250_000, intervalDays: null, safety: false, keywords: ["transmission fluid", "differential", "diff fluid", "trans fluid"] },
 ];
 
-export const MAINTENANCE_TEMPLATE_KEYS = MAINTENANCE_TEMPLATES.map((t) => t.key);
-
 export function templateByKey(key: string | null | undefined): MaintenanceTemplate | null {
   if (!key) return null;
   return MAINTENANCE_TEMPLATES.find((t) => t.key === key) ?? null;

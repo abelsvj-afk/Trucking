@@ -33,11 +33,6 @@ export interface VehicleMotionDetail {
   headingDeg: number | null;
 }
 
-/** Motion state only (the safety decision). */
-export function useVehicleMotion(): MotionState {
-  return useVehicleMotionDetail().state;
-}
-
 export function useVehicleMotionDetail(): VehicleMotionDetail {
   const [state, setState] = useState<MotionState>("unknown");
   const [position, setPosition] = useState<VehiclePosition | null>(null);

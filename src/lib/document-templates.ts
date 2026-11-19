@@ -18,13 +18,6 @@ export const SITUATION_LABELS: Record<DocumentSituation, string> = {
 
 export type CreatableDocumentKind = "expense_record" | "deduction_notice" | "invoice" | "statement";
 
-export const CREATABLE_KIND_LABELS: Record<CreatableDocumentKind, string> = {
-  expense_record: "Expense record",
-  deduction_notice: "Pay deduction notice",
-  invoice: "Invoice",
-  statement: "Statement",
-};
-
 /** The documents.doc_type each creatable kind files under. */
 export const CREATABLE_KIND_DOC_TYPE: Record<CreatableDocumentKind, string> = {
   expense_record: "receipt",

@@ -114,6 +114,3 @@ export function computePaperwork(
         : `Missing: ${missing.map((m) => m.label.toLowerCase()).join(", ")}. ${missing[0]!.why}`,
   };
 }
-
-/** Document rows as the paperwork computation needs them. */
-export type PaperworkDocument = Pick<Document, "id" | "doc_type">;

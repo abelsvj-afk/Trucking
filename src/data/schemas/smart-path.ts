@@ -118,5 +118,3 @@ export const liveTrafficRequestSchema = z.object({
     .optional(),
   plannedRemainingMinutes: z.number().positive().max(24 * 60).nullable().optional(),
 });
-
-export type LiveTrafficRequest = z.infer<typeof liveTrafficRequestSchema>;

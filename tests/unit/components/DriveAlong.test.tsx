@@ -16,7 +16,6 @@ vi.mock("@/lib/api-client", () => ({
 vi.mock("@/lib/offline-outbox", () => ({ offlineOutbox: { enqueue: vi.fn() } }));
 const motionHolder: { state: "moving" | "stopped" | "unknown" } = { state: "stopped" };
 vi.mock("@/lib/use-vehicle-motion", () => ({
-  useVehicleMotion: () => motionHolder.state,
   useVehicleMotionDetail: () => ({ state: motionHolder.state, position: null }),
 }));
 

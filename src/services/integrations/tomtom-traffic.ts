@@ -12,7 +12,12 @@
 // It does not know every slowdown, and an uncolored stretch means
 // "no reported incident", never "clear". One call per ~60 route
 // miles (bbox max 10,000 km2), 2-minute server cache, live polling
-// covers only ~60-100 mi ahead — well under the free tier.
+// covers about an hour ahead — the live-traffic endpoint truncates
+// the corridor to the next 60 minutes of ETAs (100 mi fallback when
+// the plan carries no ETAs) before asking, so a long remaining run
+// costs ~2 bbox calls per poll, well under the free tier. The
+// pre-trip route check is not windowed: it asks about the whole
+// route (up to MAX_BBOX_CALLS bboxes, nearest first).
 
 import { z } from "zod";
 import { haversineMiles, type LatLng } from "@/lib/smart-path";

@@ -758,21 +758,6 @@ export interface GamePlan extends BaseRow {
   data_sufficiency: DataSufficiency;
 }
 
-export type GamePlanRunStatus =
-  | "success"
-  | "failure"
-  | "skipped_cap"
-  | "skipped_disabled"
-  | "invalid_replaced";
-
-export interface GamePlanRun extends BaseRow {
-  target_id: string | null;
-  trigger: GamePlanTrigger;
-  status: GamePlanRunStatus;
-  plan_id: string | null;
-  detail: string | null;
-}
-
 export type GameCheckpointVerdict = "on_plan" | "ahead" | "behind" | "no_data";
 
 export interface GameCheckpoint extends BaseRow {

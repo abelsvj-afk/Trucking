@@ -5,7 +5,7 @@
 // failure degrades the section to "unavailable", never to
 // fabricated traffic.
 
-import type { LatLng } from "@/lib/smart-path";
+import { haversineMiles, type LatLng } from "@/lib/smart-path";
 import {
   evaluateTrafficCall,
   mapIncidentsToRoute,
@@ -42,6 +42,52 @@ export interface TrafficSection {
 export interface TrafficCorridorPoint {
   mile: number;
   etaAt: string | null;
+}
+
+/**
+ * Live poll ahead window (owner 2026-11-17): while driving, traffic is
+ * polled only about an hour ahead — never the whole remaining run. The
+ * cut is by the corridor's planned ETAs (the poll's corridor timing is
+ * relative to his current position, so mile 0 is now); when the corridor
+ * carries no usable ETA, the fallback is ~100 route miles. The pre-trip
+ * route check does NOT use this — it still asks TomTom about the whole
+ * route. Pure.
+ */
+export const LIVE_TRAFFIC_AHEAD_MINUTES = 60;
+export const LIVE_TRAFFIC_AHEAD_MILES = 100;
+
+export function truncateToAheadWindow(input: {
+  geometry: LatLng[];
+  corridor: TrafficCorridorPoint[];
+  totalMiles: number;
+  now?: Date;
+}): { geometry: LatLng[]; corridor: TrafficCorridorPoint[]; totalMiles: number } {
+  const { geometry, corridor, totalMiles } = input;
+  if (geometry.length < 2 || totalMiles <= 0) return { geometry, corridor, totalMiles };
+  const nowMs = (input.now ?? new Date()).getTime();
+  const cutoffMs = nowMs + LIVE_TRAFFIC_AHEAD_MINUTES * 60_000;
+  let cutMile: number | null = null;
+  for (const pt of corridor) {
+    if (pt.etaAt === null) continue;
+    const etaMs = Date.parse(pt.etaAt);
+    if (Number.isFinite(etaMs) && etaMs <= cutoffMs) cutMile = Math.max(cutMile ?? 0, pt.mile);
+  }
+  if (cutMile === null || cutMile <= 0) cutMile = LIVE_TRAFFIC_AHEAD_MILES;
+  if (cutMile >= totalMiles) return { geometry, corridor, totalMiles };
+  const ahead: LatLng[] = [geometry[0]!];
+  let walked = 0;
+  for (let i = 1; i < geometry.length; i++) {
+    const step = haversineMiles(geometry[i - 1]!, geometry[i]!);
+    if (walked + step > cutMile && ahead.length > 1) break;
+    ahead.push(geometry[i]!);
+    walked += step;
+  }
+  if (ahead.length < 2) return { geometry, corridor, totalMiles };
+  return {
+    geometry: ahead,
+    corridor: corridor.filter((pt) => pt.mile <= cutMile),
+    totalMiles: Math.round(walked * 10) / 10,
+  };
 }
 
 export interface BuildTrafficSectionInput {

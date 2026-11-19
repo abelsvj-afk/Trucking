@@ -49,10 +49,6 @@ export interface ReadSegment {
   flagged?: boolean;
 }
 
-export function needsConfirmation(segment: DraftSegment): boolean {
-  return segment.origin === "low" || segment.origin === "missing" || segment.status === null;
-}
-
 /** Builds the editable day from the analyzer's output, filling every hole explicitly. */
 export function draftFromRead(staged: ReadSegment[], dropped: ReadSegment[]): DraftSegment[] {
   const sorted = [...staged]

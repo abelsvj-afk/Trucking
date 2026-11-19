@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTrafficSection } from "@/services/smart-path/route-traffic";
+import { buildTrafficSection, truncateToAheadWindow } from "@/services/smart-path/route-traffic";
 import type { TrafficIncident } from "@/lib/smart-path-traffic";
 
 // Straight route north, 100 miles.
@@ -100,5 +100,65 @@ describe("buildTrafficSection", () => {
     });
     expect(section.items).toHaveLength(1);
     expect(section.call.decision).toBe("none");
+  });
+});
+
+// Audit m7: the live poll covers about an hour ahead, never the whole
+// remaining run. The cut is by the corridor's planned ETAs; the
+// pre-trip route check does not use this helper.
+describe("truncateToAheadWindow", () => {
+  const NOW = new Date("2026-11-17T12:00:00-06:00");
+
+  it("cuts a 100-mile run to the miles reached within the next hour", () => {
+    const out = truncateToAheadWindow({ geometry: GEOMETRY, corridor: CORRIDOR, totalMiles: 100, now: NOW });
+    // The walk stops at the last point inside the cut, so the total
+    // lands within one geometry step below it — never above it.
+    expect(out.totalMiles).toBeGreaterThan(49);
+    expect(out.totalMiles).toBeLessThanOrEqual(50);
+    expect(out.geometry.length).toBeGreaterThanOrEqual(50);
+    expect(out.geometry.length).toBeLessThanOrEqual(51);
+    expect(out.corridor).toEqual([
+      { mile: 0, etaAt: "2026-11-17T12:00:00-06:00" },
+      { mile: 50, etaAt: "2026-11-17T13:00:00-06:00" },
+    ]);
+  });
+
+  it("leaves a run that ends inside the hour untouched", () => {
+    const out = truncateToAheadWindow({
+      geometry: GEOMETRY.slice(0, 31),
+      corridor: [
+        { mile: 0, etaAt: "2026-11-17T12:00:00-06:00" },
+        { mile: 30, etaAt: "2026-11-17T12:30:00-06:00" },
+      ],
+      totalMiles: 30,
+      now: NOW,
+    });
+    expect(out.geometry).toHaveLength(31);
+    expect(out.totalMiles).toBe(30);
+  });
+
+  it("falls back to ~100 miles when the corridor carries no usable ETAs", () => {
+    const noEta = CORRIDOR.map((pt) => ({ ...pt, etaAt: null }));
+    const out = truncateToAheadWindow({ geometry: GEOMETRY, corridor: noEta, totalMiles: 100, now: NOW });
+    expect(out.geometry).toHaveLength(101);
+    expect(out.totalMiles).toBe(100);
+  });
+
+  it("falls back to ~100 miles on a longer run with no usable ETAs", () => {
+    const longGeometry = Array.from({ length: 201 }, (_, i) => ({ lat: 35 + i * 0.01449, lng: -90 }));
+    const out = truncateToAheadWindow({
+      geometry: longGeometry,
+      corridor: [
+        { mile: 0, etaAt: null },
+        { mile: 100, etaAt: null },
+        { mile: 200, etaAt: null },
+      ],
+      totalMiles: 200,
+      now: NOW,
+    });
+    expect(out.totalMiles).toBeGreaterThan(99);
+    expect(out.totalMiles).toBeLessThanOrEqual(100);
+    expect(out.geometry.length).toBeGreaterThanOrEqual(100);
+    expect(out.geometry.length).toBeLessThanOrEqual(101);
   });
 });

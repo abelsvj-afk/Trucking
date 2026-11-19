@@ -28,13 +28,6 @@ export type GameMetric =
 
 export type GamePosture = "conservative" | "mixed";
 
-export const GAME_METRICS: GameMetric[] = [
-  "monthly_net_cents",
-  "truck_fund_cents",
-  "business_value_cents",
-  "net_worth_cents",
-];
-
 export const GAME_METRIC_LABELS: Record<GameMetric, string> = {
   monthly_net_cents: "Monthly net",
   truck_fund_cents: "Truck Fund saved",

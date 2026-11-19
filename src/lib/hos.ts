@@ -291,26 +291,6 @@ export function findWindowStartMs(segments: Segment[]): number | null {
   return findShortClockAnchor(segments)?.startMs ?? null;
 }
 
-/** The pre-split rule only (a full 10-hour rest), kept for the reset display. */
-export function findFullResetStartMs(segments: Segment[]): number | null {
-  if (segments.length === 0) return null;
-
-  let windowStart = segments[0]!.startMs;
-  let restRunStart: number | null = null;
-
-  for (const seg of segments) {
-    if (isRest(seg.status)) {
-      if (restRunStart === null) restRunStart = seg.startMs;
-      if (seg.endMs - restRunStart >= RESET_REST_MIN * MINUTE_MS) {
-        windowStart = seg.endMs;
-      }
-    } else {
-      restRunStart = null;
-    }
-  }
-  return windowStart;
-}
-
 /**
  * Driving since the last qualifying break. Any continuous >=30 minutes
  * of non-driving status (off duty, sleeper, or on-duty-not-driving)

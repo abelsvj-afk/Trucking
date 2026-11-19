@@ -16,14 +16,14 @@ export interface TelegramDocument {
   caption?: string;
 }
 
-type FetchFn = (url: string, init: Record<string, unknown>) => Promise<{ ok: boolean }>;
+type FetchFn = (url: string, init: RequestInit) => Promise<{ ok: boolean }>;
 
 export async function sendTelegramDocument(doc: TelegramDocument, deps: { env?: Record<string, string | undefined>; fetchFn?: FetchFn } = {}): Promise<boolean> {
   const env = deps.env ?? process.env;
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_OWNER_CHAT_ID;
   if (!token || !chatId) return false;
-  const doFetch = deps.fetchFn ?? (globalThis.fetch as unknown as FetchFn);
+  const doFetch = deps.fetchFn ?? globalThis.fetch;
   try {
     const form = new FormData();
     form.set("chat_id", chatId);

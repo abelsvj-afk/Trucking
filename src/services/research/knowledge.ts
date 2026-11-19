@@ -223,20 +223,3 @@ export async function loadLatestKnowledgeByTopic(
   for (const row of rows) out[row.watch_topic] = row;
   return out;
 }
-
-/** Recent knowledge rows for one company, newest first - the chat tool's and page's read. */
-export async function loadRecentKnowledge(
-  db: Queryable,
-  companyId: string,
-  limit = 20,
-): Promise<KnowledgeRow[]> {
-  const { rows } = await db.query<KnowledgeRow & Record<string, unknown>>(
-    `select ${KNOWLEDGE_COLUMNS}
-     from research_knowledge
-     where company_id = $1
-     order by observed_at desc
-     limit $2`,
-    [companyId, limit],
-  );
-  return rows;
-}
