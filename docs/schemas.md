@@ -1554,3 +1554,106 @@ One row per (note, driver): when he listened and when he passed it. RLS: a drive
 - `created_at` timestamptz not null default now()
 
 Function `company_member_count()` (00101, security definer): returns only the number of `user_profiles` rows in the caller's company.
+
+### `bot_identities` — created in 00103
+
+The dispatch bot team (docs/bot-team-build-plan.md): one row per bot. Seeded with the 7 bots from the governing files (docs/bots/): abel, dispatch-scout, tracker, compliance-watchdog, maintenance, billing, auditor. `tool_scope` is the per-bot tool access from the governing file (read / read-write / draft / flag / gated / never per tool group); the gateway hides everything else. `status` is live for Abel + Dispatch Scout in Phase 0, planned for the rest.
+
+- `slug` text primary key — abel | dispatch-scout | tracker | compliance-watchdog | maintenance | billing | auditor
+- `display_name` text not null
+- `role` text not null — one line on the seat
+- `status` text not null default 'planned' — live | planned
+- `tool_scope` jsonb not null — per-group scope map
+- `created_at` timestamptz not null default now()
+
+### `bot_team_memories` — created in 00103
+
+Per-bot memory: the live counterpart of each bot's injectable MEMORY.md (docs/bots/&lt;slug&gt;/MEMORY.md). The MD file is the owner's editable copy; these rows are what a running bot reads. NOT Abel's `bot_memories` (00092) — that table is Abel's episodic memory with bi-temporal supersession and embeddings; this one is the team's flat fact/rule store.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `bot_slug` text not null references bot_identities (slug)
+- `kind` text not null — fact | rule | preference | correction | watch-out
+- `content` text not null — 1–4000 chars
+- `source` text not null default 'owner' — 1–80 chars
+- `created_at` timestamptz not null default now()
+
+### `bot_load_ledger` — created in 00103
+
+Shared load ledger: one row per load outcome, booked or not. The learn-from-every-load loop's raw material — a skipped load teaches as much as a booked one, so `outcome` covers both. All money is integer cents; miles are numeric.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `load_ref` text not null — 1–120 chars (broker ref / trip number as quoted)
+- `broker_name`, `origin`, `destination` text — nullable, 1–120 chars when set
+- `rate_cents_per_loaded_mile` integer — null when the broker quoted a flat total
+- `loaded_miles`, `deadhead_miles` numeric (10, 2) — nullable, ≥ 0
+- `pay_cents`, `fuel_cents`, `detention_cents` integer — nullable, ≥ 0
+- `outcome` text not null — booked | skipped | cancelled | completed | disputed
+- `created_at` timestamptz not null default now()
+
+### `bot_proposals` — created in 00103
+
+Every bot action is a proposal first (propose-only guardrails, src/services/bots/guardrails.ts). The owner approves or denies; nothing executes from a proposal in Phase 0 — there is no execution path yet. `status` 'proposed' rows are what GET /api/bots/proposals lists.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `bot_slug` text not null references bot_identities (slug)
+- `kind` text not null — load-draft | load-shortlist | message-draft | record-draft | call-plan | other
+- `title` text not null — 1–240 chars
+- `payload` jsonb not null default '{}' — the structured draft
+- `source_ref` text — nullable, ≤ 240 chars (the forwarded dispatch / message it came from)
+- `status` text not null default 'proposed' — proposed | approved | denied | expired
+- `created_at` timestamptz not null default now()
+- `decided_at` timestamptz — when the owner decided
+- `decided_by` text — nullable, ≤ 120 chars
+
+### `bot_audit_log` — created in 00103
+
+Every proposal and every owner decision, plus every blocked attempt (a bot trying an execute-class action without an approved proposal). Append-only — no update/delete policy on purpose; corrections are new rows.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `bot_slug` text not null references bot_identities (slug)
+- `actor` text not null — bot | owner | system
+- `action` text not null — 1–80 chars (e.g. proposal_created, proposal_approved, action_blocked)
+- `target_ref` text — nullable, ≤ 240 chars
+- `detail` jsonb not null default '{}'
+- `created_at` timestamptz not null default now()
+
+### `bot_group_rooms` — created in 00103
+
+The Telegram group room: one private group, him + the bots. Only the allowlisted chat id (TELEGRAM_GROUP_CHAT_ID) is ever served; every other group is ignored, exactly like the 1:1 bot ignores every chat that is not the allowlisted owner chat.
+
+- `telegram_chat_id` bigint primary key
+- `company_id` uuid not null references companies (id)
+- `name` text not null default 'bot team' — 1–120 chars
+- `status` text not null default 'active' — active | paused
+- `created_at` timestamptz not null default now()
+
+### `bot_group_messages` — created in 00103
+
+Every message in the room, so the room is reconstructable and the routing is auditable: who said it, who it was routed to, what was said. `sender_kind` is owner | bot; `sender_ref` is the bot slug or the owner's Telegram user id as text.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `telegram_chat_id` bigint not null references bot_group_rooms (telegram_chat_id)
+- `telegram_message_id` bigint not null
+- `sender_kind` text not null — owner | bot
+- `sender_ref` text not null — 1–120 chars
+- `text` text not null — 1–4000 chars
+- `routed_to_bot_slug` text references bot_identities (slug) — null when nobody answered
+- `created_at` timestamptz not null default now()
+- unique (telegram_chat_id, telegram_message_id, sender_kind)
+
+### `bot_spend_ledger` — created in 00103
+
+One row per model call, estimated cost in cents. Estimates, not bills — OpenAI bills the account; the ledger tracks estimates (src/services/bots/spend.ts) so the cap trips early. When the month's estimated spend hits BOT_MONTHLY_SPEND_CAP_CENTS (default $10), bot model calls stop and the bots say so plainly.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `bot_slug` text not null references bot_identities (slug)
+- `model` text not null — 1–120 chars
+- `tier` text not null — scan | rank
+- `estimated_cents` integer not null — ≥ 0
+- `created_at` timestamptz not null default now()

@@ -60,6 +60,8 @@ export interface TelegramConfig {
   webhookSecret: string | null;
   allowedChatId: string | null;
   companyId: string | null;
+  /** Bot-team group allowlist (Phase 0 baseline; docs/bot-team-build-plan.md). Absent = groups ignored, as before. */
+  groupChatId?: string | null;
 }
 
 export function getTelegramConfig(env: NodeJS.ProcessEnv = process.env): TelegramConfig {
@@ -68,6 +70,7 @@ export function getTelegramConfig(env: NodeJS.ProcessEnv = process.env): Telegra
     webhookSecret: env.TELEGRAM_WEBHOOK_SECRET || null,
     allowedChatId: env.TELEGRAM_ALLOWED_CHAT_ID || null,
     companyId: env.TELEGRAM_COMPANY_ID || null,
+    groupChatId: env.TELEGRAM_GROUP_CHAT_ID || null,
   };
 }
 
@@ -85,6 +88,8 @@ export interface TelegramUpdate {
   message?: {
     /** Telegram's id of the message (used to react to it). */
     message_id?: number;
+    /** Telegram always sends the sender on a message. */
+    from?: { id?: number; is_bot?: boolean; username?: string };
     chat?: { id?: number; type?: string };
     text?: string;
     /** A sticker he sent: it reaches Abel as "[sticker 😂]", never as a command. */

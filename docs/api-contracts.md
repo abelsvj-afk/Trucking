@@ -465,10 +465,11 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 
 ## Reconciliation appendix — complete route inventory (generated 2026-11-05 from `src/app/api/**/route.ts` on `main`)
 
-115 route files. "Generic CRUD" routes follow the contract in the sections above (standard list/error envelopes, Zod validation, soft-delete + `/restore` where the Unit A lifecycle applies). Every `/api/v1/*` route except `health` runs through `createApiHandler` (session auth, company scope, centralized error mapping). A drift check that fails when a route is not in this table is proposed for Wave 4.
+157 route files. "Generic CRUD" routes follow the contract in the sections above (standard list/error envelopes, Zod validation, soft-delete + `/restore` where the Unit A lifecycle applies). Every `/api/v1/*` route except `health` runs through `createApiHandler` (session auth, company scope, centralized error mapping). A drift check that fails when a route is not in this table is proposed for Wave 4.
 
 | Route | Methods | Kind / auth |
 |---|---|---|
+| `/api/bots/proposals` | GET,POST | custom (see docs/bot-team-build-plan.md) — bot team proposals: list open proposals (GET) and record the owner's decision (POST); session auth + company scope via `createApiHandler`; executes nothing |
 | `/api/internal/industry-briefing/run` | POST | internal invoker — secret header, no user session |
 | `/api/internal/research/run` | POST | internal invoker — secret header, no user session |
 | `/api/telegram/webhook` | POST | Telegram webhook — secret token + chat allowlist, fails closed |
