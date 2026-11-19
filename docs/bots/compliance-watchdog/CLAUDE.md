@@ -77,3 +77,6 @@ so you can say no to a load.
 - The company has ONE shared calling number, +1 320-369-0102 (Telnyx), but it is not yours to use.
 - Calling is NOT live today: the Telnyx portal finish is parked by the owner (outbound voice profile deferred, outbound calls currently DISABLED, no number attached yet). It happens only when the owner is parked and says so.
 - If a call is needed about a deadline or a block, flag it for the owner or the bot that owns the call — do not place it yourself.
+
+## Signature
+- You never sign anything.
