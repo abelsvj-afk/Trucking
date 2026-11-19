@@ -8,6 +8,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useNowTick } from "@/lib/use-now-tick";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient, ApiClientError } from "@/lib/api-client";
@@ -64,7 +65,36 @@ const VERDICT: Record<string, { word: string; tone: string }> = {
 type Run =
   | { status: "working"; step: string }
   | { status: "error"; message: string }
-  | { status: "done"; out: AutoRunResult };
+  | { status: "done"; out: AutoRunResult; savedAtMs?: number };
+
+// The last plan, kept on this phone (owner 2026-11-19: "smart path doesn't
+// persist when switching screens"). Coming back shows it at once; it is
+// re-checked in the background only when older than RECHECK_AFTER_MS, and
+// it is never shown for a different load than the one asked for.
+const LAST_RUN_KEY = "trucking.smartpath.last-run.v1";
+const RECHECK_AFTER_MS = 15 * 60_000;
+const KEEP_FOR_MS = 12 * 60 * 60_000;
+
+function readLastRun(loadId: string | null): { out: AutoRunResult; savedAtMs: number } | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_RUN_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { out: AutoRunResult; savedAtMs: number; loadId: string | null };
+    if (!saved?.out || !Number.isFinite(saved.savedAtMs) || Date.now() - saved.savedAtMs > KEEP_FOR_MS) return null;
+    if (loadId && saved.loadId !== loadId) return null;
+    return { out: saved.out, savedAtMs: saved.savedAtMs };
+  } catch {
+    return null;
+  }
+}
+
+function saveLastRun(out: AutoRunResult, loadId: string | null): void {
+  try {
+    window.localStorage.setItem(LAST_RUN_KEY, JSON.stringify({ out, savedAtMs: Date.now(), loadId }));
+  } catch {
+    /* storage refused: it just re-plans next time */
+  }
+}
 
 function readPrefs(): AutoPrefs {
   try {
@@ -127,10 +157,16 @@ async function fetchPlan(opts: PlanOpts): Promise<Run> {
         /* storage is a nicety; the plan stands */
       }
     }
-    return { status: "done", out: res.data };
+    saveLastRun(res.data, opts.loadId);
+    return { status: "done", out: res.data, savedAtMs: Date.now() };
   } catch (err) {
     return { status: "error", message: plainError(err) };
   }
+}
+
+function planAge(savedAtMs: number, nowMs: number): string {
+  const mins = Math.max(0, Math.round((nowMs - savedAtMs) / 60_000));
+  return mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
 }
 
 export default function SmartPathPage() {
@@ -162,11 +198,21 @@ function SmartPathInner() {
     void fetchPlan(opts).then(setRun);
   }, []);
 
-  // Plan the moment the page opens - nothing to fill in first. (The state already says "working".)
+  // Plan the moment the page opens - nothing to fill in first. Coming back
+  // to the page shows the last plan at once; it is re-checked quietly only
+  // when it is older than 15 minutes (and a failed quiet re-check keeps it).
   useEffect(() => {
     let cancelled = false;
+    const last = readLastRun(params.get("load_id"));
+    // Show the kept plan at once (after hydration, so server and phone agree on first paint).
+    if (last) queueMicrotask(() => !cancelled && setRun({ status: "done", out: last.out, savedAtMs: last.savedAtMs }));
+    if (last && Date.now() - last.savedAtMs < RECHECK_AFTER_MS) return () => {
+      cancelled = true;
+    };
     void fetchPlan({ loadId: params.get("load_id"), leaveAt: "", prefs: readPrefs() }).then((r) => {
-      if (!cancelled) setRun(r);
+      if (cancelled) return;
+      if (r.status === "error" && last) return;
+      setRun(r);
     });
     return () => {
       cancelled = true;
@@ -203,6 +249,7 @@ function SmartPathInner() {
     plan({ loadId, leaveAt, prefs });
   }
 
+  const nowTick = useNowTick(30_000);
   const result = run.status === "done" ? run.out.result : null;
   const facts = useMemo(() => (result ? keyFacts(result, zone) : []), [result, zone]);
   const steps = useMemo(() => (result ? timeline(result, zone) : []), [result, zone]);
@@ -273,7 +320,12 @@ function SmartPathInner() {
         )}
         {result && verdict && (
           <>
-            <p className="sp-load">{run.status === "done" ? run.out.load?.label : ""}</p>
+            <p className="sp-load">
+              {run.status === "done" ? run.out.load?.label : ""}
+              {run.status === "done" && run.savedAtMs !== undefined && (
+                <span className="row-sub"> · planned {planAge(run.savedAtMs, nowTick)}</span>
+              )}
+            </p>
             <p className="sp-word">{verdict.word}</p>
             {why && <p className="sp-why">{why}</p>}
             {hours && <p className={hours.tight ? "sp-hours sp-hours-tight" : "sp-hours"}>{hours.text}</p>}
