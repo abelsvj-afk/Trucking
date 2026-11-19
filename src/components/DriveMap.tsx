@@ -271,6 +271,11 @@ export default function DriveMap({
   // position effect re-runs and the marker comes back at once) with
   // a ref mirror for the stable callbacks.
   const [truckLayerFailed, setTruckLayerFailed] = useState(false);
+  // The 3D truck has really drawn a frame on this map. Until then (and
+  // whenever 3D fails or is off) the flat gold truck is the truck. Once
+  // it has, the flat one goes, so there is ONE truck: two of them drift
+  // apart while moving (the icon jumps to each fix, the model glides).
+  const [truck3dDrawn, setTruck3dDrawn] = useState(false);
   const truckLayerFailedRef = useRef(false);
   const markTruckLayerFailed = useCallback((error: unknown) => {
     console.error("[DriveMap] 3D truck layer failed; falling back to the flat truck icon.", error);
@@ -396,6 +401,7 @@ export default function DriveMap({
             return { x: mc.x, y: mc.y, z: mc.z, metersPerUnit: mc.meterInMercatorCoordinateUnits() };
           },
           markTruckLayerFailed,
+          () => setTruck3dDrawn(true),
         ),
       );
     } catch (error) {
@@ -686,11 +692,22 @@ export default function DriveMap({
     if (view3dRef.current && !truckLayerFailed) {
       // Repaint so the 3D layer sees the new fix; it glides to it and
       // stops asking for frames once it arrives (truck-motion.ts).
-      // The flat gold truck below is ALSO drawn in 3D (owner
-      // 2026-11-19, on the road with no truck on his map): a visible
-      // truck always beats an invisible one, whatever the phone's
-      // graphics do with the 3D model.
       map.triggerRepaint();
+      if (truck3dDrawn) {
+        // The 3D truck is drawing: it IS the truck. No flat icon.
+        positionMarkerRef.current?.remove();
+        positionMarkerRef.current = null;
+        positionElRef.current = null;
+        if (followRef.current) {
+          const now = Date.now();
+          if (now - lastCameraMoveRef.current >= 1000) {
+            lastCameraMoveRef.current = now;
+            applyCamera(position);
+          }
+        }
+        return;
+      }
+      // Not drawn yet (or never will on this phone): the flat truck below shows meanwhile.
     }
     {
       const maplibregl = maplibreRef.current;
@@ -729,7 +746,7 @@ export default function DriveMap({
         }
       }
     }
-  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, applyCamera]);
+  }, [position, headingDeg, positionQuality, headingUp, followZoom, view3d, truckLayerFailed, truck3dDrawn, applyCamera]);
 
   // The pulsating golden glow on the route (owner 2026-11-18). Two
   // paint values on one layer, ~8 updates a second (route-glow.ts) —

@@ -103,6 +103,8 @@ export function createTruckMapLayer(
    * visible truck always beats an invisible one) — the map then puts
    * the flat gold truck icon back. */
   onRenderFailure?: (error: unknown) => void,
+  /** Called once, after the first frame the 3D truck really drew — the map then hides the flat icon (one truck, never two). */
+  onFirstFrame?: () => void,
 ): CustomLayerInterface {
   let map: MapLibreMap | null = null;
   let renderer: THREE.WebGLRenderer | null = null;
@@ -115,6 +117,7 @@ export function createTruckMapLayer(
   // in the flat icon (DriveMap). Before 2026-11-19 a mid-drive
   // failure only logged, and the truck went invisible.
   let reportedRenderError = false;
+  let reportedFirstFrame = false;
   let wheels: THREE.Mesh[] = [];
   let motion: TruckMotion | null = null;
 
@@ -182,6 +185,10 @@ export function createTruckMapLayer(
         );
         renderer.resetState();
         renderer.render(scene, camera);
+        if (!reportedFirstFrame) {
+          reportedFirstFrame = true;
+          onFirstFrame?.();
+        }
         if (animating) map.triggerRepaint();
       } catch (error) {
         if (!reportedRenderError) {
