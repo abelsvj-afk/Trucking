@@ -26,10 +26,12 @@
 // honest channel until group callbacks are wired (Phase 1).
 //
 // Abel's group answers use runBotChat with context assembled in code:
-// recent group history + the bot's stored memories. They do NOT yet
-// carry the live company snapshot the 1:1 path loads — a group answer
-// never states a live figure it has not loaded. That snapshot is a
-// Phase 1 gap, listed in the PR.
+// recent group history + the bot's stored memories. Since the shared
+// reasoning build (2026-11-19) they also carry Abel's full reasoning
+// layer via services/bots/reasoning.ts — the same forms as his 1:1
+// turn. They do NOT yet carry the live company snapshot the 1:1 path
+// loads — a group answer never states a live figure it has not
+// loaded. That snapshot is a Phase 1 gap, listed in the PR.
 
 import { randomUUID } from "node:crypto";
 import { auditLoadDraft } from "./auditor";
@@ -43,6 +45,7 @@ import {
 } from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
+import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
 import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply } from "./router";
 import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
@@ -67,6 +70,13 @@ export interface GroupHandlerDeps {
     userText: string;
     history: { role: "user" | "assistant"; text: string }[];
     instructions: { kind: string; content: string }[];
+    /**
+     * The answering bot's shared-brain context (services/bots/
+     * reasoning.ts): its system prompt — identity, tool scope, every
+     * reasoning form — plus its own memory context. The caller maps
+     * it into the chat turn's system prompt.
+     */
+    systemContext?: string;
   }) => Promise<string | null>;
   /**
    * The shared-browser runtime for board scans. Built from env when
@@ -247,10 +257,22 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
   try {
     const memories = store ? await store.loadBotMemories("abel") : [];
+    // Shared brain (2026-11-19): Abel's group turn carries the same
+    // full reasoning layer as his 1:1 turn — his system prompt from
+    // the shared builder, plus his own memory context (watch-outs
+    // from his corrections first). Standing rules travel as
+    // instructions, the channel the chat prompt already honors on
+    // every reply; the rest of his memory renders in the context
+    // block, so nothing is assembled twice.
+    const systemPrompt = buildBotSystemPrompt("abel");
+    const memoryContext = buildBotMemoryContext(memories.filter((row) => row.kind !== "rule"));
     const reply = await deps.runChat({
       userText: text,
       history: [],
-      instructions: memories.map((row) => ({ kind: row.kind, content: row.content })),
+      instructions: memories
+        .filter((row) => row.kind === "rule")
+        .map((row) => ({ kind: row.kind, content: row.content })),
+      systemContext: [systemPrompt, memoryContext].filter((part) => part && part.trim() !== "").join("\n\n"),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
     if (store) {

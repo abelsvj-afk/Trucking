@@ -202,6 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           userText: string;
           history: { role: "user" | "assistant"; text: string }[];
           instructions: { kind: string; content: string }[];
+          systemContext?: string;
         }): Promise<string | null> => {
           const output = await runBotChat(new OpenAiProvider(), {
             userText: input.userText,
@@ -213,6 +214,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               created_at: new Date().toISOString(),
             })),
             memories: [],
+            reasoningText: input.systemContext ?? null,
           });
           return output.reply;
         }

@@ -109,6 +109,20 @@ export interface BotTeamStore {
   recordSpend(input: { botSlug: BotSlug; model: string; tier: "scan" | "rank"; estimatedCents: number }): Promise<void>;
   spentThisMonthCents(sinceIso: string): Promise<number>;
   loadBotMemories(botSlug: BotSlug): Promise<BotMemoryRow[]>;
+  /**
+   * Write one row of a bot's own memory (bot_team_memories). This is
+   * the write half of the shared brain: facts a bot learns, rules it
+   * is given, corrections the owner makes, and the watch-outs the
+   * corrections-learning derives (services/bots/learning.ts). A bot
+   * only ever writes its OWN slug's rows — memory is per-bot even
+   * though the reasoning is shared.
+   */
+  saveBotMemory(input: {
+    botSlug: BotSlug;
+    kind: BotMemoryRow["kind"];
+    content: string;
+    source?: string;
+  }): Promise<BotMemoryRow>;
 }
 
 export function createBotTeamStore(companyId: string | null): BotTeamStore | null {
@@ -267,6 +281,22 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
         .limit(100);
       if (error) fail("loadBotMemories", error);
       return (data ?? []) as BotMemoryRow[];
+    },
+
+    async saveBotMemory(input) {
+      const { data, error } = await client
+        .from("bot_team_memories")
+        .insert({
+          company_id: companyId,
+          bot_slug: input.botSlug,
+          kind: input.kind,
+          content: input.content,
+          source: input.source ?? "bot",
+        })
+        .select()
+        .single();
+      if (error || !data) fail("saveBotMemory", error);
+      return data as BotMemoryRow;
     },
   };
 }
