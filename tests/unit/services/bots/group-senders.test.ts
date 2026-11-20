@@ -26,3 +26,17 @@ describe("group senders", () => {
     expect(buildGroupSenders("abel-token", vi.fn(), {}).scoutSendMessage).toBeUndefined();
   });
 });
+
+// Owner 2026-11-20: every bot gets its own BotFather account.
+describe("every bot on its own account", () => {
+  it("'Billing: ...' goes from Billing's own account, without the prefix, once its token is set", async () => {
+    const send = vi.fn(async () => [1]);
+    await buildGroupSenders("abel-token", send, { TELEGRAM_BILLING_BOT_TOKEN: "billing-token" }).sendMessage(-100, "Billing: invoice ready");
+    expect(send).toHaveBeenCalledWith("billing-token", -100, "invoice ready");
+  });
+  it("before its token is set, it goes from Abel's account with the prefix", async () => {
+    const send = vi.fn(async () => [1]);
+    await buildGroupSenders("abel-token", send, {}).sendMessage(-100, "Billing: invoice ready");
+    expect(send).toHaveBeenCalledWith("abel-token", -100, "Billing: invoice ready");
+  });
+});

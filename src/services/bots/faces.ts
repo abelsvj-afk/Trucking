@@ -105,6 +105,16 @@ export function faceFor(slug: BotSlug): BotFace {
   return BOT_FACES[slug];
 }
 
+/**
+ * The bot's Telegram username (owner 2026-11-20: EVERY bot gets its own BotFather
+ * account). Not a secret: TELEGRAM_<BOT>_BOT_USERNAME in the environment (set when the
+ * account is created, no code change), else the table above. Null = account not created yet.
+ */
+export function botFaceUsername(slug: BotSlug, env: Record<string, string | undefined> = process.env): string | null {
+  const fromEnv = env[BOT_FACES[slug].tokenEnvVar.replace(/_TOKEN$/, "_USERNAME")]?.trim().replace(/^@/, "");
+  return fromEnv || BOT_FACES[slug].username;
+}
+
 /** Token for one bot's face, from the environment. Null = the account is not wired yet. */
 export function botFaceToken(slug: BotSlug, env: Record<string, string | undefined> = process.env): string | null {
   const raw = env[BOT_FACES[slug].tokenEnvVar];

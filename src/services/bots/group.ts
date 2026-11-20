@@ -89,7 +89,7 @@ import {
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
 import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, handleBillingGroupTurn, type BillingDataStore } from "./billing";
-import { botFace, parseRoomSpeaker } from "./faces";
+import { botFaceUsername, parseRoomSpeaker } from "./faces";
 import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
 import { botIdentity, GROUP_SEATS, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { botChainDepth, evaluateBotPickup, identifyTeamBot } from "./bot-channel";
@@ -480,7 +480,7 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       // No username: a teammate through the shared webhook — prefix or not, it is logged.
       if (speaker === null) return handleBotGroupMessage(chat.id, sender, deps);
       fromBotSlug = speaker;
-    } else if (fromBotSlug === "abel" && speaker !== null && speaker !== "abel" && botFace(speaker).username === null) {
+    } else if (fromBotSlug === "abel" && speaker !== null && speaker !== "abel" && botFaceUsername(speaker) === null) {
       fromBotSlug = speaker;
     }
     if (fromBotSlug !== "billing") {

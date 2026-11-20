@@ -8,14 +8,14 @@ import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
 import { getTelegramConfig } from "@/services/telegram/dispatch-bot";
 import { faceContext, getTeamWebhookReports, getWebhookReport, repairWebhook, type TeamFace } from "@/services/telegram/webhook-admin";
-import { BOT_FACES, botFaceToken } from "@/services/bots/faces";
+import { BOT_FACES, botFaceToken, botFaceUsername } from "@/services/bots/faces";
 import type { BotSlug } from "@/services/bots/registry";
 
 const headers = { "Cache-Control": "no-store" };
 
 /** Every bot face with its token from the server's environment (BT-007). Tokens never leave the server. */
 function teamFaces(): TeamFace[] {
-  return Object.values(BOT_FACES).map((f) => ({ slug: f.slug, name: f.displayName, username: f.username, tokenEnvVar: f.tokenEnvVar, token: botFaceToken(f.slug) }));
+  return Object.values(BOT_FACES).map((f) => ({ slug: f.slug, name: f.displayName, username: botFaceUsername(f.slug), tokenEnvVar: f.tokenEnvVar, token: botFaceToken(f.slug) }));
 }
 
 export const GET = createApiHandler(async () => {
