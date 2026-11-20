@@ -50,6 +50,14 @@ export interface BotIdentity {
   seat: string;
   /** 'live' for Abel, Dispatch Scout (own bot account in the group), and the Auditor (wired); the rest are planned until wired. */
   status: "planned" | "live" | "paused";
+  /**
+   * The bot's own Telegram @username once it has its own BotFather
+   * account (individual faces, owner 2026-11-19). Null until the
+   * account exists. The bot-to-bot channel (bots/bot-channel.ts)
+   * identifies team senders by this username — a bot whose username
+   * is not listed here is not in the room, whatever it claims.
+   */
+  telegramUsername?: string | null;
   toolScope: Record<ToolGroup, ToolScope>;
 }
 
@@ -76,6 +84,9 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     displayName: "Dispatch Scout",
     seat: "load planner",
     status: "live",
+    // His own BotFather account (owner-created 2026-11-19); the token
+    // lives in Fly as TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN.
+    telegramUsername: "DispatchScoutBot",
     toolScope: {
       loads: "read",
       hos: "read",
@@ -111,12 +122,19 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     seat: "HOS and safety alerts",
     status: "planned",
     toolScope: {
+      // Governing file (docs/bots/compliance-watchdog/CLAUDE.md):
+      // Loads READ, HOS READ ONLY + flag, Money NO ACCESS, Documents
+      // READ + WRITE (file, never approve), Email WRITE-GATED
+      // (reminders to driver/owner only — "draft" here: drafts leave
+      // nothing; sending is an execute-class proposal), Maps NO
+      // ACCESS, App WRITE (alerts, checklist) via the "flag" scope,
+      // Calls NEVER, Signature NEVER.
       loads: "read",
       hos: "read",
       money: "none",
-      documents: "read",
-      email: "none",
-      maps: "read",
+      documents: "read-write",
+      email: "draft",
+      maps: "none",
       "app-actions": "flag",
       calls: "never",
       signature: "never",
@@ -236,13 +254,19 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
 }
 
 /** Bots wired into the Telegram group. Phase 0 seated Abel +
- * Dispatch Scout; Billing joined in Phase 2, and the Auditor joins
- * with its own seat — read-only, flag only, acting only on a clear
- * route (router.ts), speaking to teammates by name in the room.
- * Seats are internal agents; each posts under its own BotFather
- * account once its token is configured (owner, 2026-11-19:
- * individual faces). */
-export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor"];
+ * Dispatch Scout; Billing and Compliance Watchdog joined in
+ * Phase 2, and the Auditor joins with its own seat — read-only,
+ * flag only, acting only on a clear route (router.ts), speaking
+ * to teammates by name in the room. FACES (owner, 2026-11-19):
+ * each bot gets its own Telegram account + profile photo,
+ * messaging as itself — the one-face model was rejected. Until
+ * the shared backend binds per-bot tokens, lines post through
+ * the single token prefixed with the bot's name; the seat list
+ * is the same either way. */
+export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor", "compliance-watchdog"];
 
 /** Backwards-compatible alias: the Phase 0 name, kept until the other seats' tests rename. */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = GROUP_SEATS;
+
+/** The Phase 2 seat list as the Watchdog build defined it (Abel, Scout, Watchdog). GROUP_SEATS above is the live seat list. */
+export const GROUP_SEATS_PHASE_2: BotSlug[] = ["abel", "dispatch-scout", "compliance-watchdog"];

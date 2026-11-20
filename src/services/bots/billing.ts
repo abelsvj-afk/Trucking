@@ -985,9 +985,9 @@ export async function handleBillingGroupTurn(
     return;
   }
   // Spend cap (audit F-023/F-024): fail closed, reserved atomically before the call.
-  const spend = await reserveModelSpend(store, "billing", "Billing", text.length);
+  const spend = await reserveModelSpend(store, "billing", text.length);
   if (!spend.ok) {
-    await deps.sendMessage(chatId, spend.message);
+    await deps.sendMessage(chatId, `Billing: ${spend.message}`);
     return;
   }
   try {

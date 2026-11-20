@@ -10,6 +10,7 @@ import {
   canRead,
   GROUP_SEATS,
   GROUP_SEATS_PHASE_0,
+  GROUP_SEATS_PHASE_2,
   isBotSlug,
   toolScopeFor,
   visibleToolGroups,
@@ -54,8 +55,8 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats Abel, Dispatch Scout, Billing, and the Auditor in the group", () => {
-    expect([...GROUP_SEATS].sort()).toEqual(["abel", "auditor", "billing", "dispatch-scout"].sort());
+  it("seats Abel, Dispatch Scout, Billing, the Auditor, and Compliance Watchdog in the group", () => {
+    expect([...GROUP_SEATS].sort()).toEqual(["abel", "auditor", "billing", "compliance-watchdog", "dispatch-scout"].sort());
     expect([...GROUP_SEATS_PHASE_0].sort()).toEqual([...GROUP_SEATS].sort());
   });
 
@@ -76,5 +77,30 @@ describe("bot registry", () => {
     expect(visibleToolGroups("billing")).not.toContain("hos");
     expect(visibleToolGroups("billing")).not.toContain("maps");
     expect(visibleToolGroups("billing")).not.toContain("signature");
+  });
+
+  it("gives Compliance Watchdog its governing scope: read loads/HOS, file documents, draft reminders, no maps, no money, no calls", () => {
+    expect(toolScopeFor("compliance-watchdog", "loads")).toBe("read");
+    expect(toolScopeFor("compliance-watchdog", "hos")).toBe("read");
+    expect(toolScopeFor("compliance-watchdog", "money")).toBe("none");
+    expect(toolScopeFor("compliance-watchdog", "documents")).toBe("read-write");
+    expect(toolScopeFor("compliance-watchdog", "email")).toBe("draft");
+    expect(toolScopeFor("compliance-watchdog", "maps")).toBe("none");
+    expect(toolScopeFor("compliance-watchdog", "app-actions")).toBe("flag");
+    expect(toolScopeFor("compliance-watchdog", "calls")).toBe("never");
+    expect(toolScopeFor("compliance-watchdog", "signature")).toBe("never");
+    expect(canRead("compliance-watchdog", "hos")).toBe(true);
+    expect(canDraft("compliance-watchdog", "email")).toBe(true);
+    expect(canDraft("compliance-watchdog", "loads")).toBe(false);
+    expect(canFlag("compliance-watchdog", "hos")).toBe(true);
+    expect(canFlag("compliance-watchdog", "money")).toBe(false);
+    expect(visibleToolGroups("compliance-watchdog")).not.toContain("maps");
+    expect(visibleToolGroups("compliance-watchdog")).not.toContain("money");
+    expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
+  });
+
+  it("seats Abel, Dispatch Scout, and Compliance Watchdog in the Phase 2 group", () => {
+    expect([...GROUP_SEATS_PHASE_2].sort()).toEqual(["abel", "compliance-watchdog", "dispatch-scout"].sort());
+    for (const slug of GROUP_SEATS_PHASE_2) expect(GROUP_SEATS).toContain(slug);
   });
 });

@@ -8,27 +8,27 @@ const store = (reserve: BotTeamStore["reserveSpend"], settle = vi.fn(async () =>
 
 describe("reserveModelSpend", () => {
   it("no store: refuses (fail closed) and says why", async () => {
-    const r = await reserveModelSpend(null, "billing", "Billing", 10);
+    const r = await reserveModelSpend(null, "billing", 10);
     expect(r).toMatchObject({ ok: false });
-    expect(!r.ok && r.message).toMatch(/^Billing: .*won't call the model/);
+    expect(!r.ok && r.message).toMatch(/won't call the model/);
   });
 
   it("cap reached: refuses with the cap message", async () => {
-    const r = await reserveModelSpend(store(async () => null), "abel", "Abel", 10);
+    const r = await reserveModelSpend(store(async () => null), "abel", 10);
     expect(!r.ok && r.message).toMatch(/spending cap for this month is reached/);
   });
 
   it("missing reservation function (00109 not applied): names the migrations", async () => {
     const r = await reserveModelSpend(
       store(async () => { throw new Error("Could not find the function public.reserve_bot_spend in the schema cache"); }),
-      "abel", "Abel", 10,
+      "abel", 10,
     );
     expect(!r.ok && r.message).toContain("00109");
   });
 
   it("reserved: settles to the real estimate after the reply", async () => {
     const settle = vi.fn(async () => {});
-    const r = await reserveModelSpend(store(async () => "res-1", settle), "abel", "Abel", 10);
+    const r = await reserveModelSpend(store(async () => "res-1", settle), "abel", 10);
     expect(r.ok).toBe(true);
     if (r.ok) await r.settle(200);
     expect(settle).toHaveBeenCalledWith("res-1", expect.any(Number));

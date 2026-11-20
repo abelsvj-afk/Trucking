@@ -22,6 +22,12 @@
 // routes the same way and the tests can prove it.
 //
 
+import {
+  shouldWatchdogSpeak,
+  WATCHDOG_KEYWORD_PATTERNS,
+  WATCHDOG_MENTION_PATTERNS,
+  type SpeakVia,
+} from "./compliance-watchdog";
 // AUDITOR ROUTING (owner, 2026-11-19 — team-room correction): the
 // group chat is a team room, not a strict queue. Bots hand work
 // off to each other in the room and in-process; Abel is the boss
@@ -48,7 +54,7 @@
 // group handler answers those with "not in the room yet" instead of
 // pretending the bot is there.
 
-import { GROUP_SEATS, GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
+import { BOT_REGISTRY, GROUP_SEATS, GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
 
 export interface GroupMessageInput {
   text: string;
@@ -107,7 +113,8 @@ const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i, /\bfactoring\b/i, /\bshort[-\s]?paid?\b/i, /\boverdue\b/i, /\bdeduction\b/i, /\b(broker|shipper)\b[^.!?]{0,50}\bpaid\b/i, /\bpaid\b[^.!?]{0,50}\b(broker|invoice)\b/i] },
   { slug: "dispatch-scout", patterns: [/@?dispatchscoutbot\b/i, /\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i, /\bbroker\b/i] },
   { slug: "tracker", patterns: [/\btracker\b/i] },
-  { slug: "compliance-watchdog", patterns: [/\bwatchdog\b/i, /\bcompliance\b/i, /\bsafety\b/i] },
+  // Watchdog's mention patterns live in its own module (the speak gate).
+  { slug: "compliance-watchdog", patterns: WATCHDOG_MENTION_PATTERNS },
   { slug: "maintenance", patterns: [/\bmaintenance\b/i, /\bshop\b/i, /\brepair\b/i] },
 
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i] },
@@ -156,8 +163,13 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
     patterns: [/\bload\b/i, /\brate\b/i, /\bbroker\b/i, /\bdeadhead\b/i, /\bper mile\b/i, /\bshortlist\b/i, /\bpickup\b/i, /\bdelivery\b/i],
   },
   {
+    // Watchdog's job words live in its own module (the speak gate):
+    // strong compliance terms plus the HOS words. A message that
+    // only brushes its job ("what are the receiver's hours?") still
+    // routes here — the turn hands it off in words to the bot whose
+    // job it is instead of answering outside its job.
     slug: "compliance-watchdog",
-    patterns: [/\bhours\b/i, /\bduty\b/i, /\blog\b/i, /\bhos\b/i, /\brest\b/i, /\bsleeper\b/i],
+    patterns: WATCHDOG_KEYWORD_PATTERNS,
   },
   {
     slug: "maintenance",
@@ -173,12 +185,18 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
   const text = input.text.trim();
   const channel = input.channel ?? "group";
 
+  // Watchdog's speak gate decides for its own seat; every other bot
+  // answers when routed to it, as today. A reply to a bot's message
+  // is being called by name — Watchdog speaks.
+  const speakFor = (slug: BotSlug, via: SpeakVia): boolean =>
+    slug === "compliance-watchdog" ? shouldWatchdogSpeak({ text, via }) : true;
+
   // A reply to a bot's message goes to that bot.
   if (input.replyToBotSlug && isBotSlug(input.replyToBotSlug)) {
     return {
       target: input.replyToBotSlug,
       via: "reply",
-      shouldAnswer: true,
+      shouldAnswer: speakFor(input.replyToBotSlug, "reply"),
       seated: GROUP_SEATS.includes(input.replyToBotSlug),
     };
   }
@@ -208,7 +226,7 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
   // A name mention goes to the named bot.
   for (const { slug, patterns } of MENTION_PATTERNS) {
     if (patterns.some((pattern) => pattern.test(text))) {
-      return { target: slug, via: "mention", shouldAnswer: true, seated: GROUP_SEATS.includes(slug) };
+      return { target: slug, via: "mention", shouldAnswer: speakFor(slug, "mention"), seated: GROUP_SEATS.includes(slug) };
     }
   }
 
@@ -242,7 +260,7 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
           deferredToCoordinator: "abel",
         };
       }
-      return { target: slug, via: "keyword", shouldAnswer: true, seated: GROUP_SEATS_PHASE_0.includes(slug) };
+      return { target: slug, via: "keyword", shouldAnswer: speakFor(slug, "keyword"), seated: GROUP_SEATS.includes(slug) };
     }
   }
 
@@ -259,6 +277,6 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
 
 /** The one-line reply when a message routes to a seat not wired yet. */
 export function unseatedReply(target: BotSlug): string {
-  const name = target === "dispatch-scout" ? "Dispatch Scout" : target;
+  const name = BOT_REGISTRY[target].displayName;
   return `${name} isn't in the room yet — that seat comes in a later phase. Abel can take this one for now.`;
 }

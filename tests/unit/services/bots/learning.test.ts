@@ -44,6 +44,15 @@ function makeMemoryStore(state: MemoryState): BotTeamStore {
       state.rows.push(row);
       return row;
     },
+    listComplianceDeadlines: unused,
+    upsertComplianceDeadline: unused,
+    listOpenDefects: async () => [],
+    listRecentDutySegments: async () => [],
+    hasRecentAlert: async () => false,
+    listRecentAudit: async () => [],
+    hasRecentAuditFingerprint: async () => false,
+    listHandoffsFor: async () => [],
+    listRecentGroupMessages: async () => [],
   };
 }
 

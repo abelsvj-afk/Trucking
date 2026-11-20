@@ -412,6 +412,15 @@ describe("Billing group turn", () => {
         created_at: new Date().toISOString(),
       }),
       loadBotMemories: async () => [],
+      listComplianceDeadlines: async () => [],
+      upsertComplianceDeadline: async () => { throw new Error("not used in this test"); },
+      listOpenDefects: async () => [],
+      listRecentDutySegments: async () => [],
+      hasRecentAlert: async () => false,
+      listRecentAudit: async () => [],
+      hasRecentAuditFingerprint: async () => false,
+      listHandoffsFor: async () => [],
+      listRecentGroupMessages: async () => [],
     };
   }
 
@@ -643,6 +652,15 @@ describe("Idempotent proposals (one open draft per load)", () => {
         created_at: new Date().toISOString(),
       }),
       loadBotMemories: async () => [],
+      listComplianceDeadlines: async () => [],
+      upsertComplianceDeadline: async () => { throw new Error("not used in this test"); },
+      listOpenDefects: async () => [],
+      listRecentDutySegments: async () => [],
+      hasRecentAlert: async () => false,
+      listRecentAudit: async () => [],
+      hasRecentAuditFingerprint: async () => false,
+      listHandoffsFor: async () => [],
+      listRecentGroupMessages: async () => [],
     };
   }
 
@@ -763,6 +781,15 @@ describe("Handoff in the model turn", () => {
         created_at: new Date().toISOString(),
       }),
       loadBotMemories: async () => [],
+      listComplianceDeadlines: async () => [],
+      upsertComplianceDeadline: async () => { throw new Error("not used in this test"); },
+      listOpenDefects: async () => [],
+      listRecentDutySegments: async () => [],
+      hasRecentAlert: async () => false,
+      listRecentAudit: async () => [],
+      hasRecentAuditFingerprint: async () => false,
+      listHandoffsFor: async () => [],
+      listRecentGroupMessages: async () => [],
     };
     const data: BillingDataStore = {
       listInvoices: async () => [invoice()],

@@ -271,6 +271,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
         return sendTelegramMessage(botToken, chatId, text);
       },
+      // Individual faces (owner, 2026-11-19): a bot with its own
+      // BotFather token in env sends as itself. Watchdog sends via
+      // sendMessageAs below; Dispatch Scout sends via the dedicated
+      // scoutSendMessage dep (his own wiring, PR #105/#106). A seat
+      // is added here when its account exists.
+      sendMessageAs: (botSlug, chatId, text) => {
+        const ownToken =
+          botSlug === "compliance-watchdog" ? process.env.TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN : undefined;
+        if (!ownToken) return Promise.resolve(false);
+        return sendTelegramMessage(ownToken, chatId, text).then(() => true);
+      },
       scoutSendMessage: scoutBotToken
         ? (chatId, text) => sendTelegramMessage(scoutBotToken, chatId, text)
         : undefined,

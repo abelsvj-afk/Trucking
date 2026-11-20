@@ -1685,3 +1685,19 @@ What Malik reports back to Abel: a message a caller left, or a call summary. Wri
 - `payload` jsonb not null default '{}'
 - `reported_to_group` boolean not null default false; `telegram_message_id` bigint
 - `created_at` timestamptz not null default now()
+### `bot_compliance_deadlines` — created in 00105
+
+The deadline checklist the Compliance Watchdog keeps current: one row per deadline kind + subject (driver / truck). Read by the Watchdog sweep and group turn; written only by filing a document copy (internal, reversible — never an approval, never a filing with a regulator). AUTHORED, NOT applied.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id)
+- `kind` text not null — medical_card | cdl | mvr | clearinghouse_query | drug_test_pool | ucr | irp | mcs_150 | annual_inspection | dvir_defect
+- `subject_ref` text null — driver or truck the deadline belongs to, 1–120 chars
+- `due_date` date null — calendar date; null = no date on file
+- `status` text not null default 'unknown' — filed | missing | unknown
+- `source` text null — where the date came from, 1–120 chars
+- `notes` text null — ≤ 2000 chars
+- `created_at` timestamptz not null default now()
+- `updated_at` timestamptz not null default now()
+- unique (company_id, kind, coalesce(subject_ref, '')) — one writer per kind + subject
+

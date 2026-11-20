@@ -23,17 +23,16 @@ export type SpendReservation =
   | { ok: true; reservationId: string; settle: (replyChars: number) => Promise<void> }
   | { ok: false; message: string };
 
-/** `name` is the speaker's label in the refusal ("Abel", "Billing"). */
+/** The refusal `message` is unprefixed; the caller sends it under the bot's own name. */
 export async function reserveModelSpend(
   store: BotTeamStore | null | undefined,
   botSlug: BotSlug,
-  name: string,
   inputChars: number,
 ): Promise<SpendReservation> {
   if (!store) {
     return {
       ok: false,
-      message: `${name}: the bot team's database isn't connected on the server (TELEGRAM_COMPANY_ID / Supabase keys), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere.`,
+      message: `The bot team's database isn't connected on the server (TELEGRAM_COMPANY_ID / Supabase keys), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere.`,
     };
   }
   let reservationId: string | null;
@@ -52,11 +51,11 @@ export async function reserveModelSpend(
     return {
       ok: false,
       message: isMissingTableError(err)
-        ? `${name}: the bot team's database isn't set up on the server yet (migrations 00103 and 00109 — King applies them), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere.`
-        : `${name}: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.`,
+        ? `The bot team's database isn't set up on the server yet (migrations 00103 and 00109 — King applies them), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere.`
+        : `I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.`,
     };
   }
-  if (!reservationId) return { ok: false, message: `${name}: ${SPEND_CAP_REACHED_TEXT}` };
+  if (!reservationId) return { ok: false, message: SPEND_CAP_REACHED_TEXT };
   const id = reservationId;
   return {
     ok: true,
