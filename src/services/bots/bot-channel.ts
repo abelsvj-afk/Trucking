@@ -47,7 +47,8 @@
 // always ALSO posted in the room, so the owner sees every exchange;
 // nothing coordinates in a database the owner never sees.
 
-import { BOT_REGISTRY, type BotSlug } from "./registry";
+import { BOT_FACES } from "./faces";
+import type { BotSlug } from "./registry";
 import type { GroupRoute } from "./router";
 
 /**
@@ -66,10 +67,9 @@ export const MAX_BOT_CHAIN_DEPTH = 4;
 export function identifyTeamBot(username: string | null | undefined): BotSlug | null {
   if (!username) return null;
   const wanted = username.replace(/^@/, "").toLowerCase();
-  for (const identity of Object.values(BOT_REGISTRY)) {
-    if (identity.telegramUsername && identity.telegramUsername.toLowerCase() === wanted) {
-      return identity.slug;
-    }
+  // One authoritative table (BT-006): the faces registry holds each account's username.
+  for (const face of Object.values(BOT_FACES)) {
+    if (face.username && face.username.toLowerCase() === wanted) return face.slug;
   }
   return null;
 }

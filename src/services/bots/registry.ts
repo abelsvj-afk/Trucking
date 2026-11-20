@@ -50,14 +50,6 @@ export interface BotIdentity {
   seat: string;
   /** 'live' for Abel, Dispatch Scout (own bot account in the group), and the Auditor (wired); the rest are planned until wired. */
   status: "planned" | "live" | "paused";
-  /**
-   * The bot's own Telegram @username once it has its own BotFather
-   * account (individual faces, owner 2026-11-19). Null until the
-   * account exists. The bot-to-bot channel (bots/bot-channel.ts)
-   * identifies team senders by this username — a bot whose username
-   * is not listed here is not in the room, whatever it claims.
-   */
-  telegramUsername?: string | null;
   toolScope: Record<ToolGroup, ToolScope>;
 }
 
@@ -84,9 +76,6 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     displayName: "Dispatch Scout",
     seat: "load planner",
     status: "live",
-    // His own BotFather account (owner-created 2026-11-19); the token
-    // lives in Fly as TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN.
-    telegramUsername: "DispatchScoutBot",
     toolScope: {
       loads: "read",
       hos: "read",
