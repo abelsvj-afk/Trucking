@@ -100,7 +100,7 @@ export interface TelegramUpdate {
      * messages. The quote IS the pointer - its id resolves
      * against the quote mapping before the newest-group binding.
      */
-    reply_to_message?: { message_id?: number };
+    reply_to_message?: { message_id?: number; from?: { id?: number; is_bot?: boolean; username?: string } };
     /** A GIF he sent: it reaches Abel as "[GIF]" plus any caption. */
     animation?: { file_id?: string };
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */
