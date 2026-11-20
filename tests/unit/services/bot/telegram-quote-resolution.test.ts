@@ -25,7 +25,7 @@ import type {
 } from "@/services/ai/provider";
 
 const COMPANY = "company-1";
-const CHAT = "8975172276";
+const CHAT = "100000001";
 
 type Row = Record<string, unknown>;
 

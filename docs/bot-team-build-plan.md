@@ -76,7 +76,7 @@ decision, not a baseline one.
    hides every tool a bot is not allowed — a bot cannot call what it
    cannot see. Propose-only enforced in code, not just in the MD files.
 3. Telegram group wiring for the FIRST TWO seats only: Abel (already
-   @AbelExecutiveBot, owner's chat 8975172276) and Dispatch Scout. Group
+   @AbelExecutiveBot, owner's private chat id (in Fly secrets, never in the repo)) and Dispatch Scout. Group
    mode does not exist yet for Abel (1:1 only today) — build it: one
    private group, him + bots, every bot hears every message, only the
    relevant one answers, the rest stay quiet.
