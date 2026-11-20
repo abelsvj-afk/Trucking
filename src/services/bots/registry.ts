@@ -48,7 +48,7 @@ export interface BotIdentity {
   slug: BotSlug;
   displayName: string;
   seat: string;
-  /** 'live' only for Abel today; the rest are planned until wired. */
+  /** Abel live; Dispatch Scout live in the group (his own bot account); the rest are planned until wired. */
   status: "planned" | "live" | "paused";
   toolScope: Record<ToolGroup, ToolScope>;
 }
@@ -75,7 +75,7 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     slug: "dispatch-scout",
     displayName: "Dispatch Scout",
     seat: "load planner",
-    status: "planned",
+    status: "live",
     toolScope: {
       loads: "read",
       hos: "read",

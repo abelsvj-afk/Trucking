@@ -26,7 +26,7 @@ Governing files: `~/workspace/goals/own-truck-own-authority-my-own-trucking-comp
 | `src/services/bots/group.ts` | Group handler: Billing branch, bot-to-bot branch, claim-once dedupe, bot-speech room log, Abel→Billing fan-out (flag-gated bridge). |
 | `src/services/bots/store.ts` | `ProposalKind` + `invoice-draft` / `factoring-packet`; `findGroupMessage` (reply attribution); `botTeamServiceClient` for Billing's read store. |
 | `src/app/api/telegram/webhook/route.ts` | Per-bot webhook: `?bot=<slug>` picks the face's token; unknown slug is a 400; no `?bot=` means Abel's webhook. |
-| `supabase/migrations/00105_bot_billing.sql` | Extends the `bot_proposals` kind check with `invoice-draft` and `factoring-packet`. **Authored only — NOT applied.** Live apply is the owner's tap via King's lane, same rule as migration 00103. (Renumbered 00104 → 00105 on rebase: main took 00104 for Malik call tools, PR #98.) |
+| `supabase/migrations/00107_bot_billing.sql` | Extends the `bot_proposals` kind check with `invoice-draft` and `factoring-packet`. **Authored only — NOT applied.** Live apply is the owner's tap via King's lane, same rule as migration 00103. (Renumbered in the 2026-11-19 merge lane: authored as 00105, lands as 00107 in landing order after Scout 00105 and Watchdog 00106.) |
 | `tests/unit/services/bots/{billing,faces,reasoning,group,router,registry}.test.ts` | See "Gate" below. |
 
 No new invoice table: `load_invoices` already exists (migration

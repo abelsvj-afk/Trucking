@@ -42,10 +42,12 @@ export interface GroupRoute {
 // bare "find me a broker" still reaches the Scout, because none of
 // Billing's patterns match it. The same order applies in the keyword
 // list below: a message about money owed goes to Billing first.
+// A bot's Telegram username (@DispatchScoutBot) is a mention too —
+// it has no word boundaries inside it, so it needs its own pattern.
 const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "abel", patterns: [/\babe\b/i, /\babel\b/i] },
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i, /\bfactoring\b/i, /\bshort[-\s]?paid?\b/i, /\boverdue\b/i, /\bdeduction\b/i, /\b(broker|shipper)\b[^.!?]{0,50}\bpaid\b/i, /\bpaid\b[^.!?]{0,50}\b(broker|invoice)\b/i] },
-  { slug: "dispatch-scout", patterns: [/\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i, /\bbroker\b/i] },
+  { slug: "dispatch-scout", patterns: [/@?dispatchscoutbot\b/i, /\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i, /\bbroker\b/i] },
   { slug: "tracker", patterns: [/\btracker\b/i] },
   { slug: "compliance-watchdog", patterns: [/\bwatchdog\b/i, /\bcompliance\b/i, /\bsafety\b/i] },
   { slug: "maintenance", patterns: [/\bmaintenance\b/i, /\bshop\b/i, /\brepair\b/i] },

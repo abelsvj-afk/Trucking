@@ -18,6 +18,14 @@ describe("group routing", () => {
     expect(route.seated).toBe(true);
   });
 
+  it("routes a @DispatchScoutBot username mention to Dispatch Scout", () => {
+    const route = routeGroupMessage({ text: "@DispatchScoutBot scan from Panama City, FL", senderKind: "owner" });
+    expect(route.target).toBe("dispatch-scout");
+    expect(route.via).toBe("mention");
+    expect(route.seated).toBe(true);
+    expect(route.shouldAnswer).toBe(true);
+  });
+
   it("routes a reply to a bot's message back to that bot", () => {
     const route = routeGroupMessage({ text: "yes, take it", senderKind: "owner", replyToBotSlug: "dispatch-scout" });
     expect(route.target).toBe("dispatch-scout");

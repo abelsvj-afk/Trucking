@@ -214,6 +214,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const faceToken = botFaceToken(receivingBot);
     const groupBotToken = faceToken ?? botToken;
     const teamStore = createBotTeamStore(config.companyId);
+    // Dispatch Scout speaks as himself: when his own bot token is
+    // configured (Fly secret TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN, set
+    // 2026-11-19), his group replies send from @DispatchScoutBot's
+    // account, with his name and photo. Without it the dep stays
+    // undefined and the group handler falls back to Abel's account,
+    // "Dispatch Scout:" prefix and all — as it did before this wiring.
+    const scoutBotToken = process.env.TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN || null;
     // Lazy provider: no key = no runChat, and the group says so
     // honestly instead of failing.
     const runChat = process.env.OPENAI_API_KEY
@@ -221,6 +228,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           userText: string;
           history: { role: "user" | "assistant"; text: string }[];
           instructions: { kind: string; content: string }[];
+          systemContext?: string;
         }): Promise<string | null> => {
           const output = await runBotChat(new OpenAiProvider(), {
             userText: input.userText,
@@ -232,6 +240,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               created_at: new Date().toISOString(),
             })),
             memories: [],
+            reasoningText: input.systemContext ?? null,
           });
           return output.reply;
         }
@@ -244,6 +253,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       store: teamStore,
       billingData: createBillingDataStore(config.companyId),
       sendMessage: (chatId, text) => sendTelegramMessage(groupBotToken, chatId, text),
+      scoutSendMessage: scoutBotToken
+        ? (chatId, text) => sendTelegramMessage(scoutBotToken, chatId, text)
+        : undefined,
       runChat,
       receivingBot,
       // Until Billing's own webhook is live, the Abel→Billing

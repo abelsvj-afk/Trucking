@@ -399,6 +399,14 @@ describe("Billing group turn", () => {
         state.spentCents += input.estimatedCents;
       },
       spentThisMonthCents: async () => state.spentCents,
+      saveBotMemory: async (input) => ({
+        id: "memory-new",
+        bot_slug: input.botSlug,
+        kind: input.kind,
+        content: input.content,
+        source: input.source ?? "bot",
+        created_at: new Date().toISOString(),
+      }),
       loadBotMemories: async () => [],
     };
   }
@@ -618,6 +626,14 @@ describe("Idempotent proposals (one open draft per load)", () => {
         state.spentCents += input.estimatedCents;
       },
       spentThisMonthCents: async () => state.spentCents,
+      saveBotMemory: async (input) => ({
+        id: "memory-new",
+        bot_slug: input.botSlug,
+        kind: input.kind,
+        content: input.content,
+        source: input.source ?? "bot",
+        created_at: new Date().toISOString(),
+      }),
       loadBotMemories: async () => [],
     };
   }
@@ -726,6 +742,14 @@ describe("Handoff in the model turn", () => {
         state.spentCents += input.estimatedCents;
       },
       spentThisMonthCents: async () => state.spentCents,
+      saveBotMemory: async (input) => ({
+        id: "memory-new",
+        bot_slug: input.botSlug,
+        kind: input.kind,
+        content: input.content,
+        source: input.source ?? "bot",
+        created_at: new Date().toISOString(),
+      }),
       loadBotMemories: async () => [],
     };
     const data: BillingDataStore = {

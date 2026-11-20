@@ -1,8 +1,13 @@
-// Per-bot Telegram faces (Phase 2; owner decision 2026-11-19).
-// Each bot gets its OWN Telegram account (own BotFather token) and
-// its own profile photo, and messages as itself in the group — the
-// owner wants to see each bot's face when it talks. The one-face
-// model was rejected.
+// Per-bot Telegram faces — ONE module for the whole team (unified
+// 2026-11-19 in the merge lane: Billing's and Tracker's parallel
+// faces.ts files carried different APIs over the same facts; this is
+// the single surviving module, exporting both API families over one
+// BOT_FACES table).
+//
+// Owner decision 2026-11-19: each bot gets its OWN Telegram account
+// (own BotFather token) and its own profile photo, and messages as
+// itself in the group — the owner wants to see each bot's face when
+// it talks. The one-face model was rejected.
 //
 // Verified Telegram mechanics (core.telegram.org/api/bots/bot-to-bot,
 // Bot API 9.6, read 2026-11-19 — this supersedes the Bots FAQ line
@@ -27,19 +32,20 @@
 //   can create infinite reply loops — handling must terminate
 //   predictably. This codebase bounds it: one webhook update is
 //   claimed exactly once (room-log unique key, services/bots/
-//   group.ts), one update produces at most one routed answer plus
-//   at most one Billing note, and a bot's turn never invokes
-//   another bot's turn in-process except the single Abel→Billing
-//   fan-out, which is flag-gated off once Billing's own webhook
-//   is live.
+//   group.ts), bot chains/handoffs are depth-capped, a bot answers
+//   another bot only when addressed, and bots are structurally
+//   barred from the proposal decision grammar.
 //
 // What does NOT exist yet (owner/ops steps, never in the repo):
-// the bot accounts themselves. `username` is null until the owner
-// creates the account in @BotFather; the token lives in Fly secrets
-// only (TELEGRAM_<BOT>_BOT_TOKEN), never in the repo, never in chat.
-// This module carries the SHAPE (env var names, setup checklist,
-// settings verification) so the wiring is ready the day the
-// accounts exist. No username is invented here.
+// most of the bot accounts themselves. `username` is null until the
+// owner creates the account in @BotFather; the token lives in Fly
+// secrets only (TELEGRAM_<BOT>_BOT_TOKEN), never in the repo, never
+// in chat. This module carries the SHAPE (env var names, setup
+// checklist, settings verification, sender trust) so the wiring is
+// ready the day the accounts exist. No username is invented here:
+// Abel (@AbelExecutiveBot) and Dispatch Scout (@DispatchScoutBot)
+// are recorded because the owner created them and their tokens were
+// verified live on 2026-11-19.
 
 import type { BotSlug } from "./registry";
 import { BOT_REGISTRY } from "./registry";
@@ -47,12 +53,24 @@ import { BOT_REGISTRY } from "./registry";
 export interface BotFace {
   slug: BotSlug;
   displayName: string;
-  /** Env var holding this bot's BotFather token (Fly secret). */
-  tokenEnvVar: string;
-  /** @BotFather username, e.g. "RoadToLegacyBillingBot". Null until the owner creates the account. */
+  /**
+   * BotFather username, without the leading "@". Null until the
+   * owner creates this bot in @BotFather. The group handler only
+   * trusts bot senders whose username is listed here.
+   */
   username: string | null;
+  /**
+   * Profile photo reference: the repo path under public/ once the
+   * owner picks the photo, or a Telegram file_id once set. Null
+   * until set — the owner picks each bot's photo.
+   */
+  photoRef: string | null;
   /** Profile photo: the owner sets each bot's photo himself. */
   photoStatus: "not-set" | "set";
+  /** Env var holding this bot's BotFather token (Fly secret). The VALUE never lives in the repo. */
+  tokenEnvVar: string;
+  /** Webhook path segment for this bot's updates (per-bot webhook). */
+  webhookPath: string;
 }
 
 /** Required BotFather settings for the group-as-channel shape. */
@@ -67,16 +85,23 @@ export const BOT_TO_BOT_SETTINGS = {
 } as const;
 
 export const BOT_FACES: Record<BotSlug, BotFace> = {
-  abel: { slug: "abel", displayName: "Abel", tokenEnvVar: "TELEGRAM_BOT_TOKEN", username: null, photoStatus: "not-set" },
-  "dispatch-scout": { slug: "dispatch-scout", displayName: "Dispatch Scout", tokenEnvVar: "TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN", username: "DispatchScoutBot", photoStatus: "not-set" },
-  tracker: { slug: "tracker", displayName: "Tracker", tokenEnvVar: "TELEGRAM_TRACKER_BOT_TOKEN", username: null, photoStatus: "not-set" },
-  "compliance-watchdog": { slug: "compliance-watchdog", displayName: "Compliance Watchdog", tokenEnvVar: "TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN", username: null, photoStatus: "not-set" },
-  maintenance: { slug: "maintenance", displayName: "Maintenance", tokenEnvVar: "TELEGRAM_MAINTENANCE_BOT_TOKEN", username: null, photoStatus: "not-set" },
-  billing: { slug: "billing", displayName: "Billing", tokenEnvVar: "TELEGRAM_BILLING_BOT_TOKEN", username: null, photoStatus: "not-set" },
-  auditor: { slug: "auditor", displayName: "Auditor", tokenEnvVar: "TELEGRAM_AUDITOR_BOT_TOKEN", username: null, photoStatus: "not-set" },
+  abel: { slug: "abel", displayName: "Abel", username: "AbelExecutiveBot", photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_BOT_TOKEN", webhookPath: "/api/telegram/webhook/abel" },
+  // Created by the owner in @BotFather 2026-11-19 ~2:35 PM CT; token
+  // verified live and set in Fly as TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN.
+  "dispatch-scout": { slug: "dispatch-scout", displayName: "Dispatch Scout", username: "DispatchScoutBot", photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN", webhookPath: "/api/telegram/webhook/dispatch-scout" },
+  tracker: { slug: "tracker", displayName: "Tracker", username: null, photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_TRACKER_BOT_TOKEN", webhookPath: "/api/telegram/webhook/tracker" },
+  "compliance-watchdog": { slug: "compliance-watchdog", displayName: "Compliance Watchdog", username: null, photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN", webhookPath: "/api/telegram/webhook/compliance-watchdog" },
+  maintenance: { slug: "maintenance", displayName: "Maintenance", username: null, photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_MAINTENANCE_BOT_TOKEN", webhookPath: "/api/telegram/webhook/maintenance" },
+  billing: { slug: "billing", displayName: "Billing", username: null, photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_BILLING_BOT_TOKEN", webhookPath: "/api/telegram/webhook/billing" },
+  auditor: { slug: "auditor", displayName: "Auditor", username: null, photoRef: null, photoStatus: "not-set", tokenEnvVar: "TELEGRAM_AUDITOR_BOT_TOKEN", webhookPath: "/api/telegram/webhook/auditor" },
 };
 
 export function botFace(slug: BotSlug): BotFace {
+  return BOT_FACES[slug];
+}
+
+/** Same lookup as botFace — the name Tracker's code uses. */
+export function faceFor(slug: BotSlug): BotFace {
   return BOT_FACES[slug];
 }
 
@@ -128,6 +153,39 @@ export function botFaceSetupChecklist(slug: BotSlug): string[] {
     `Set the bot's profile photo (owner sets it).`,
     `Send one test message in the group and confirm the bot answers as ${face.displayName}.`,
   ];
+}
+
+/** Normalised username, without "@", lowercased. Telegram usernames are case-insensitive. */
+function normaliseUsername(username: string): string {
+  return username.replace(/^@/, "").toLowerCase();
+}
+
+/** The team bot usernames that exist so far (faces already created in @BotFather). */
+export function teamBotUsernames(): string[] {
+  return (Object.values(BOT_FACES) as BotFace[])
+    .map((face) => face.username)
+    .filter((username): username is string => username !== null)
+    .map(normaliseUsername);
+}
+
+/** Which team bot a username belongs to, or null when it is not one of the team's faces. */
+export function slugForUsername(username: string | null | undefined): BotSlug | null {
+  if (!username) return null;
+  const wanted = normaliseUsername(username);
+  for (const face of Object.values(BOT_FACES) as BotFace[]) {
+    if (face.username !== null && normaliseUsername(face.username) === wanted) return face.slug;
+  }
+  return null;
+}
+
+/** True only for a username listed as one of the team's faces. An unknown bot is never trusted. */
+export function isTeamBotUsername(username: string | null | undefined): boolean {
+  return slugForUsername(username) !== null;
+}
+
+/** True when the face exists in @BotFather (username set). Token presence is a runtime env check, not a registry fact. */
+export function faceConfigured(slug: BotSlug): boolean {
+  return BOT_FACES[slug].username !== null;
 }
 
 /** Display names as they prefix room messages ("Billing: ..."). */

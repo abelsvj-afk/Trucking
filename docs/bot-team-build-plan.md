@@ -202,6 +202,63 @@ Maintenance, Billing) — their files exist, their wiring comes in Phase 2.
   assistant is built. Tracker and Maintenance get their own distinct
   voices later, same rule — one voice per calling bot, never shared.
 
+## Shared reasoning — one brain, every seat (built 2026-11-19, branch `feat/bot-shared-reasoning-2026-11-19`)
+
+**Owner rule (2026-11-19): all bots get the same reasoning, wisdom,
+and smartness Abel has — same brain, different jobs/tools; sharing the
+reasoning must never leak another bot's tools.** This build is that
+rule in code.
+
+- **One source of truth for the forms.** Abel's reasoning-form rule
+  blocks moved to a leaf module, `src/services/bot/reasoning-forms.ts`
+  (no imports, so nothing can cycle). Abel's 1:1 prompt assembles them
+  from there — byte-identical text, proven by his unchanged
+  prompt-assembly test — and the team layer imports the SAME strings.
+  A form edited once changes for Abel and every bot at once.
+- **All fifteen forms, named, for every bot** —
+  `src/services/bots/reasoning.ts` (`REASONING_FORMS` +
+  `buildBotSystemPrompt(slug)`). The ten core forms (owner GO
+  2026-11-10; temporal 2026-11-07): **temporal, contextual, causal,
+  practical, self-correction, episodic, theory of mind, value
+  learning, consolidation, restraint**. The five think-deeper forms
+  (Frontier 1, owner GO 2026-11-11): **chained reasoning,
+  self-verification, honest uncertainty, trade-off math, causal
+  prediction**. No cut-down version for any seat. (PRACTICAL was
+  extracted verbatim from inside TOOL_SELECTION_RULES so bots without
+  dynamic tool selection still carry the form.)
+- **Tools never leak.** Each bot's prompt names ONLY its own visible
+  tool groups from the registry, with their scope levels, and states
+  that unlisted groups do not exist for it. The registry/gateway half
+  already hides the tools themselves; this is the prompt half of the
+  same wall. Memory never leaks either: context is built from one
+  bot's own `bot_team_memories` rows only.
+- **Corrections-learning, shared** — `src/services/bots/learning.ts`.
+  A correction is recorded per bot in Abel's own summary format
+  ("corrected fields: …"); the counting is Abel's code
+  (`correction-watchouts.ts`) fed through an adapter, not a copy. At
+  2 corrections on the same field the bot earns a durable watch-out
+  row in its own memory, and `buildBotMemoryContext` puts watch-outs
+  first in its turn context. New store write path:
+  `BotTeamStore.saveBotMemory` — no new migration (00103's
+  `bot_team_memories` already carries kind correction/watch-out).
+- **Wired live in this build:** Abel's group-chat turn now runs with
+  the shared brain — `group.ts` passes `buildBotSystemPrompt("abel")`
+  + his memory context through the webhook into `runBotChat`'s new
+  optional `reasoningText` (appended to the system prompt only when
+  present; the 1:1 paths are untouched — they carry the reasoning
+  through the agent loop). Standing rules still travel as
+  instructions; the rest of his memory renders in the context block.
+- **Honest edges:** Scout's group paths are code-driven today (scan +
+  dispatch workup), so Scout consumes `buildBotSystemPrompt` when his
+  model turns land — the builder and tests are seat-complete now.
+  `recordBotCorrection` is the write API for corrections; no group
+  grammar parses free-text corrections yet (Phase 1). Abel's group
+  turns still lack the live company snapshot (Phase 1 gap, unchanged).
+  Mastra was NOT adopted in this lane (evaluated separately, per the
+  owner's research rule); the patterns used are the ones already in
+  the codebase — shared DB memory, propose-only guardrails, durable
+  per-bot state in Supabase.
+
 ## Phase 2 — Remaining seats
 
 Tracker (check-calls, ETA, BOL/POD), Compliance Watchdog (HOS/safety
