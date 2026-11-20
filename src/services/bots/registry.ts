@@ -65,6 +65,7 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
   abel: {
     slug: "abel",
     displayName: "Abel",
+    telegramUsername: "AbelExecutiveBot",
     seat: "day-to-day assistant",
     status: "live",
     toolScope: {
@@ -104,14 +105,22 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     displayName: "Tracker",
     seat: "check-calls and ETA",
     status: "planned",
+    // Scope from its governing file (docs/bots/tracker/CLAUDE.md):
+    // loads + documents READ+WRITE (status, ETA, check-call log, BOL/POD
+    // filing — reversible internal writes, automatic); HOS READ (warn
+    // only, never edit a log); money NONE; email READ-WRITE (a status
+    // update to a broker/shipper is still an execute-class action, so
+    // the guardrails hold it to an approved proposal); maps READ;
+    // app-actions READ-WRITE (post status, update the load); calls
+    // GATED (check-calls on the shared number, owner-approved plan).
     toolScope: {
-      loads: "read",
+      loads: "read-write",
       hos: "read",
       money: "none",
-      documents: "read",
-      email: "none",
+      documents: "read-write",
+      email: "read-write",
       maps: "read",
-      "app-actions": "draft",
+      "app-actions": "read-write",
       calls: "gated",
       signature: "never",
     },
@@ -255,15 +264,15 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
 
 /** Bots wired into the Telegram group. Phase 0 seated Abel +
  * Dispatch Scout; Billing and Compliance Watchdog joined in
- * Phase 2, and the Auditor joins with its own seat — read-only,
- * flag only, acting only on a clear route (router.ts), speaking
- * to teammates by name in the room. FACES (owner, 2026-11-19):
- * each bot gets its own Telegram account + profile photo,
- * messaging as itself — the one-face model was rejected. Until
- * the shared backend binds per-bot tokens, lines post through
- * the single token prefixed with the bot's name; the seat list
- * is the same either way. */
-export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor", "compliance-watchdog"];
+ * Phase 2, Tracker joins in Phase 2 as well, and the Auditor
+ * joins with its own seat — read-only, flag only, acting only
+ * on a clear route (router.ts), speaking to teammates by name
+ * in the room. FACES (owner, 2026-11-19): each bot gets its own
+ * Telegram account + profile photo, messaging as itself — the
+ * one-face model was rejected. Until the shared backend binds
+ * per-bot tokens, lines post through the single token prefixed
+ * with the bot's name; the seat list is the same either way. */
+export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor", "compliance-watchdog", "tracker"];
 
 /** Backwards-compatible alias: the Phase 0 name, kept until the other seats' tests rename. */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = GROUP_SEATS;

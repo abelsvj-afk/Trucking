@@ -65,8 +65,8 @@ describe("evaluateBotPickup", () => {
   });
 
   it("a message for an unseated seat is heard, not answered", () => {
-    const forTracker = routeGroupMessage({ text: "Tracker, where is the truck?", senderKind: "bot", senderSlug: "dispatch-scout" });
-    const verdict = evaluateBotPickup({ senderSlug: "dispatch-scout", route: forTracker, chainDepth: 0 });
+    const forMaintenance = routeGroupMessage({ text: "Maintenance, where is the truck?", senderKind: "bot", senderSlug: "dispatch-scout" });
+    const verdict = evaluateBotPickup({ senderSlug: "dispatch-scout", route: forMaintenance, chainDepth: 0 });
     expect(verdict.pickup).toBe(false);
   });
 });

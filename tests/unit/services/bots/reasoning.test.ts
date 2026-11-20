@@ -129,10 +129,10 @@ describe("tool scope framing — the reasoning is shared, the tools are not", ()
     expect(framing).toMatch(/do not exist for you/);
   });
 
-  it("the Tracker has no money or email scope in its framing", () => {
+  it("the Tracker's framing names its own scopes — email in (its governing file), money out", () => {
     const framing = toolScopeFraming("tracker");
     expect(framing).not.toMatch(/^- money: /m);
-    expect(framing).not.toMatch(/^- email: /m);
+    expect(framing).toMatch(/^- email: /m);
   });
 });
 
