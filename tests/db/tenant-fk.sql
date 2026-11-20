@@ -32,8 +32,9 @@ begin
   -- 1b. every composite tenant FK has the one consistent shape: (company_id, col) -> (company_id, id)
   select count(*) into n from pg_constraint c
   where c.contype = 'f' and c.connamespace = 'public'::regnamespace and c.conname like '%_tenant_fkey';
-  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver), +1 from 00082 (email_sent.email_message), +2 from 00090 (research_learning_topics.research_run, duty_log_edits.duty_log)
-  if n <> 71 then raise exception 'expected 71 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
+  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver), +1 from 00082 (email_sent.email_message), +2 from 00090 (research_learning_topics.research_run, duty_log_edits.duty_log), +7 from 00111 (paycheck_confirmations.statement_document, agent_episodes.supersedes/superseded_by, monthly_income_goals.driver, outbound_calls.driver, voice_note_views.note, voice_note_reports.note)
+  -- (00111 also makes bot_group_messages -> bot_group_rooms composite on (company_id, telegram_chat_id): the room is keyed by chat, not id, so that one is named bot_group_messages_room_tenant_fk and sits outside this (company_id, id) shape count)
+  if n <> 78 then raise exception 'expected 78 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
 
   select string_agg(c.conname, ', ') into bad
   from pg_constraint c
@@ -46,7 +47,7 @@ begin
     );
   if bad is not null then raise exception 'composite FK with wrong shape or not validated: %', bad; end if;
 
-  raise notice 'completeness: 0 unconverted tenant FKs; 71 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
+  raise notice 'completeness: 0 unconverted tenant FKs; 78 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
 end $$;
 
 -- 2. behavior ---------------------------------------------------------------------------
@@ -110,6 +111,30 @@ begin
   exception when foreign_key_violation then refused := true; end;
   if not refused then failures := failures || 'cash_advances.driver_id; '; end if;
 
+  -- 00111 (audit batch 2)
+  refused := false;
+  begin insert into outbound_calls (company_id, driver_id, to_number, to_name, purpose, say) values (a, driver_b, '+15550000001', 'x', 'x', 'x');
+  exception when foreign_key_violation then refused := true; end;
+  if not refused then failures := failures || 'outbound_calls.driver_id; '; end if;
+
+  refused := false;
+  begin insert into monthly_income_goals (company_id, driver_id, target_cents) values (a, driver_b, 100);
+  exception when foreign_key_violation then refused := true; end;
+  if not refused then failures := failures || 'monthly_income_goals.driver_id; '; end if;
+
+  -- F-008: deleting an email a credit event points at nulls ONLY the reference; the event keeps its company
+  declare acct uuid := gen_random_uuid(); msg uuid := gen_random_uuid(); ev uuid := gen_random_uuid(); kept uuid; ref uuid;
+  begin
+    perform set_config('session_replication_role', 'replica', true);
+    insert into business_credit_accounts (id, company_id, vendor, vendor_key, status) values (acct, a, 'V', 'v', 'STATUS');
+    insert into email_messages (id, company_id, message_id, received_at) values (msg, a, '<m@x>', now());
+    insert into business_credit_events (id, company_id, account_id, email_message_id, source, signal, summary) values (ev, a, acct, msg, 'owner', 'update', 's');
+    perform set_config('session_replication_role', 'origin', true);
+    delete from email_messages where id = msg;
+    select company_id, email_message_id into kept, ref from business_credit_events where id = ev;
+    if kept is distinct from a or ref is not null then failures := failures || 'F-008 business_credit_events email delete; '; end if;
+  end;
+
   -- same-company references still work exactly as before
   insert into cash_advances (company_id, driver_id, amount_cents, advance_date) values (a, null, 5000, current_date); -- an unassigned advance is a designed case
   insert into expenses (company_id, category, amount_cents, expense_date, truck_id, load_id) values (a, 'other', 100, current_date, truck_a, load_a);
@@ -117,7 +142,7 @@ begin
   update loads set truck_id = truck_a where id = load_a;
 
   if failures <> '' then raise exception 'cross-company reference was ACCEPTED for: %', failures; end if;
-  raise notice 'behavior: 8/8 cross-company references refused by the FK layer (RLS bypassed); same-company references accepted';
+  raise notice 'behavior: 10/10 cross-company references refused (+ F-008 delete keeps the tenant key) by the FK layer (RLS bypassed); same-company references accepted';
 end $$;
 
 rollback;
