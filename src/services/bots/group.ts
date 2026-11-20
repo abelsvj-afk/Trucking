@@ -62,6 +62,15 @@ export interface GroupHandlerDeps {
   store: BotTeamStore | null;
   sendMessage: (chatId: number, text: string) => Promise<number[]>;
   /**
+   * Sends as Dispatch Scout's OWN Telegram bot (his token), so his
+   * replies carry his own name and photo in the group — the owner's
+   * individual-faces rule. Absent = Scout's token is not configured
+   * on the server; his sends then fall back to sendMessage (Abel's
+   * account) and the "Dispatch Scout:" text prefix keeps the
+   * attribution honest.
+   */
+  scoutSendMessage?: (chatId: number, text: string) => Promise<number[]>;
+  /**
    * Abel's chat turn. Built lazily by the caller (the OpenAI provider
    * throws without a key); undefined = the group says AI is not
    * configured instead of failing.
@@ -116,6 +125,11 @@ function senderOf(update: TelegramUpdate): { id: number | null; isBot: boolean; 
     text: typeof message?.text === "string" ? message.text : null,
     messageId: typeof message?.message_id === "number" ? message.message_id : null,
   };
+}
+
+/** Scout speaks as himself when his own bot is wired; else via Abel's account. */
+function sendAsScout(deps: GroupHandlerDeps, chatId: number, text: string): Promise<number[]> {
+  return (deps.scoutSendMessage ?? deps.sendMessage)(chatId, text);
 }
 
 /** "yes", "no", "2 yes", "1 no" — the group decision grammar. */
@@ -227,7 +241,8 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     }
     const looksLikeDispatch = /\b(pickup|delivery|rate|broker|load)\b/i.test(text) && /\d/.test(text);
     if (!looksLikeDispatch) {
-      await deps.sendMessage(
+      await sendAsScout(
+        deps,
         chat.id,
         "Dispatch Scout: say 'scout, scan from <city, ST>' and I'll check the boards. Or forward me a dispatch and I'll work it up.",
       );
@@ -312,12 +327,12 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
   const store = deps.store;
   const runtime = deps.browserRuntime ?? createBrowserRuntime();
   if (runtime.route === "not-configured") {
-    await deps.sendMessage(chatId, "Dispatch Scout: I can't scan boards yet — the shared browser isn't set up on the server. No board was read.");
+    await sendAsScout(deps, chatId, "Dispatch Scout: I can't scan boards yet — the shared browser isn't set up on the server. No board was read.");
     return;
   }
   const { origin, equipment } = parseScanRequest(text);
   if (!origin) {
-    await deps.sendMessage(chatId, "Dispatch Scout: where's the truck right now? Say 'scout, scan from Panama City, FL' and I'll check the boards.");
+    await sendAsScout(deps, chatId, "Dispatch Scout: where's the truck right now? Say 'scout, scan from Panama City, FL' and I'll check the boards.");
     return;
   }
   let memories: { content: string }[] = [];
@@ -337,7 +352,8 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
   if (dieselCentsPerGallon === undefined) missing.push("diesel price");
   if (mpg === undefined) missing.push("miles per gallon");
   if (missing.length > 0) {
-    await deps.sendMessage(
+    await sendAsScout(
+      deps,
       chatId,
       `Dispatch Scout: I need ${missing.join(", ")} before I can price loads — say them once and I'll remember them. Nothing was read yet.`,
     );
@@ -350,7 +366,8 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
   }
   const runId = randomUUID();
   const watch = runtime.watchUrl(runId);
-  await deps.sendMessage(
+  await sendAsScout(
+    deps,
     chatId,
     `Dispatch Scout: scanning TruLOS first, then Trucker Path, then JustTracking — I'll post the shortlist here.${watch ? ` Watch the browser live: ${watch}` : ""}`,
   );
@@ -360,11 +377,11 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
     { runtime, store },
   )
     .then(async (result) => {
-      await deps.sendMessage(chatId, result.summary);
+      await sendAsScout(deps, chatId, result.summary);
     })
     .catch(async (error) => {
       console.error("[bot-team] scout scan failed", error);
-      await deps.sendMessage(chatId, "Dispatch Scout: the scan failed on my side — nothing was booked or sent. Say 'scout, scan' to try again.");
+      await sendAsScout(deps, chatId, "Dispatch Scout: the scan failed on my side — nothing was booked or sent. Say 'scout, scan' to try again.");
     });
 }
 
@@ -378,7 +395,7 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
 async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
   const store = deps.store;
   if (!store) {
-    await deps.sendMessage(chatId, "Dispatch Scout: I can't record a draft — the team database isn't configured on the server yet.");
+    await sendAsScout(deps, chatId, "Dispatch Scout: I can't record a draft — the team database isn't configured on the server yet.");
     return;
   }
   // The draft lives in the app's proposal store (app-actions scope),
@@ -386,7 +403,7 @@ async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandle
   // read-only by design.
   const gate = checkBotAction({ botSlug: "dispatch-scout", actionKind: "draft_load", group: "app-actions" });
   if (!gate.allowed) {
-    await deps.sendMessage(chatId, `Dispatch Scout: ${gate.reason}`);
+    await sendAsScout(deps, chatId, `Dispatch Scout: ${gate.reason}`);
     return;
   }
   // Numbers out of the text, in code — the model never invents them.
@@ -419,10 +436,10 @@ async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandle
       audit.passed ? "Auditor: checks out." : `Auditor: ${audit.flags.map((f) => `${f.field} — ${f.detail}`).join(" ")}`,
       `Reply Yes to approve it, No to drop it.`,
     ];
-    await deps.sendMessage(chatId, lines.join("\n"));
+    await sendAsScout(deps, chatId, lines.join("\n"));
   } catch (err) {
     console.error("[bot-team] scout workup failed", err);
-    await deps.sendMessage(chatId, "Dispatch Scout: I couldn't save that draft — try forwarding it again in a moment.");
+    await sendAsScout(deps, chatId, "Dispatch Scout: I couldn't save that draft — try forwarding it again in a moment.");
   }
 }
 
