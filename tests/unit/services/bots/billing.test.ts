@@ -403,6 +403,8 @@ describe("Billing group turn", () => {
         return "reservation";
       },
       settleSpend: async () => {},
+    claimJob: async () => true,
+    releaseJob: async () => {},
       saveBotMemory: async (input) => ({
         id: "memory-new",
         bot_slug: input.botSlug,
@@ -655,6 +657,8 @@ describe("Idempotent proposals (one open draft per load)", () => {
         return "reservation";
       },
       settleSpend: async () => {},
+    claimJob: async () => true,
+    releaseJob: async () => {},
       saveBotMemory: async (input) => ({
         id: "memory-new",
         bot_slug: input.botSlug,
@@ -796,6 +800,8 @@ describe("Handoff in the model turn", () => {
         return "reservation";
       },
       settleSpend: async () => {},
+    claimJob: async () => true,
+    releaseJob: async () => {},
       saveBotMemory: async (input) => ({
         id: "memory-new",
         bot_slug: input.botSlug,

@@ -26,6 +26,32 @@ describe("bot guardrails", () => {
     if (!verdict.allowed) expect(verdict.reason).toMatch(/no execution path/i);
   });
 
+  it("lets Maintenance draft work orders and call plans on app actions, and file defect records on documents", () => {
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "draft_work_order", group: "app-actions" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "draft_call_plan", group: "app-actions" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "internal_note", group: "documents" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "draft_message", group: "email" }).allowed).toBe(true);
+  });
+
+  it("never lets Maintenance touch HOS, flag, or draft on a group it cannot see", () => {
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "read", group: "hos" }).allowed).toBe(false);
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "flag", group: "loads" }).allowed).toBe(false);
+    expect(checkBotAction({ botSlug: "maintenance", actionKind: "draft_work_order", group: "loads" }).allowed).toBe(false);
+  });
+
+  it("treats messaging a shop/vendor as execute-class: denied without approval, and still denied with one — no execution path yet", () => {
+    const denied = checkBotAction({ botSlug: "maintenance", actionKind: "send_to_vendor", group: "email" });
+    expect(denied.allowed).toBe(false);
+    if (!denied.allowed) expect(denied.reason).toMatch(/approved proposal/);
+    const approved = checkBotAction({ botSlug: "maintenance", actionKind: "send_to_vendor", group: "email", hasApprovedProposal: true });
+    expect(approved.allowed).toBe(false);
+    if (!approved.allowed) expect(approved.reason).toMatch(/no execution path/i);
+  });
+
+  it("treats a call-out as execute-class for Maintenance too — a call plan is a proposal, never a dial", () => {
+    const verdict = checkBotAction({ botSlug: "maintenance", actionKind: "call_outbound", group: "calls" });
+    expect(verdict.allowed).toBe(false);
+  });
   it("lets Tracker log check calls, update load status, file documents, and start detention", () => {
     expect(checkBotAction({ botSlug: "tracker", actionKind: "log_check_call", group: "loads" }).allowed).toBe(true);
     expect(checkBotAction({ botSlug: "tracker", actionKind: "update_load_status", group: "loads" }).allowed).toBe(true);

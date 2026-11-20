@@ -25,6 +25,7 @@ export const EXECUTE_ACTION_KINDS = [
   "send_to_broker",
   "send_to_shipper",
   "send_to_driver",
+  "send_to_vendor",
   "sign_document",
   "file_document",
   "change_hos_log",
@@ -42,6 +43,7 @@ export const DRAFT_ACTION_KINDS = [
   "draft_message",
   "draft_invoice",
   "draft_work_order",
+  "draft_call_plan",
   "internal_note",
   // Tracker internal writes (governing file: reversible internal writes
   // are automatic) — check-call log, load status/ETA update, POD/BOL

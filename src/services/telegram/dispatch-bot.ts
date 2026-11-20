@@ -99,8 +99,16 @@ export interface TelegramUpdate {
      * replies to / quotes, when the owner quoted one of Abel's
      * messages. The quote IS the pointer - its id resolves
      * against the quote mapping before the newest-group binding.
+     * `from` + `text` (bot-team group mode, 2026-11-19): a bot
+     * handing work off replies to the message it answers, so the
+     * receiving bot can see who it answers and what it says
+     * without a second fetch.
      */
-    reply_to_message?: { message_id?: number; from?: { id?: number; is_bot?: boolean; username?: string } };
+    reply_to_message?: {
+      message_id?: number;
+      from?: { id?: number; is_bot?: boolean; username?: string };
+      text?: string;
+    };
     /** A GIF he sent: it reaches Abel as "[GIF]" plus any caption. */
     animation?: { file_id?: string };
     /** §13: a photo message carries renditions instead of text (plus an optional caption). */

@@ -25,21 +25,50 @@
 // single-bot deployment today) the handler acts on every
 // routed message.
 //
-// FACES (owner, 2026-11-19): each bot gets its own Telegram account +
-// profile photo, messaging as itself — the one-face model was rejected.
-// TODAY the shared backend still posts through the single token
-// (TELEGRAM_BOT_TOKEN, @AbelExecutiveBot) with a per-bot name prefix;
-// per-bot tokens + webhook routing are a shared-backend step, and the
-// send path (deps.sendMessage, bound by the webhook) is the binding
-// point — no bot module needs to change when it lands. Either way,
-// Telegram never delivers one bot's messages to another (Bots FAQ:
-// "regardless of mode"), so coordination between bots happens through
-// the shared Supabase store (group messages, proposals, audit log),
-// not through Telegram messages. This handler runs BEFORE the 1:1 path
-// (services/telegram/dispatch-bot.ts), which still serves only the
-// owner's private chat and still ignores every group. The webhook route
-// sends group and supergroup updates here; everything else goes to the
-// 1:1 path untouched.
+// TEAM-ROOM SHAPE (Telegram mechanics, verified 2026-11-19 against
+// Telegram's own docs — Bot API 9.6, core.telegram.org/api/bots/
+// bot-to-bot): each bot has its OWN Telegram account + profile photo
+// and messages as itself in the group (owner decision 2026-11-19 —
+// the research report's one-face model was rejected). By DEFAULT
+// bots cannot see each other's messages at all. With Bot-to-Bot
+// Communication Mode enabled (in @BotFather, at least one of the two
+// bots), a bot receives another bot's message when it carries a
+// command mention addressed to it (/command@TargetBot) or is a direct
+// reply to one of its messages; with the Mode on plus admin / Privacy
+// OFF, it receives ALL bot messages. The earlier Bots FAQ line —
+// "bots will not be able to see messages from other bots regardless
+// of mode" — was the pre-9.6 default. So the group IS the shared
+// channel: the server hears every owner message and routes it to one
+// bot's logic, AND bots hand work to each other in the room with
+// addressed handoff lines (services/bots/handoff.ts) that the Mode
+// delivers — the server-side relay posts the same lines and runs the
+// target bot's logic in-process until the Mode and the tokens exist.
+// The owner sees the team-room behaviour (each bot posting as
+// itself, named handoffs, bots working things out without pulling
+// him in); the plumbing is individual accounts + shared state.
+// What blocks full individual-face operation today: only Abel's bot
+// token exists — each other bot's token is provisioned by the owner
+// in BotFather (account + profile photo + TELEGRAM_<BOT>_BOT_TOKEN
+// Fly secret) and its webhook registered; until then that bot falls
+// back to the shared token with a "Name: " text label
+// (services/bots/sending.ts). Setup the owner must do in BotFather
+// for the group to work at all: Privacy Mode OFF for each bot (or
+// make it a group admin) — with privacy mode ON the bot only
+// receives addressed commands and replies, and plain owner messages
+// like "my tire is flat" never reach this handler — PLUS Bot-to-Bot
+// Communication Mode ON for each bot, or bots never hear each other
+// however they are addressed. Re-add the bot to the group after
+// changing the setting.
+//
+// This handler runs BEFORE the 1:1 path (services/telegram/
+// dispatch-bot.ts), which still serves only the owner's private chat
+// and still ignores every group. The webhook route sends group and
+// supergroup updates here; everything else goes to the 1:1 path
+// untouched.
+//
+// This handler runs BEFORE the 1:1 path (services/telegram/dispatch-bot.ts), which still serves only the
+// owner's private chat and still ignores every group. The webhook route sends group and supergroup
+// updates here; everything else goes to the 1:1 path untouched.
 //
 // Fail-closed, like the 1:1 bot:
 // - No TELEGRAM_GROUP_CHAT_ID configured = groups ignored, as today.
@@ -56,6 +85,9 @@
 //   decides a proposal and never starts a model turn, so the
 //   room cannot talk itself into a loop (see handleBotGroupMessage).
 //   Bots coordinate in the room AND through the shared tables.
+//   A handoff line addressed to a seated bot, or a reply/mention from a known bot to Maintenance,
+//   runs Maintenance's own handlers (handleBotSenderUpdate graft): Maintenance is the one seat with
+//   a bot-to-bot handoff handler so far; a malformed handoff attempt is audit-logged, never silent.
 // - No store configured = the room still answers, but nothing is
 //   logged and proposals cannot be recorded; the reply says so.
 //
@@ -121,6 +153,10 @@ import {
 } from "./tracker";
 import type { DetentionStop } from "@/services/bot/detention";
 import { reserveModelSpend } from "./spend-guard";
+import { parseHandoff } from "./handoff";
+import { handleMaintenanceBotHandoff, handleMaintenanceGroupMessage, type MaintenanceGroupDeps } from "./maintenance";
+import { resolveBotSender, slugForBotUsername } from "./sending";
+import { sendTelegramMessage } from "@/services/telegram/bot-api";
 import { type BotTeamStore, type ProposalRow } from "./store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 
@@ -303,6 +339,8 @@ function senderOf(update: TelegramUpdate): {
   replyToMessageId: number | null;
   /** Team bot this message replies to, when it replies to a bot. */
   replyToBotSlug: BotSlug | null;
+  /** The replied-to message's author username + text (Maintenance's bot door reads both). */
+  replyTo: { username: string | null; text: string | null } | null;
 } {
   const message = update.message;
   const from = message?.from;
@@ -316,6 +354,12 @@ function senderOf(update: TelegramUpdate): {
     replyToMessageId: typeof message?.reply_to_message?.message_id === "number" ? message.reply_to_message.message_id : null,
     replyToBotSlug:
       replyFrom?.is_bot === true ? identifyTeamBot(typeof replyFrom?.username === "string" ? replyFrom.username : null) : null,
+    replyTo: replyFrom
+      ? {
+          username: typeof replyFrom.username === "string" ? replyFrom.username : null,
+          text: typeof message?.reply_to_message?.text === "string" ? message.reply_to_message.text : null,
+        }
+      : null,
   };
 }
 
@@ -372,6 +416,149 @@ function parseGroupDecision(text: string): { index: number; decision: "approved"
   return { index: match[1] ? Number(match[1]) : 1, decision: match[2]!.toLowerCase() === "yes" ? "approved" : "denied" };
 }
 
+/**
+ * The Maintenance deps, built once for both doors (owner messages
+ * and bot handoffs): individual face — Maintenance posts from its own
+ * token when TELEGRAM_MAINTENANCE_BOT_TOKEN is configured; until the
+ * owner provisions that token in BotFather, it falls back to the
+ * shared bot token with a "Maintenance: " text label, so nothing is
+ * lost. sendAsAbel is the group handler's own sender (Abel's
+ * account): Abel's handoff line posts as Abel, never as Maintenance.
+ */
+function maintenanceDeps(deps: GroupHandlerDeps, chatId: number, store: BotTeamStore | null): MaintenanceGroupDeps {
+  const botSender = resolveBotSender("maintenance", deps.botToken);
+  return {
+    chatId,
+    store,
+    sendMessage: botSender.asSelf
+      ? (targetChatId, text) => sendTelegramMessage(botSender.token, targetChatId, text)
+      : deps.sendMessage,
+    runChat: deps.runChat,
+    speakAsSelf: botSender.asSelf,
+    sendAsAbel: deps.sendMessage,
+  };
+}
+
+/** Log a handled room message, best-effort: a logging failure never fails the reply. */
+async function logRoomMessage(
+  store: BotTeamStore | null,
+  chat: { id: number; type: string },
+  messageId: number | null,
+  senderKind: "owner" | "bot",
+  senderRef: string,
+  text: string,
+  routedToBotSlug: BotSlug | null,
+): Promise<void> {
+  if (!store || messageId === null) return;
+  try {
+    await store.ensureGroupRoom(chat.id);
+    await store.recordGroupMessage({
+      telegramChatId: chat.id,
+      telegramMessageId: messageId,
+      senderKind,
+      senderRef,
+      text: text.slice(0, 4000),
+      routedToBotSlug,
+    });
+  } catch (err) {
+    console.error("[bot-team] group message log failed", err);
+  }
+}
+
+/**
+ * The bot-sender door. A bot message is answered only when the sender
+ * is a bot this team knows (username → slug from the configured
+ * TELEGRAM_<BOT>_BOT_USERNAME values) AND it explicitly addresses a
+ * seated bot:
+ * - a handoff line (/handoff@TargetBot ...) → the target bot's
+ *   handoff handler (only Maintenance has one so far);
+ * - a reply to that bot's message, or a name mention → the target
+ *   bot's normal group handler, with senderKind "bot".
+ * Everything else — unknown bot, unaddressed chatter, a handoff to a
+ * seat with no handler yet — is ignored silently, except a malformed
+ * handoff attempt (starts like one, doesn't parse), which is audit-
+ * logged: a handoff that never runs must never be silent.
+ */
+async function handleBotSenderUpdate(
+  sender: ReturnType<typeof senderOf>,
+  deps: GroupHandlerDeps,
+  chat: { id: number; type: string },
+): Promise<GroupHandleResult> {
+  const store = deps.store;
+  const senderSlug = slugForBotUsername(sender.username);
+  // Unknown bot — the room has no third parties, bot or not.
+  if (!senderSlug) return "ignored";
+  const text = sender.text;
+  if (text === null || text.trim() === "") return "ignored";
+
+  const messageRef = sender.messageId !== null ? String(sender.messageId) : null;
+
+  // A handoff line addressed to a seated bot: the Bot-to-Bot Mode
+  // delivery form (command mention) or the server-side relay's copy
+  // of it. The sender is the message's author — a handoff can never
+  // claim to be from a bot it is not.
+  const handoff = parseHandoff(text, senderSlug, (username) => slugForBotUsername(username));
+  if (handoff) {
+    if (handoff.to !== "maintenance") {
+      // Only Maintenance has a bot-to-bot handler so far. A handoff
+      // to Abel or Scout is visible in the room but nobody answers
+      // it yet — their crews wire the handler on their side.
+      return "ignored";
+    }
+    await logRoomMessage(store, chat, sender.messageId, "bot", senderSlug, text, "maintenance");
+    await handleMaintenanceBotHandoff({
+      handoff,
+      replyText: sender.replyTo?.text ?? null,
+      messageRef,
+      deps: maintenanceDeps(deps, chat.id, store),
+    });
+    return "handled";
+  }
+  // A malformed handoff attempt (starts like one, doesn't parse) is
+  // logged, never half-run and never silent.
+  if (text.trim().startsWith("/handoff")) {
+    if (store) {
+      try {
+        await store.logAudit({
+          botSlug: "maintenance",
+          actor: "bot",
+          action: "handoff_malformed",
+          detail: { from: senderSlug, text: text.slice(0, 200) },
+        });
+      } catch (err) {
+        console.error("[bot-team] malformed handoff audit failed", err);
+      }
+    }
+    return "ignored";
+  }
+
+  // A reply to one of Maintenance's messages, or a name mention: the
+  // bot is talking to Maintenance directly. Work it as a group
+  // message from that bot. (While Maintenance posts through the
+  // shared token, a reply to its labeled message looks like a reply
+  // to Abel — the handoff line above is the reliable addressing
+  // until Maintenance's own token exists.)
+  const replyToSlug = slugForBotUsername(sender.replyTo?.username);
+  const route = routeGroupMessage({
+    text,
+    senderKind: "bot",
+    senderSlug,
+    replyToBotSlug: replyToSlug ?? undefined,
+  });
+  if (route.target !== "maintenance" || !route.seated) return "ignored";
+  await logRoomMessage(store, chat, sender.messageId, "bot", senderSlug, text, "maintenance");
+  await handleMaintenanceGroupMessage({
+    text,
+    route,
+    channel: "group",
+    senderKind: "bot",
+    senderSlug,
+    messageRef,
+    deps: maintenanceDeps(deps, chat.id, store),
+  });
+  return "handled";
+}
+
 export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: GroupHandlerDeps): Promise<GroupHandleResult> {
   const chat = groupChatOf(update);
   if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return "ignored";
@@ -383,7 +570,11 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   // channel, and bots pick up what is addressed to them there). The
   // room has no third parties: an unknown human and an unlisted bot
   // are both ignored.
-  let fromBotSlug = sender.isBot ? identifyTeamBot(sender.username) : null;
+  // Registry usernames first; the env-configured TELEGRAM_<BOT>_BOT_USERNAME
+  // values (sending.ts) are the fallback — they are how each face's
+  // account is configured in deployment, and Maintenance's bot door
+  // was built on them.
+  let fromBotSlug = sender.isBot ? (identifyTeamBot(sender.username) ?? slugForBotUsername(sender.username)) : null;
   if (!sender.isBot && (sender.id === null || String(sender.id) !== deps.allowedChatId)) return "ignored";
   const fromOwner = sender.id !== null && !sender.isBot && String(sender.id) === deps.allowedChatId;
   const nowMs = Date.now();
@@ -576,6 +767,25 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     return "handled";
   }
 
+  // Maintenance's bot door (its crew's handler, grafted): a handoff
+  // line addressed to Maintenance, a malformed handoff attempt
+  // (audit-logged, never silent), or a bot message routed to
+  // Maintenance by reply/mention runs through handleBotSenderUpdate,
+  // which logs and works it under Maintenance's own rules. Every
+  // other bot message continues through the shared flow below.
+  if (fromBotSlug) {
+    const handoff = parseHandoff(text, fromBotSlug, (username) => slugForBotUsername(username));
+    const doorRoute = routeGroupMessage({
+      text,
+      senderKind: "bot",
+      senderSlug: fromBotSlug,
+      replyToBotSlug: sender.replyToBotSlug ?? undefined,
+    });
+    if ((handoff && handoff.to === "maintenance") || text.trim().startsWith("/handoff") || (doorRoute.target === "maintenance" && doorRoute.seated)) {
+      return handleBotSenderUpdate(sender, deps, chat);
+    }
+  }
+
   // Log a bot's message first (best-effort: a logging failure is
   // loud in the console but never fails the reply). The owner's
   // message is claimed later — after the face gate, so in the
@@ -743,6 +953,35 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     target = route.deferredToCoordinator;
   }
   if (!route.shouldAnswer && !route.deferredToCoordinator) return "handled";
+
+  // Maintenance (Phase 2 seat, 2026-11-19): the whole Maintenance
+  // decision lives in services/bots/maintenance.ts — it speaks only
+  // on clear routing (called by name, a reply to its message, or
+  // Abel routing it), stays quiet on a keyword-only match and lets
+  // Abel route, and works the message (defect intake, work-order
+  // draft, call plan, or a model turn carrying the shared reasoning).
+  // Bot senders take a different door (handleBotSenderUpdate below):
+  // a handoff line addressed to Maintenance, or a reply / mention
+  // from a known bot. That door builds the same deps through
+  // maintenanceDeps, so the two paths can never drift apart.
+  if (route.target === "maintenance") {
+    await handleMaintenanceGroupMessage({
+      text,
+      route,
+      channel: "group",
+      // Idempotency key for Maintenance's workups: a redelivered
+      // update replays the already-filed summary instead of a second
+      // proposal (Telegram's send API has no idempotency key). The
+      // key is the UPDATE's message id (sender.messageId, from
+      // senderOf above) — never the BotSender, which carries no
+      // message id: using it here once made every message share the
+      // key "undefined" and filed the second defect as a redelivery
+      // of the first.
+      messageRef: sender.messageId !== null ? String(sender.messageId) : null,
+      deps: maintenanceDeps(deps, chat.id, store),
+    });
+    return "handled";
+  }
 
   // Dispatch Scout in this phase: a scan request walks the ranked
   // boards at human pace and posts a shortlist proposal; a forwarded
