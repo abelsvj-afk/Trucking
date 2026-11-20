@@ -38,8 +38,9 @@ import {
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
 import { handleBotTeamGroupUpdate } from "@/services/bots/group";
+import { buildGroupSenders } from "@/services/bots/group-senders";
 import { createBillingDataStore } from "@/services/bots/billing";
-import { BOT_FACES, botFaceToken } from "@/services/bots/faces";
+import { BOT_FACES } from "@/services/bots/faces";
 import type { BotSlug } from "@/services/bots/registry";
 import { createBotTeamStore } from "@/services/bots/store";
 import type { BotBrainStore } from "@/services/bot/store";
@@ -211,16 +212,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (receivingBot === null) {
       return NextResponse.json({ error: { code: "UNKNOWN_BOT", message: `Unknown bot face: ${receivingBotParam}.` } }, { status: 400 });
     }
-    const faceToken = botFaceToken(receivingBot);
-    const groupBotToken = faceToken ?? botToken;
+    // BT-002: replies go out from the ANSWERING bot's account, never the receiving webhook's.
+    const senders = buildGroupSenders(botToken, sendTelegramMessage);
     const teamStore = createBotTeamStore(config.companyId);
-    // Dispatch Scout speaks as himself: when his own bot token is
-    // configured (Fly secret TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN, set
-    // 2026-11-19), his group replies send from @DispatchScoutBot's
-    // account, with his name and photo. Without it the dep stays
-    // undefined and the group handler falls back to Abel's account,
-    // "Dispatch Scout:" prefix and all — as it did before this wiring.
-    const scoutBotToken = process.env.TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN || null;
     // Lazy provider: no key = no runChat, and the group says so
     // honestly instead of failing.
     const runChat = process.env.OPENAI_API_KEY
@@ -246,45 +240,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       : undefined;
     await handleBotTeamGroupUpdate(update, {
-      botToken: groupBotToken,
+      botToken,
       allowedChatId: config.allowedChatId,
       groupChatId: config.groupChatId ?? null,
       companyId: config.companyId,
       store: teamStore,
       billingData: createBillingDataStore(config.companyId),
-      sendMessage: (chatId, text) => sendTelegramMessage(groupBotToken, chatId, text),
+      sendMessage: senders.sendMessage,
       // Says privately why the group is silent (missing / changed group id).
       notifyOwner: config.allowedChatId
         ? async (text) => {
             await sendTelegramMessage(botToken, Number(config.allowedChatId), text);
           }
         : undefined,
-      // Individual faces (owner, 2026-11-19): each bot posts under
-      // its own BotFather account when its token is configured. The
-      // Auditor's token (TELEGRAM_AUDITOR_BOT_TOKEN) is provisioned
-      // in BotFather by the owner — until it exists, the Auditor's
-      // flags fall back to the coordinator's face, same text. Other
-      // bots get their own entries here when their crews wire them.
-      sendAsBot: (botSlug, chatId, text) => {
-        if (botSlug === "auditor" && process.env.TELEGRAM_AUDITOR_BOT_TOKEN) {
-          return sendTelegramMessage(process.env.TELEGRAM_AUDITOR_BOT_TOKEN, chatId, text);
-        }
-        return sendTelegramMessage(botToken, chatId, text);
-      },
-      // Individual faces (owner, 2026-11-19): a bot with its own
-      // BotFather token in env sends as itself. Watchdog sends via
-      // sendMessageAs below; Dispatch Scout sends via the dedicated
-      // scoutSendMessage dep (his own wiring, PR #105/#106). A seat
-      // is added here when its account exists.
-      sendMessageAs: (botSlug, chatId, text) => {
-        const ownToken =
-          botSlug === "compliance-watchdog" ? process.env.TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN : undefined;
-        if (!ownToken) return Promise.resolve(false);
-        return sendTelegramMessage(ownToken, chatId, text).then(() => true);
-      },
-      scoutSendMessage: scoutBotToken
-        ? (chatId, text) => sendTelegramMessage(scoutBotToken, chatId, text)
-        : undefined,
+      // Individual faces: each bot sends from its own account when its token is set (group-senders.ts).
+      sendAsBot: senders.sendAsBot,
+      sendMessageAs: senders.sendMessageAs,
+      scoutSendMessage: senders.scoutSendMessage,
       runChat,
       receivingBot,
       // Until Billing's own webhook is live, the Abel→Billing
