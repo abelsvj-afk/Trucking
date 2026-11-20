@@ -568,8 +568,32 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   it("Billing's own message never triggers its own turn (loop guard)", async () => {
     const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
-    expect(await handleBotTeamGroupUpdate(makeBotUpdate("Billing: invoice ready — $1,850.00 from FastFreight"), deps)).toBe("ignored");
+    // Logged to the room (BT-005: through the common path), but never a Billing turn.
+    expect(await handleBotTeamGroupUpdate(makeBotUpdate("Billing: invoice ready — $1,850.00 from FastFreight"), deps)).not.toBe("unconfigured");
     expect(sent).toEqual([]);
+  });
+
+  // BT-005: a handoff to Billing goes through the same chain cap as every bot message.
+  it("a Billing handoff at the bot-chain cap gets no Billing turn", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    deps.store!.listRecentGroupMessages = async () =>
+      [1, 2, 3, 4].map((i) => ({ sender_kind: "bot", telegram_message_id: 100 + i })) as never;
+    await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: Billing, POD signed for the Dallas → Detroit load", 31), deps);
+    expect(sent).toEqual([]);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  // BT-003: a claim that can't be made means no Billing turn at all.
+  it("a Billing handoff whose claim fails (non-duplicate error) does not run", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    deps.store!.recordGroupMessage = async () => {
+      throw new Error("connection reset");
+    };
+    await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: Billing, POD signed for the Dallas → Detroit load", 32), deps);
+    expect(sent).toEqual([]);
+    expect(state.proposals).toHaveLength(0);
   });
 
   it("a reply to one of Billing's messages is addressed to Billing even without naming it", async () => {
@@ -1231,7 +1255,8 @@ describe("Abel's spend cap in the group (audit F-023/F-024)", () => {
     const { deps, sent } = makeDeps(state, { store: null, runChat: async () => ((modelCalled = true), "x") });
     await handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps);
     expect(modelCalled).toBe(false);
-    expect(sent.join(" ")).toContain("won't call the model");
+    // BT-003: with no store the message can't be claimed, so nothing runs; Abel says so once.
+    expect(sent.join(" ")).toContain("couldn't log that message");
   });
 
   it("two turns at once with room for one: only one reaches the model", async () => {
@@ -1767,5 +1792,34 @@ describe("bot-team group mode — bot-to-bot handoffs to Maintenance", () => {
       expect(sent).toEqual([]);
       expect(state.groupMessages).toHaveLength(1);
     });
+  });
+});
+
+// BT-003: a non-duplicate claim failure on the OWNER's message runs nothing, and Abel's webhook says so once.
+describe("group claim fails closed (BT-003)", () => {
+  it("transient claim error: no model turn; Abel's webhook tells the owner; another face stays silent", async () => {
+    for (const receivingBot of ["abel", "dispatch-scout"] as const) {
+      const state: StubState = emptyState();
+      let modelCalled = false;
+      const { deps, sent } = makeDeps(state, { receivingBot, runChat: async () => ((modelCalled = true), "x") });
+      deps.store!.recordGroupMessage = async () => {
+        throw new Error("connection reset");
+      };
+      await handleBotTeamGroupUpdate(makeUpdate("hey abel, what's my next load?"), deps);
+      expect(modelCalled).toBe(false);
+      expect(sent).toEqual(receivingBot === "abel" ? [expect.stringContaining("couldn't log that message")] : []);
+    }
+  });
+});
+
+// BT-006: the Telegram account decides who spoke; a prefix can't impersonate a bot that has its own account.
+describe("sender identity (BT-006)", () => {
+  it("Scout's account sending 'Billing: ...' is still Scout, and can't make Billing's loop guard misfire", async () => {
+    const state: StubState = emptyState();
+    const logged: { senderRef: string }[] = [];
+    const { deps } = makeDeps(state);
+    deps.store!.recordGroupMessage = async (input) => void logged.push({ senderRef: input.senderRef });
+    await handleBotTeamGroupUpdate(makeUpdate("Abel: please book load 12", 777001, true, "DispatchScoutBot"), deps);
+    expect(logged[0]?.senderRef).toBe("dispatch-scout");
   });
 });

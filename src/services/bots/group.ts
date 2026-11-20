@@ -130,10 +130,10 @@ import { formatMoney } from "@/lib/money-format";
 import { slugForUsername } from "./faces";
 import { checkBotAction } from "./guardrails";
 import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, handleBillingGroupTurn, type BillingDataStore } from "./billing";
-import { parseRoomSpeaker } from "./faces";
+import { botFaceUsername, parseRoomSpeaker } from "./faces";
 import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
 import { botIdentity, GROUP_SEATS, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
-import { botChainDepth, evaluateBotPickup, identifyTeamBot } from "./bot-channel";
+import { botChainDepth, evaluateBotPickup, identifyTeamBot, MAX_BOT_CHAIN_DEPTH } from "./bot-channel";
 import { routeGroupMessage, unseatedReply, type GroupRoute } from "./router";
 import {
   buildHandoffPayload,
@@ -392,17 +392,23 @@ async function claimRoomMessage(
     text: string;
     routedToBotSlug?: BotSlug | null;
   },
-): Promise<boolean> {
+): Promise<"claimed" | "duplicate" | "unavailable"> {
   try {
     await store.ensureGroupRoom(input.telegramChatId);
     await store.recordGroupMessage(input);
-    return true;
+    return "claimed";
   } catch (err) {
-    if (isDuplicateKeyError(err)) return false;
-    console.error("[bot-team] group message log failed", err);
-    return true;
+    if (isDuplicateKeyError(err)) return "duplicate";
+    // BT-003: the claim is what stops every bot's webhook acting on the same message.
+    // No claim = no side-effecting turn (fail closed), never "answer anyway".
+    console.error("[bot-team] group message claim failed — not acting on it", err);
+    return "unavailable";
   }
 }
+
+/** Said once when an owner message could not be claimed (BT-003). */
+const CLAIM_UNAVAILABLE_TEXT =
+  "Abel: I couldn't log that message, so I didn't act on it — nothing was booked, drafted or sent. Send it again in a moment.";
 
 /** Scout speaks as himself when his own bot is wired; else via Abel's account. */
 function sendAsScout(deps: GroupHandlerDeps, chatId: number, text: string): Promise<number[]> {
@@ -682,56 +688,36 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   // (loop guard). The claim below makes the turn run exactly once
   // even though the same message is delivered to every bot's
   // webhook.
+  // BT-006: the Telegram ACCOUNT decides who spoke. A "Name:" prefix counts only where the
+  // account is a relay: no username at all (shared-account fallback), or Abel's coordinator
+  // account speaking for a teammate that has no account of its own yet (owner 2026-11-20:
+  // every bot gets its own account; until then its lines go out from Abel's, prefixed).
+  // BT-005: a handoff to Billing is decided below, after the same dedup, claim and chain
+  // cap as every other bot message - never in a branch of its own.
+  let billingHandoff = false;
   if (sender.isBot) {
     const botText = sender.text;
-    const speaker = botText !== null ? parseRoomSpeaker(botText) : null;
-    if (botText === null || speaker === "billing") return "ignored";
-    // A bot WITH an account that is not a listed teammate: the room has no third parties — ignored entirely.
-    if (speaker === null && fromBotSlug === null && sender.username) return "ignored";
-    // No username at all: a teammate speaking through the shared webhook — record it in the room log.
-    if (speaker === null && fromBotSlug === null) return handleBotGroupMessage(chat.id, sender, deps);
-    let addressedToBilling = /\bbilling\b/i.test(botText);
-    if (!addressedToBilling && sender.replyToMessageId !== null && store) {
-      try {
-        const repliedTo = await store.findGroupMessage(chat.id, sender.replyToMessageId);
-        addressedToBilling = repliedTo?.senderRef === "billing";
-      } catch (err) {
-        console.error("[bot-team] reply attribution failed", err);
-      }
+    if (botText === null) return "ignored";
+    const speaker = parseRoomSpeaker(botText);
+    if (fromBotSlug === null) {
+      // A bot WITH an account that is not a listed teammate: the room has no third parties.
+      if (sender.username) return "ignored";
+      // No username: a teammate through the shared webhook — prefix or not, it is logged.
+      if (speaker === null) return handleBotGroupMessage(chat.id, sender, deps);
+      fromBotSlug = speaker;
+    } else if (fromBotSlug === "abel" && speaker !== null && speaker !== "abel" && botFaceUsername(speaker) === null) {
+      fromBotSlug = speaker;
     }
-    if (!addressedToBilling) {
-      // A prefixed relay speaks as the bot it names.
-      if (speaker !== null) fromBotSlug = speaker;
-      // Not Billing's: fall through to the shared room flow below —
-      // room log, bot-chain safeguards, route + pickup verdict, and
-      // the turn dispatch (the Auditor's check and the Watchdog's
-      // turn live there).
-    } else {
-      // The speaking bot: the prefix name, or — for a direct reply
-      // to one of Billing's messages — the replying bot's own
-      // account. (The unidentified case already returned above.)
-      const speakerSlug = speaker ?? fromBotSlug;
-      if (speakerSlug === null) return handleBotGroupMessage(chat.id, sender, deps);
-      if (store && sender.messageId !== null) {
-        const claimed = await claimRoomMessage(store, {
-          telegramChatId: chat.id,
-          telegramMessageId: sender.messageId,
-          senderKind: "bot",
-          senderRef: speakerSlug,
-          text: botText.slice(0, 4000),
-          routedToBotSlug: "billing",
-        });
-        if (!claimed) return "ignored";
+    if (fromBotSlug !== "billing") {
+      billingHandoff = /\bbilling\b/i.test(botText);
+      if (!billingHandoff && sender.replyToMessageId !== null && store) {
+        try {
+          const repliedTo = await store.findGroupMessage(chat.id, sender.replyToMessageId);
+          billingHandoff = repliedTo?.senderRef === "billing";
+        } catch (err) {
+          console.error("[bot-team] reply attribution failed", err);
+        }
       }
-      const handoff = await buildRoomHandoff(speakerSlug, botText, deps.billingData ?? (deps.companyId ? createBillingDataStore(deps.companyId) : null));
-      await handleBillingGroupTurn(
-        chat.id,
-        botText,
-        { target: "billing", via: "mention", shouldAnswer: true, seated: true },
-        { store, billingData: deps.billingData ?? (deps.companyId ? createBillingDataStore(deps.companyId) : null), sendMessage, runChat: deps.runChat },
-        { fromBot: speakerSlug, handoff },
-      );
-      return "handled";
     }
   }
 
@@ -747,6 +733,7 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   // bot message is answered nowhere: fail closed for bots, never
   // for the owner.
   let chainDepth = 0;
+  if (fromBotSlug && !store) return "ignored"; // BT-003: no room log = no bot turn
   if (fromBotSlug && store && sender.messageId !== null) {
     try {
       const recent = await store.listRecentGroupMessages(25);
@@ -758,12 +745,41 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       console.error("[bot-team] bot-channel log check failed — not answering a bot message", err);
       return "ignored";
     }
+    // BT-005: the chain cap applies to EVERY bot message here, before any bot door
+    // (Billing's handoff, Maintenance's door, the shared flow): bots stop answering
+    // bots at the cap until a human speaks.
+    if (chainDepth >= MAX_BOT_CHAIN_DEPTH) return "handled";
   }
 
   if (text === null || text.trim() === "") {
     if (!fromBotSlug) {
       await deps.sendMessage(chat.id, "Text only in the group for now — photos and files go to Abel 1:1.");
     }
+    return "handled";
+  }
+
+  // Claim a bot's message (BT-003): one claim across every bot's webhook; a claim that
+  // can't be made means no bot turn. The owner's message is claimed later — after the
+  // face gate, so in the multi-face deployment only the acting face claims it.
+  if (fromBotSlug && sender.messageId !== null && store) {
+    const claim = await claimRoomMessage(store, {
+      telegramChatId: chat.id,
+      telegramMessageId: sender.messageId,
+      senderKind: "bot",
+      senderRef: fromBotSlug,
+      text: text.slice(0, 4000),
+      routedToBotSlug: billingHandoff ? "billing" : null,
+    });
+    if (claim !== "claimed") return "ignored";
+  }
+
+  if (billingHandoff && fromBotSlug) {
+    const billingRoute = { target: "billing" as const, via: "mention" as const, shouldAnswer: true, seated: true };
+    const verdict = evaluateBotPickup({ senderSlug: fromBotSlug, route: billingRoute, chainDepth });
+    if (!verdict.pickup) return "handled";
+    const billingData = deps.billingData ?? (deps.companyId ? createBillingDataStore(deps.companyId) : null);
+    const handoff = await buildRoomHandoff(fromBotSlug, text, billingData);
+    await handleBillingGroupTurn(chat.id, text, billingRoute, { store, billingData, sendMessage, runChat: deps.runChat }, { fromBot: fromBotSlug, handoff });
     return "handled";
   }
 
@@ -783,26 +799,6 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     });
     if ((handoff && handoff.to === "maintenance") || text.trim().startsWith("/handoff") || (doorRoute.target === "maintenance" && doorRoute.seated)) {
       return handleBotSenderUpdate(sender, deps, chat);
-    }
-  }
-
-  // Log a bot's message first (best-effort: a logging failure is
-  // loud in the console but never fails the reply). The owner's
-  // message is claimed later — after the face gate, so in the
-  // multi-face deployment only the acting face claims it.
-  if (store && text !== null && sender.messageId !== null && fromBotSlug) {
-    try {
-      await store.ensureGroupRoom(chat.id);
-      await store.recordGroupMessage({
-        telegramChatId: chat.id,
-        telegramMessageId: sender.messageId,
-        senderKind: "bot",
-        senderRef: fromBotSlug,
-        text: text.slice(0, 4000),
-        routedToBotSlug: null,
-      });
-    } catch (err) {
-      console.error("[bot-team] group message log failed", err);
     }
   }
 
@@ -857,16 +853,26 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   // wins, the rest stand down, so the room answers once. A logging
   // failure that is NOT a duplicate still answers (today's
   // single-webhook behavior), loudly.
-  if (store && text !== null && sender.messageId !== null && !fromBotSlug) {
-    const claimed = await claimRoomMessage(store, {
-      telegramChatId: chat.id,
-      telegramMessageId: sender.messageId,
-      senderKind: "owner",
-      senderRef: String(sender.id),
-      text: text.slice(0, 4000),
-      routedToBotSlug: null,
-    });
-    if (!claimed) return "ignored";
+  // BT-003: duplicate = another webhook has it; unavailable (no store, or a non-duplicate
+  // error) = nothing runs, and the owner is told once (by the acting face, or by Abel's
+  // webhook in the single-gate deployment).
+  if (text !== null && sender.messageId !== null && !fromBotSlug) {
+    const claim = store
+      ? await claimRoomMessage(store, {
+          telegramChatId: chat.id,
+          telegramMessageId: sender.messageId,
+          senderKind: "owner",
+          senderRef: String(sender.id),
+          text: text.slice(0, 4000),
+          routedToBotSlug: null,
+        })
+      : "unavailable";
+    if (claim === "duplicate") return "ignored";
+    if (claim === "unavailable") {
+      const says = deps.faceBotSlug ? true : (deps.receivingBot ?? "abel") === "abel";
+      if (says) await deps.sendMessage(chat.id, CLAIM_UNAVAILABLE_TEXT);
+      return "ignored";
+    }
   }
 
   // A decision ("yes" / "no" / "2 yes") answers the newest open
