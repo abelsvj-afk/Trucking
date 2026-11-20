@@ -1,12 +1,22 @@
-// Telegram group mode for the bot team (Phase 0 baseline).
+// Telegram group mode for the bot team (Phase 0 baseline, Phase 2 seats).
 // One private group, him + the bots. Every bot hears every message;
 // only the relevant one answers, the rest stay quiet.
 //
-// This handler runs BEFORE the 1:1 path (services/telegram/
-// dispatch-bot.ts), which still serves only the owner's private chat
-// and still ignores every group. The webhook route sends group and
-// supergroup updates here; everything else goes to the 1:1 path
-// untouched.
+// FACES (owner, 2026-11-19): each bot gets its own Telegram account +
+// profile photo, messaging as itself — the one-face model was rejected.
+// TODAY the shared backend still posts through the single token
+// (TELEGRAM_BOT_TOKEN, @AbelExecutiveBot) with a per-bot name prefix;
+// per-bot tokens + webhook routing are a shared-backend step, and the
+// send path (deps.sendMessage, bound by the webhook) is the binding
+// point — no bot module needs to change when it lands. Either way,
+// Telegram never delivers one bot's messages to another (Bots FAQ:
+// "regardless of mode"), so coordination between bots happens through
+// the shared Supabase store (group messages, proposals, audit log),
+// not through Telegram messages. This handler runs BEFORE the 1:1 path
+// (services/telegram/dispatch-bot.ts), which still serves only the
+// owner's private chat and still ignores every group. The webhook route
+// sends group and supergroup updates here; everything else goes to the
+// 1:1 path untouched.
 //
 // Fail-closed, like the 1:1 bot:
 // - No TELEGRAM_GROUP_CHAT_ID configured = groups ignored, as today.
@@ -35,6 +45,15 @@ import { randomUUID } from "node:crypto";
 import { auditLoadDraft } from "./auditor";
 import { createBrowserRuntime, type BrowserRuntime } from "./browser-runtime";
 import {
+  buildWatchdogInstructions,
+  checkLoadLegality,
+  formatWatchdogSnapshot,
+  recordHandoff,
+  runWatchdogSweep,
+  WATCHDOG_DISPLAY_NAME,
+  WATCHDOG_SLUG,
+} from "./compliance-watchdog";
+import {
   parseCostPreferences,
   parseScanRequest,
   recordShortlistDecision,
@@ -43,7 +62,7 @@ import {
 } from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
-import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
+import { GROUP_SEATS, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply } from "./router";
 import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
@@ -227,6 +246,14 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     return "handled";
   }
 
+  // Compliance Watchdog: its own turn, with the same spend-cap
+  // discipline as Abel. Its job prompt, the ten shared reasoning
+  // forms, the computed compliance snapshot, and its stored memories.
+  if (route.target === "compliance-watchdog") {
+    await handleWatchdogTurn(chat.id, text, deps);
+    return "handled";
+  }
+
   // Abel: group chat turn, with the spend cap in front of the model.
   if (!deps.runChat) {
     await deps.sendMessage(chat.id, "Abel: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
@@ -347,6 +374,70 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
 }
 
 /**
+ * Compliance Watchdog turn. One model call, spend-capped like Abel's.
+ * The snapshot is computed in code (deadline checklist, open defects,
+ * duty segments) — summaries, never raw records. A snapshot that
+ * fails to load is stated as missing in the instructions; the turn
+ * never invents a deadline. No store = the turn still answers from
+ * its governing rules, and says the checklist is not loaded.
+ */
+async function handleWatchdogTurn(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
+  const store = deps.store;
+  if (!deps.runChat) {
+    await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.`);
+    return;
+  }
+  if (store) {
+    try {
+      const spent = await store.spentThisMonthCents(monthStartIso());
+      if (capReached(spent, monthlyCapCents())) {
+        await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: ${SPEND_CAP_REACHED_TEXT}`);
+        return;
+      }
+    } catch (err) {
+      console.error("[bot-team] spend check failed — refusing the model call", err);
+      await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.`);
+      return;
+    }
+  }
+  let snapshot: string | null = null;
+  if (store) {
+    try {
+      const sweep = await runWatchdogSweep({ store });
+      snapshot = formatWatchdogSnapshot(sweep);
+    } catch (err) {
+      console.error("[bot-team] watchdog snapshot failed — answering without it", err);
+      snapshot = null;
+    }
+  }
+  try {
+    const memories = store ? await store.loadBotMemories(WATCHDOG_SLUG) : [];
+    const reply = await deps.runChat({
+      userText: text,
+      history: [],
+      instructions: buildWatchdogInstructions({ memories, snapshotText: snapshot }),
+    });
+    const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
+    if (store) {
+      try {
+        await store.recordSpend({
+          botSlug: WATCHDOG_SLUG,
+          model: modelForTier("scan"),
+          tier: "scan",
+          estimatedCents: estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: answer.length }),
+        });
+      } catch (err) {
+        console.error("[bot-team] spend record failed", err);
+      }
+    }
+    await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: ${answer}`);
+  } catch (err) {
+    console.error("[bot-team] group Watchdog turn failed", err);
+    await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: that turn failed on my side — nothing was booked or sent. Try again in a moment.`);
+  }
+}
+
+/**
  * Work up a forwarded dispatch into a load-draft proposal: parse the
  * numbers out of the text, run the Auditor's recomputation, and post
  * the draft — with the Auditor's flags attached when it does not add
@@ -391,11 +482,38 @@ async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandle
       targetRef: proposal.id,
       detail: { kind: "load-draft", auditPassed: audit.passed },
     });
+    // Watchdog's own turn on a load being considered: the legality
+    // check runs in code against the checklist and open defects. A
+    // block is posted with the draft (and handed to Scout as a
+    // structured audit record); a cannot-confirm is posted too. A
+    // clear checklist posts nothing — Watchdog stays quiet when
+    // there is nothing to flag. A failed check never fails the
+    // draft post; the draft goes out without the verdict, loudly
+    // logged.
+    const watchdogLines: string[] = [];
+    try {
+      const sweep = await runWatchdogSweep({ store });
+      const verdict = checkLoadLegality({ checklist: sweep.checklist, defects: sweep.defects, loadRef: title });
+      if (verdict.verdict !== "clear") {
+        watchdogLines.push("", verdict.summary);
+        if (verdict.verdict === "blocked") {
+          await recordHandoff({
+            store,
+            to: "dispatch-scout",
+            reason: "load blocked by compliance — do not book until the owner decides",
+            ref: proposal.id,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[bot-team] watchdog legality check failed — draft posted without it", err);
+    }
     const lines = [
       `Dispatch Scout — draft ready, waiting on your yes:`,
       title,
       audit.passed ? "Auditor: checks out." : `Auditor: ${audit.flags.map((f) => `${f.field} — ${f.detail}`).join(" ")}`,
       `Reply Yes to approve it, No to drop it.`,
+      ...watchdogLines,
     ];
     await deps.sendMessage(chatId, lines.join("\n"));
   } catch (err) {
@@ -405,4 +523,4 @@ async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandle
 }
 
 export type { BotSlug, ProposalRow };
-export { GROUP_SEATS_PHASE_0 };
+export { GROUP_SEATS };

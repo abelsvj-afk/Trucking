@@ -111,12 +111,19 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     seat: "HOS and safety alerts",
     status: "planned",
     toolScope: {
+      // Governing file (docs/bots/compliance-watchdog/CLAUDE.md):
+      // Loads READ, HOS READ ONLY + flag, Money NO ACCESS, Documents
+      // READ + WRITE (file, never approve), Email WRITE-GATED
+      // (reminders to driver/owner only — "draft" here: drafts leave
+      // nothing; sending is an execute-class proposal), Maps NO
+      // ACCESS, App WRITE (alerts, checklist) via the "flag" scope,
+      // Calls NEVER, Signature NEVER.
       loads: "read",
       hos: "read",
       money: "none",
-      documents: "read",
-      email: "none",
-      maps: "read",
+      documents: "read-write",
+      email: "draft",
+      maps: "none",
       "app-actions": "flag",
       calls: "never",
       signature: "never",
@@ -230,3 +237,17 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
 
 /** Bots wired into the Telegram group in this phase (Phase 0). */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout"];
+
+/**
+ * Phase 2 seats: the Phase 0 seats plus Compliance Watchdog. "Seated"
+ * means the bot's internal identity answers in the room. FACES
+ * (owner, 2026-11-19): each bot gets its own Telegram account +
+ * profile photo, messaging as itself — the one-face model was
+ * rejected. Until the shared backend binds per-bot tokens, lines post
+ * through the single token prefixed with the bot's name; the seat list
+ * is the same either way.
+ */
+export const GROUP_SEATS_PHASE_2: BotSlug[] = ["abel", "dispatch-scout", "compliance-watchdog"];
+
+/** The seats wired into the group right now. */
+export const GROUP_SEATS: BotSlug[] = GROUP_SEATS_PHASE_2;

@@ -210,6 +210,51 @@ drafts — owner approves every shop), Billing (drafter — invoices drafted
 same day as delivery paperwork, sending gated by his approval). Each joins
 the same group, same registry, same guardrails.
 
+**Compliance Watchdog — BUILT 2026-11-19, branch
+`feat/bot-compliance-watchdog-2026-11-19`, DO-NOT-MERGE PR, NOT merged,
+NOT deployed.** `src/services/bots/compliance-watchdog.ts` (deadline
+checklist evaluation, red/amber alerts, load-legality verdict, HOS
+coverage flags, reminder proposals, document-copy filing, handoffs),
+`src/services/bots/reasoning.ts` (the ten shared reasoning forms, moved
+verbatim from Abel's turn — one brain, not a cut-down version),
+migration `00105_bot_team_watchdog.sql` AUTHORED, NOT applied
+(`bot_compliance_deadlines` + the Watchdog scope correction), group seat
+wired (router + group turn + spend cap), Scout workups carry the
+Watchdog block, sweep route `POST /api/bots/compliance-watchdog/sweep`
+(idempotent amber dedupe; red always posts). Governing files
+`docs/bots/compliance-watchdog/` (byte-identical to the owner's copies).
+
+**FACES (owner, 2026-11-19): each bot its own Telegram account +
+profile photo, messaging as itself — the one-face model was rejected.**
+Telegram mechanic that blocks the literal version: the Bot API never
+delivers one bot's messages to another ("regardless of mode",
+core.telegram.org/bots/faq — verified 2026-11-19), so bots cannot hear
+each other in the group even with individual accounts + privacy OFF.
+Coordination goes through the shared Supabase store either way; the
+bots post as themselves once the shared backend binds per-bot tokens
+(the send path is the binding point; Watchdog is written
+token-agnostic). PRECEDENT (owner, 2026-11-19 ~2:35 PM CT): Scout
+already has its own BotFather account (@DispatchScoutBot, verified
+live, can join groups) and its token is set in Fly as
+TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN (staged, live on next deploy; the
+value is NOT saved anywhere). Watchdog still needs the same owner
+step: its own BotFather account + profile photo + token in Fly
+(following Scout's naming, TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN).
+Scout's owner steps still open: /setprivacy Disable + add Scout to
+the "Road to Legacy Crew" group.
+
+**RESEARCH BAKED IN (owner, 2026-11-19): open-source multi-agent
+research (`~/workspace/research_notes/open-source-multi-agent-team-20261119-2022/report.md`)
+— the six patterns are applied in this build: supervisor-first
+(router), validated-state handoffs, summaries-not-transcripts,
+server-side enforcement (registry + guardrails + RLS), structural
+HITL (proposals), single-writer + idempotency + bounded loops.
+Mastra is the first-pick framework evaluation with a recommendation
+in the PR — NOT adopted silently, NOT a dependency here. Avoid:
+Microsoft AutoGen (archived Oct 2026), MetaGPT (stale since early
+2026). No end-to-end small-business Telegram example exists in the
+open — patterns borrowed, not a whole project.
+
 ## Phase 3 — Animated in-app room (LATER — owner decision 2026-11-19)
 
 **Do NOT build in the baseline. Telegram first; the animated room second,
