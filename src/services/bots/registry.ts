@@ -153,14 +153,26 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     slug: "maintenance",
     displayName: "Maintenance",
     seat: "PM and inspections",
-    status: "planned",
+    // Wired 2026-11-19 (branch feat/bot-maintenance-2026-11-19):
+    // scopes from docs/bots/maintenance/CLAUDE.md. Loads READ,
+    // HOS none, Money READ (estimates, to show the owner only),
+    // Documents "draft" (read + file records by truck — internal
+    // writes only; execute-class sign/file stays impossible),
+    // Email "draft" (draft a shop/vendor message; sending is
+    // execute-class, needs an approved proposal, no execution path
+    // yet), Maps READ (nearest shop, route to the shop), App
+    // "draft" (work-order drafts, PM reminders), Calls "gated"
+    // (shops/vendors, owner-approved call plan, shared number,
+    // logged), Signature never. "live" means wired in code — not
+    // deployed; deploy is still the owner's separate tap.
+    status: "live",
     toolScope: {
       loads: "read",
       hos: "none",
       money: "read",
-      documents: "read",
-      email: "read",
-      maps: "none",
+      documents: "draft",
+      email: "draft",
+      maps: "read",
       "app-actions": "draft",
       calls: "gated",
       signature: "never",
@@ -264,7 +276,7 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
 
 /** Bots wired into the Telegram group. Phase 0 seated Abel +
  * Dispatch Scout; Billing and Compliance Watchdog joined in
- * Phase 2, Tracker joins in Phase 2 as well, and the Auditor
+ * Phase 2, Tracker joins in Phase 2 as well, Maintenance completes the team, and the Auditor
  * joins with its own seat — read-only, flag only, acting only
  * on a clear route (router.ts), speaking to teammates by name
  * in the room. FACES (owner, 2026-11-19): each bot gets its own
@@ -272,7 +284,7 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
  * one-face model was rejected. Until the shared backend binds
  * per-bot tokens, lines post through the single token prefixed
  * with the bot's name; the seat list is the same either way. */
-export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor", "compliance-watchdog", "tracker"];
+export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor", "compliance-watchdog", "tracker", "maintenance"];
 
 /** Backwards-compatible alias: the Phase 0 name, kept until the other seats' tests rename. */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = GROUP_SEATS;

@@ -95,10 +95,11 @@ describe("group routing", () => {
     expect(route.shouldAnswer).toBe(true);
   });
 
-  it("still marks a seat nobody wired yet as unseated", () => {
+  it("marks Maintenance seated now that its branch wires it in — the last seat", () => {
     const route = routeGroupMessage({ text: "Maintenance, what's my ETA?", senderKind: "owner" });
     expect(route.target).toBe("maintenance");
-    expect(route.seated).toBe(false);
+    expect(route.seated).toBe(true);
+    // The unseated wording survives as the defensive path's copy.
     expect(unseatedReply("maintenance")).toMatch(/isn't in the room yet/);
   });
 

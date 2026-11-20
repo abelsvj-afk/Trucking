@@ -65,8 +65,13 @@ describe("evaluateBotPickup", () => {
   });
 
   it("a message for an unseated seat is heard, not answered", () => {
-    const forMaintenance = routeGroupMessage({ text: "Maintenance, where is the truck?", senderKind: "bot", senderSlug: "dispatch-scout" });
-    const verdict = evaluateBotPickup({ senderSlug: "dispatch-scout", route: forMaintenance, chainDepth: 0 });
+    // Every real seat is live now, so the route is built literally:
+    // the verdict rule itself is what is under test.
+    const verdict = evaluateBotPickup({
+      senderSlug: "dispatch-scout",
+      route: { target: "maintenance", via: "mention", seated: false, shouldAnswer: true },
+      chainDepth: 0,
+    });
     expect(verdict.pickup).toBe(false);
   });
 });

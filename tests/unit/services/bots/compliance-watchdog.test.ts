@@ -102,6 +102,8 @@ function makeStub(state: StubState): BotTeamStore {
     recordGroupMessage: async () => {},
     reserveSpend: async () => "reservation-1",
     settleSpend: async () => {},
+    claimJob: async () => true,
+    releaseJob: async () => {},
     loadBotMemories: async () => [],
     recordCheckCall: async () => { throw new Error("not used in this test"); },
     listCheckCalls: async () => [],

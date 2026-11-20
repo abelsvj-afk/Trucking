@@ -61,6 +61,7 @@ import {
 // pretending the bot is there.
 
 import { BOT_REGISTRY, GROUP_SEATS, GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
+import { MAINTENANCE_KEYWORD_PATTERNS, MAINTENANCE_MENTION_PATTERNS } from "./maintenance";
 
 export interface GroupMessageInput {
   text: string;
@@ -119,10 +120,8 @@ const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i, /\bfactoring\b/i, /\bshort[-\s]?paid?\b/i, /\boverdue\b/i, /\bdeduction\b/i, /\b(broker|shipper)\b[^.!?]{0,50}\bpaid\b/i, /\bpaid\b[^.!?]{0,50}\b(broker|invoice)\b/i] },
   { slug: "dispatch-scout", patterns: [/@?dispatchscoutbot\b/i, /\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i] },
   { slug: "tracker", patterns: [/\btracker\b/i] },
-  // Watchdog's mention patterns live in its own module (the speak gate).
   { slug: "compliance-watchdog", patterns: WATCHDOG_MENTION_PATTERNS },
-  { slug: "maintenance", patterns: [/\bmaintenance\b/i, /\bshop\b/i, /\brepair\b/i] },
-
+  { slug: "maintenance", patterns: MAINTENANCE_MENTION_PATTERNS.map((entry) => entry.pattern) },
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i] },
   // Auditor: ONLY its name counts as being called by name. "Check
   // this" / "verify" are job signals, not a name — they live in the
@@ -175,7 +174,7 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
   },
   {
     slug: "maintenance",
-    patterns: [/\binspection\b/i, /\bmaintenance\b/i, /\bshop\b/i, /\bbreakdown\b/i, /\btire\b/i],
+    patterns: MAINTENANCE_KEYWORD_PATTERNS.map((entry) => entry.pattern),
   },
   {
     // Check-call verbs and escalation words are Tracker's job — a
@@ -285,7 +284,12 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
   };
 }
 
-/** The one-line reply when a message routes to a seat not wired yet. */
+/**
+ * The one-line reply when a message routes to a seat not wired yet.
+ * Abel never does a specialist's job himself (owner group-routing
+ * rule 2026-11-19), so this promises no stand-in — the job waits for
+ * its seat.
+ */
 export function unseatedReply(target: BotSlug): string {
   const name = BOT_REGISTRY[target].displayName;
   return `${name} isn't in the room yet — that seat comes in a later phase. Abel can take this one for now.`;

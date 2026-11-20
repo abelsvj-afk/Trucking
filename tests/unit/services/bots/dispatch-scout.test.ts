@@ -96,6 +96,8 @@ function makeStore(state: StubState): BotTeamStore {
       created_at: new Date().toISOString(),
     }),
     loadBotMemories: async () => [],
+    claimJob: async () => true,
+    releaseJob: async () => {},
     recordCheckCall: async () => { throw new Error("not used in this test"); },
     listCheckCalls: async () => [],
     startDetentionClock: async () => { throw new Error("not used in this test"); },
