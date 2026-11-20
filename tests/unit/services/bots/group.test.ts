@@ -24,7 +24,7 @@ function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false): Tel
 interface StubState {
   proposals: ProposalRow[];
   spentCents: number;
-  audit: { action: string; targetRef: string | null }[];
+  audit: { action: string; targetRef: string | null; detail?: Record<string, unknown> }[];
   groupMessages: { text: string }[];
   memories?: { content: string }[];
   ledger?: { loadRef: string; outcome: string; notes: string | null }[];
@@ -63,8 +63,10 @@ function makeStub(state: StubState): BotTeamStore {
       return row;
     },
     logAudit: async (input) => {
-      state.audit.push({ action: input.action, targetRef: input.targetRef ?? null });
+      state.audit.push({ action: input.action, targetRef: input.targetRef ?? null, detail: input.detail });
     },
+    hasAuditorCheck: async (checkKey) =>
+      state.audit.some((a) => a.action === "auditor_check" && a.detail?.check_key === checkKey),
     recordLoadOutcome: async (input) => {
       if (state.ledger) state.ledger.push({ loadRef: input.loadRef, outcome: input.outcome, notes: input.notes ?? null });
     },
@@ -203,7 +205,7 @@ describe("bot-team group mode", () => {
   it("tells the owner a seat is not in the room yet instead of pretending it is", async () => {
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
     const { deps, sent } = makeDeps(state);
-    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's my ETA?"), deps);
     expect(sent[0]).toMatch(/isn't in the room yet/);
   });
 
@@ -306,5 +308,134 @@ describe("bot-team group mode", () => {
     expect(state.ledger).toHaveLength(1);
     expect(state.ledger?.[0]?.outcome).toBe("skipped");
     expect(state.ledger?.[0]?.notes).toContain("passed on the shortlist");
+  });
+
+  it("Auditor, called by name with numbers, recomputes and flags the pay gap — and writes nothing", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, 100 deadhead"),
+      deps,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: /);
+    expect(sent[0]).toMatch(/\$1,400\.00/);
+    expect(sent[0]).toMatch(/\$1,500\.00/);
+    // The check is read-only: no proposal created, no record changed.
+    expect(state.proposals).toHaveLength(0);
+    expect(state.audit.some((a) => a.action === "auditor_check")).toBe(true);
+  });
+
+  it("Auditor, called by name with clean numbers, says the math checks out (windows aside)", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("Auditor, check this load: pay $1,500, rate $3.00/mi, 500 loaded miles, 100 deadhead"),
+      deps,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: Checks out on the numbers given/);
+    expect(sent[0]).toMatch(/Cannot verify: windows/);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("Auditor, called by name with no numbers and no draft, says what is missing", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: nothing to check right now/);
+  });
+
+  it("Auditor re-checks the newest open draft when asked with no numbers", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("New load: pickup Dallas, delivery Houston, pay $1850, 240 miles, broker FastFreight"),
+      deps,
+    );
+    expect(state.proposals).toHaveLength(1);
+    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check the latest draft"), deps);
+    expect(sent[sent.length - 1]).toMatch(/^Auditor — checking "/);
+    // The draft has no rate and no windows: the Auditor says so, it does not guess.
+    expect(sent[sent.length - 1]).toMatch(/Cannot verify/);
+    expect(state.proposals).toHaveLength(1);
+  });
+
+  it("Auditor stays quiet on a keyword alone — Abel gets the message with a routing hint", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const runChat = vi.fn(async (input: { instructions: { kind: string; content: string }[] }) => {
+      const hint = input.instructions.find((row) => row.kind === "routing");
+      return hint ? "routing hint seen" : "no hint";
+    });
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("does that add up?"), deps);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Abel: routing hint seen/);
+    expect(runChat).toHaveBeenCalledTimes(1);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("Auditor answers on its own turn when a draft lands with numbers — no name needed", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("does that add up? pay $1,400, $3.00/mi, 500 miles"),
+      deps,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: /);
+    expect(sent[0]).toMatch(/\$1,500\.00/);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("Auditor posts under its own face when one is wired — and nothing goes out under the coordinator's face", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const asBot: { slug: string; text: string }[] = [];
+    const { deps, sent } = makeDeps(state, {
+      sendAsBot: async (botSlug, _chatId, text) => {
+        asBot.push({ slug: botSlug, text });
+        return [1];
+      },
+    });
+    await handleBotTeamGroupUpdate(
+      makeUpdate("Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, deadhead 100 miles"),
+      deps,
+    );
+    expect(asBot).toHaveLength(1);
+    expect(asBot[0]?.slug).toBe("auditor");
+    expect(asBot[0]?.text).toMatch(/^Auditor: /);
+    expect(asBot[0]?.text).toMatch(/\$1,500\.00/);
+    expect(sent).toEqual([]);
+  });
+
+  it("a redelivered Auditor check posts its flag once — the second delivery is skipped, not re-posted", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    const text = "Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, deadhead 100 miles";
+    await handleBotTeamGroupUpdate(makeUpdate(text), deps);
+    await handleBotTeamGroupUpdate(makeUpdate(text), deps);
+    expect(sent).toHaveLength(1);
+    expect(state.audit.filter((a) => a.action === "auditor_check")).toHaveLength(1);
+  });
+
+  it("a bot message naming the Auditor is ignored — Telegram never delivers other bots' messages anyway", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    expect(
+      await handleBotTeamGroupUpdate(
+        makeUpdate("Auditor, check this load: pay $1,500, rate $3.00/mi, 500 loaded miles", 999, true),
+        deps,
+      ),
+    ).toBe("ignored");
+    expect(sent).toEqual([]);
+    expect(state.audit).toHaveLength(0);
+  });
+
+  it("a bot message that does not name the Auditor is still ignored", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    expect(await handleBotTeamGroupUpdate(makeUpdate("found a good load to Dallas", 999, true), deps)).toBe("ignored");
+    expect(sent).toEqual([]);
   });
 });

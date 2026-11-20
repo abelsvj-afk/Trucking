@@ -224,6 +224,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       companyId: config.companyId,
       store: teamStore,
       sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
+      // Individual faces (owner, 2026-11-19): each bot posts under
+      // its own BotFather account when its token is configured. The
+      // Auditor's token (TELEGRAM_AUDITOR_BOT_TOKEN) is provisioned
+      // in BotFather by the owner — until it exists, the Auditor's
+      // flags fall back to the coordinator's face, same text. Other
+      // bots get their own entries here when their crews wire them.
+      sendAsBot: (botSlug, chatId, text) => {
+        if (botSlug === "auditor" && process.env.TELEGRAM_AUDITOR_BOT_TOKEN) {
+          return sendTelegramMessage(process.env.TELEGRAM_AUDITOR_BOT_TOKEN, chatId, text);
+        }
+        return sendTelegramMessage(botToken, chatId, text);
+      },
       runChat,
     });
     return NextResponse.json({ ok: true });

@@ -24,11 +24,19 @@ describe("group routing", () => {
     expect(route.via).toBe("reply");
   });
 
-  it("names the Auditor for a check, but marks the seat unseated in Phase 0", () => {
+  it("seats the Auditor now that its branch wires it in — a name mention answers", () => {
     const route = routeGroupMessage({ text: "Auditor, check this math", senderKind: "owner" });
     expect(route.target).toBe("auditor");
+    expect(route.via).toBe("mention");
+    expect(route.seated).toBe(true);
+    expect(route.shouldAnswer).toBe(true);
+  });
+
+  it("still marks a seat nobody wired yet as unseated", () => {
+    const route = routeGroupMessage({ text: "Tracker, what's my ETA?", senderKind: "owner" });
+    expect(route.target).toBe("tracker");
     expect(route.seated).toBe(false);
-    expect(unseatedReply("auditor")).toMatch(/isn't in the room yet/);
+    expect(unseatedReply("tracker")).toMatch(/isn't in the room yet/);
   });
 
   it("defaults everything else to Abel", () => {

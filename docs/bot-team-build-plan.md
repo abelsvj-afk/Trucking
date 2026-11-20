@@ -83,7 +83,51 @@ decision, not a baseline one.
 4. Auditor check in the pipeline: every draft is recomputed (miles x rate
    = pay, $ per loaded mile, $ per ALL miles) and compared to its source
    before it reaches him. A failed check blocks the draft and posts a
-   flag with both numbers, never a silent fix.
+   flag with both numbers, never a silent fix. UPDATE 2026-11-19
+   (branch `feat/bot-auditor-2026-11-19`, DO-NOT-MERGE PR): the Auditor
+   seat is wired — registry status live, group seat, group routing
+   (name / Abel route / any-bot handoff / own turn on a draft landing;
+   a bare keyword defers to Abel, who settles it in the room), code-only
+   group checks (load math + windows, invoice vs agreed pay vs rate
+   con, draft vs source field by field), all ten reasoning forms shared
+   through `services/bots/reasoning.ts`, and no-write-path tests. The
+   model-backed Auditor turn waits on a per-bot tool gateway (no such
+   gateway exists yet — a model turn today would see Abel's write
+   the reasoning adapter re-points at the shared engine
+   when `feat/shared-reasoning-2026-11-19` lands. Migration 00103's
+   seeded Auditor row still says 'planned' — flip it to 'live' when
+   the migration is applied. Group chat is a team room (owner,
+   2026-11-19, correcting the earlier too-strict routing rule): bots
+   hand work off to each other INTERNALLY (in-process / Supabase) and
+   only pull the owner in for a decision or approval. INDIVIDUAL
+   FACES (owner, 2026-11-19 — the one-face model was REJECTED): each
+   bot its own Telegram account + profile photo, messaging as itself
+   in the group. What Telegram blocks, verified against the Bots FAQ
+   2026-11-19: bots "will not be able to see messages from other
+   bots regardless of mode" — so a bot's account is a SENDER face
+   only; no bot reads another bot's posts, and coordination stays
+   internal. The Auditor's flags post through a per-bot send seam
+   (`sendAsBot`, wired to TELEGRAM_AUDITOR_BOT_TOKEN when the owner
+   provisions the account in BotFather); until then they fall back
+   to the coordinator's face, same text. Still open for faces: the
+   BotFather account + photo per bot (owner step), privacy mode OFF
+   (BotFather /setprivacy + re-add) or admin per account so each bot
+   sees the owner's ordinary group messages, and webhook fan-in so
+   each bot account's updates reach this handler. Auditor checks are
+   idempotent (deterministic check key in the audit log; a redelivery
+   posts no second flag) and the Auditor is the single writer of
+   auditor_check entries. No new framework was adopted in this
+   branch — the open-source research (Mastra first choice, OpenAI
+   Agents SDK simplest, LangGraph.js most durable; AutoGen archived,
+   MetaGPT stale) is a decision for later, not a silent migration;
+   the six patterns are applied now: supervisor-first routing (Abel
+   coordinates, routedByBotSlug handoff seam), handoff as validated
+   state (the check re-parses numbers from the stored proposal, not
+   from a bot's summary), shared summaries not transcripts (checks
+   read stored payloads), server-side enforcement (registry /
+   guardrails + RLS), structural propose-only approval (deadlines,
+   unanswered = denied), and Postgres claiming + idempotency keys
+   (check_key + hasAuditorCheck, bounded reads).
 5. Spending cap + model tiers in code: cheap model scans, stronger model
    ranks the best few only, hard cap that stops bot calls when hit and
    says so plainly.

@@ -201,8 +201,141 @@ export function auditLoadDraft(draft: LoadDraftInput): AuditResult {
   return { passed, flags, computed: { expectedPayCents, perLoadedMileCents, perAllMilesCents, totalMiles } };
 }
 
+export interface InvoiceDraftInput {
+  /** Amount on the invoice draft, in cents; null when not stated. */
+  invoicedCents: number | null;
+  /** Pay agreed for the load, in cents; null when unknown. */
+  agreedPayCents: number | null;
+  /** Total on the rate confirmation, in cents; null when no rate con on file. */
+  rateConTotalCents: number | null;
+}
+
+/**
+ * An invoice must equal the agreed pay and the rate-confirmation
+ * total. A missing rate con is "cannot verify", never a pass by
+ * default — an invoice with no source behind it is not checked.
+ */
+export function auditInvoiceDraft(draft: InvoiceDraftInput): AuditResult {
+  const flags: AuditFlag[] = [];
+  if (draft.invoicedCents === null) {
+    flags.push({
+      field: "invoice",
+      severity: "unverifiable",
+      claim: "no invoice amount given",
+      source: "no invoice amount in the draft or its source",
+      detail: "Cannot verify the invoice — no amount was given.",
+    });
+    return { passed: true, flags, computed: { expectedPayCents: null, perLoadedMileCents: null, perAllMilesCents: null, totalMiles: null } };
+  }
+  if (draft.agreedPayCents !== null && Math.abs(draft.invoicedCents - draft.agreedPayCents) > PAY_MISMATCH_TOLERANCE_CENTS) {
+    flags.push({
+      field: "invoice",
+      severity: "error",
+      claim: `invoiced ${dollars(draft.invoicedCents)}`,
+      source: `agreed pay ${dollars(draft.agreedPayCents)}`,
+      detail: `The invoice does not match the agreed pay: invoiced ${dollars(draft.invoicedCents)} vs agreed ${dollars(draft.agreedPayCents)} — off by ${dollars(Math.abs(draft.invoicedCents - draft.agreedPayCents))}.`,
+    });
+  }
+  if (draft.rateConTotalCents !== null && Math.abs(draft.invoicedCents - draft.rateConTotalCents) > PAY_MISMATCH_TOLERANCE_CENTS) {
+    flags.push({
+      field: "invoice",
+      severity: "error",
+      claim: `invoiced ${dollars(draft.invoicedCents)}`,
+      source: `rate confirmation total ${dollars(draft.rateConTotalCents)}`,
+      detail: `The invoice does not match the rate confirmation: invoiced ${dollars(draft.invoicedCents)} vs rate con ${dollars(draft.rateConTotalCents)} — off by ${dollars(Math.abs(draft.invoicedCents - draft.rateConTotalCents))}.`,
+    });
+  }
+  if (draft.agreedPayCents === null && draft.rateConTotalCents === null) {
+    flags.push({
+      field: "invoice",
+      severity: "unverifiable",
+      claim: `invoiced ${dollars(draft.invoicedCents)} with no agreed pay and no rate con`,
+      source: "no agreed pay and no rate confirmation on file",
+      detail: "Cannot verify the invoice against anything — there is no agreed pay and no rate confirmation. Do not treat the invoiced amount as agreed.",
+    });
+  }
+  const passed = flags.every((flag) => flag.severity !== "error");
+  return { passed, flags, computed: { expectedPayCents: draft.agreedPayCents, perLoadedMileCents: null, perAllMilesCents: null, totalMiles: null } };
+}
+
+export interface SourceFieldComparison {
+  /** e.g. "pickup-address", "delivery-window", "broker-rate". */
+  field: string;
+  /** What the draft says; null when the draft does not state it. */
+  draft: string | null;
+  /** What the source says; null when the source is missing. */
+  source: string | null;
+}
+
+/**
+ * Draft vs source, field by field: a time that moved, an address
+ * that changed, a window or rate that does not match the dispatch
+ * or the rate confirmation. A value that differs is an error flag
+ * with both values shown; a missing source is "cannot verify" with
+ * the missing piece named. Comparison is exact after trimming —
+ * a difference in wording is a difference, and the owner decides
+ * which wording is right (phrasing drift stays a model judgement
+ * on top of this).
+ */
+export function auditDraftVsSource(fields: SourceFieldComparison[]): AuditFlag[] {
+  const flags: AuditFlag[] = [];
+  for (const { field, draft, source } of fields) {
+    if (draft === null) {
+      flags.push({
+        field,
+        severity: "unverifiable",
+        claim: "draft does not state this",
+        source: source ?? "no source on file",
+        detail: `Cannot verify ${field} — the draft does not state it.`,
+      });
+      continue;
+    }
+    if (source === null) {
+      flags.push({
+        field,
+        severity: "unverifiable",
+        claim: `${field}: ${draft}`,
+        source: "no source on file for this field",
+        detail: `Cannot verify ${field} — the source is missing. The draft says "${draft}" and nothing backs it yet.`,
+      });
+      continue;
+    }
+    if (draft.trim() !== source.trim()) {
+      flags.push({
+        field,
+        severity: "error",
+        claim: `${field}: ${draft}`,
+        source: `${field}: ${source}`,
+        detail: `The draft does not match its source: draft says "${draft}", source says "${source}".`,
+      });
+    }
+  }
+  return flags;
+}
+
 /** One-line owner-facing summary of a check: "checks out" or the flags. */
 export function auditSummary(result: AuditResult): string {
   if (result.flags.length === 0) return "checks out";
   return result.flags.map((flag) => `${flag.field}: ${flag.detail}`).join("\n");
+}
+
+/**
+ * The group-chat verdict. Errors are flags, each with both numbers.
+ * When nothing is wrong but something could not be verified, the
+ * math that was checked still says so — and the unverified part is
+ * named, never passed over in silence.
+ */
+export function formatAuditReply(result: AuditResult): string {
+  const errors = result.flags.filter((flag) => flag.severity === "error");
+  const unverifiable = result.flags.filter((flag) => flag.severity === "unverifiable");
+  if (errors.length > 0) {
+    return errors.map((flag) => `${flag.field}: ${flag.detail}`).join(" ");
+  }
+  if (unverifiable.length > 0) {
+    return (
+      `Checks out on the numbers given. Cannot verify: ` +
+      unverifiable.map((flag) => `${flag.field} — ${flag.detail}`).join(" ")
+    );
+  }
+  return "checks out";
 }

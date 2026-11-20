@@ -103,6 +103,14 @@ export interface BotTeamStore {
     targetRef?: string | null;
     detail?: Record<string, unknown>;
   }): Promise<void>;
+  /**
+   * Idempotency for the Auditor's flags (chat-scoped, bounded): has
+   * an auditor_check with this check_key already been logged? Reads
+   * only the 20 newest auditor_check rows and matches the key in
+   * code — no exotic query syntax, and the read stays bounded.
+   * The Auditor is the single writer of auditor_check entries.
+   */
+  hasAuditorCheck(checkKey: string): Promise<boolean>;
   recordLoadOutcome(input: LoadLedgerInput): Promise<void>;
   ensureGroupRoom(telegramChatId: number, name?: string): Promise<void>;
   recordGroupMessage(input: GroupMessageInput): Promise<void>;
@@ -194,6 +202,20 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
         detail: input.detail ?? {},
       });
       if (error) fail("logAudit", error);
+    },
+
+    async hasAuditorCheck(checkKey) {
+      const { data, error } = await client
+        .from("bot_audit_log")
+        .select("detail")
+        .eq("company_id", companyId)
+        .eq("bot_slug", "auditor")
+        .eq("action", "auditor_check")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) fail("hasAuditorCheck", error);
+      const rows = (data ?? []) as { detail?: { check_key?: unknown } | null }[];
+      return rows.some((row) => row.detail?.check_key === checkKey);
     },
 
     async recordLoadOutcome(input) {

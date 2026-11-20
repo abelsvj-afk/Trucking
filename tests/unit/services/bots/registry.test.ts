@@ -53,7 +53,7 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats only Abel and Dispatch Scout in the Phase 0 group", () => {
-    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual(["abel", "dispatch-scout"].sort());
+  it("seats Abel, Dispatch Scout, and the Auditor in the Phase 0 group", () => {
+    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual(["abel", "auditor", "dispatch-scout"].sort());
   });
 });
