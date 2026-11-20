@@ -23,6 +23,7 @@ function makeMemoryStore(state: MemoryState): BotTeamStore {
     getProposal: async () => null,
     decideProposal: unused,
     logAudit: async () => {},
+    hasAuditorCheck: async () => false,
     recordLoadOutcome: async () => {},
     ensureGroupRoom: async () => {},
     recordGroupMessage: async () => {},

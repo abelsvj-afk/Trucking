@@ -48,7 +48,7 @@ export interface BotIdentity {
   slug: BotSlug;
   displayName: string;
   seat: string;
-  /** Abel live; Dispatch Scout live in the group (his own bot account); the rest are planned until wired. */
+  /** 'live' for Abel, Dispatch Scout (own bot account in the group), and the Auditor (wired); the rest are planned until wired. */
   status: "planned" | "live" | "paused";
   toolScope: Record<ToolGroup, ToolScope>;
 }
@@ -167,7 +167,7 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     slug: "auditor",
     displayName: "Auditor",
     seat: "fact-checker",
-    status: "planned",
+    status: "live",
     toolScope: {
       loads: "read",
       hos: "read",
@@ -236,8 +236,13 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
 }
 
 /** Bots wired into the Telegram group. Phase 0 seated Abel +
- * Dispatch Scout; Billing joined in Phase 2 (this build). */
-export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing"];
+ * Dispatch Scout; Billing joined in Phase 2, and the Auditor joins
+ * with its own seat — read-only, flag only, acting only on a clear
+ * route (router.ts), speaking to teammates by name in the room.
+ * Seats are internal agents; each posts under its own BotFather
+ * account once its token is configured (owner, 2026-11-19:
+ * individual faces). */
+export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing", "auditor"];
 
 /** Backwards-compatible alias: the Phase 0 name, kept until the other seats' tests rename. */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = GROUP_SEATS;

@@ -395,6 +395,7 @@ describe("Billing group turn", () => {
       ensureGroupRoom: async () => {},
       recordGroupMessage: async () => {},
       findGroupMessage: async () => null,
+      hasAuditorCheck: async () => false,
       recordSpend: async (input) => {
         state.spentCents += input.estimatedCents;
       },
@@ -622,6 +623,7 @@ describe("Idempotent proposals (one open draft per load)", () => {
       ensureGroupRoom: async () => {},
       recordGroupMessage: async () => {},
       findGroupMessage: async () => null,
+      hasAuditorCheck: async () => false,
       recordSpend: async (input) => {
         state.spentCents += input.estimatedCents;
       },
@@ -738,6 +740,7 @@ describe("Handoff in the model turn", () => {
       ensureGroupRoom: async () => {},
       recordGroupMessage: async () => {},
       findGroupMessage: async () => null,
+      hasAuditorCheck: async () => false,
       recordSpend: async (input) => {
         state.spentCents += input.estimatedCents;
       },
