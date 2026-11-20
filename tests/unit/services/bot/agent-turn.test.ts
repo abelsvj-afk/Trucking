@@ -1276,7 +1276,10 @@ describe("temporal reasoning, full (owner approved 2026-11-07): timeline, deadli
   it("remembered facts carry their age, and time-bound ones are flagged as possibly stale", async () => {
     const { client } = fakeClient(baseSeed(true));
     const { provider, runToolTurn } = scriptedProvider([{ text: "ok", toolCalls: [] }]);
-    const old = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    // Midday Eastern, 20 calendar days back (2026-11-20 fix): 20 x 24 h from
+    // "now" crosses the Nov 1 clock change and, late at night, lands on 19
+    // Eastern calendar days - the code counts calendar days, correctly.
+    const old = `${shift(-20)}T17:00:00Z`;
     const yesterday = `${shift(-1)}T17:00:00Z`; // midday Eastern, yesterday
     await runAgentTurn(provider, telegramStore(client), {
       ...input("hello"),
