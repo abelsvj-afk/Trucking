@@ -188,16 +188,16 @@ alter table bot_spend_ledger enable row level security;
 create policy "bot_identities: company read" on bot_identities
   for select using (true);
 create policy "bot_team_memories: company read" on bot_team_memories
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "bot_load_ledger: company read" on bot_load_ledger
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "bot_proposals: company read" on bot_proposals
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "bot_audit_log: company read" on bot_audit_log
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "bot_group_rooms: company read" on bot_group_rooms
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "bot_group_messages: company read" on bot_group_messages
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "bot_spend_ledger: company read" on bot_spend_ledger
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());

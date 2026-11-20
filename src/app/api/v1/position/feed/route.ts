@@ -67,8 +67,8 @@ export async function POST(request: NextRequest) {
           applyAutoMotionSwitch({ client, companyId: device.companyId, detectedAtIso, submissionId, nowMs: evidenceAtMs ?? Date.now(), origin: "position feed", timeZone }),
         autoStop: (stoppedSinceIso, submissionId, promptedAtMs, timeZone) =>
           applyAutoStopSwitch({ client, companyId: device.companyId, stoppedSinceIso, submissionId, nowMs: Date.now(), promptedAtMs, origin: "position feed", timeZone }),
-        autoRest: (stoppedSinceIso, submissionId, timeZone) =>
-          applyAutoRestSwitch({ client, companyId: device.companyId, stoppedSinceIso, submissionId, nowMs: Date.now(), origin: "position feed", timeZone }),
+        autoRest: (stoppedSinceIso, submissionId, timeZone, askedAtMs) =>
+          applyAutoRestSwitch({ client, companyId: device.companyId, stoppedSinceIso, submissionId, nowMs: Date.now(), origin: "position feed", timeZone, askedAtMs }),
       });
       if (res.kind === "recorded") accepted += 1;
     } catch (err) {

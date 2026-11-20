@@ -85,8 +85,8 @@ function makeStore(state: StubState): BotTeamStore {
     ensureGroupRoom: async () => {},
     recordGroupMessage: async () => {},
     findGroupMessage: async () => null,
-    recordSpend: async () => {},
-    spentThisMonthCents: async () => 0,
+    reserveSpend: async () => "reservation-1",
+    settleSpend: async () => {},
     saveBotMemory: async (input) => ({
       id: "memory-new",
       bot_slug: input.botSlug,

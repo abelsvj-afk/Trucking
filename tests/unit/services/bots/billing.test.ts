@@ -396,10 +396,13 @@ describe("Billing group turn", () => {
       recordGroupMessage: async () => {},
       findGroupMessage: async () => null,
       hasAuditorCheck: async () => false,
-      recordSpend: async (input) => {
+      reserveSpend: async (input) => {
+        // Mirrors reserve_bot_spend (00109): reserve only while it still fits under the cap.
+        if (state.spentCents + input.estimatedCents > input.capCents) return null;
         state.spentCents += input.estimatedCents;
+        return "reservation";
       },
-      spentThisMonthCents: async () => state.spentCents,
+      settleSpend: async () => {},
       saveBotMemory: async (input) => ({
         id: "memory-new",
         bot_slug: input.botSlug,
@@ -624,10 +627,13 @@ describe("Idempotent proposals (one open draft per load)", () => {
       recordGroupMessage: async () => {},
       findGroupMessage: async () => null,
       hasAuditorCheck: async () => false,
-      recordSpend: async (input) => {
+      reserveSpend: async (input) => {
+        // Mirrors reserve_bot_spend (00109): reserve only while it still fits under the cap.
+        if (state.spentCents + input.estimatedCents > input.capCents) return null;
         state.spentCents += input.estimatedCents;
+        return "reservation";
       },
-      spentThisMonthCents: async () => state.spentCents,
+      settleSpend: async () => {},
       saveBotMemory: async (input) => ({
         id: "memory-new",
         bot_slug: input.botSlug,
@@ -741,10 +747,13 @@ describe("Handoff in the model turn", () => {
       recordGroupMessage: async () => {},
       findGroupMessage: async () => null,
       hasAuditorCheck: async () => false,
-      recordSpend: async (input) => {
+      reserveSpend: async (input) => {
+        // Mirrors reserve_bot_spend (00109): reserve only while it still fits under the cap.
+        if (state.spentCents + input.estimatedCents > input.capCents) return null;
         state.spentCents += input.estimatedCents;
+        return "reservation";
       },
-      spentThisMonthCents: async () => state.spentCents,
+      settleSpend: async () => {},
       saveBotMemory: async (input) => ({
         id: "memory-new",
         bot_slug: input.botSlug,

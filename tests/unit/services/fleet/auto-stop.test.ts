@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { judgeAutoStop } from "@/lib/auto-motion-rules";
-import { applyAutoStopSwitch, autoStopSubmissionId } from "@/services/fleet/auto-motion";
+import { applyAutoRestSwitch, applyAutoStopSwitch, autoRestSubmissionId, autoStopSubmissionId } from "@/services/fleet/auto-motion";
 
 const T0 = 1_800_000_000_000;
 const COMPANY = "company-1";
@@ -90,6 +90,10 @@ class FakeQuery {
   }
   gte(key: string, value: string): this {
     this.filters.push((r) => typeof r[key] === "string" && (r[key] as string) >= value);
+    return this;
+  }
+  gt(key: string, value: string): this {
+    this.filters.push((r) => typeof r[key] === "string" && (r[key] as string) > value);
     return this;
   }
   order(key: string, opts: { ascending: boolean }): this {
@@ -286,5 +290,77 @@ describe("applyAutoStopSwitch", () => {
     });
     expect(off.switched).toBe(false);
     expect(off.reason).toBe("switched_off");
+  });
+});
+
+// Audit F-003 (owner 2026-11-20 "do the recommendations"): auto Off Duty ASKS FIRST.
+// Before, nothing was ever asked, yet the note said "no answer to 'going off duty?'".
+describe("applyAutoRestSwitch — asks first, switches only on silence", () => {
+  const stopMs = T0;
+  const stopIso = new Date(stopMs).toISOString();
+  const twoHours = 2 * 60 * 60_000;
+  function setup(messages: Row[] = []) {
+    return {
+      companies: [{ id: COMPANY, ai_globally_disabled: false }],
+      ai_capability_settings: [],
+      duty_logs: [
+        // the app's own automatic stop row for this park
+        { id: "auto-on", company_id: COMPANY, duty_status: "on_duty", started_at: stopIso, notes: null, source: "auto_motion", time_zone: "America/New_York", deleted_at: null },
+      ] as Row[],
+      duty_log_edits: [] as Row[],
+      telegram_messages: messages,
+    };
+  }
+  const run = (db: ReturnType<typeof setup>, nowMs: number, askedAtMs: number | null) =>
+    applyAutoRestSwitch({
+      client: fakeClient(db) as never,
+      companyId: COMPANY,
+      stoppedSinceIso: stopIso,
+      submissionId: autoRestSubmissionId(stopMs),
+      nowMs,
+      origin: "position feed",
+      timeZone: "America/New_York",
+      askedAtMs,
+    });
+
+  it("not asked yet: logs nothing and returns the question to send", async () => {
+    const db = setup();
+    const res = await run(db, stopMs + twoHours, null);
+    expect(res).toMatchObject({ switched: false, reason: "ask_first" });
+    expect(res.message).toContain("Going off duty?");
+    expect(res.message).not.toMatch(/UTC|Z\b/);
+    expect(db.duty_logs).toHaveLength(1);
+  });
+
+  it("asked, still inside the 15 minutes: waits", async () => {
+    const db = setup();
+    const res = await run(db, stopMs + twoHours + 10 * 60_000, stopMs + twoHours);
+    expect(res).toEqual({ switched: false, reason: "waiting_for_answer" });
+    expect(db.duty_logs).toHaveLength(1);
+  });
+
+  it("asked and he replied (anything): never switches over his answer", async () => {
+    const db = setup([{ company_id: COMPANY, role: "user", text: "still loading", created_at: new Date(stopMs + twoHours + 60_000).toISOString(), deleted_at: null }]);
+    const res = await run(db, stopMs + twoHours + 20 * 60_000, stopMs + twoHours);
+    expect(res).toEqual({ switched: false, reason: "answered" });
+    expect(db.duty_logs).toHaveLength(1);
+  });
+
+  it("asked, no answer in 15 minutes: Off Duty from the park, and the note says when he was asked", async () => {
+    // a message from BEFORE the question is not an answer
+    const db = setup([{ company_id: COMPANY, role: "user", text: "parking", created_at: new Date(stopMs + 60_000).toISOString(), deleted_at: null }]);
+    const res = await run(db, stopMs + twoHours + 16 * 60_000, stopMs + twoHours);
+    expect(res.switched).toBe(true);
+    const added = db.duty_logs.find((r) => r.id !== "auto-on")!;
+    expect(added.duty_status).toBe("off_duty");
+    expect(String(added.notes)).toMatch(/asked "going off duty\?" at .+ and got no answer in 15 minutes/);
+    expect(res.message).toContain("no answer to my question at");
+  });
+
+  it("an On Duty he set himself is never asked about", async () => {
+    const db = setup();
+    db.duty_logs[0]!.source = "app";
+    const res = await run(db, stopMs + twoHours, null);
+    expect(res).toEqual({ switched: false, reason: "manual_status" });
   });
 });

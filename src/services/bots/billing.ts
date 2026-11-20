@@ -78,7 +78,7 @@ import { SHARED_CALLING_NUMBER, type CallPlan } from "./calling";
 import { sharedReasoningPrompt } from "./reasoning";
 import type { BotTeamStore, ProposalRow } from "./store";
 import { botTeamServiceClient } from "./store";
-import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
+import { reserveModelSpend } from "./spend-guard";
 import { BOT_REGISTRY, type BotSlug } from "./registry";
 import type { GroupRoute } from "./router";
 
@@ -984,18 +984,11 @@ export async function handleBillingGroupTurn(
     await deps.sendMessage(chatId, "Billing: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
     return;
   }
-  if (store) {
-    try {
-      const spent = await store.spentThisMonthCents(monthStartIso());
-      if (capReached(spent, monthlyCapCents())) {
-        await deps.sendMessage(chatId, `Billing: ${SPEND_CAP_REACHED_TEXT}`);
-        return;
-      }
-    } catch (err) {
-      console.error("[billing] spend check failed — refusing the model call", err);
-      await deps.sendMessage(chatId, "Billing: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.");
-      return;
-    }
+  // Spend cap (audit F-023/F-024): fail closed, reserved atomically before the call.
+  const spend = await reserveModelSpend(store, "billing", "Billing", text.length);
+  if (!spend.ok) {
+    await deps.sendMessage(chatId, spend.message);
+    return;
   }
   try {
     const memories = store ? await store.loadBotMemories("billing") : [];
@@ -1011,18 +1004,7 @@ export async function handleBillingGroupTurn(
     ];
     const reply = await deps.runChat({ userText: text, history: [], instructions });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
-    if (store) {
-      try {
-        await store.recordSpend({
-          botSlug: "billing",
-          model: modelForTier("scan"),
-          tier: "scan",
-          estimatedCents: estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: answer.length }),
-        });
-      } catch (err) {
-        console.error("[billing] spend record failed", err);
-      }
-    }
+    await spend.settle(answer.length);
     // Answering another bot by name: address it, so the room can
     // follow who is talking to whom.
     const addressee = opts.fromBot !== undefined ? `${botDisplayName(opts.fromBot)}, ` : "";

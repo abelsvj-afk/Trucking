@@ -74,7 +74,7 @@ import { parseRoomSpeaker } from "./faces";
 import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
 import { botIdentity, GROUP_SEATS, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply, type GroupRoute } from "./router";
-import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
+import { reserveModelSpend } from "./spend-guard";
 import { type BotTeamStore, type ProposalRow } from "./store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 
@@ -200,11 +200,7 @@ export function resetGroupSetupNotices(): void {
   lastSetupNoticeAt.clear();
 }
 
-/** The database tables of the bot team (migration 00103) are missing — not a passing hiccup. */
-export function isMissingTableError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /does not exist|42P01|schema cache|Could not find the table/i.test(msg);
-}
+export { isMissingTableError } from "./spend-guard";
 
 function groupChatOf(update: TelegramUpdate): { id: number; type: string } | null {
   const chat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
@@ -603,25 +599,11 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     await deps.sendMessage(chat.id, "Abel: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
     return "handled";
   }
-  if (store) {
-    try {
-      const spent = await store.spentThisMonthCents(monthStartIso());
-      if (capReached(spent, monthlyCapCents())) {
-        await deps.sendMessage(chat.id, `Abel: ${SPEND_CAP_REACHED_TEXT}`);
-        return "handled";
-      }
-    } catch (err) {
-      console.error("[bot-team] spend check failed — refusing the model call", err);
-      // The cap is a guardrail: no check, no model call. But say WHY - a
-      // missing table is setup, not "try again in a moment".
-      await deps.sendMessage(
-        chat.id,
-        isMissingTableError(err)
-          ? "Abel: the bot team's database isn't set up on the server yet (migration 00103 — King applies it), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere."
-          : "Abel: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.",
-      );
-      return "handled";
-    }
+  // Spend cap (audit F-023/F-024): fail closed, reserved atomically before the call.
+  const spend = await reserveModelSpend(store, "abel", "Abel", text.length);
+  if (!spend.ok) {
+    await deps.sendMessage(chat.id, spend.message);
+    return "handled";
   }
   try {
     const memories = store ? await store.loadBotMemories("abel") : [];
@@ -647,18 +629,7 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       systemContext: [systemPrompt, memoryContext].filter((part) => part && part.trim() !== "").join("\n\n"),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
-    if (store) {
-      try {
-        await store.recordSpend({
-          botSlug: "abel",
-          model: modelForTier("scan"),
-          tier: "scan",
-          estimatedCents: estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: answer.length }),
-        });
-      } catch (err) {
-        console.error("[bot-team] spend record failed", err);
-      }
-    }
+    await spend.settle(answer.length);
     await sendMessage(chat.id, `Abel: ${answer}`);
     // Abel→Billing fan-out — the owner's model: when Abel needs
     // Billing, Abel posts in the room addressed to Billing, and

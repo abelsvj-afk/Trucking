@@ -16,10 +16,10 @@ import {
   getCallingConfig,
   isOutboundCallingConfigured,
   missingCallingSetup,
-  OUTBOUND_CALLING_CAPABILITY,
   type CallingConfig,
 } from "@/services/calling/config";
 import { dialOutboundCallRow } from "@/services/calling/dialer";
+import { canPlaceOutboundCall } from "@/services/calling/kill-switch";
 import { resolveKnownNumber } from "@/services/calling/known-numbers";
 import {
   claimNextOutboundCall,
@@ -38,38 +38,6 @@ const MAX_SAY_CHARS = 2000;
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-/** The kill switch, read live: global off, or no `outbound_calling` row, means off. */
-async function isCallingAllowed(
-  store: BotBrainStore,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { client, companyId } = store;
-  try {
-    const [companyRes, capRes] = await Promise.all([
-      client.from("companies").select("ai_globally_disabled").eq("id", companyId).single(),
-      client
-        .from("ai_capability_settings")
-        .select("enabled")
-        .eq("company_id", companyId)
-        .eq("capability", OUTBOUND_CALLING_CAPABILITY)
-        .maybeSingle(),
-    ]);
-    if (companyRes.error) return { ok: false, error: "I couldn't check whether calling is switched on." };
-    if ((companyRes.data as { ai_globally_disabled?: boolean } | null)?.ai_globally_disabled) {
-      return { ok: false, error: "All AI capabilities are switched off, so I can't call." };
-    }
-    if (capRes.error) return { ok: false, error: "I couldn't check whether calling is switched on." };
-    if ((capRes.data as { enabled?: boolean } | null)?.enabled !== true) {
-      return {
-        ok: false,
-        error: "Outbound calling is switched off. Switch it on in Settings → Abel and AI first.",
-      };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "I couldn't check whether calling is switched on." };
-  }
 }
 
 export function buildOutboundCallTools(store: BotBrainStore, deps: OutboundCallToolDeps = {}): AgentTool[] {
@@ -104,7 +72,7 @@ export function buildOutboundCallTools(store: BotBrainStore, deps: OutboundCallT
       return { ok: true, args: { ...args, to_phone: phone, purpose, say } };
     },
     async verifyProposal(args) {
-      const allowed = await isCallingAllowed(store);
+      const allowed = await canPlaceOutboundCall(client, companyId);
       if (!allowed.ok) return allowed;
       if (!isOutboundCallingConfigured(config)) {
         return { ok: false, error: `Outbound calling isn't set up yet — ${missingCallingSetup(config) ?? "the Telnyx number isn't connected"}.` };
@@ -132,7 +100,7 @@ export function buildOutboundCallTools(store: BotBrainStore, deps: OutboundCallT
       return `Call ${formatPhoneForDisplay(normalizeUsPhone(asString(args.to_phone)) ?? asString(args.to_phone))} — ${asString(args.purpose).trim()}`;
     },
     async run(args) {
-      const allowed = await isCallingAllowed(store);
+      const allowed = await canPlaceOutboundCall(client, companyId);
       if (!allowed.ok) return allowed.error;
       if (!isOutboundCallingConfigured(config)) {
         return `Outbound calling isn't set up yet — ${missingCallingSetup(config) ?? "the Telnyx number isn't connected"}. Nothing was dialed.`;

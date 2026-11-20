@@ -138,8 +138,22 @@ export interface BotTeamStore {
     telegramChatId: number,
     telegramMessageId: number,
   ): Promise<{ senderKind: string; senderRef: string; text: string } | null>;
-  recordSpend(input: { botSlug: BotSlug; model: string; tier: "scan" | "rank"; estimatedCents: number }): Promise<void>;
-  spentThisMonthCents(sinceIso: string): Promise<number>;
+  /**
+   * Audit F-024: reserve `estimatedCents` against the monthly cap in ONE
+   * atomic step (reserve_bot_spend, migration 00109). Returns the
+   * reservation id, or null when it would pass the cap. Call the model
+   * only after a reservation; then settleSpend with the real estimate.
+   * Callers go through services/bots/spend-guard.ts reserveModelSpend.
+   */
+  reserveSpend(input: {
+    botSlug: BotSlug;
+    model: string;
+    tier: "scan" | "rank";
+    estimatedCents: number;
+    capCents: number;
+    sinceIso: string;
+  }): Promise<string | null>;
+  settleSpend(reservationId: string, estimatedCents: number): Promise<void>;
   loadBotMemories(botSlug: BotSlug): Promise<BotMemoryRow[]>;
   /**
    * Write one row of a bot's own memory (bot_team_memories). This is
@@ -309,25 +323,27 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
       return data as { senderKind: string; senderRef: string; text: string };
     },
 
-    async recordSpend(input) {
-      const { error } = await client.from("bot_spend_ledger").insert({
-        company_id: companyId,
-        bot_slug: input.botSlug,
-        model: input.model,
-        tier: input.tier,
-        estimated_cents: input.estimatedCents,
+    async reserveSpend(input) {
+      const { data, error } = await client.rpc("reserve_bot_spend", {
+        p_company_id: companyId,
+        p_bot_slug: input.botSlug,
+        p_model: input.model,
+        p_tier: input.tier,
+        p_cents: input.estimatedCents,
+        p_cap_cents: input.capCents,
+        p_since: input.sinceIso,
       });
-      if (error) fail("recordSpend", error);
+      if (error) fail("reserveSpend", error);
+      return typeof data === "string" && data ? data : null;
     },
 
-    async spentThisMonthCents(sinceIso) {
-      const { data, error } = await client
-        .from("bot_spend_ledger")
-        .select("estimated_cents")
-        .eq("company_id", companyId)
-        .gte("created_at", sinceIso);
-      if (error) fail("spentThisMonthCents", error);
-      return (data ?? []).reduce((sum: number, row: { estimated_cents: number }) => sum + row.estimated_cents, 0);
+    async settleSpend(reservationId, estimatedCents) {
+      const { error } = await client.rpc("settle_bot_spend", {
+        p_company_id: companyId,
+        p_id: reservationId,
+        p_cents: estimatedCents,
+      });
+      if (error) fail("settleSpend", error);
     },
 
     async loadBotMemories(botSlug) {

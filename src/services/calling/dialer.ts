@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildCallGreeting, resolveCallVoice } from "@/lib/outbound-calling";
 import type { CallingConfig } from "./config";
+import { canPlaceOutboundCall } from "./kill-switch";
 import { updateOutboundCall, type OutboundCallRow } from "./queue";
 import { dialOutboundCall, startAssistant, type FetchImpl } from "./telnyx";
 
@@ -19,6 +20,8 @@ export interface DialerDeps {
  * (Settings -> Abel and AI; null keeps the assistant's stored voice).
  * Marks the row in_progress on success, failed on any refusal - and
  * says which step refused, so the failure is never a mystery.
+ * The kill switch is read HERE, right before Telnyx (audit F-005): a call
+ * queued while calling was on never dials after it is switched off.
  */
 export async function dialOutboundCallRow(
   client: SupabaseClient,
@@ -27,6 +30,11 @@ export async function dialOutboundCallRow(
 ): Promise<{ ok: true; callControlId: string } | { ok: false; error: string }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const config = deps.config;
+  const allowed = await canPlaceOutboundCall(client, row.company_id);
+  if (!allowed.ok) {
+    await updateOutboundCall(client, row.id, row.company_id, { status: "failed", outcome: `Not dialed: ${allowed.error}` });
+    return { ok: false, error: allowed.error };
+  }
   if (!config.phoneNumber || !config.assistantId) {
     const error = "Outbound calling isn't set up yet — the shared number or assistant is missing.";
     await updateOutboundCall(client, row.id, row.company_id, { status: "failed", outcome: error });

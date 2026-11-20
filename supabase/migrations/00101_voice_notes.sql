@@ -69,27 +69,27 @@ alter table voice_note_reports enable row level security;
 -- only the author may update (remove) his own note. No delete policy: removal
 -- is a timestamp, so reports and views keep their history.
 create policy "voice_notes: company read" on voice_notes
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "voice_notes: author insert" on voice_notes
-  for insert with check (company_id = current_company_id() and author_id = auth.uid());
+  for insert with check (company_id = private.current_company_id() and author_id = auth.uid());
 create policy "voice_notes: author update" on voice_notes
-  for update using (company_id = current_company_id() and author_id = auth.uid())
-  with check (company_id = current_company_id() and author_id = auth.uid());
+  for update using (company_id = private.current_company_id() and author_id = auth.uid())
+  with check (company_id = private.current_company_id() and author_id = auth.uid());
 
 -- Views: a driver reads and writes only his own rows.
 create policy "voice_note_views: own read" on voice_note_views
-  for select using (company_id = current_company_id() and user_id = auth.uid());
+  for select using (company_id = private.current_company_id() and user_id = auth.uid());
 create policy "voice_note_views: own insert" on voice_note_views
-  for insert with check (company_id = current_company_id() and user_id = auth.uid());
+  for insert with check (company_id = private.current_company_id() and user_id = auth.uid());
 create policy "voice_note_views: own update" on voice_note_views
-  for update using (company_id = current_company_id() and user_id = auth.uid())
-  with check (company_id = current_company_id() and user_id = auth.uid());
+  for update using (company_id = private.current_company_id() and user_id = auth.uid())
+  with check (company_id = private.current_company_id() and user_id = auth.uid());
 
 -- Reports: the company reads them (the count clears a note); a driver files only his own.
 create policy "voice_note_reports: company read" on voice_note_reports
-  for select using (company_id = current_company_id());
+  for select using (company_id = private.current_company_id());
 create policy "voice_note_reports: own insert" on voice_note_reports
-  for insert with check (company_id = current_company_id() and user_id = auth.uid());
+  for insert with check (company_id = private.current_company_id() and user_id = auth.uid());
 
 -- How many people are in the caller's company — the ONLY thing it returns (no
 -- names, no ids), so the "gone" threshold can grow with the fleet while
@@ -101,7 +101,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select count(*)::integer from user_profiles where company_id = current_company_id()
+  select count(*)::integer from user_profiles where company_id = private.current_company_id()
 $$;
 
 revoke all on function company_member_count() from public;

@@ -49,9 +49,12 @@ counted from a log that was out of date.
 
 Owner: Smart Path said LATE for a delivery due the next day, because the app's log had kept him On Duty through
 rests he never answered about. "It does need to be based off of the actual clock hours in the app." Decisions:
-- **Auto Off Duty after 2 hours parked.** If the truck has not moved for 2 hours and the app's own automatic row is
-  the current one (the automatic stop's On Duty, or still Driving), the app logs Off Duty from when he parked and
-  tells him how to undo it. An On Duty he set himself is never followed. Same switch, same idempotency key family
+- **Auto Off Duty after 2 hours parked — asks first** (audit F-003, owner 2026-11-20 "do the recommendations").
+  If the truck has not moved for 2 hours and the app's own automatic row is the current one (the automatic stop's
+  On Duty, or still Driving), the app first ASKS "Going off duty?" (the ask is saved on the position row as
+  `last_prompt_kind = 'rest_ask'`, migration 00110). Only if that goes unanswered for 15 minutes — no message from
+  him since the question and his log unchanged — does it log Off Duty from when he parked; the note says when he
+  was asked, and the message tells him how to undo it. Any reply counts as an answer; Abel takes it from there. An On Duty he set himself is never followed. Same switch, same idempotency key family
   (`…-4002-…`) and audit trail as the stop side. The check runs at the 2-hour mark, then at most every 10 minutes
   per park. Rule: `judgeAutoRest` in `lib/auto-motion-rules.ts`; switch: `applyAutoRestSwitch` in
   `services/fleet/auto-motion.ts`. A real ELD does not do this; this app is his planning log.
