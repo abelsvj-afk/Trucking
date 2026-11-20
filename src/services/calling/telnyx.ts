@@ -123,6 +123,11 @@ export async function startAssistant(
   );
 }
 
+/** Hang up a live leg: POST /v2/calls/:call_control_id/actions/hangup. */
+export async function hangupCall(config: CallingConfig, fetchImpl: FetchImpl, callControlId: string): Promise<void> {
+  await telnyxRequest(config, fetchImpl, `/calls/${encodeURIComponent(callControlId)}/actions/hangup`, "POST", {});
+}
+
 export interface TelnyxVoiceOption {
   id: string;
   label: string;

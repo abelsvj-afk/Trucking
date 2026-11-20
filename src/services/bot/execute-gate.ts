@@ -24,11 +24,37 @@ export const NAMED_ACTION_PATTERNS: Record<string, RegExp> = {
   prepare_inspection_packet: /\b(inspection|officer|dot|roadside)\b|\b(send|email|give|show|prepare|build|make|get|pull)\b.{0,30}\b(logs?|packet)\b/i,
 };
 
+// Audit F-009/F-015 (2026-11-20): the patterns alone matched questions ("how many miles?"),
+// negations ("don't mark it delivered") and quoted text. These only ever TIGHTEN: a message
+// that isn't his own order turns the execute into a proposal - never the other way round.
+// The gate stays a second layer; the agent loop's own approval rules still apply.
+
+const QUOTED = /"[^"]*"|“[^”]*”|«[^»]*»|^\s*>.*$/gm;
+/** Asking, not ordering: a trailing "?" or a leading question word ("did", "was", "how many"...). */
+const QUESTION = /\?\s*$|^\s*(did|do|does|was|were|is|are|has|have|had|how|what|when|where|which|who|why|should i|am i)\b/i;
+/** A request phrased as a question is still an order. */
+const POLITE_ORDER = /^\s*(please\s+)?(can|could|would|will) you\b/i;
+const NEGATION = /\b(don'?t|do not|didn'?t|did not|never|not|no|isn'?t|wasn'?t|haven'?t|hasn'?t|won'?t)\b(\s+\w+){0,3}\s*$/i;
+
+/** True when his own words (not a quote) name the action as an order: not only asked about, not negated. */
+export function namesAction(pattern: RegExp, userText: string): boolean {
+  const own = userText.replace(QUOTED, " ");
+  const sentences = own.split(/(?<=[.!?\n])\s+/).map((x) => x.trim()).filter(Boolean);
+  return sentences.some((sentence) => {
+    if (QUESTION.test(sentence) && !POLITE_ORDER.test(sentence)) return false;
+    const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+    for (const m of sentence.matchAll(new RegExp(pattern.source, flags))) {
+      if (!NEGATION.test(sentence.slice(0, m.index ?? 0))) return true;
+    }
+    return false;
+  });
+}
+
 /** The turn's tools, with an execute turned into a proposal for any gated tool his message does not name. */
 export function gateExecutes(tools: AgentTool[], userText: string): AgentTool[] {
   return tools.map((tool) => {
     const pattern = NAMED_ACTION_PATTERNS[tool.name];
-    if (!pattern || tool.alwaysPropose || pattern.test(userText)) return tool;
+    if (!pattern || tool.alwaysPropose || namesAction(pattern, userText)) return tool;
     return { ...tool, alwaysPropose: true };
   });
 }

@@ -1701,3 +1701,8 @@ The deadline checklist the Compliance Watchdog keeps current: one row per deadli
 - `updated_at` timestamptz not null default now()
 - unique (company_id, kind, coalesce(subject_ref, '')) — one writer per kind + subject
 
+
+
+### Migration 00111 — tenant foreign keys, audit batch 2 (2026-11-20)
+
+Eight single-column references between tenant tables became composite `(company_id, fk) -> parent (company_id, key)`, the 00070 convention: `paycheck_confirmations.statement_document_id`, `agent_episodes.supersedes_id` / `superseded_by`, `monthly_income_goals.driver_id`, `outbound_calls.driver_id`, `voice_note_views.note_id`, `voice_note_reports.note_id` (both keep `on delete cascade`), and `bot_group_messages -> bot_group_rooms` on `(company_id, telegram_chat_id)` (`bot_group_messages_room_tenant_fk`). New parent keys: `agent_episodes (company_id, id)`, `voice_notes (company_id, id)`, `bot_group_rooms (company_id, telegram_chat_id)`. **F-008:** `business_credit_events_email_fk` is now `on delete set null (email_message_id)` — the old composite `set null` also nulled `company_id` (NOT NULL), so deleting a linked email failed. Pre-flight aborts on any existing cross-company row. Proven by `tests/db/tenant-fk.sql` (78 composite FKs, 10/10 cross-company references refused, the email delete keeps the tenant key).

@@ -40,6 +40,8 @@ export const JITTER_FLOOR_MILES = 0.01;
  */
 export const GOOD_FIX_JITTER_FLOOR_MILES = 0.004;
 export const GOOD_ACCURACY_M = 20;
+/** A pair with an unknown accuracy must move farther than two worst-case errors (2 × MAX_ACCURACY_M) to count. */
+export const UNKNOWN_ACCURACY_MOVE_MILES = (2 * MAX_ACCURACY_M) / 1609.344;
 
 export interface PositionFix extends LatLng {
   atMs: number;
@@ -53,8 +55,13 @@ export function deriveSpeedMph(prev: PositionFix | null, cur: PositionFix): numb
   if (dt < MIN_SPEED_INTERVAL_MS || dt > MAX_SPEED_INTERVAL_MS) return null;
   if ((cur.accuracyM ?? 0) > MAX_ACCURACY_M || (prev.accuracyM ?? 0) > MAX_ACCURACY_M) return null;
   const miles = haversineMiles(prev, cur);
-  const good =
-    cur.accuracyM !== null && prev.accuracyM !== null && cur.accuracyM <= GOOD_ACCURACY_M && prev.accuracyM <= GOOD_ACCURACY_M;
+  if (cur.accuracyM === null || prev.accuracyM === null) {
+    // Unknown accuracy is UNKNOWN, not perfect (audit F-012/F-021). Telegram omits it on
+    // some updates, so such a pair is judged at the WORST accuracy we accept: it can never
+    // prove a stop, and it counts as movement only past what two 100 m errors could fake.
+    return miles > UNKNOWN_ACCURACY_MOVE_MILES ? miles / (dt / 3_600_000) : null;
+  }
+  const good = cur.accuracyM <= GOOD_ACCURACY_M && prev.accuracyM <= GOOD_ACCURACY_M;
   if (miles < (good ? GOOD_FIX_JITTER_FLOOR_MILES : JITTER_FLOOR_MILES)) return 0;
   return miles / (dt / 3_600_000);
 }

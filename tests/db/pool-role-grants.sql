@@ -14,6 +14,9 @@ declare
     'research_briefings:INSERT,SELECT,UPDATE',
     'research_corridor:INSERT,SELECT,UPDATE',
     'research_health_alerts:INSERT,SELECT,UPDATE',
+    -- 00084 (Abel's autonomous research): the job writes what it learns; research tables only, no DELETE
+    'research_knowledge:INSERT,SELECT,UPDATE',
+    'research_learning_topics:INSERT,SELECT,UPDATE',
     'research_requests:INSERT,SELECT,UPDATE',
     'research_runner_heartbeat:INSERT,SELECT,UPDATE',
     'research_runs:INSERT,SELECT,UPDATE',

@@ -84,3 +84,18 @@ A 3-minute call on the Telnyx voice: about $0.17 plus LLM pennies. Same call on 
 - Keeping/porting the number after trial, A2P 10DLC registration, STIR/SHAKEN — upgrade-time decisions, on his word.
 - Conversation Relay with the app's own agent loop — documented follow-up, needs a WebSocket server (deploy-model change).
 - Any change to pay, hours, loads, or Telegram messaging behavior.
+
+## Call state machine (audit F-006 / F-017, 2026-11-20)
+
+Telnyx retries webhooks and sends `call.hangup` **and** `call.conversation.ended` for the same call, in either order; the insights event (transcript + summary) usually comes last. One pure function decides every change: `nextCallState` in `src/lib/call-state.ts`.
+
+| Event | From queued / dialing / in_progress | From a final state (completed, failed, no_answer, voicemail) |
+|---|---|---|
+| `call.answered` | → in_progress (first `started_at` kept) | nothing |
+| `call.conversation.ended` | → completed, `ended_at` | nothing |
+| `call.hangup` | → completed (normal clearing) or failed (`Call ended: <cause>`), `ended_at`, duration | nothing |
+| `call.conversation_insights.generated` | fills transcript / summary | fills transcript / summary (never blanks them) |
+
+- **Final is final.** A late or repeated event never reopens or re-ends a call.
+- **One finisher.** The move into a final state is written with a status filter (`finishOutboundCall`: update only while not final), so of two deliveries racing to finish the same call exactly one wins — and only that one dials the next queued call.
+- **Failed assistant start.** The outbound leg is already ringing when the AI assistant is attached; if attaching fails, the dialer hangs that leg up (`hangupCall`) and records it, so nobody answers to silence and the shared number is freed. A failed hangup is written on the row, not hidden.
