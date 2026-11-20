@@ -8,7 +8,7 @@ import {
   canDraft,
   canFlag,
   canRead,
-  GROUP_SEATS_PHASE_0,
+  GROUP_SEATS,
   isBotSlug,
   toolScopeFor,
   visibleToolGroups,
@@ -53,7 +53,26 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats only Abel and Dispatch Scout in the Phase 0 group", () => {
-    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual(["abel", "dispatch-scout"].sort());
+  it("seats Abel, Dispatch Scout, and Billing in the group", () => {
+    expect([...GROUP_SEATS].sort()).toEqual(["abel", "billing", "dispatch-scout"].sort());
+  });
+
+  it("gives Billing its governing scopes — money/documents draft, email gated, no HOS, no maps", () => {
+    expect(toolScopeFor("billing", "loads")).toBe("read");
+    expect(toolScopeFor("billing", "hos")).toBe("none");
+    expect(toolScopeFor("billing", "money")).toBe("draft");
+    expect(toolScopeFor("billing", "documents")).toBe("draft");
+    expect(toolScopeFor("billing", "email")).toBe("read-write");
+    expect(toolScopeFor("billing", "maps")).toBe("none");
+    expect(toolScopeFor("billing", "app-actions")).toBe("draft");
+    expect(toolScopeFor("billing", "calls")).toBe("gated");
+    expect(toolScopeFor("billing", "signature")).toBe("never");
+    expect(canRead("billing", "money")).toBe(true);
+    expect(canDraft("billing", "money")).toBe(true);
+    expect(canRead("billing", "hos")).toBe(false);
+    expect(canRead("billing", "maps")).toBe(false);
+    expect(visibleToolGroups("billing")).not.toContain("hos");
+    expect(visibleToolGroups("billing")).not.toContain("maps");
+    expect(visibleToolGroups("billing")).not.toContain("signature");
   });
 });
