@@ -1,7 +1,7 @@
 // Bot-team group mode: fail-closed allowlist, owner-only room, routing,
 // proposal yes/no in plain words, spend cap in front of the model.
 import { describe, expect, it, vi } from "vitest";
-import { handleBotTeamGroupUpdate, type GroupHandlerDeps } from "@/services/bots/group";
+import { isMissingTableError, resetGroupSetupNotices, handleBotTeamGroupUpdate, type GroupHandlerDeps } from "@/services/bots/group";
 import type { BotTeamStore, ProposalRow } from "@/services/bots/store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
@@ -115,18 +115,52 @@ function makeDeps(state: StubState, overrides: Partial<GroupHandlerDeps> = {}): 
 }
 
 describe("bot-team group mode", () => {
-  it("ignores groups when no group chat id is configured", async () => {
+  // Owner 2026-11-19: "DispatchBot isn't working in the group" - the group
+  // was silent with no reason given. It still never answers IN an
+  // unconfigured group, but the owner is now told privately why, with the id.
+  it("no group configured: silent in the group, but tells the owner privately what to set (once per half hour)", async () => {
+    resetGroupSetupNotices();
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
-    const { deps, sent } = makeDeps(state, { groupChatId: null });
-    expect(await handleBotTeamGroupUpdate(makeUpdate("hello"), deps)).toBe("ignored");
+    const owner: string[] = [];
+    const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hello"), deps)).toBe("unconfigured");
     expect(sent).toEqual([]);
+    expect(owner).toHaveLength(1);
+    expect(owner[0]).toContain(`TELEGRAM_GROUP_CHAT_ID to ${GROUP_ID}`);
+    await handleBotTeamGroupUpdate(makeUpdate("hello again"), deps);
+    expect(owner).toHaveLength(1); // throttled
   });
 
-  it("ignores a group that is not the allowlisted room", async () => {
+  it("a different group than the configured one: silent there, owner told both ids", async () => {
+    resetGroupSetupNotices();
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
-    const { deps, sent } = makeDeps(state, { groupChatId: "-999" });
-    expect(await handleBotTeamGroupUpdate(makeUpdate("hello"), deps)).toBe("ignored");
+    const owner: string[] = [];
+    const { deps, sent } = makeDeps(state, { groupChatId: "-999", notifyOwner: async (t) => void owner.push(t) });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hello"), deps)).toBe("unconfigured");
     expect(sent).toEqual([]);
+    expect(owner[0]).toContain("-999");
+    expect(owner[0]).toContain(String(GROUP_ID));
+  });
+
+  it("a stranger in an unconfigured group never triggers anything", async () => {
+    resetGroupSetupNotices();
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const owner: string[] = [];
+    const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hello", 12345), deps)).toBe("ignored");
+    expect(sent).toEqual([]);
+    expect(owner).toEqual([]);
+  });
+
+  it("the group was upgraded to a supergroup: the owner gets the NEW id", async () => {
+    resetGroupSetupNotices();
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const owner: string[] = [];
+    const { deps } = makeDeps(state, { notifyOwner: async (t) => void owner.push(t) });
+    const update = makeUpdate("");
+    (update.message as Record<string, unknown>).migrate_to_chat_id = -1009999999999;
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("unconfigured");
+    expect(owner[0]).toContain("-1009999999999");
   });
 
   it("ignores anyone who is not the owner — the room has no third parties", async () => {
@@ -341,5 +375,45 @@ describe("bot-team group mode", () => {
     expect(state.ledger).toHaveLength(1);
     expect(state.ledger?.[0]?.outcome).toBe("skipped");
     expect(state.ledger?.[0]?.notes).toContain("passed on the shortlist");
+  });
+});
+
+describe("bot-team tables missing (migration 00103 not applied)", () => {
+  it("is recognised as setup, not a passing hiccup", () => {
+    expect(isMissingTableError(new Error('[bot-team] spend failed: relation "bot_spend_ledger" does not exist'))).toBe(true);
+    expect(isMissingTableError(new Error("Could not find the table 'public.bot_spend_ledger' in the schema cache"))).toBe(true);
+    expect(isMissingTableError(new Error("timeout"))).toBe(false);
+  });
+});
+
+describe("Abel in the group when the bot-team tables are missing", () => {
+  it("names the real cause (migration 00103) instead of 'try again', and still never calls the model", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const store = makeStub(state);
+    store.spentThisMonthCents = async () => {
+      throw new Error('[bot-team] spend failed: relation "bot_spend_ledger" does not exist');
+    };
+    let modelCalled = false;
+    const { deps, sent } = makeDeps(state, { store, runChat: async () => ((modelCalled = true), "x") });
+    await handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps);
+    expect(modelCalled).toBe(false);
+    expect(sent.join(" ")).toContain("migration 00103");
+  });
+});
+
+describe("adding the bot to a group (2026-11-19)", () => {
+  it("the 'bot was added' service message (delivered even in privacy mode) gets the owner the id AND the privacy-mode fix", async () => {
+    resetGroupSetupNotices();
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const owner: string[] = [];
+    const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
+    const update = makeUpdate("");
+    const msg = update.message as Record<string, unknown>;
+    delete msg.text;
+    msg.new_chat_members = [{ id: 7777, is_bot: true, first_name: "Abel" }];
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("unconfigured");
+    expect(sent).toEqual([]);
+    expect(owner[0]).toContain(String(GROUP_ID));
+    expect(owner[0]).toContain("/setprivacy");
   });
 });

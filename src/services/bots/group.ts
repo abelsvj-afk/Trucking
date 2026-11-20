@@ -62,6 +62,14 @@ export interface GroupHandlerDeps {
   store: BotTeamStore | null;
   sendMessage: (chatId: number, text: string) => Promise<number[]>;
   /**
+   * A private message to the owner (his 1:1 chat). Used to SAY why the
+   * group is silent instead of staying silent (owner 2026-11-19:
+   * "DispatchBot isn't working in the group" — every group message was
+   * being dropped without a word). Optional: tests and callers without
+   * it simply don't report.
+   */
+  notifyOwner?: (text: string) => Promise<void>;
+  /**
    * Abel's chat turn. Built lazily by the caller (the OpenAI provider
    * throws without a key); undefined = the group says AI is not
    * configured instead of failing.
@@ -99,7 +107,34 @@ export interface GroupHandlerDeps {
   }, deps: { runtime: BrowserRuntime; store: BotTeamStore | null }) => Promise<ScoutScanResult>;
 }
 
-export type GroupHandleResult = "handled" | "ignored" | "disabled";
+export type GroupHandleResult = "handled" | "ignored" | "disabled" | "unconfigured";
+
+/** One setup notice per group per half hour — enough to see it, never a flood. */
+const SETUP_NOTICE_EVERY_MS = 30 * 60_000;
+const lastSetupNoticeAt = new Map<string, number>();
+
+async function setupNotice(deps: GroupHandlerDeps, key: string, text: string, nowMs: number): Promise<void> {
+  if (!deps.notifyOwner) return;
+  const last = lastSetupNoticeAt.get(key);
+  if (last !== undefined && nowMs - last < SETUP_NOTICE_EVERY_MS) return;
+  lastSetupNoticeAt.set(key, nowMs);
+  try {
+    await deps.notifyOwner(text);
+  } catch (err) {
+    console.error("[bot-team] setup notice failed", err);
+  }
+}
+
+/** Test seam: forget the notice throttle. */
+export function resetGroupSetupNotices(): void {
+  lastSetupNoticeAt.clear();
+}
+
+/** The database tables of the bot team (migration 00103) are missing — not a passing hiccup. */
+export function isMissingTableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /does not exist|42P01|schema cache|Could not find the table/i.test(msg);
+}
 
 function groupChatOf(update: TelegramUpdate): { id: number; type: string } | null {
   const chat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
@@ -128,11 +163,45 @@ function parseGroupDecision(text: string): { index: number; decision: "approved"
 export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: GroupHandlerDeps): Promise<GroupHandleResult> {
   const chat = groupChatOf(update);
   if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return "ignored";
-  if (!deps.groupChatId) return "ignored";
-  if (String(chat.id) !== deps.groupChatId) return "ignored";
   if (!deps.allowedChatId) return "disabled";
-
   const sender = senderOf(update);
+  const fromOwner = sender.id !== null && !sender.isBot && String(sender.id) === deps.allowedChatId;
+  const nowMs = Date.now();
+
+  // Telegram upgraded the group to a supergroup: it now has a NEW id, and
+  // the configured one stops matching. Say so with the new id.
+  const migrateTo = (update.message as { migrate_to_chat_id?: unknown } | undefined)?.migrate_to_chat_id;
+  if (typeof migrateTo === "number") {
+    await setupNotice(
+      deps,
+      `migrate:${chat.id}`,
+      `Heads up: Telegram upgraded the bot group to a supergroup, which gives it a NEW chat id: ${migrateTo}. ` +
+        `Until TELEGRAM_GROUP_CHAT_ID is set to ${migrateTo} on the server (a Fly secret — King can set it), the bots can't answer in the group.`,
+      nowMs,
+    );
+    return "unconfigured";
+  }
+
+  // Not configured for this group: only the OWNER talking in it gets told
+  // why (privately) - a stranger's group never triggers anything.
+  if (!deps.groupChatId || String(chat.id) !== deps.groupChatId) {
+    if (fromOwner) {
+      await setupNotice(
+        deps,
+        `unconfigured:${chat.id}`,
+        (deps.groupChatId
+          ? `I saw your message in a group (chat id ${chat.id}), but the server is set up for a different group (${deps.groupChatId}), so I stayed quiet there.`
+          : `I saw your message in a group (chat id ${chat.id}), but the server isn't set up for a bot group yet, so I stayed quiet there.`) +
+          ` To turn the group on, set the Fly secret TELEGRAM_GROUP_CHAT_ID to ${chat.id} (King can do it), then send a message in the group again.` +
+          ` Also turn OFF the bot's privacy mode, or it only hears messages that @mention it: in Telegram open @BotFather, choose /setprivacy,` +
+          ` pick this bot, choose Disable — then remove the bot from the group and add it back.`,
+        nowMs,
+      );
+      return "unconfigured";
+    }
+    return "ignored";
+  }
+
   // Bots do not answer each other unprompted.
   if (sender.isBot) return "ignored";
   // The room has no third parties.
@@ -251,7 +320,14 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       }
     } catch (err) {
       console.error("[bot-team] spend check failed — refusing the model call", err);
-      await deps.sendMessage(chat.id, "Abel: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.");
+      // The cap is a guardrail: no check, no model call. But say WHY - a
+      // missing table is setup, not "try again in a moment".
+      await deps.sendMessage(
+        chat.id,
+        isMissingTableError(err)
+          ? "Abel: the bot team's database isn't set up on the server yet (migration 00103 — King applies it), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere."
+          : "Abel: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.",
+      );
       return "handled";
     }
   }
