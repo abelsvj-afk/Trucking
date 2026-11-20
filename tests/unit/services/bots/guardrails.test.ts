@@ -26,6 +26,15 @@ describe("bot guardrails", () => {
     if (!verdict.allowed) expect(verdict.reason).toMatch(/no execution path/i);
   });
 
+  it("lets Tracker log check calls, update load status, file documents, and start detention", () => {
+    expect(checkBotAction({ botSlug: "tracker", actionKind: "log_check_call", group: "loads" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "tracker", actionKind: "update_load_status", group: "loads" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "tracker", actionKind: "record_document", group: "documents" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "tracker", actionKind: "start_detention", group: "loads" }).allowed).toBe(true);
+    expect(checkBotAction({ botSlug: "tracker", actionKind: "read", group: "money" }).allowed).toBe(false);
+    expect(checkBotAction({ botSlug: "tracker", actionKind: "draft_load", group: "money" }).allowed).toBe(false);
+  });
+
   it("lets the Auditor flag but never draft or read-write", () => {
     expect(checkBotAction({ botSlug: "auditor", actionKind: "flag", group: "loads" }).allowed).toBe(true);
     expect(checkBotAction({ botSlug: "auditor", actionKind: "draft_load", group: "app-actions" }).allowed).toBe(false);

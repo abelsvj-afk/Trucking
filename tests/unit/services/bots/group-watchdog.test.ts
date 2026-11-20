@@ -11,7 +11,7 @@ import type { BotTeamStore, ComplianceDeadlineRow, ProposalRow } from "@/service
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
 
-const OWNER_ID = 100000001;
+const OWNER_ID = 8975172276;
 const GROUP_ID = -1001234567890;
 
 function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false): TelegramUpdate {
@@ -101,6 +101,18 @@ function makeStub(state: StubState): BotTeamStore {
     },
     settleSpend: async () => {},
     loadBotMemories: async () => [],
+    recordCheckCall: async () => { throw new Error("not used in this test"); },
+    listCheckCalls: async () => [],
+    startDetentionClock: async () => { throw new Error("not used in this test"); },
+    getOpenDetentionClock: async () => null,
+    endDetentionClock: async () => { throw new Error("not used in this test"); },
+    getDocPacket: async () => null,
+    setDocPacket: async () => { throw new Error("not used in this test"); },
+    getGroupMessageSender: async () => null,
+    recordHandoff: async () => { throw new Error("not used in this test"); },
+    listOpenHandoffs: async () => [],
+    claimHandoff: async () => { throw new Error("not used in this test"); },
+    completeHandoff: async () => { throw new Error("not used in this test"); },
     hasAuditorCheck: async () => false,
     findGroupMessage: async () => null,
     listComplianceDeadlines: async () => state.deadlines,

@@ -4,11 +4,16 @@
 // exactly that.
 import { describe, expect, it, vi } from "vitest";
 import {
+  BOT_FACES,
   botFaceSetupChecklist,
   botFaceToken,
+  faceConfigured,
   fetchBotFaceStatus,
+  isTeamBotUsername,
   parseRoomSpeaker,
   resolveBotFace,
+  slugForUsername,
+  teamBotUsernames,
 } from "@/services/bots/faces";
 
 describe("bot faces", () => {
@@ -76,5 +81,34 @@ describe("bot faces", () => {
     expect((await fetchBotFaceStatus("token", fetchImpl as unknown as typeof fetch)).canReadAllGroupMessages).toBe(false);
     const failing = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }));
     await expect(fetchBotFaceStatus("bad", failing as unknown as typeof fetch)).rejects.toThrow("getMe failed");
+  });
+});
+
+// Tracker's faces tests (its API family over the same BOT_FACES table).
+describe("bot faces", () => {
+  it("lists one face per bot with a token env var and webhook path, never a token value", () => {
+    for (const face of Object.values(BOT_FACES)) {
+      expect(face.tokenEnvVar).toMatch(/^TELEGRAM_([A-Z]+_)*BOT_TOKEN$/);
+      expect(face.webhookPath).toBe(`/api/telegram/webhook/${face.slug}`);
+      expect(face).not.toHaveProperty("token");
+    }
+  });
+
+  it("trusts only the usernames listed — Abel and Scout today, the rest not yet created", () => {
+    expect(isTeamBotUsername("@AbelExecutiveBot")).toBe(true);
+    expect(isTeamBotUsername("abelexecutivebot")).toBe(true);
+    expect(isTeamBotUsername("@DispatchScoutBot")).toBe(true);
+    expect(isTeamBotUsername("StrangerBot")).toBe(false);
+    expect(isTeamBotUsername(null)).toBe(false);
+    expect(teamBotUsernames()).toEqual(["abelexecutivebot", "dispatchscoutbot"]);
+    expect(slugForUsername("AbelExecutiveBot")).toBe("abel");
+    expect(slugForUsername("DispatchScoutBot")).toBe("dispatch-scout");
+    expect(slugForUsername("TrackerBot")).toBeNull();
+  });
+
+  it("marks uncreated faces unconfigured", () => {
+    expect(faceConfigured("abel")).toBe(true);
+    expect(faceConfigured("dispatch-scout")).toBe(true);
+    expect(faceConfigured("tracker")).toBe(false);
   });
 });

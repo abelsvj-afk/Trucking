@@ -1659,6 +1659,63 @@ One row per model call, estimated cost in cents. Estimates, not bills — OpenAI
 - `estimated_cents` integer not null — ≥ 0
 - `created_at` timestamptz not null default now()
 
+### `bot_check_calls` — created in 00105
+
+Tracker's check-call log (Phase 2): one row per check call the owner reports or Tracker confirms — picked up, en route, delivered, arrived, departed. `load_ref` is null when the message named no load — the text is the record. This is Tracker's episodic memory: what happened, where, when, per load. Migration 00105 is AUTHORED, NOT applied (the live apply is the owner's tap). RLS: company read; writes via service role only.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id) on delete cascade
+- `load_ref` text — nullable, 1–120 chars when set
+- `kind` text not null — arrived | picked_up | en_route | delivered | departed
+- `place` text — nullable, 1–120 chars when set
+- `note` text — nullable, ≤ 2000 chars
+- `event_at` timestamptz not null default now()
+- `created_at` timestamptz not null default now()
+
+### `bot_detention_clocks` — created in 00105
+
+One row per stop where Tracker started the detention clock. `started_at` is arrival (or appointment, whichever is later) + free time — 2 hours, the same rule as Abel's detention code; the code computes it, the table only stores it. `ended_at` is null while the truck is still waiting. RLS: company read; writes via service role only.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id) on delete cascade
+- `load_ref` text — nullable, 1–120 chars when set
+- `stop_label` text not null — 1–120 chars
+- `arrived_at` timestamptz not null
+- `appointment_at` timestamptz — nullable
+- `free_minutes` integer not null — ≥ 0
+- `started_at` timestamptz not null
+- `ended_at` timestamptz — nullable
+- `created_at` timestamptz not null default now()
+
+### `bot_doc_packets` — created in 00105
+
+POD/BOL packet state: one row per load (null `load_ref` = the current load, one truck). `bol_received` / `pod_received` flip as the paperwork lands; the packet is complete when both are true. RLS: company read; writes via service role only.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id) on delete cascade
+- `load_ref` text — nullable, 1–120 chars when set
+- `bol_received` boolean not null default false
+- `pod_received` boolean not null default false
+- `updated_at` timestamptz not null default now()
+
+### `bot_handoffs` — created in 00105
+
+The team-room handoff queue: work one bot hands another, spoken in the room and recorded as a row the target bot claims. With Bot-to-Bot Communication Mode on, the target bot also receives the room post itself; without the mode, this row is what the target bot reads — the room post is only its visible face. Status: open → claimed → done. Only the named bot may claim, only while open (enforced in code; the claim update is conditional on status = 'open'). `idempotency_key` dedupes a redelivered trigger; `depth` caps handoff chains at 3 (MAX_HANDOFF_DEPTH in src/services/bots/tracker.ts) — a chain past the cap escalates to Abel instead. RLS: company read; writes via service role only.
+
+- `id` uuid primary key default gen_random_uuid()
+- `company_id` uuid not null references companies (id) on delete cascade
+- `from_bot` text not null references bot_identities (slug) on delete cascade
+- `to_bot` text not null references bot_identities (slug) on delete cascade
+- `title` text not null — 1–240 chars
+- `payload` jsonb not null default '{}' — validated state only (loadRef, objective, then), never a transcript
+- `status` text not null default 'open' — open | claimed | done
+- `parent_id` uuid references bot_handoffs (id) on delete set null
+- `depth` integer not null default 0 — 0–3
+- `idempotency_key` text not null — unique per company
+- `claimed_by` text references bot_identities (slug) on delete set null
+- `created_at` timestamptz not null default now()
+- `claimed_at` timestamptz — nullable
+- `done_at` timestamptz — nullable
 ### `malik_tool_calls` — created in 00104
 
 One row per webhook tool call Malik (the phone voice) makes mid-conversation (docs/design/malik-real-tools.md). Written by the service-role client only (the Telnyx tool endpoint). RLS: the company reads its own rows; there are no client writes.

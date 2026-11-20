@@ -55,8 +55,25 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats Abel, Dispatch Scout, Billing, the Auditor, and Compliance Watchdog in the group", () => {
-    expect([...GROUP_SEATS].sort()).toEqual(["abel", "auditor", "billing", "compliance-watchdog", "dispatch-scout"].sort());
+  it("gives Tracker its governing scope: loads + documents read-write, HOS read, money none, email gated by proposals", () => {
+    expect(toolScopeFor("tracker", "loads")).toBe("read-write");
+    expect(toolScopeFor("tracker", "documents")).toBe("read-write");
+    expect(toolScopeFor("tracker", "hos")).toBe("read");
+    expect(toolScopeFor("tracker", "money")).toBe("none");
+    expect(toolScopeFor("tracker", "email")).toBe("read-write");
+    expect(toolScopeFor("tracker", "maps")).toBe("read");
+    expect(toolScopeFor("tracker", "app-actions")).toBe("read-write");
+    expect(toolScopeFor("tracker", "calls")).toBe("gated");
+    expect(toolScopeFor("tracker", "signature")).toBe("never");
+    expect(canRead("tracker", "money")).toBe(false);
+    expect(canDraft("tracker", "loads")).toBe(true);
+    expect(canDraft("tracker", "documents")).toBe(true);
+    expect(visibleToolGroups("tracker")).not.toContain("money");
+    expect(visibleToolGroups("tracker")).not.toContain("signature");
+  });
+
+  it("seats Abel, Dispatch Scout, Billing, the Auditor, Compliance Watchdog, and Tracker in the group", () => {
+    expect([...GROUP_SEATS].sort()).toEqual(["abel", "auditor", "billing", "compliance-watchdog", "dispatch-scout", "tracker"].sort());
     expect([...GROUP_SEATS_PHASE_0].sort()).toEqual([...GROUP_SEATS].sort());
   });
 
@@ -102,5 +119,9 @@ describe("bot registry", () => {
   it("seats Abel, Dispatch Scout, and Compliance Watchdog in the Phase 2 group", () => {
     expect([...GROUP_SEATS_PHASE_2].sort()).toEqual(["abel", "compliance-watchdog", "dispatch-scout"].sort());
     for (const slug of GROUP_SEATS_PHASE_2) expect(GROUP_SEATS).toContain(slug);
+  });
+
+  it("seats Tracker in the group (its Phase 2 seat)", () => {
+    expect(GROUP_SEATS).toContain("tracker");
   });
 });

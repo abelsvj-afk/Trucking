@@ -19,6 +19,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BotSlug } from "./registry";
+import type { CheckCallKind } from "./tracker";
 
 export type ProposalKind =
   | "load-draft"
@@ -136,6 +137,90 @@ export interface GroupMessageInput {
   text: string;
   routedToBotSlug?: BotSlug | null;
 }
+
+/** One logged check call (migration 00105, bot_check_calls). load_ref is null when the message named no load — the text is the record. */
+export interface CheckCallRow {
+  id: string;
+  company_id: string;
+  load_ref: string | null;
+  kind: CheckCallKind;
+  place: string | null;
+  note: string | null;
+  event_at: string;
+  created_at: string;
+}
+
+export interface CheckCallInput {
+  loadRef?: string | null;
+  kind: CheckCallKind;
+  place?: string | null;
+  note?: string | null;
+  eventAt?: string;
+}
+
+/** One detention clock (migration 00105, bot_detention_clocks). started_at is arrival/appointment + free time; ended_at null while running. */
+export interface DetentionClockRow {
+  id: string;
+  company_id: string;
+  load_ref: string | null;
+  stop_label: string;
+  arrived_at: string;
+  appointment_at: string | null;
+  free_minutes: number;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+}
+
+/** POD/BOL packet completeness for a load (migration 00105, bot_doc_packets). One row per load_ref; null load_ref is the current load. */
+export interface DocPacketRow {
+  id: string;
+  company_id: string;
+  load_ref: string | null;
+  bol_received: boolean;
+  pod_received: boolean;
+  updated_at: string;
+}
+
+/**
+ * One handoff between bots (migration 00105, bot_handoffs). The team
+ * room's work queue: with Bot-to-Bot Communication Mode on, the target
+ * bot also receives the room post itself; without the mode, this row is
+ * what the target bot reads — the room post is only its visible face.
+ * Single-writer ownership: only the bot the handoff names may claim it,
+ * and only while it is still open. idempotency_key dedupes redelivery
+ * of the same triggering event. depth caps handoff chains (see
+ * MAX_HANDOFF_DEPTH in tracker.ts).
+ */
+export type HandoffStatus = "open" | "claimed" | "done";
+
+export interface HandoffRow {
+  id: string;
+  company_id: string;
+  from_bot: BotSlug;
+  to_bot: BotSlug;
+  title: string;
+  payload: Record<string, unknown>;
+  status: HandoffStatus;
+  parent_id: string | null;
+  depth: number;
+  idempotency_key: string;
+  claimed_by: string | null;
+  created_at: string;
+  claimed_at: string | null;
+  done_at: string | null;
+}
+
+export interface HandoffInput {
+  fromBot: BotSlug;
+  toBot: BotSlug;
+  title: string;
+  payload: Record<string, unknown>;
+  parentId?: string | null;
+  depth: number;
+  idempotencyKey: string;
+}
+
 
 function serviceRoleClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -270,6 +355,41 @@ export interface BotTeamStore {
    * consecutive-bot-message chain depth (loop safeguard).
    */
   listRecentGroupMessages(limit?: number): Promise<GroupMessageRow[]>;
+  /** Tracker: log a check call (picked up / en route / delivered / arrived / departed). */
+  recordCheckCall(input: CheckCallInput): Promise<CheckCallRow>;
+  listCheckCalls(limit?: number): Promise<CheckCallRow[]>;
+  /** Tracker: start a detention clock. started_at is arrival/appointment + free_minutes. */
+  startDetentionClock(input: {
+    loadRef?: string | null;
+    stopLabel: string;
+    arrivedAt: string;
+    appointmentAt?: string | null;
+    freeMinutes: number;
+  }): Promise<DetentionClockRow>;
+  /** Tracker: the currently running detention clock, if any. */
+  getOpenDetentionClock(): Promise<DetentionClockRow | null>;
+  endDetentionClock(id: string, departedAt: string): Promise<DetentionClockRow>;
+  /** Tracker: the POD/BOL packet state for a load (null = the current load). */
+  getDocPacket(loadRef: string | null): Promise<DocPacketRow | null>;
+  setDocPacket(input: { loadRef: string | null; bolReceived: boolean; podReceived: boolean }): Promise<DocPacketRow>;
+  /**
+   * Team room: who sent one group message, for reply-to routing — a
+   * reply to a bot's message goes to that bot. Null when the message
+   * was never logged (the room predates logging, or logging failed).
+   */
+  getGroupMessageSender(telegramChatId: number, telegramMessageId: number): Promise<string | null>;
+  /** Team room: record a handoff as work for the target bot. The idempotency key dedupes a redelivered trigger — a second record with the same key returns the first row. */
+  recordHandoff(input: HandoffInput): Promise<HandoffRow>;
+  /** Team room: handoffs waiting for one bot, oldest first. */
+  listOpenHandoffs(toBot: BotSlug, limit?: number): Promise<HandoffRow[]>;
+  /**
+   * Team room: claim a handoff. Single-writer ownership — only the
+   * named bot claims, and only while it is still open. Returns the
+   * current row unchanged when it is no longer open.
+   */
+  claimHandoff(id: string, byBot: BotSlug): Promise<HandoffRow>;
+  /** Team room: mark a claimed handoff done. Returns the row unchanged unless it was claimed. */
+  completeHandoff(id: string): Promise<HandoffRow>;
 }
 
 export function createBotTeamStore(companyId: string | null): BotTeamStore | null {
@@ -604,5 +724,233 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
       if (error) fail("listRecentGroupMessages", error);
       return (data ?? []) as GroupMessageRow[];
     },
+    async recordCheckCall(input) {
+      const { data, error } = await client
+        .from("bot_check_calls")
+        .insert({
+          company_id: companyId,
+          load_ref: input.loadRef ?? null,
+          kind: input.kind,
+          place: input.place ?? null,
+          note: input.note ?? null,
+          event_at: input.eventAt ?? new Date().toISOString(),
+        })
+        .select()
+        .single();
+      if (error || !data) fail("recordCheckCall", error);
+      return data as CheckCallRow;
+    },
+
+    async listCheckCalls(limit = 20) {
+      const { data, error } = await client
+        .from("bot_check_calls")
+        .select("*")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) fail("listCheckCalls", error);
+      return (data ?? []) as CheckCallRow[];
+    },
+
+    async startDetentionClock(input) {
+      const arrivedMs = Date.parse(input.arrivedAt);
+      const apptMs = input.appointmentAt ? Date.parse(input.appointmentAt) : NaN;
+      const baseMs = Number.isFinite(apptMs) ? Math.max(arrivedMs, apptMs) : arrivedMs;
+      const startedAt = new Date(baseMs + input.freeMinutes * 60_000).toISOString();
+      const { data, error } = await client
+        .from("bot_detention_clocks")
+        .insert({
+          company_id: companyId,
+          load_ref: input.loadRef ?? null,
+          stop_label: input.stopLabel,
+          arrived_at: input.arrivedAt,
+          appointment_at: input.appointmentAt ?? null,
+          free_minutes: input.freeMinutes,
+          started_at: startedAt,
+          ended_at: null,
+        })
+        .select()
+        .single();
+      if (error || !data) fail("startDetentionClock", error);
+      return data as DetentionClockRow;
+    },
+
+    async getOpenDetentionClock() {
+      const { data, error } = await client
+        .from("bot_detention_clocks")
+        .select("*")
+        .eq("company_id", companyId)
+        .is("ended_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) fail("getOpenDetentionClock", error);
+      return (data ?? null) as DetentionClockRow | null;
+    },
+
+    async endDetentionClock(id, departedAt) {
+      const { data, error } = await client
+        .from("bot_detention_clocks")
+        .update({ ended_at: departedAt })
+        .eq("company_id", companyId)
+        .eq("id", id)
+        .is("ended_at", null)
+        .select()
+        .single();
+      if (error || !data) fail("endDetentionClock", error);
+      return data as DetentionClockRow;
+    },
+
+    async getDocPacket(loadRef) {
+      const query = client.from("bot_doc_packets").select("*").eq("company_id", companyId);
+      if (loadRef === null) {
+        const { data, error } = await query.is("load_ref", null).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+        if (error) fail("getDocPacket", error);
+        return (data ?? null) as DocPacketRow | null;
+      }
+      const { data, error } = await query.eq("load_ref", loadRef).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) fail("getDocPacket", error);
+      return (data ?? null) as DocPacketRow | null;
+    },
+
+    async setDocPacket(input) {
+      const existing = await this.getDocPacket(input.loadRef);
+      if (existing) {
+        const { data, error } = await client
+          .from("bot_doc_packets")
+          .update({ bol_received: input.bolReceived, pod_received: input.podReceived, updated_at: new Date().toISOString() })
+          .eq("company_id", companyId)
+          .eq("id", existing.id)
+          .select()
+          .single();
+        if (error || !data) fail("setDocPacket", error);
+        return data as DocPacketRow;
+      }
+      const { data, error } = await client
+        .from("bot_doc_packets")
+        .insert({
+          company_id: companyId,
+          load_ref: input.loadRef,
+          bol_received: input.bolReceived,
+          pod_received: input.podReceived,
+        })
+        .select()
+        .single();
+      if (error || !data) fail("setDocPacket", error);
+      return data as DocPacketRow;
+    },
+
+    async getGroupMessageSender(telegramChatId, telegramMessageId) {
+      const { data, error } = await client
+        .from("bot_group_messages")
+        .select("sender_ref")
+        .eq("company_id", companyId)
+        .eq("telegram_chat_id", telegramChatId)
+        .eq("telegram_message_id", telegramMessageId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) fail("getGroupMessageSender", error);
+      return (data?.sender_ref as string | undefined) ?? null;
+    },
+
+    async recordHandoff(input) {
+      const existing = await client
+        .from("bot_handoffs")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("idempotency_key", input.idempotencyKey)
+        .maybeSingle();
+      if (existing.error) fail("recordHandoff", existing.error);
+      // A redelivered trigger returns the first row — the handoff is
+      // recorded once, never twice.
+      if (existing.data) return existing.data as HandoffRow;
+      const { data, error } = await client
+        .from("bot_handoffs")
+        .insert({
+          company_id: companyId,
+          from_bot: input.fromBot,
+          to_bot: input.toBot,
+          title: input.title,
+          payload: input.payload,
+          status: "open",
+          parent_id: input.parentId ?? null,
+          depth: input.depth,
+          idempotency_key: input.idempotencyKey,
+          claimed_by: null,
+        })
+        .select()
+        .single();
+      if (error || !data) fail("recordHandoff", error);
+      return data as HandoffRow;
+    },
+
+    async listOpenHandoffs(toBot, limit = 10) {
+      const { data, error } = await client
+        .from("bot_handoffs")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("to_bot", toBot)
+        .eq("status", "open")
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      if (error) fail("listOpenHandoffs", error);
+      return (data ?? []) as HandoffRow[];
+    },
+
+    async claimHandoff(id, byBot) {
+      const current = await client
+        .from("bot_handoffs")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("id", id)
+        .maybeSingle();
+      if (current.error) fail("claimHandoff", current.error);
+      if (!current.data) throw new Error(`[bot-team] claimHandoff failed: handoff ${id} not found`);
+      const row = current.data as HandoffRow;
+      // Idempotent: a handoff that is no longer open keeps its first
+      // claim. Two bots racing the same handoff cannot both own it —
+      // the update below only lands while the row is still open.
+      if (row.status !== "open") return row;
+      const { data, error } = await client
+        .from("bot_handoffs")
+        .update({ status: "claimed", claimed_by: byBot, claimed_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", id)
+        .eq("status", "open")
+        .select()
+        .single();
+      if (error || !data) {
+        // Lost the race: re-read and return whoever owns it now.
+        const reread = await client.from("bot_handoffs").select("*").eq("company_id", companyId).eq("id", id).maybeSingle();
+        if (reread.error || !reread.data) fail("claimHandoff", error);
+        return reread.data as HandoffRow;
+      }
+      return data as HandoffRow;
+    },
+
+    async completeHandoff(id) {
+      const current = await client
+        .from("bot_handoffs")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("id", id)
+        .maybeSingle();
+      if (current.error) fail("completeHandoff", current.error);
+      if (!current.data) throw new Error(`[bot-team] completeHandoff failed: handoff ${id} not found`);
+      const row = current.data as HandoffRow;
+      if (row.status !== "claimed") return row;
+      const { data, error } = await client
+        .from("bot_handoffs")
+        .update({ status: "done", done_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", id)
+        .eq("status", "claimed")
+        .select()
+        .single();
+      if (error || !data) fail("completeHandoff", error);
+      return data as HandoffRow;
+    },
+
   };
 }

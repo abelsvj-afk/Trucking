@@ -96,16 +96,27 @@ describe("group routing", () => {
   });
 
   it("still marks a seat nobody wired yet as unseated", () => {
-    const route = routeGroupMessage({ text: "Tracker, what's my ETA?", senderKind: "owner" });
-    expect(route.target).toBe("tracker");
+    const route = routeGroupMessage({ text: "Maintenance, what's my ETA?", senderKind: "owner" });
+    expect(route.target).toBe("maintenance");
     expect(route.seated).toBe(false);
-    expect(unseatedReply("tracker")).toMatch(/isn't in the room yet/);
+    expect(unseatedReply("maintenance")).toMatch(/isn't in the room yet/);
   });
 
   it("does not route a paycheck question to Billing — bare 'paid' stays with Abel", () => {
     const route = routeGroupMessage({ text: "when do I get paid?", senderKind: "owner" });
     expect(route.target).toBe("abel");
     expect(route.via).toBe("default");
+  });
+
+  it("seats Tracker in Phase 2, by mention and by keyword", () => {
+    const mention = routeGroupMessage({ text: "Tracker, what's my ETA?", senderKind: "owner" });
+    expect(mention.target).toBe("tracker");
+    expect(mention.via).toBe("mention");
+    expect(mention.seated).toBe(true);
+    const keyword = routeGroupMessage({ text: "what's the eta on this load?", senderKind: "owner" });
+    expect(keyword.target).toBe("tracker");
+    expect(keyword.via).toBe("keyword");
+    expect(keyword.seated).toBe(true);
   });
 
   it("defaults everything else to Abel", () => {
