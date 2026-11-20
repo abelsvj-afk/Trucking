@@ -202,6 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           userText: string;
           history: { role: "user" | "assistant"; text: string }[];
           instructions: { kind: string; content: string }[];
+          systemContext?: string;
         }): Promise<string | null> => {
           const output = await runBotChat(new OpenAiProvider(), {
             userText: input.userText,
@@ -213,6 +214,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               created_at: new Date().toISOString(),
             })),
             memories: [],
+            reasoningText: input.systemContext ?? null,
           });
           return output.reply;
         }
@@ -224,6 +226,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       companyId: config.companyId,
       store: teamStore,
       sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
+      // Individual faces (owner, 2026-11-19): a bot with its own
+      // BotFather token in env sends as itself. Watchdog is wired
+      // first; a seat is added here when its account exists.
+      // Dispatch Scout is deliberately NOT wired yet — his token is
+      // live in Fly, but his group membership and privacy steps are
+      // the owner's to finish, and sending as a bot that is not in
+      // the group would fail where the prefixed send works.
+      sendMessageAs: (botSlug, chatId, text) => {
+        const ownToken =
+          botSlug === "compliance-watchdog" ? process.env.TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN : undefined;
+        if (!ownToken) return Promise.resolve(false);
+        return sendTelegramMessage(ownToken, chatId, text).then(() => true);
+      },
       runChat,
     });
     return NextResponse.json({ ok: true });

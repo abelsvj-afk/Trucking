@@ -1,8 +1,10 @@
 // Compliance Watchdog in the group room: it answers when the job is
 // its own, with the spend cap in front of the model; a load draft
 // carries its block when the checklist blocks, and nothing when the
-// checklist is clear. One BotFather bot is the room's only face —
-// Watchdog's lines are posted through it, prefixed with its name.
+// checklist is clear. Team room (2026-11-19): bots pick up messages
+// addressed to them from other team bots (bot-channel safeguards),
+// and Watchdog speaks as itself when it has its own token —
+// otherwise through the shared token, prefixed with its name.
 import { describe, expect, it, vi } from "vitest";
 import { handleBotTeamGroupUpdate, type GroupHandlerDeps } from "@/services/bots/group";
 import type { BotTeamStore, ComplianceDeadlineRow, ProposalRow } from "@/services/bots/store";
@@ -30,6 +32,10 @@ interface StubState {
   audit: { action: string; targetRef: string | null; detail?: Record<string, unknown> }[];
   groupMessages: { text: string }[];
   deadlines: ComplianceDeadlineRow[];
+  /** Room log rows the bot-channel reads (newest first). */
+  recentGroupMessages?: { sender_kind: string; telegram_message_id: number }[];
+  /** Handoff rows addressed to Watchdog. */
+  handoffs?: { bot_slug: string; target_ref: string | null; detail: Record<string, unknown> }[];
 }
 
 function deadlineRow(kind: string, dueDate: string | null, status: "filed" | "missing" | "unknown" = "filed"): ComplianceDeadlineRow {
@@ -101,6 +107,36 @@ function makeStub(state: StubState): BotTeamStore {
     listOpenDefects: async () => [],
     listRecentDutySegments: async () => [{ duty_status: "driving", started_at: new Date().toISOString(), location: null }],
     hasRecentAlert: async () => false,
+    saveBotMemory: async (input) => ({
+      id: "memory-new",
+      bot_slug: input.botSlug,
+      kind: input.kind,
+      content: input.content,
+      source: input.source ?? "bot",
+      created_at: new Date().toISOString(),
+    }),
+    listRecentAudit: async () => [],
+    hasRecentAuditFingerprint: async () => false,
+    listHandoffsFor: async () =>
+      (state.handoffs ?? []).map((h, index) => ({
+        id: `handoff-${index + 1}`,
+        bot_slug: h.bot_slug,
+        actor: "bot",
+        action: "handoff",
+        target_ref: h.target_ref,
+        detail: h.detail,
+        created_at: new Date().toISOString(),
+      })),
+    listRecentGroupMessages: async () =>
+      (state.recentGroupMessages ?? []).map((row, index) => ({
+        id: `gm-${index + 1}`,
+        telegram_message_id: row.telegram_message_id,
+        sender_kind: row.sender_kind as "owner" | "bot",
+        sender_ref: "test",
+        text: "",
+        routed_to_bot_slug: null,
+        created_at: new Date().toISOString(),
+      })),
   };
 }
 
@@ -209,5 +245,134 @@ describe("compliance watchdog in the group", () => {
     expect(sent[0]).toMatch(/Dispatch Scout/);
     expect(sent[0]).not.toMatch(/BLOCK/);
     expect(sent[0]).not.toMatch(/cannot confirm/);
+  });
+});
+
+describe("team room: bot-to-bot pickup (2026-11-19)", () => {
+  function makeBotUpdate(text: string, username = "DispatchScoutBot", messageId = 77): TelegramUpdate {
+    return {
+      update_id: 2,
+      message: {
+        message_id: messageId,
+        from: { id: 555000111, is_bot: true, username },
+        chat: { id: GROUP_ID, type: "supergroup" },
+        text,
+      },
+    };
+  }
+
+  it("Dispatch Scout asks Watchdog by name in the room — Watchdog picks it up and answers", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [], deadlines: CLEAR_DEADLINES };
+    const { deps, sent } = makeDeps(state);
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("Watchdog, is the medical card current for this run?"), deps);
+    expect(result).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBe("Compliance Watchdog: Your medical card is current until next year.");
+    // The bot's message is in the room log, marked as a bot's.
+    expect(state.groupMessages.map((m) => m.text)).toContain("Watchdog, is the medical card current for this run?");
+  });
+
+  it("a bot that is not a listed teammate is ignored entirely", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [], deadlines: CLEAR_DEADLINES };
+    const { deps, sent } = makeDeps(state);
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("Watchdog, is the medical card current?", "RandomSpamBot"), deps);
+    expect(result).toBe("ignored");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("unaddressed bot chatter is heard and logged, and wakes nobody", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [], deadlines: CLEAR_DEADLINES };
+    const { deps, sent } = makeDeps(state);
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("boards are quiet this morning"), deps);
+    expect(result).toBe("handled");
+    expect(sent).toHaveLength(0);
+    expect(state.groupMessages).toHaveLength(1);
+  });
+
+  it("a redelivered bot message (same message id) is dropped", async () => {
+    const state: StubState = {
+      proposals: [],
+      spentCents: 0,
+      audit: [],
+      groupMessages: [],
+      deadlines: CLEAR_DEADLINES,
+      recentGroupMessages: [{ sender_kind: "bot", telegram_message_id: 77 }],
+    };
+    const { deps, sent } = makeDeps(state);
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("Watchdog, is the medical card current?"), deps);
+    expect(result).toBe("ignored");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("at the chain cap, bots stop answering bots until a human speaks", async () => {
+    const state: StubState = {
+      proposals: [],
+      spentCents: 0,
+      audit: [],
+      groupMessages: [],
+      deadlines: CLEAR_DEADLINES,
+      recentGroupMessages: [
+        { sender_kind: "bot", telegram_message_id: 71 },
+        { sender_kind: "bot", telegram_message_id: 72 },
+        { sender_kind: "bot", telegram_message_id: 73 },
+        { sender_kind: "bot", telegram_message_id: 74 },
+      ],
+    };
+    const { deps, sent } = makeDeps(state);
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("Watchdog, is the medical card current?"), deps);
+    expect(result).toBe("handled");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a bot's 'yes' in the room never decides a proposal — only the owner decides", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [], deadlines: CLEAR_DEADLINES };
+    const { deps, sent } = makeDeps(state);
+    await deps.store!.createProposal({ botSlug: "dispatch-scout", kind: "load-draft", title: "Load draft — $1,850", payload: {} });
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("yes"), deps);
+    expect(result).toBe("handled");
+    expect(state.proposals[0]!.status).toBe("proposed");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("with its own token, Watchdog speaks as itself — no name prefix, nothing via the shared send", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [], deadlines: CLEAR_DEADLINES };
+    const asCalls: { slug: string; text: string }[] = [];
+    const { deps, sent } = makeDeps(state, {
+      sendMessageAs: async (slug, _chatId, text) => {
+        asCalls.push({ slug, text });
+        return true;
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("Watchdog, when is my medical card due?"), deps);
+    expect(asCalls).toEqual([{ slug: "compliance-watchdog", text: "Your medical card is current until next year." }]);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("handoffs from the team reach Watchdog's turn as summaries", async () => {
+    const state: StubState = {
+      proposals: [],
+      spentCents: 0,
+      audit: [],
+      groupMessages: [],
+      deadlines: CLEAR_DEADLINES,
+      handoffs: [
+        {
+          bot_slug: "dispatch-scout",
+          target_ref: null,
+          detail: { reason: "driver renewed the medical card Tuesday — new card in the cab", deadlineKind: "medical_card" },
+        },
+      ],
+    };
+    let captured: { kind: string; content: string }[] = [];
+    const { deps } = makeDeps(state, {
+      runChat: async (input) => {
+        captured = input.instructions;
+        return "Noted — checking the new card against the file.";
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("Watchdog, anything waiting for you?"), deps);
+    const joined = captured.map((b) => b.content).join("\n\n");
+    expect(joined).toContain("HANDOFFS WAITING FOR YOU FROM THE TEAM");
+    expect(joined).toContain("driver renewed the medical card Tuesday");
   });
 });

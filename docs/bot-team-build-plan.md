@@ -202,6 +202,63 @@ Maintenance, Billing) — their files exist, their wiring comes in Phase 2.
   assistant is built. Tracker and Maintenance get their own distinct
   voices later, same rule — one voice per calling bot, never shared.
 
+## Shared reasoning — one brain, every seat (built 2026-11-19, branch `feat/bot-shared-reasoning-2026-11-19`)
+
+**Owner rule (2026-11-19): all bots get the same reasoning, wisdom,
+and smartness Abel has — same brain, different jobs/tools; sharing the
+reasoning must never leak another bot's tools.** This build is that
+rule in code.
+
+- **One source of truth for the forms.** Abel's reasoning-form rule
+  blocks moved to a leaf module, `src/services/bot/reasoning-forms.ts`
+  (no imports, so nothing can cycle). Abel's 1:1 prompt assembles them
+  from there — byte-identical text, proven by his unchanged
+  prompt-assembly test — and the team layer imports the SAME strings.
+  A form edited once changes for Abel and every bot at once.
+- **All fifteen forms, named, for every bot** —
+  `src/services/bots/reasoning.ts` (`REASONING_FORMS` +
+  `buildBotSystemPrompt(slug)`). The ten core forms (owner GO
+  2026-11-10; temporal 2026-11-07): **temporal, contextual, causal,
+  practical, self-correction, episodic, theory of mind, value
+  learning, consolidation, restraint**. The five think-deeper forms
+  (Frontier 1, owner GO 2026-11-11): **chained reasoning,
+  self-verification, honest uncertainty, trade-off math, causal
+  prediction**. No cut-down version for any seat. (PRACTICAL was
+  extracted verbatim from inside TOOL_SELECTION_RULES so bots without
+  dynamic tool selection still carry the form.)
+- **Tools never leak.** Each bot's prompt names ONLY its own visible
+  tool groups from the registry, with their scope levels, and states
+  that unlisted groups do not exist for it. The registry/gateway half
+  already hides the tools themselves; this is the prompt half of the
+  same wall. Memory never leaks either: context is built from one
+  bot's own `bot_team_memories` rows only.
+- **Corrections-learning, shared** — `src/services/bots/learning.ts`.
+  A correction is recorded per bot in Abel's own summary format
+  ("corrected fields: …"); the counting is Abel's code
+  (`correction-watchouts.ts`) fed through an adapter, not a copy. At
+  2 corrections on the same field the bot earns a durable watch-out
+  row in its own memory, and `buildBotMemoryContext` puts watch-outs
+  first in its turn context. New store write path:
+  `BotTeamStore.saveBotMemory` — no new migration (00103's
+  `bot_team_memories` already carries kind correction/watch-out).
+- **Wired live in this build:** Abel's group-chat turn now runs with
+  the shared brain — `group.ts` passes `buildBotSystemPrompt("abel")`
+  + his memory context through the webhook into `runBotChat`'s new
+  optional `reasoningText` (appended to the system prompt only when
+  present; the 1:1 paths are untouched — they carry the reasoning
+  through the agent loop). Standing rules still travel as
+  instructions; the rest of his memory renders in the context block.
+- **Honest edges:** Scout's group paths are code-driven today (scan +
+  dispatch workup), so Scout consumes `buildBotSystemPrompt` when his
+  model turns land — the builder and tests are seat-complete now.
+  `recordBotCorrection` is the write API for corrections; no group
+  grammar parses free-text corrections yet (Phase 1). Abel's group
+  turns still lack the live company snapshot (Phase 1 gap, unchanged).
+  Mastra was NOT adopted in this lane (evaluated separately, per the
+  owner's research rule); the patterns used are the ones already in
+  the codebase — shared DB memory, propose-only guardrails, durable
+  per-bot state in Supabase.
+
 ## Phase 2 — Remaining seats
 
 Tracker (check-calls, ETA, BOL/POD), Compliance Watchdog (HOS/safety
@@ -215,40 +272,115 @@ the same group, same registry, same guardrails.
 NOT deployed.** `src/services/bots/compliance-watchdog.ts` (deadline
 checklist evaluation, red/amber alerts, load-legality verdict, HOS
 coverage flags, reminder proposals, document-copy filing, handoffs),
-`src/services/bots/reasoning.ts` (the ten shared reasoning forms, moved
-verbatim from Abel's turn — one brain, not a cut-down version),
-migration `00105_bot_team_watchdog.sql` AUTHORED, NOT applied
-(`bot_compliance_deadlines` + the Watchdog scope correction), group seat
-wired (router + group turn + spend cap), Scout workups carry the
-Watchdog block, sweep route `POST /api/bots/compliance-watchdog/sweep`
-(idempotent amber dedupe; red always posts). Governing files
+shared reasoning via the team's engine (PR #101: `REASONING_FORMS` +
+`sharedReasoningPrompt()` in `src/services/bots/reasoning.ts`, forms
+sourced from `src/services/bot/reasoning-forms.ts` — Watchdog's turn
+carries all fifteen forms, the owner's ten core included, one brain,
+not a cut-down version), migration `00105_bot_team_watchdog.sql`
+AUTHORED, NOT applied (`bot_compliance_deadlines` + the Watchdog
+scope correction), group seat wired (router + group turn + spend cap),
+Scout workups carry the Watchdog block, sweep route
+`POST /api/bots/compliance-watchdog/sweep` (job-claimed; idempotent
+amber dedupe; red always posts). Governing files
 `docs/bots/compliance-watchdog/` (byte-identical to the owner's copies).
+
+**TEAM ROOM (owner's model, 2026-11-19 — built into Watchdog): the
+group chat IS the shared channel.** Everything posted in the room
+lands for all the bots; when Abel needs Watchdog he posts in the
+group addressed to Watchdog, and Watchdog picks it up there.
+Watchdog talks to its teammates BY NAME in the room, asks for work
+it needs, hands work off, and reports progress out loud:
+- The sweep posts Dispatch Scout a compliance HOLD by name the
+  moment the checklist blocks (and the heads-up version when it
+  cannot confirm) — before a load is offered, not after.
+- The sweep asks Tracker by name for the truck's current position
+  when a dated deadline is close and the truck is out running.
+- Scout workups carry Watchdog's legality verdict in the room, and
+  a block records a structured handoff to Scout.
+- Watchdog's group turn reads the handoffs the team left for it
+  (summaries, newest first) and picks them up in its reply.
+- Bots never decide proposals — a bot's "yes" in the room is
+  conversation; only the owner approves.
+The receiving side is `src/services/bots/bot-channel.ts`: a bot
+sender is identified by its registered Telegram username, its
+message is deduped by message id, routed by the same router the
+owner's messages use, and answered only when addressed to a seated
+bot under the chain cap (below).
 
 **FACES (owner, 2026-11-19): each bot its own Telegram account +
 profile photo, messaging as itself — the one-face model was rejected.**
-Telegram mechanic that blocks the literal version: the Bot API never
-delivers one bot's messages to another ("regardless of mode",
-core.telegram.org/bots/faq — verified 2026-11-19), so bots cannot hear
-each other in the group even with individual accounts + privacy OFF.
-Coordination goes through the shared Supabase store either way; the
-bots post as themselves once the shared backend binds per-bot tokens
-(the send path is the binding point; Watchdog is written
-token-agnostic). PRECEDENT (owner, 2026-11-19 ~2:35 PM CT): Scout
-already has its own BotFather account (@DispatchScoutBot, verified
-live, can join groups) and its token is set in Fly as
-TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN (staged, live on next deploy; the
-value is NOT saved anywhere). Watchdog still needs the same owner
-step: its own BotFather account + profile photo + token in Fly
-(following Scout's naming, TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN).
-Scout's owner steps still open: /setprivacy Disable + add Scout to
-the "Road to Legacy Crew" group.
+Telegram mechanics — VERIFIED 2026-11-19 against Telegram's Bot
+Features documentation (core.telegram.org/bots/features,
+"Bot-to-Bot Communication"), which supersedes the older absolute
+line in the Bots FAQ: (1) a bot receives another bot's group message
+when ADDRESSED to it (mention in a command, or a direct reply) if at
+least one of the pair has **Bot-to-Bot Communication Mode** enabled
+in @BotFather (/setbot2bot); (2) a bot with that mode enabled
+receives ALL bot messages in the group when it is a group **admin**
+or has **Group Privacy Mode disabled**; (3) the owner's messages
+reach every bot with privacy OFF (set before joining, or remove +
+re-add the bot after changing it) or admin rights; (4) Telegram
+REQUIRES loop safeguards with bot-to-bot on — dedupe, rate limits,
+maximum interaction depth. Nothing in Telegram blocks individual
+faces or the group-as-channel model; the settings above are the
+whole requirement, per bot: own BotFather account + photo,
+Bot-to-Bot Communication Mode ON, Group Privacy OFF, added to the
+group. APP SIDE, built here: Watchdog sends AS ITSELF the moment
+`TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN` is set (sweep route +
+group-turn `sendMessageAs`; no name prefix), and falls back to the
+shared token with its name prefix until then. The bot-channel
+receiving logic is wired and tested now; it activates per bot as
+each bot's own webhook lands (Telegram delivers each bot's updates
+to its own webhook — with one shared webhook today, bot-authored
+updates cannot arrive yet; the structured handoff records carry the
+same work inside the backend meanwhile, and every handoff is ALSO
+posted in the room — never a database-only relay the owner can't
+see). PRECEDENT (owner, 2026-11-19 ~2:35 PM CT): Scout already has
+its own BotFather account (@DispatchScoutBot, verified live) and
+its token is set in Fly as TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN (the
+value is NOT saved anywhere); Scout's send-as-himself wiring is
+deliberately NOT flipped in this branch — his group membership and
+privacy steps are the owner's to finish, and sending as a bot that
+is not in the group would fail where the prefixed send works.
+Watchdog's remaining owner step: its BotFather account + photo +
+token in Fly under TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN, privacy
+OFF + bot-to-bot ON, added to the "Road to Legacy Crew" group.
+Forum Topics were evaluated as an alternative shape and not used:
+topics organize threads inside one chat but change none of the
+delivery rules above, and the owner's model is one shared room.
 
-**RESEARCH BAKED IN (owner, 2026-11-19): open-source multi-agent
-research (`~/workspace/research_notes/open-source-multi-agent-team-20261119-2022/report.md`)
-— the six patterns are applied in this build: supervisor-first
-(router), validated-state handoffs, summaries-not-transcripts,
-server-side enforcement (registry + guardrails + RLS), structural
-HITL (proposals), single-writer + idempotency + bounded loops.
+**RESEARCH APPLIED, pattern by pattern (owner: "use them NOW",
+2026-11-19; source `~/workspace/research_notes/open-source-multi-agent-team-20261119-2022/report.md`):**
+- *Supervisor-first routing* — `bots/router.ts`: every room message
+  routes to exactly one seat; Abel is the default/coordinator.
+- *Handoff payload = validated state only* — `recordHandoff`
+  (compliance-watchdog.ts): {to, reason, ref, deadlineKind,
+  fingerprint} in the audit log; no free-text state transfers.
+- *Shared state/summaries, not full transcripts* — the compliance
+  snapshot and handoff summaries in Watchdog's turn
+  (`buildWatchdogInstructions`); the room log stores messages, the
+  turns read summaries.
+- *One model router + per-agent scoped tools* — the shared
+  `runBotChat` path + `bots/reasoning.ts` `buildBotSystemPrompt`
+  scope framing; Watchdog's registry scope (documents read-write,
+  email draft, money none, calls never) enforced by
+  `bots/guardrails.ts`.
+- *Server-side enforcement via Supabase RLS, not prompts* —
+  migration 00105: `bot_compliance_deadlines` RLS by `company_id` +
+  company-read policy; every store read/write is company-scoped in
+  code as well.
+- *Human-in-the-loop as a structural interrupt* — proposals decide
+  only on the owner's yes/no in the handler code; bot senders are
+  structurally barred from the decision grammar (group.ts).
+- *Single-writer ownership* — only Watchdog writes its checklist
+  rows (`upsertComplianceDeadline`, one writer per kind + subject);
+  only the claimed sweep posts its alerts.
+- *Postgres job claiming + idempotency keys + bounded loops* —
+  sweep claims (`sweep_claim` audit rows, 15-minute window,
+  retries are no-ops), alert + handoff fingerprints (amber 24h,
+  team posts once per Eastern day per state, max two per sweep),
+  and the bot-channel chain cap (4 consecutive bot messages, reset
+  by a human post) with message-id dedupe.
 Mastra is the first-pick framework evaluation with a recommendation
 in the PR — NOT adopted silently, NOT a dependency here. Avoid:
 Microsoft AutoGen (archived Oct 2026), MetaGPT (stale since early

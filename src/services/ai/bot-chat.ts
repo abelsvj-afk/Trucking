@@ -82,6 +82,16 @@ export interface BotChatInput {
    * (web) / loadContext (Telegram) before the model sees the turn.
    */
   lessonRecallText?: string | null;
+  /**
+   * Shared reasoning layer (bot team, 2026-11-19): the caller's
+   * assembled reasoning context — for the group path this is the
+   * answering bot's full shared-brain prompt (identity, tool scope,
+   * and every reasoning form, from services/bots/reasoning.ts),
+   * appended to the system prompt verbatim when present. Absent on
+   * the 1:1 paths, whose turns carry the reasoning layer through the
+   * agent loop instead — this field never double-assembles it there.
+   */
+  reasoningText?: string | null;
 }
 
 import { STYLE_RULES } from "@/services/telegram/format-reply";
@@ -152,7 +162,9 @@ function buildUserPrompt(input: BotChatInput): string {
 
 export async function runBotChat(provider: AiProvider, input: BotChatInput): Promise<BotChatOutput> {
   const raw = await provider.complete({
-    system: `${SYSTEM_PROMPT}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}`,
+    system:
+      `${SYSTEM_PROMPT}\n\n${STYLE_RULES}\n\n${FLAIR_RULES}` +
+      (input.reasoningText ? `\n\n${input.reasoningText}` : ""),
     user: buildUserPrompt(input),
   });
   return parseBotChatOutput(raw);

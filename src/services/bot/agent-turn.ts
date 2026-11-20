@@ -23,6 +23,23 @@ import {
   type AgentToolLogEntry,
 } from "@/services/ai/agent-loop";
 import {
+  TEMPORAL_RULES,
+  CONTEXTUAL_RULES,
+  CAUSAL_RULES,
+  PRACTICAL_RULES,
+  SELF_CORRECTION_RULES,
+  EPISODIC_RULES,
+  THEORY_OF_MIND_RULES,
+  VALUE_LEARNING_RULES,
+  CONSOLIDATION_RULES,
+  RESTRAINT_RULES,
+  CHAINED_REASONING_RULES,
+  VERIFICATION_RULES,
+  UNCERTAINTY_RULES,
+  TRADEOFF_RULES,
+  PREDICTION_RULES,
+} from "./reasoning-forms";
+import {
   runBotChat,
   type BotChatInput,
   type BotChatOutput,
@@ -77,18 +94,6 @@ import { groundedAskBlocks } from "./grounded-asks";
 import { correctionWatchoutsBlock } from "./correction-watchouts";
 import { parseStatusTalk, planStatusTalk } from "./status-talk";
 import { commentContradicts, formatWaitingList, groupLine, groupWaitingRows, parseWaitingAnswers, plainSummary, waitingLine, WAITING_LIST_HOWTO, WAITING_LIST_MARK, type WaitingAnswers } from "./waiting-list";
-import {
-  CAUSAL_RULES,
-  CONSOLIDATION_RULES,
-  CONTEXTUAL_RULES,
-  EPISODIC_RULES,
-  RESTRAINT_RULES,
-  SELF_CORRECTION_RULES,
-  TEMPORAL_RULES,
-  THEORY_OF_MIND_RULES,
-  TOOL_SELECTION_RULES,
-  VALUE_LEARNING_RULES,
-} from "@/services/bots/reasoning";
 
 export const BOT_DISABLED_REPLY =
   "My chat brain is turned off right now. You can turn it on in the app: More -> Account & settings -> Bot chat. Dispatch help and remember: still work either way.";
@@ -139,50 +144,20 @@ PEOPLE & BUSINESS LEARNING: You are learning his business and the people in it. 
 
 ${JOB_KNOWLEDGE_BRIEF}`;
 
+/**
+ * Dynamic tool selection (owner requirement, 2026-11-09): the turn's tool list is a selection
+ * from the full registry, sized to the provider cap. A missing tool is a routing gap the loop
+ * can close mid-turn (find_more_tools), never a capability Abel lacks - the prompt must say so,
+ * or the model will present the gap to the owner as "I can't do that."
+ */
+const TOOL_SELECTION_RULES = `TOOL SELECTION: Your tool list this turn is a SELECTION from everything you can do, picked for this message - it is not the limit of your abilities. If a task needs a tool you do not see, call find_more_tools and describe the capability (what it does, not a guessed name); the matches load for the rest of this turn and you call the one you need. NEVER tell him you can't do something just because the tool isn't in front of you - search first. Pulled write tools follow the same propose/yes rules as any other write. ${PRACTICAL_RULES}`;
+
 /** Pay safety (owner 2026-11-07: telling Abel he doesn't pay for fuel zeroed his pay). */
 const PAY_SAFETY_RULES =
   "PAY SAFETY: telling you WHO PAYS for fuel or tolls changes ONLY that one field (fuel_paid_by / tolls_paid_by) - never send a rate, a percent, miles or any money value with it, and never set a rate, miles or pay to 0 unless he says that number in so many words. " +
   "set_pay_pin and set_pay_terms keep every field you do not name. Before proposing a pay change, read his current terms (get_pay_status / projected_pay) and say what CHANGES, before and after. " +
   "Never ask him to approve the same thing twice: if something is already waiting for his yes, tell him it is waiting instead of proposing it again. " +
   "For what he is OWED or when he gets paid (next check, advances taken, what is still coming) call paychecks_by_payday - the same figures his Paychecks page shows - and never state a different number; if it can't load, say the figure is unavailable rather than estimating.";
-
-/**
- * Think deeper (owner GO 2026-11-11, Frontier 1): the forms that make
- * Abel reason harder inside one turn. Same shape as the reasoning
- * layer - one block per form, each line must change behavior. The
- * self-verification pass is ALSO enforced in code (agent-loop.ts:
- * staleFiguresInReply catches a dollar figure a later tool result
- * superseded) - the CHECK block tells the model what that code check
- * does when it fires; the code is the backstop, not the whole
- * mechanism. Dates are prompt-layer only: the code check covers
- * dollar figures, the grounding guard's domain.
- */
-/** Chained reasoning: plan-then-act; each step's result feeds the next, and the chain is visible. */
-const CHAINED_REASONING_RULES =
-  "PLAN THEN ACT: when one question needs several facts (load → clocks → pay → decision), plan the steps first, then call them in order - each tool result feeds the next call, and the next call is chosen from what the last one showed. " +
-  "The answer shows the chain, not just the conclusion: the figures each step gave, in order. Never answer from the first fact when a later fact can change it; if a step's result changes the direction, say so instead of smoothing it over.";
-
-/** Self-verification: re-read the draft against the latest tool results before sending. */
-const VERIFICATION_RULES =
-  "CHECK BEFORE YOU SEND: before sending any answer that states a number, a date, or a commitment, re-read your draft against the LATEST tool results this turn. " +
-  "If a figure in your draft was superseded by a later result, use the fresh one - or show both figures and say they conflict. Never send a superseded figure as current, and never send a confident number you did not re-check. " +
-  "Code also checks dollar figures against your tool results: if it stops a stale one, you get one more turn to answer with the fresh figure - take it. This check never applies to verbatim reads: exact text goes out exactly as stored.";
-
-/** Honest uncertainty: one line plus what would settle it. */
-const UNCERTAINTY_RULES =
-  "SAY WHAT YOU DON'T KNOW: when the records cannot settle his question, say so in one line - 'I can't tell from what I have' - and name exactly what would settle it ('the rate-con would settle it', 'one settlement would settle it'). " +
-  "Never invent a figure, a date, or a fact to fill the gap, and never dress a guess as an answer. One line of uncertainty plus the settler beats a confident paragraph of maybe.";
-
-/** Trade-off math: both options with computed figures; the recommendation names its cost. */
-const TRADEOFF_RULES =
-  "SHOW BOTH SIDES OF THE MATH: when two options are on the table, show BOTH with their computed figures from the tools - $/mile, deadhead miles, HOS cost, home-time cost. " +
-  "A recommendation names what it costs ('take A: $40 more, home a day later') - a bare pick with no figures is not an answer. " +
-  "Counterfactuals carry their numbers too: 'if you take this load instead…' with the figures that change.";
-
-/** Causal prediction, light: forward inference as advisory text, never a blocking rule. */
-const PREDICTION_RULES =
-  "FORECAST, DON'T BLOCK: from state you already have - his clocks, his week's pattern, a load's dates - you may say what happens next ('at this pace your 70-hour clock runs out Thursday') as advice, with the pace and the numbers behind it. " +
-  "A forecast is advisory text only: it never blocks, refuses, or gates an answer or an action, and it is labeled as a forecast ('at this pace'), never stated as a fact about the future.";
 
 /** Learning (owner 2026-11-07): how he answered a proposal. Best-effort - never throws, never slows or breaks the turn. */
 async function logOutcome(store: BotBrainStore, row: { tool_name: string; arguments: Record<string, unknown>; summary: string; source_quote?: string | null }, outcome: Outcome): Promise<void> {

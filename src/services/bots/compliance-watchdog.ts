@@ -90,7 +90,7 @@
 
 import { todayEastern } from "@/lib/eastern-date";
 import { checkBotAction, type BotActionKind, type GuardrailVerdict } from "./guardrails";
-import { buildSharedReasoningText } from "./reasoning";
+import { sharedReasoningPrompt } from "./reasoning";
 import { toolScopeFor, type BotSlug, type ToolGroup } from "./registry";
 import type { BotTeamStore } from "./store";
 
@@ -648,13 +648,15 @@ export async function recordHandoff(input: {
   reason: string;
   ref?: string | null;
   deadlineKind?: ComplianceDeadlineKind | null;
+  /** Idempotency key for repeated handoffs (once-a-day team posts). */
+  fingerprint?: string | null;
 }): Promise<void> {
   await input.store.logAudit({
     botSlug: WATCHDOG_SLUG,
     actor: "bot",
     action: "handoff",
     targetRef: input.ref ?? null,
-    detail: { to: input.to, reason: input.reason, deadlineKind: input.deadlineKind ?? null },
+    detail: { to: input.to, reason: input.reason, deadlineKind: input.deadlineKind ?? null, fingerprint: input.fingerprint ?? null },
   });
 }
 
@@ -667,6 +669,30 @@ export interface WatchdogMemory {
   content: string;
 }
 
+/** A handoff another bot left for Watchdog — validated state only. */
+export interface WatchdogHandoff {
+  fromBot: string;
+  reason: string;
+  ref?: string | null;
+  deadlineKind?: string | null;
+}
+
+/**
+ * The team room, in Watchdog's own instructions (owner's model,
+ * 2026-11-19): the group chat is the shared channel — the bots talk
+ * to each other by name in the room, ask each other for work, hand
+ * work off, and report progress out loud. The owner is pulled in
+ * only when a decision or approval needs him; Abel is the boss for
+ * what reaches the owner, not the only bot who talks.
+ */
+export const WATCHDOG_TEAM_ROOM_INSTRUCTIONS = [
+  "THE TEAM ROOM: you work in one shared group chat with Abel (the coordinator and boss for what needs the owner's attention), Dispatch Scout, Tracker, Maintenance, Billing, and the Auditor.",
+  "Talk to the other bots BY NAME in the room. If you need work from another bot to finish your own — Tracker's position for a deadline that affects a run, Scout holding a load — ask them here, out loud, and record the handoff.",
+  "Report progress out loud: when you file a document, clear a flag, or a deadline changes state, say so in the room so the team can see it.",
+  "Answer a teammate's question about YOUR job when they ask it here. Stay on your own job: a question that belongs to another bot gets handed to that bot by name, not answered by you.",
+  "Only pull the owner in when a decision or approval actually needs him — a block he must rule on, a repair decision, missing paper only he can supply. Routine team coordination never waits on him.",
+].join("\n");
+
 /**
  * The instruction blocks for a Watchdog model turn: its job, the ten
  * shared reasoning forms (the same brain Abel has), the computed
@@ -677,11 +703,23 @@ export interface WatchdogMemory {
 export function buildWatchdogInstructions(input: {
   memories: WatchdogMemory[];
   snapshotText: string | null;
+  /** Handoffs the team left for Watchdog (newest first). */
+  handoffs?: WatchdogHandoff[];
 }): { kind: string; content: string }[] {
   const blocks: { kind: string; content: string }[] = [
     { kind: "instruction", content: WATCHDOG_JOB_PROMPT },
-    { kind: "instruction", content: buildSharedReasoningText() },
+    { kind: "instruction", content: sharedReasoningPrompt() },
+    { kind: "instruction", content: WATCHDOG_TEAM_ROOM_INSTRUCTIONS },
   ];
+  if (input.handoffs && input.handoffs.length > 0) {
+    const lines = input.handoffs.map(
+      (h) => `- From ${h.fromBot}: ${h.reason}${h.deadlineKind ? ` (deadline: ${h.deadlineKind})` : ""}${h.ref ? ` [ref ${h.ref}]` : ""}`,
+    );
+    blocks.push({
+      kind: "instruction",
+      content: `HANDOFFS WAITING FOR YOU FROM THE TEAM (summaries, newest first — pick these up in your reply when they are yours to answer):\n${lines.join("\n")}`,
+    });
+  }
   blocks.push({
     kind: "instruction",
     content:
@@ -703,6 +741,67 @@ export interface WatchdogSweepResult {
   alerts: string[];
   counts: { red: number; amber: number; ok: number; unknown: number; defects: number };
   summary: string;
+  /**
+   * Team-room posts the sweep wants made, addressed to a teammate by
+   * name (owner's team-room model, 2026-11-19). Posting + once-a-day
+   * dedupe is the caller's job; the sweep only computes them.
+   */
+  scoutHold: string | null;
+  trackerRequest: { text: string; deadlineKind: ComplianceDeadlineKind } | null;
+}
+
+/**
+ * The proactive word to Dispatch Scout, before a load is offered:
+ * when the legality verdict on the current checklist is blocked,
+ * Scout hears it from Watchdog by name — hold new loads until it
+ * clears. When Watchdog merely cannot confirm, Scout gets the
+ * heads-up version. A clear checklist earns silence (restraint).
+ */
+export function formatScoutHoldMessage(sweep: { checklist: EvaluatedChecklist; defects: OpenDefect[] }): string | null {
+  const verdict = checkLoadLegality({ checklist: sweep.checklist, defects: sweep.defects });
+  if (verdict.verdict === "blocked") {
+    return (
+      `Dispatch Scout — HOLD on new loads for this truck and driver: ${verdict.blocks.join(" ")} ` +
+      `Do not offer a load against this until it clears; I will post here the moment it does. ` +
+      `The owner has the final word — this is the compliance position, not a booking.`
+    );
+  }
+  if (verdict.verdict === "cannot-confirm") {
+    return (
+      `Dispatch Scout — before you offer a load: I cannot confirm this truck and driver are legal to run right now. ${verdict.unverified.join(" ")} ` +
+      `Get the missing paper or the owner's word first, then ask me again.`
+    );
+  }
+  return null;
+}
+
+/**
+ * The ask to Tracker when a dated deadline is close and the truck
+ * is actually out running: Watchdog needs the position to judge
+ * whether the truck can reach a shop or terminal in time. No
+ * running evidence, no dated deadline — no ask (restraint).
+ */
+export function formatTrackerPositionRequest(
+  sweep: { checklist: EvaluatedChecklist; segments: DutySegment[] },
+  now: Date = new Date(),
+): { text: string; deadlineKind: ComplianceDeadlineKind } | null {
+  const dated = [...sweep.checklist.reds, ...sweep.checklist.ambers]
+    .filter((d) => d.daysUntil !== null && d.dueDate !== null)
+    .sort((a, b) => (a.daysUntil ?? 0) - (b.daysUntil ?? 0));
+  const deadline = dated[0];
+  if (!deadline || deadline.dueDate === null || deadline.daysUntil === null) return null;
+  const latest = sweep.segments[0];
+  if (!latest) return null;
+  const ageMs = now.getTime() - new Date(latest.startedAt).getTime();
+  if (!(ageMs >= 0 && ageMs <= 24 * 60 * 60 * 1000)) return null;
+  const when =
+    deadline.daysUntil <= 0 ? "is already due" : deadline.daysUntil === 1 ? "is due tomorrow" : `is due in ${deadline.daysUntil} days`;
+  const text =
+    `Tracker — I need the truck's current position. ${deadline.label} ${when} (${formatDueDate(deadline.dueDate)}), ` +
+    `and the last duty entry I can see is ${latest.dutyStatus} at ${latest.location ?? "an unrecorded location"}. ` +
+    `If the truck is far from a shop or terminal, that deadline turns into a roadside problem. ` +
+    `Post the position here and I will work out whether it can reach a shop in time.`;
+  return { text, deadlineKind: deadline.kind };
 }
 
 /** The full snapshot for a model turn: checklist + defects + HOS, as summaries. */
@@ -783,7 +882,9 @@ export async function runWatchdogSweep(input: { store: BotTeamStore; now?: Date 
     alerts.length === 0
       ? "Compliance Watchdog: checklist current, no open defects, duty log covered."
       : `Compliance Watchdog: ${counts.red} red, ${counts.amber} amber, ${counts.defects} open defect${counts.defects === 1 ? "" : "s"}.`;
-  return { checklist, defects, segments, hosFlag, alerts, counts, summary };
+  const scoutHold = formatScoutHoldMessage({ checklist, defects });
+  const trackerRequest = formatTrackerPositionRequest({ checklist, segments }, now);
+  return { checklist, defects, segments, hosFlag, alerts, counts, summary, scoutHold, trackerRequest };
 }
 
 export { alertFingerprint };

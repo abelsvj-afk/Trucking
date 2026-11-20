@@ -76,6 +76,14 @@ function makeStub(state: StubState): BotTeamStore {
       state.spentCents += input.estimatedCents;
     },
     spentThisMonthCents: async () => state.spentCents,
+    saveBotMemory: async (input) => ({
+      id: "memory-new",
+      bot_slug: input.botSlug,
+      kind: input.kind,
+      content: input.content,
+      source: input.source ?? "bot",
+      created_at: new Date().toISOString(),
+    }),
     loadBotMemories: async () =>
       (state.memories ?? []).map((memory, index) => ({
         id: `memory-${index + 1}`,
@@ -101,6 +109,10 @@ function makeStub(state: StubState): BotTeamStore {
     listOpenDefects: async () => [],
     listRecentDutySegments: async () => [],
     hasRecentAlert: async () => false,
+    listRecentAudit: async () => [],
+    hasRecentAuditFingerprint: async () => false,
+    listHandoffsFor: async () => [],
+    listRecentGroupMessages: async () => [],
   };
 }
 
@@ -158,6 +170,33 @@ describe("bot-team group mode", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatch(/^Abel: Hi/);
     expect(state.groupMessages.length).toBeGreaterThan(0);
+  });
+
+  it("carries the shared reasoning layer and Abel's own memory context into his group turn", async () => {
+    const state: StubState = {
+      proposals: [],
+      spentCents: 0,
+      audit: [],
+      groupMessages: [],
+      memories: [{ content: "cost per mile: $1.20" }],
+    };
+    const seen: { systemContext?: string; instructions: { kind: string; content: string }[] }[] = [];
+    const { deps } = makeDeps(state, {
+      runChat: async (input) => {
+        seen.push(input);
+        return "Hi — I'm Abel.";
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps);
+    expect(seen).toHaveLength(1);
+    // The full brain: core and think-deeper form markers are present.
+    expect(seen[0]?.systemContext).toContain("CONTEXT: hold the whole thread");
+    expect(seen[0]?.systemContext).toContain("KNOW WHEN TO STOP");
+    expect(seen[0]?.systemContext).toContain("PLAN THEN ACT:");
+    // His own memory rides along; preference rows are not standing
+    // instructions, so they travel in the context, not that channel.
+    expect(seen[0]?.systemContext).toContain("cost per mile: $1.20");
+    expect(seen[0]?.instructions).toEqual([]);
   });
 
   it("tells the owner plainly when the model key is not configured", async () => {

@@ -100,6 +100,26 @@ export interface OpenDefectRow {
   created_at: string;
 }
 
+export interface GroupMessageRow {
+  id: string;
+  telegram_message_id: number;
+  sender_kind: "owner" | "bot";
+  sender_ref: string;
+  text: string;
+  routed_to_bot_slug: string | null;
+  created_at: string;
+}
+
+export interface BotAuditRow {
+  id: string;
+  bot_slug: string;
+  actor: string;
+  action: string;
+  target_ref: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface GroupMessageInput {
   telegramChatId: number;
   telegramMessageId: number;
@@ -146,6 +166,20 @@ export interface BotTeamStore {
   recordSpend(input: { botSlug: BotSlug; model: string; tier: "scan" | "rank"; estimatedCents: number }): Promise<void>;
   spentThisMonthCents(sinceIso: string): Promise<number>;
   loadBotMemories(botSlug: BotSlug): Promise<BotMemoryRow[]>;
+  /**
+   * Write one row of a bot's own memory (bot_team_memories). This is
+   * the write half of the shared brain: facts a bot learns, rules it
+   * is given, corrections the owner makes, and the watch-outs the
+   * corrections-learning derives (services/bots/learning.ts). A bot
+   * only ever writes its OWN slug's rows — memory is per-bot even
+   * though the reasoning is shared.
+   */
+  saveBotMemory(input: {
+    botSlug: BotSlug;
+    kind: BotMemoryRow["kind"];
+    content: string;
+    source?: string;
+  }): Promise<BotMemoryRow>;
   /** Compliance Watchdog: the deadline checklist (migration 00105). */
   listComplianceDeadlines(): Promise<ComplianceDeadlineRow[]>;
   /**
@@ -165,6 +199,31 @@ export interface BotTeamStore {
    * compliance_alert_posted) since `sinceIso`.
    */
   hasRecentAlert(fingerprint: string, sinceIso: string): Promise<boolean>;
+  /**
+   * Audit rows for one action since a moment, newest first. The
+   * generic read behind handoffs, sweep claims, and bot-channel
+   * bookkeeping (Watchdog team room, 2026-11-19).
+   */
+  listRecentAudit(input: { action: string; sinceIso: string; limit?: number }): Promise<BotAuditRow[]>;
+  /**
+   * Idempotency for any fingerprinted audit action: true when a row
+   * with this action and detail.fingerprint exists since `sinceIso`.
+   * Job claiming (sweep_claim) and once-a-day team handoffs ride on
+   * this — the Postgres-side unique truth is the audit log itself.
+   */
+  hasRecentAuditFingerprint(input: { action: string; fingerprint: string; sinceIso: string }): Promise<boolean>;
+  /**
+   * Handoffs addressed TO one bot (audit action 'handoff',
+   * detail.to = the bot), newest first. Validated state only —
+   * summaries the receiving bot's next turn reads, never transcripts.
+   */
+  listHandoffsFor(input: { to: BotSlug; sinceIso: string; limit?: number }): Promise<BotAuditRow[]>;
+  /**
+   * The room's most recent logged messages, newest first. The
+   * bot-to-bot channel reads this for redelivery dedupe and for the
+   * consecutive-bot-message chain depth (loop safeguard).
+   */
+  listRecentGroupMessages(limit?: number): Promise<GroupMessageRow[]>;
 }
 
 export function createBotTeamStore(companyId: string | null): BotTeamStore | null {
@@ -325,6 +384,22 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
       return (data ?? []) as BotMemoryRow[];
     },
 
+    async saveBotMemory(input) {
+      const { data, error } = await client
+        .from("bot_team_memories")
+        .insert({
+          company_id: companyId,
+          bot_slug: input.botSlug,
+          kind: input.kind,
+          content: input.content,
+          source: input.source ?? "bot",
+        })
+        .select()
+        .single();
+      if (error || !data) fail("saveBotMemory", error);
+      return data as BotMemoryRow;
+    },
+
     async listComplianceDeadlines() {
       const { data, error } = await client
         .from("bot_compliance_deadlines")
@@ -402,6 +477,57 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
         .limit(1);
       if (error) fail("hasRecentAlert", error);
       return (data ?? []).length > 0;
+    },
+
+    async listRecentAudit(input) {
+      const { data, error } = await client
+        .from("bot_audit_log")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("action", input.action)
+        .gte("created_at", input.sinceIso)
+        .order("created_at", { ascending: false })
+        .limit(input.limit ?? 20);
+      if (error) fail("listRecentAudit", error);
+      return (data ?? []) as BotAuditRow[];
+    },
+
+    async hasRecentAuditFingerprint(input) {
+      const { data, error } = await client
+        .from("bot_audit_log")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("action", input.action)
+        .gte("created_at", input.sinceIso)
+        .filter("detail->>fingerprint", "eq", input.fingerprint)
+        .limit(1);
+      if (error) fail("hasRecentAuditFingerprint", error);
+      return (data ?? []).length > 0;
+    },
+
+    async listHandoffsFor(input) {
+      const { data, error } = await client
+        .from("bot_audit_log")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("action", "handoff")
+        .gte("created_at", input.sinceIso)
+        .filter("detail->>to", "eq", input.to)
+        .order("created_at", { ascending: false })
+        .limit(input.limit ?? 5);
+      if (error) fail("listHandoffsFor", error);
+      return (data ?? []) as BotAuditRow[];
+    },
+
+    async listRecentGroupMessages(limit = 25) {
+      const { data, error } = await client
+        .from("bot_group_messages")
+        .select("*")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) fail("listRecentGroupMessages", error);
+      return (data ?? []) as GroupMessageRow[];
     },
   };
 }

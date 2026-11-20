@@ -36,10 +36,12 @@
 // honest channel until group callbacks are wired (Phase 1).
 //
 // Abel's group answers use runBotChat with context assembled in code:
-// recent group history + the bot's stored memories. They do NOT yet
-// carry the live company snapshot the 1:1 path loads — a group answer
-// never states a live figure it has not loaded. That snapshot is a
-// Phase 1 gap, listed in the PR.
+// recent group history + the bot's stored memories. Since the shared
+// reasoning build (2026-11-19) they also carry Abel's full reasoning
+// layer via services/bots/reasoning.ts — the same forms as his 1:1
+// turn. They do NOT yet carry the live company snapshot the 1:1 path
+// loads — a group answer never states a live figure it has not
+// loaded. That snapshot is a Phase 1 gap, listed in the PR.
 
 import { randomUUID } from "node:crypto";
 import { auditLoadDraft } from "./auditor";
@@ -62,7 +64,9 @@ import {
 } from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
-import { GROUP_SEATS, type BotSlug } from "./registry";
+import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
+import { GROUP_SEATS, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
+import { botChainDepth, evaluateBotPickup, identifyTeamBot } from "./bot-channel";
 import { routeGroupMessage, unseatedReply } from "./router";
 import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
@@ -78,6 +82,15 @@ export interface GroupHandlerDeps {
   store: BotTeamStore | null;
   sendMessage: (chatId: number, text: string) => Promise<number[]>;
   /**
+   * Per-bot sending (individual faces, owner 2026-11-19): when the
+   * named bot has its OWN Telegram token configured, send as that
+   * bot — its own account and face, no name prefix — and return
+   * true. Return false when the bot has no token of its own; the
+   * caller falls back to sendMessage with the bot's name prefixed.
+   * Absent entirely = every bot speaks through the shared token.
+   */
+  sendMessageAs?: (botSlug: BotSlug, chatId: number, text: string) => Promise<boolean>;
+  /**
    * Abel's chat turn. Built lazily by the caller (the OpenAI provider
    * throws without a key); undefined = the group says AI is not
    * configured instead of failing.
@@ -86,6 +99,13 @@ export interface GroupHandlerDeps {
     userText: string;
     history: { role: "user" | "assistant"; text: string }[];
     instructions: { kind: string; content: string }[];
+    /**
+     * The answering bot's shared-brain context (services/bots/
+     * reasoning.ts): its system prompt — identity, tool scope, every
+     * reasoning form — plus its own memory context. The caller maps
+     * it into the chat turn's system prompt.
+     */
+    systemContext?: string;
   }) => Promise<string | null>;
   /**
    * The shared-browser runtime for board scans. Built from env when
@@ -110,20 +130,55 @@ export interface GroupHandlerDeps {
 
 export type GroupHandleResult = "handled" | "ignored" | "disabled";
 
+/**
+ * Send one bot's line to the room: as the bot itself when it has its
+ * own Telegram token (deps.sendMessageAs), otherwise through the
+ * shared token with the bot's display name prefixed — the interim
+ * shape until every seat has its own account (faces, 2026-11-19).
+ */
+async function sendAsBot(
+  deps: GroupHandlerDeps,
+  slug: BotSlug,
+  displayName: string,
+  chatId: number,
+  text: string,
+): Promise<void> {
+  if (deps.sendMessageAs) {
+    try {
+      if (await deps.sendMessageAs(slug, chatId, text)) return;
+    } catch (err) {
+      console.error(`[bot-team] send-as-${slug} failed — falling back to the shared token`, err);
+    }
+  }
+  await deps.sendMessage(chatId, `${displayName}: ${text}`);
+}
+
 function groupChatOf(update: TelegramUpdate): { id: number; type: string } | null {
   const chat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
   if (!chat || typeof chat.id !== "number") return null;
   return { id: chat.id, type: chat.type ?? "" };
 }
 
-function senderOf(update: TelegramUpdate): { id: number | null; isBot: boolean; text: string | null; messageId: number | null } {
+function senderOf(update: TelegramUpdate): {
+  id: number | null;
+  isBot: boolean;
+  text: string | null;
+  messageId: number | null;
+  username: string | null;
+  /** Team bot this message replies to, when it replies to a bot. */
+  replyToBotSlug: BotSlug | null;
+} {
   const message = update.message;
   const from = message?.from;
+  const replyFrom = message?.reply_to_message?.from;
   return {
     id: typeof from?.id === "number" ? from.id : null,
     isBot: from?.is_bot === true,
     text: typeof message?.text === "string" ? message.text : null,
     messageId: typeof message?.message_id === "number" ? message.message_id : null,
+    username: typeof from?.username === "string" ? from.username : null,
+    replyToBotSlug:
+      replyFrom?.is_bot === true ? identifyTeamBot(typeof replyFrom?.username === "string" ? replyFrom.username : null) : null,
   };
 }
 
@@ -142,24 +197,48 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   if (!deps.allowedChatId) return "disabled";
 
   const sender = senderOf(update);
-  // Bots do not answer each other unprompted.
-  if (sender.isBot) return "ignored";
-  // The room has no third parties.
-  if (sender.id === null || String(sender.id) !== deps.allowedChatId) return "ignored";
+  // Who is speaking? The owner, or a team bot identified by its own
+  // Telegram username (bots/bot-channel.ts — the group is the shared
+  // channel, and bots pick up what is addressed to them there). The
+  // room has no third parties: an unknown human and an unlisted bot
+  // are both ignored.
+  const fromBotSlug = sender.isBot ? identifyTeamBot(sender.username) : null;
+  if (sender.isBot && fromBotSlug === null) return "ignored";
+  if (!sender.isBot && (sender.id === null || String(sender.id) !== deps.allowedChatId)) return "ignored";
 
   const text = sender.text;
   const store = deps.store;
 
-  // Log the owner's message first (best-effort: a logging failure is
-  // loud in the console but never fails the reply).
+  // Bot-to-bot safeguards (Telegram's loop-prevention requirement):
+  // a redelivered bot message is dropped by message id, and the
+  // chain depth counts consecutive bot messages at the head of the
+  // room log — a human post resets it. If the log cannot be read, a
+  // bot message is answered nowhere: fail closed for bots, never
+  // for the owner.
+  let chainDepth = 0;
+  if (fromBotSlug && store && sender.messageId !== null) {
+    try {
+      const recent = await store.listRecentGroupMessages(25);
+      if (recent.some((row) => row.sender_kind === "bot" && row.telegram_message_id === sender.messageId)) {
+        return "ignored";
+      }
+      chainDepth = botChainDepth(recent);
+    } catch (err) {
+      console.error("[bot-team] bot-channel log check failed — not answering a bot message", err);
+      return "ignored";
+    }
+  }
+
+  // Log the message first (best-effort: a logging failure is loud in
+  // the console but never fails the reply).
   if (store && text !== null && sender.messageId !== null) {
     try {
       await store.ensureGroupRoom(chat.id);
       await store.recordGroupMessage({
         telegramChatId: chat.id,
         telegramMessageId: sender.messageId,
-        senderKind: "owner",
-        senderRef: String(sender.id),
+        senderKind: fromBotSlug ? "bot" : "owner",
+        senderRef: fromBotSlug ?? String(sender.id),
         text: text.slice(0, 4000),
         routedToBotSlug: null,
       });
@@ -169,15 +248,33 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
 
   if (text === null || text.trim() === "") {
-    await deps.sendMessage(chat.id, "Text only in the group for now — photos and files go to Abel 1:1.");
+    if (!fromBotSlug) {
+      await deps.sendMessage(chat.id, "Text only in the group for now — photos and files go to Abel 1:1.");
+    }
     return "handled";
   }
 
-  const route = routeGroupMessage({ text, senderKind: "owner" });
+  const route = routeGroupMessage({
+    text,
+    senderKind: fromBotSlug ? "bot" : "owner",
+    senderSlug: fromBotSlug ?? undefined,
+    replyToBotSlug: sender.replyToBotSlug ?? undefined,
+  });
+
+  // A bot's message is answered only when the bot-channel verdict
+  // says pick it up: addressed to a seated bot, not the sender
+  // itself, under the chain cap. Heard-and-logged is a complete
+  // outcome for the rest — the room saw it; nobody needed to answer.
+  if (fromBotSlug) {
+    const verdict = evaluateBotPickup({ senderSlug: fromBotSlug, route, chainDepth });
+    if (!verdict.pickup) return "handled";
+  }
 
   // A decision ("yes" / "no" / "2 yes") answers the newest open
-  // proposal — the same grammar as the 1:1 waiting list.
-  const decision = parseGroupDecision(text);
+  // proposal — the same grammar as the 1:1 waiting list. Only the
+  // owner decides: a bot's "yes" in the room is conversation, never
+  // an approval.
+  const decision = fromBotSlug ? null : parseGroupDecision(text);
   if (decision && store) {
     try {
       const open = await store.listOpenProposals(5);
@@ -274,10 +371,22 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
   try {
     const memories = store ? await store.loadBotMemories("abel") : [];
+    // Shared brain (2026-11-19): Abel's group turn carries the same
+    // full reasoning layer as his 1:1 turn — his system prompt from
+    // the shared builder, plus his own memory context (watch-outs
+    // from his corrections first). Standing rules travel as
+    // instructions, the channel the chat prompt already honors on
+    // every reply; the rest of his memory renders in the context
+    // block, so nothing is assembled twice.
+    const systemPrompt = buildBotSystemPrompt("abel");
+    const memoryContext = buildBotMemoryContext(memories.filter((row) => row.kind !== "rule"));
     const reply = await deps.runChat({
       userText: text,
       history: [],
-      instructions: memories.map((row) => ({ kind: row.kind, content: row.content })),
+      instructions: memories
+        .filter((row) => row.kind === "rule")
+        .map((row) => ({ kind: row.kind, content: row.content })),
+      systemContext: [systemPrompt, memoryContext].filter((part) => part && part.trim() !== "").join("\n\n"),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
     if (store) {
@@ -384,19 +493,19 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
 async function handleWatchdogTurn(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
   const store = deps.store;
   if (!deps.runChat) {
-    await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.`);
+    await sendAsBot(deps, WATCHDOG_SLUG, WATCHDOG_DISPLAY_NAME, chatId, "I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
     return;
   }
   if (store) {
     try {
       const spent = await store.spentThisMonthCents(monthStartIso());
       if (capReached(spent, monthlyCapCents())) {
-        await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: ${SPEND_CAP_REACHED_TEXT}`);
+        await sendAsBot(deps, WATCHDOG_SLUG, WATCHDOG_DISPLAY_NAME, chatId, SPEND_CAP_REACHED_TEXT);
         return;
       }
     } catch (err) {
       console.error("[bot-team] spend check failed — refusing the model call", err);
-      await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.`);
+      await sendAsBot(deps, WATCHDOG_SLUG, WATCHDOG_DISPLAY_NAME, chatId, "I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.");
       return;
     }
   }
@@ -410,12 +519,36 @@ async function handleWatchdogTurn(chatId: number, text: string, deps: GroupHandl
       snapshot = null;
     }
   }
+  // Handoffs the team left for Watchdog (structured records behind
+  // the in-room asks): summaries in the turn's instructions, newest
+  // first. A failed read never fails the turn — it just answers
+  // without them, like a missing snapshot.
+  let handoffs: { fromBot: string; reason: string; ref: string | null; deadlineKind: string | null }[] = [];
+  if (store) {
+    try {
+      const rows = await store.listHandoffsFor({
+        to: WATCHDOG_SLUG,
+        sinceIso: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+        limit: 5,
+      });
+      handoffs = rows
+        .map((row) => ({
+          fromBot: row.bot_slug,
+          reason: typeof row.detail?.reason === "string" ? row.detail.reason : "",
+          ref: row.target_ref,
+          deadlineKind: typeof row.detail?.deadlineKind === "string" ? row.detail.deadlineKind : null,
+        }))
+        .filter((h) => h.reason !== "");
+    } catch (err) {
+      console.error("[bot-team] watchdog handoff read failed — answering without them", err);
+    }
+  }
   try {
     const memories = store ? await store.loadBotMemories(WATCHDOG_SLUG) : [];
     const reply = await deps.runChat({
       userText: text,
       history: [],
-      instructions: buildWatchdogInstructions({ memories, snapshotText: snapshot }),
+      instructions: buildWatchdogInstructions({ memories, snapshotText: snapshot, handoffs }),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
     if (store) {
@@ -430,10 +563,10 @@ async function handleWatchdogTurn(chatId: number, text: string, deps: GroupHandl
         console.error("[bot-team] spend record failed", err);
       }
     }
-    await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: ${answer}`);
+    await sendAsBot(deps, WATCHDOG_SLUG, WATCHDOG_DISPLAY_NAME, chatId, answer);
   } catch (err) {
     console.error("[bot-team] group Watchdog turn failed", err);
-    await deps.sendMessage(chatId, `${WATCHDOG_DISPLAY_NAME}: that turn failed on my side — nothing was booked or sent. Try again in a moment.`);
+    await sendAsBot(deps, WATCHDOG_SLUG, WATCHDOG_DISPLAY_NAME, chatId, "that turn failed on my side — nothing was booked or sent. Try again in a moment.");
   }
 }
 

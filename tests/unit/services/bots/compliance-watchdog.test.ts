@@ -14,14 +14,17 @@ import {
   flagMissingDutyCoverage,
   formatComplianceAlert,
   formatDefectAlert,
+  formatScoutHoldMessage,
+  formatTrackerPositionRequest,
   proposeReminder,
   refuseWatchdogAction,
   runWatchdogSweep,
   shouldWatchdogSpeak,
   WATCHDOG_JOB_PROMPT,
+  WATCHDOG_TEAM_ROOM_INSTRUCTIONS,
   type ComplianceDeadlineInput,
 } from "@/services/bots/compliance-watchdog";
-import { buildSharedReasoningText, SHARED_REASONING_BLOCKS } from "@/services/bots/reasoning";
+import { REASONING_FORMS, sharedReasoningPrompt } from "@/services/bots/reasoning";
 import type {
   BotTeamStore,
   ComplianceDeadlineRow,
@@ -120,6 +123,18 @@ function makeStub(state: StubState): BotTeamStore {
     listOpenDefects: async () => state.defects,
     listRecentDutySegments: async () => state.segments,
     hasRecentAlert: async () => false,
+    saveBotMemory: async (input) => ({
+      id: "memory-new",
+      bot_slug: input.botSlug,
+      kind: input.kind,
+      content: input.content,
+      source: input.source ?? "bot",
+      created_at: new Date().toISOString(),
+    }),
+    listRecentAudit: async () => [],
+    hasRecentAuditFingerprint: async () => false,
+    listHandoffsFor: async () => [],
+    listRecentGroupMessages: async () => [],
   };
 }
 
@@ -300,7 +315,7 @@ describe("reminders and filing", () => {
 });
 
 describe("model-turn instructions and sweep", () => {
-  it("the turn carries the job, all ten reasoning forms, the snapshot, and memories", () => {
+  it("the turn carries the job, the whole shared brain, the snapshot, and memories", () => {
     const checklist = evaluateChecklist(currentRows(), NOW);
     const instructions = buildWatchdogInstructions({
       memories: [{ kind: "fact", content: "Owner carries the legal liability." }],
@@ -308,11 +323,43 @@ describe("model-turn instructions and sweep", () => {
     });
     const joined = instructions.map((b) => b.content).join("\n\n");
     expect(joined).toContain(WATCHDOG_JOB_PROMPT);
-    expect(joined).toContain(buildSharedReasoningText());
-    for (const block of SHARED_REASONING_BLOCKS) {
-      expect(joined).toContain(block.text);
+    // The shared reasoning engine (PR #101): the same prompt text
+    // Abel runs on — every form's rules, unabridged.
+    expect(joined).toContain(sharedReasoningPrompt());
+    for (const form of REASONING_FORMS) {
+      expect(joined).toContain(form.rules);
     }
+    // The owner's ten core forms, all present, in Abel's order —
+    // no cut-down brain for this seat (owner ruling, 2026-11-19).
+    expect(REASONING_FORMS.filter((f) => f.layer === "core").map((f) => f.id)).toEqual([
+      "temporal",
+      "contextual",
+      "causal",
+      "practical",
+      "self-correction",
+      "episodic",
+      "theory-of-mind",
+      "value-learning",
+      "consolidation",
+      "restraint",
+    ]);
+    // The team-room rules ride along: talk to teammates by name,
+    // hand work off, pull the owner in only for decisions.
+    expect(joined).toContain(WATCHDOG_TEAM_ROOM_INSTRUCTIONS);
     expect(joined).toContain("Owner carries the legal liability.");
+  });
+
+  it("handoffs from the team land in the turn as summaries", () => {
+    const instructions = buildWatchdogInstructions({
+      memories: [],
+      snapshotText: "snapshot",
+      handoffs: [
+        { fromBot: "dispatch-scout", reason: "driver says the medical card was renewed Tuesday", ref: null, deadlineKind: "medical_card" },
+      ],
+    });
+    const joined = instructions.map((b) => b.content).join("\n\n");
+    expect(joined).toContain("HANDOFFS WAITING FOR YOU FROM THE TEAM");
+    expect(joined).toContain("From dispatch-scout: driver says the medical card was renewed Tuesday");
   });
 
   it("a missing snapshot is stated as missing, never invented", () => {
@@ -346,5 +393,73 @@ describe("model-turn instructions and sweep", () => {
     expect(sweep.alerts.some((a) => a.startsWith("RED — Medical card"))).toBe(true);
     expect(sweep.alerts.some((a) => a.startsWith("AMBER — UCR"))).toBe(true);
     expect(sweep.alerts.some((a) => a.includes("air leak"))).toBe(true);
+  });
+});
+
+describe("team-room posts (owner's model, 2026-11-19)", () => {
+  it("a blocked checklist speaks to Dispatch Scout by name — hold, before a load is offered", () => {
+    const rows = currentRows().map((r) => (r.kind === "medical_card" ? { ...r, dueDate: dateOffset(-2) } : r));
+    const checklist = evaluateChecklist(rows, NOW);
+    const hold = formatScoutHoldMessage({ checklist, defects: [] });
+    expect(hold).not.toBeNull();
+    expect(hold).toContain("Dispatch Scout — HOLD on new loads");
+    expect(hold).toContain("The owner has the final word");
+  });
+
+  it("a cannot-confirm checklist gives Scout the heads-up version, not a hold", () => {
+    const rows = currentRows().filter((r) => r.kind !== "mvr");
+    const checklist = evaluateChecklist(rows, NOW);
+    const headsUp = formatScoutHoldMessage({ checklist, defects: [] });
+    expect(headsUp).not.toBeNull();
+    expect(headsUp).toContain("Dispatch Scout — before you offer a load");
+    expect(headsUp).not.toContain("HOLD");
+  });
+
+  it("a clear checklist earns Scout silence", () => {
+    const checklist = evaluateChecklist(currentRows(), NOW);
+    expect(formatScoutHoldMessage({ checklist, defects: [] })).toBeNull();
+  });
+
+  it("an amber deadline on a running truck asks Tracker for the position, by name", () => {
+    const rows = currentRows().map((r) => (r.kind === "annual_inspection" ? { ...r, dueDate: dateOffset(10) } : r));
+    const checklist = evaluateChecklist(rows, NOW);
+    const ask = formatTrackerPositionRequest(
+      { checklist, segments: [{ dutyStatus: "driving", startedAt: new Date(NOW.getTime() - 60 * 60 * 1000).toISOString(), location: "I-20 near Tyler, TX" }] },
+      NOW,
+    );
+    expect(ask).not.toBeNull();
+    expect(ask!.deadlineKind).toBe("annual_inspection");
+    expect(ask!.text).toContain("Tracker — I need the truck's current position");
+    expect(ask!.text).toContain("Annual inspection");
+    expect(ask!.text).toContain("I-20 near Tyler, TX");
+  });
+
+  it("no running evidence — no position ask (restraint)", () => {
+    const rows = currentRows().map((r) => (r.kind === "annual_inspection" ? { ...r, dueDate: dateOffset(10) } : r));
+    const checklist = evaluateChecklist(rows, NOW);
+    expect(formatTrackerPositionRequest({ checklist, segments: [] }, NOW)).toBeNull();
+    const stale = formatTrackerPositionRequest(
+      { checklist, segments: [{ dutyStatus: "off_duty", startedAt: new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(), location: null }] },
+      NOW,
+    );
+    expect(stale).toBeNull();
+  });
+
+  it("the sweep itself computes both team posts", async () => {
+    const state: StubState = {
+      deadlines: currentRows().map((r) =>
+        r.kind === "medical_card"
+          ? { id: "d1", company_id: "company-1", kind: r.kind, subject_ref: null, due_date: dateOffset(-2), status: "filed" as const, source: null, notes: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString() }
+          : { id: `d-${r.kind}`, company_id: "company-1", kind: r.kind, subject_ref: null, due_date: r.dueDate ?? null, status: "filed" as const, source: null, notes: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString() },
+      ),
+      defects: [],
+      segments: [{ duty_status: "driving", started_at: new Date(NOW.getTime() - 30 * 60 * 1000).toISOString(), location: "US-49, Hattiesburg, MS" }],
+      proposals: [],
+      audit: [],
+    };
+    const sweep = await runWatchdogSweep({ store: makeStub(state), now: NOW });
+    expect(sweep.scoutHold).toContain("Dispatch Scout — HOLD");
+    expect(sweep.trackerRequest).not.toBeNull();
+    expect(sweep.trackerRequest!.deadlineKind).toBe("medical_card");
   });
 });
