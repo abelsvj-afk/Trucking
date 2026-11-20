@@ -36,9 +36,11 @@ export interface GroupRoute {
   seated: boolean;
 }
 
+// A bot's Telegram username (@DispatchScoutBot) is a mention too —
+// it has no word boundaries inside it, so it needs its own pattern.
 const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "abel", patterns: [/\babe\b/i, /\babel\b/i] },
-  { slug: "dispatch-scout", patterns: [/\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i] },
+  { slug: "dispatch-scout", patterns: [/@?dispatchscoutbot\b/i, /\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i] },
   { slug: "tracker", patterns: [/\btracker\b/i] },
   { slug: "compliance-watchdog", patterns: [/\bwatchdog\b/i, /\bcompliance\b/i, /\bsafety\b/i] },
   { slug: "maintenance", patterns: [/\bmaintenance\b/i, /\bshop\b/i, /\brepair\b/i] },
