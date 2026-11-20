@@ -49,6 +49,7 @@
 
 import type { BotSlug } from "./registry";
 import { BOT_REGISTRY } from "./registry";
+import { botUsernameFor } from "./sending";
 
 export interface BotFace {
   slug: BotSlug;
@@ -103,6 +104,15 @@ export function botFace(slug: BotSlug): BotFace {
 /** Same lookup as botFace — the name Tracker's code uses. */
 export function faceFor(slug: BotSlug): BotFace {
   return BOT_FACES[slug];
+}
+
+/**
+ * The bot's Telegram username (owner 2026-11-20: EVERY bot gets its own BotFather account).
+ * Not a secret: TELEGRAM_<BOT>_BOT_USERNAME (sending.ts botUsernameFor — set when the account
+ * is created, no code change), else the table above. Null = account not created yet.
+ */
+export function botFaceUsername(slug: BotSlug, env: Record<string, string | undefined> = process.env): string | null {
+  return botUsernameFor(slug, env) ?? BOT_FACES[slug].username;
 }
 
 /** Token for one bot's face, from the environment. Null = the account is not wired yet. */
