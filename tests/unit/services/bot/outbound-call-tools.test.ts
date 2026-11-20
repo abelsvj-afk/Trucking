@@ -267,3 +267,44 @@ describe("list_outbound_calls", () => {
     expect(await empty.find((t) => t.name === "list_outbound_calls")!.run!({})).toBe("No calls yet.");
   });
 });
+
+// Audit F-005/F-016: the kill switch is read by the DIALER, right before
+// Telnyx, so a call queued while calling was on never dials after it is
+// switched off — whichever route (tool, webhook queue drain, retry) reaches it.
+describe("dialOutboundCallRow kill switch", () => {
+  const queued: Row = {
+    id: "call-q", company_id: "company-1", to_number: "+15559876543", to_name: "Marcus",
+    purpose: "ETA check", say: "Ask when he gets there.", status: "dialing",
+    created_at: "2026-11-17T15:00:00.000Z", deleted_at: null,
+  };
+
+  it("switched off with a queued call: nothing is dialed and the row says why", async () => {
+    const { dialOutboundCallRow } = await import("@/services/calling/dialer");
+    const client = seed(false, [{ ...queued }]);
+    const { fetchImpl } = fakeTelnyx();
+    const result = await dialOutboundCallRow(client as never, { ...queued } as never, { config: CONFIG, fetchImpl: fetchImpl as never });
+    expect(result).toMatchObject({ ok: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(client._db.outbound_calls[0]).toMatchObject({ status: "failed" });
+    expect(String(client._db.outbound_calls[0].outcome)).toMatch(/^Not dialed: Outbound calling is switched off/);
+  });
+
+  it("global AI off also stops the dial", async () => {
+    const { dialOutboundCallRow } = await import("@/services/calling/dialer");
+    const client = seed(true, [{ ...queued }]);
+    client._db.companies[0].ai_globally_disabled = true;
+    const { fetchImpl } = fakeTelnyx();
+    const result = await dialOutboundCallRow(client as never, { ...queued } as never, { config: CONFIG, fetchImpl: fetchImpl as never });
+    expect(result).toMatchObject({ ok: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("switched on: it dials", async () => {
+    const { dialOutboundCallRow } = await import("@/services/calling/dialer");
+    const client = seed(true, [{ ...queued }]);
+    const { fetchImpl } = fakeTelnyx();
+    const result = await dialOutboundCallRow(client as never, { ...queued } as never, { config: CONFIG, fetchImpl: fetchImpl as never });
+    expect(result).toMatchObject({ ok: true });
+    expect(fetchImpl).toHaveBeenCalled();
+  });
+});
