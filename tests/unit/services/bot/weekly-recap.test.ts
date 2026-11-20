@@ -26,4 +26,13 @@ describe("Sunday money recap", () => {
     expect(text).toContain("can't work it out");
     expect(text).not.toContain("Pay per mile");
   });
+
+  // Audit F-004: a failed read is said, never shown as $0.
+  it("a failed fuel or expenses read says so — never $0 — and skips cost per mile", () => {
+    const text = composeRecap({ weekStart: "2026-11-16", weekEnd: "2026-11-22", loads: 2, miles: 1000, payLowCents: 60000, payHighCents: 60000, unpriced: 0, fuelCents: null, expensesCents: 1000 });
+    expect(text).toContain("Fuel: couldn't read fuel this week");
+    expect(text).not.toContain("Fuel: $0.00");
+    expect(text).toContain("won't guess");
+    expect(text).not.toMatch(/Cost per mile: \$/);
+  });
 });

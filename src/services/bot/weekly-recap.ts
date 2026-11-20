@@ -19,8 +19,10 @@ export interface WeekNumbers {
   payLowCents: number;
   payHighCents: number;
   unpriced: number;
-  fuelCents: number;
-  expensesCents: number;
+  /** null = the fuel read failed: said so, never shown as $0 (audit F-004). */
+  fuelCents: number | null;
+  /** null = the expenses read failed: said so, never shown as $0. */
+  expensesCents: number | null;
 }
 
 /** Due on Sunday between 5 and 9 PM on his clock; returns the Monday that starts the week, or null. */
@@ -34,14 +36,16 @@ export function recapDue(nowMs: number, tz: string): { weekStart: string; weekEn
 
 export function composeRecap(w: WeekNumbers): string {
   const pay = w.payLowCents === w.payHighCents ? formatMoney(w.payLowCents) : `${formatMoney(w.payLowCents)} to ${formatMoney(w.payHighCents)}`;
-  const cost = w.fuelCents + w.expensesCents;
+  const money = (cents: number | null, what: string) => (cents === null ? `couldn't read ${what} this week` : formatMoney(cents));
+  const cost = w.fuelCents === null || w.expensesCents === null ? null : w.fuelCents + w.expensesCents;
   const lines = [
     `📊 Your week (Mon ${w.weekStart.slice(5)} – Sun ${w.weekEnd.slice(5)}):`,
     `🚚 ${w.loads} load${w.loads === 1 ? "" : "s"} delivered · ${w.miles.toLocaleString("en-US")} mi`,
     `💵 Pay from them: ${pay}${w.unpriced > 0 ? ` (+${w.unpriced} I can't price yet)` : ""}`,
-    `⛽ Fuel: ${formatMoney(w.fuelCents)} · Other expenses: ${formatMoney(w.expensesCents)}`,
+    `⛽ Fuel: ${money(w.fuelCents, "fuel")} · Other expenses: ${money(w.expensesCents, "expenses")}`,
   ];
-  if (w.miles > 0) lines.push(`📉 Cost per mile: ${formatMoney(Math.round(cost / w.miles))} (fuel + expenses ÷ miles)`);
+  if (cost === null) lines.push("📉 Cost per mile: I couldn't read all your costs this week, so I won't guess it.");
+  else if (w.miles > 0) lines.push(`📉 Cost per mile: ${formatMoney(Math.round(cost / w.miles))} (fuel + expenses ÷ miles)`);
   else lines.push("📉 Cost per mile: no miles on delivered loads this week, so I can't work it out.");
   if (w.miles > 0 && w.payLowCents > 0) lines.push(`💡 Pay per mile: ${formatMoney(Math.round(w.payLowCents / w.miles))}`);
   return lines.join("\n");
@@ -74,7 +78,7 @@ export async function planWeeklyRecap(store: BotBrainStore, now: Date, tz: strin
     }
   }
   const sum = (rows: unknown, key: string) => ((rows ?? []) as Record<string, number | null>[]).reduce((s, r) => s + (Number(r[key]) || 0), 0);
-  const expenses = ((expRes.data ?? []) as { amount_cents: number; bucket?: string | null }[]).filter((e) => e.bucket !== "pay_deduction");
+  const expenses = expRes.error ? null : ((expRes.data ?? []) as { amount_cents: number; bucket?: string | null }[]).filter((e) => e.bucket !== "pay_deduction");
   return {
     kind: "checkin",
     key: `recap:${due.weekStart}`,
@@ -87,8 +91,8 @@ export async function planWeeklyRecap(store: BotBrainStore, now: Date, tz: strin
       payLowCents: low,
       payHighCents: high,
       unpriced,
-      fuelCents: fuelRes.error ? 0 : sum(fuelRes.data, "total_cost_cents"),
-      expensesCents: sum(expenses, "amount_cents"),
+      fuelCents: fuelRes.error ? null : sum(fuelRes.data, "total_cost_cents"),
+      expensesCents: expenses === null ? null : sum(expenses, "amount_cents"),
     }),
   };
 }
