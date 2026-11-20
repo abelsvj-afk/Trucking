@@ -1,23 +1,29 @@
 // Bot-team group mode: fail-closed allowlist, owner-only room, routing,
 // proposal yes/no in plain words, spend cap in front of the model.
 import { describe, expect, it, vi } from "vitest";
-import { handleBotTeamGroupUpdate, isMissingTableError, resetGroupSetupNotices, type GroupHandlerDeps } from "@/services/bots/group";
+import { handleBotTeamGroupUpdate, isMissingTableError, resetGroupSetupNotices, type BotSlug, type GroupHandlerDeps } from "@/services/bots/group";
 import type { BillingBrokerRow, BillingDataStore, BillingLoadRow } from "@/services/bots/billing";
-import type { BotTeamStore, ProposalRow } from "@/services/bots/store";
+import type { BotTeamStore, DetentionClockRow, HandoffStatus, ProposalRow } from "@/services/bots/store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
 
 const OWNER_ID = 8975172276;
 const GROUP_ID = -1001234567890;
 
-function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false, username?: string): TelegramUpdate {
+function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false, replyToMessageIdOrUsername?: number | string, username?: string): TelegramUpdate {
+  // Two call shapes live in this file's history: the Phase 0/2 tests
+  // pass a username as the 4th argument; Tracker's tests pass a
+  // reply-to message id (number) 4th and the username 5th.
+  const replyToMessageId = typeof replyToMessageIdOrUsername === "number" ? replyToMessageIdOrUsername : undefined;
+  const effectiveUsername = typeof replyToMessageIdOrUsername === "string" ? replyToMessageIdOrUsername : username;
   return {
     update_id: 1,
     message: {
       message_id: 10,
-      from: { id: fromId, is_bot: isBot, ...(username ? { username } : {}) },
+      from: { id: fromId, is_bot: isBot, ...(effectiveUsername !== undefined ? { username: effectiveUsername } : {}) },
       chat: { id: GROUP_ID, type: "supergroup" },
       text,
+      ...(replyToMessageId !== undefined ? { reply_to_message: { message_id: replyToMessageId } } : {}),
     },
   };
 }
@@ -26,9 +32,17 @@ interface StubState {
   proposals: ProposalRow[];
   spentCents: number;
   audit: { action: string; targetRef: string | null; detail?: Record<string, unknown> }[];
-  groupMessages: { text: string }[];
+  groupMessages: { text: string; senderRef: string; telegramMessageId: number }[];
   memories?: { content: string }[];
   ledger?: { loadRef: string; outcome: string; notes: string | null }[];
+  checkCalls: { kind: string; place: string | null }[];
+  clocks: DetentionClockRow[];
+  packets: { load_ref: string | null; bol_received: boolean; pod_received: boolean }[];
+  handoffs: { id: string; from_bot: BotSlug; to_bot: BotSlug; title: string; payload: Record<string, unknown>; status: HandoffStatus; claimed_by: string | null; idempotency_key: string }[];
+}
+
+function emptyState(): StubState {
+  return { proposals: [], spentCents: 0, audit: [], groupMessages: [], checkCalls: [], clocks: [], packets: [], handoffs: [] };
 }
 
 function makeStub(state: StubState): BotTeamStore {
@@ -73,7 +87,7 @@ function makeStub(state: StubState): BotTeamStore {
     },
     ensureGroupRoom: async () => {},
     recordGroupMessage: async (input) => {
-      state.groupMessages.push({ text: input.text });
+      state.groupMessages.push({ text: input.text, senderRef: input.senderRef, telegramMessageId: input.telegramMessageId });
     },
     findGroupMessage: async () => null,
     reserveSpend: async (input) => {
@@ -100,6 +114,105 @@ function makeStub(state: StubState): BotTeamStore {
         content: memory.content,
         created_at: new Date().toISOString(),
       })),
+    recordCheckCall: async (input) => {
+      state.checkCalls.push({ kind: input.kind, place: input.place ?? null });
+      return {
+        id: `check-call-${state.checkCalls.length}`,
+        company_id: "company-1",
+        load_ref: input.loadRef ?? null,
+        kind: input.kind,
+        place: input.place ?? null,
+        note: input.note ?? null,
+        event_at: input.eventAt ?? new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+    },
+    listCheckCalls: async () => [],
+    startDetentionClock: async (input) => {
+      const arrivedMs = Date.parse(input.arrivedAt);
+      const apptMs = input.appointmentAt ? Date.parse(input.appointmentAt) : Number.NaN;
+      const baseMs = Number.isFinite(apptMs) ? Math.max(arrivedMs, apptMs) : arrivedMs;
+      const row = {
+        id: `clock-${state.clocks.length + 1}`,
+        company_id: "company-1",
+        load_ref: input.loadRef ?? null,
+        stop_label: input.stopLabel,
+        arrived_at: input.arrivedAt,
+        appointment_at: input.appointmentAt ?? null,
+        free_minutes: input.freeMinutes,
+        started_at: new Date(baseMs + input.freeMinutes * 60_000).toISOString(),
+        ended_at: null as string | null,
+        created_at: new Date().toISOString(),
+      };
+      state.clocks.push(row);
+      return row;
+    },
+    getOpenDetentionClock: async () => {
+      const open = [...state.clocks].reverse().find((clock) => clock.ended_at === null);
+      return open ?? null;
+    },
+    endDetentionClock: async (id, departedAt) => {
+      const row = state.clocks.find((clock) => clock.id === id);
+      if (!row) throw new Error(`clock ${id} not found`);
+      row.ended_at = departedAt;
+      return row;
+    },
+    getDocPacket: async (loadRef) => {
+      const found = [...state.packets].reverse().find((packet) => packet.load_ref === loadRef);
+      return found ? { id: "packet-1", company_id: "company-1", load_ref: found.load_ref, bol_received: found.bol_received, pod_received: found.pod_received, updated_at: new Date().toISOString() } : null;
+    },
+    setDocPacket: async (input) => {
+      const existing = state.packets.find((packet) => packet.load_ref === input.loadRef);
+      if (existing) {
+        existing.bol_received = input.bolReceived;
+        existing.pod_received = input.podReceived;
+      } else {
+        state.packets.push({ load_ref: input.loadRef, bol_received: input.bolReceived, pod_received: input.podReceived });
+      }
+      return { id: "packet-1", company_id: "company-1", load_ref: input.loadRef, bol_received: input.bolReceived, pod_received: input.podReceived, updated_at: new Date().toISOString() };
+    },
+    getGroupMessageSender: async (_telegramChatId, telegramMessageId) => {
+      const found = state.groupMessages.find((message) => message.telegramMessageId === telegramMessageId);
+      return found?.senderRef ?? null;
+    },
+    recordHandoff: async (input) => {
+      const existing = state.handoffs.find((handoff) => handoff.idempotency_key === input.idempotencyKey);
+      if (existing) {
+        return { id: existing.id, company_id: "company-1", from_bot: existing.from_bot, to_bot: existing.to_bot, title: existing.title, payload: existing.payload, status: existing.status, parent_id: input.parentId ?? null, depth: input.depth, idempotency_key: existing.idempotency_key, claimed_by: existing.claimed_by, created_at: new Date().toISOString(), claimed_at: null, done_at: null };
+      }
+      const row = {
+        id: `handoff-${state.handoffs.length + 1}`,
+        from_bot: input.fromBot,
+        to_bot: input.toBot,
+        title: input.title,
+        payload: input.payload,
+        status: "open" as const,
+        claimed_by: null,
+        idempotency_key: input.idempotencyKey,
+      };
+      state.handoffs.push(row);
+      return { id: row.id, company_id: "company-1", from_bot: row.from_bot, to_bot: row.to_bot, title: row.title, payload: row.payload, status: "open" as const, parent_id: input.parentId ?? null, depth: input.depth, idempotency_key: row.idempotency_key, claimed_by: null, created_at: new Date().toISOString(), claimed_at: null, done_at: null };
+    },
+    listOpenHandoffs: async (toBot) => {
+      return state.handoffs
+        .filter((handoff) => handoff.to_bot === toBot && handoff.status === "open")
+        .map((handoff) => ({ id: handoff.id, company_id: "company-1", from_bot: handoff.from_bot, to_bot: handoff.to_bot, title: handoff.title, payload: handoff.payload, status: "open" as const, parent_id: null, depth: 0, idempotency_key: handoff.idempotency_key, claimed_by: null, created_at: new Date().toISOString(), claimed_at: null, done_at: null }));
+    },
+    claimHandoff: async (id, byBot) => {
+      const row = state.handoffs.find((handoff) => handoff.id === id);
+      if (!row) throw new Error(`handoff ${id} not found`);
+      if (row.status === "open") {
+        row.status = "claimed";
+        row.claimed_by = byBot;
+      }
+      return { id: row.id, company_id: "company-1", from_bot: row.from_bot, to_bot: row.to_bot, title: row.title, payload: row.payload, status: row.status, parent_id: null, depth: 0, idempotency_key: row.idempotency_key, claimed_by: row.claimed_by, created_at: new Date().toISOString(), claimed_at: new Date().toISOString(), done_at: null };
+    },
+    completeHandoff: async (id) => {
+      const row = state.handoffs.find((handoff) => handoff.id === id);
+      if (!row) throw new Error(`handoff ${id} not found`);
+      if (row.status === "claimed") row.status = "done";
+      return { id: row.id, company_id: "company-1", from_bot: row.from_bot, to_bot: row.to_bot, title: row.title, payload: row.payload, status: row.status, parent_id: null, depth: 0, idempotency_key: row.idempotency_key, claimed_by: row.claimed_by, created_at: new Date().toISOString(), claimed_at: new Date().toISOString(), done_at: new Date().toISOString() };
+    },
     listComplianceDeadlines: async () => [],
     upsertComplianceDeadline: async (input) => ({
       id: "deadline-1",
@@ -147,7 +260,7 @@ describe("bot-team group mode", () => {
   // unconfigured group, but the owner is now told privately why, with the id.
   it("no group configured: silent in the group, but tells the owner privately what to set (once per half hour)", async () => {
     resetGroupSetupNotices();
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const owner: string[] = [];
     const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
     expect(await handleBotTeamGroupUpdate(makeUpdate("hello"), deps)).toBe("unconfigured");
@@ -160,7 +273,7 @@ describe("bot-team group mode", () => {
 
   it("a different group than the configured one: silent there, owner told both ids", async () => {
     resetGroupSetupNotices();
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const owner: string[] = [];
     const { deps, sent } = makeDeps(state, { groupChatId: "-999", notifyOwner: async (t) => void owner.push(t) });
     expect(await handleBotTeamGroupUpdate(makeUpdate("hello"), deps)).toBe("unconfigured");
@@ -171,7 +284,7 @@ describe("bot-team group mode", () => {
 
   it("a stranger in an unconfigured group never triggers anything", async () => {
     resetGroupSetupNotices();
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const owner: string[] = [];
     const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
     expect(await handleBotTeamGroupUpdate(makeUpdate("hello", 12345), deps)).toBe("ignored");
@@ -181,7 +294,7 @@ describe("bot-team group mode", () => {
 
   it("the group was upgraded to a supergroup: the owner gets the NEW id", async () => {
     resetGroupSetupNotices();
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const owner: string[] = [];
     const { deps } = makeDeps(state, { notifyOwner: async (t) => void owner.push(t) });
     const update = makeUpdate("");
@@ -191,14 +304,14 @@ describe("bot-team group mode", () => {
   });
 
   it("ignores anyone who is not the owner — the room has no third parties", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     expect(await handleBotTeamGroupUpdate(makeUpdate("hello", 12345), deps)).toBe("ignored");
     expect(sent).toEqual([]);
   });
 
   it("records a bot's room chatter without acting on it — bot messages start no model turn, workup, or decision", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     expect(await handleBotTeamGroupUpdate(makeUpdate("noted", OWNER_ID, true), deps)).toBe("handled");
     expect(sent).toEqual([]);
@@ -206,7 +319,7 @@ describe("bot-team group mode", () => {
   });
 
   it("answers the owner through Abel with the bot's name first", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("handled");
     expect(sent).toHaveLength(1);
@@ -215,13 +328,7 @@ describe("bot-team group mode", () => {
   });
 
   it("carries the shared reasoning layer and Abel's own memory context into his group turn", async () => {
-    const state: StubState = {
-      proposals: [],
-      spentCents: 0,
-      audit: [],
-      groupMessages: [],
-      memories: [{ content: "cost per mile: $1.20" }],
-    };
+    const state: StubState = { ...emptyState(), memories: [{ content: "cost per mile: $1.20" }] };
     const seen: { systemContext?: string; instructions: { kind: string; content: string }[] }[] = [];
     const { deps } = makeDeps(state, {
       runChat: async (input) => {
@@ -242,14 +349,14 @@ describe("bot-team group mode", () => {
   });
 
   it("tells the owner plainly when the model key is not configured", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { runChat: undefined });
     await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps);
     expect(sent[0]).toMatch(/AI key isn't configured/);
   });
 
   it("refuses the model call when the spend cap is hit, and says so", async () => {
-    const state: StubState = { proposals: [], spentCents: 1000, audit: [], groupMessages: [] };
+    const state: StubState = { ...emptyState(), spentCents: 1000 };
     const runChat = vi.fn(async () => "should not run");
     const { deps, sent } = makeDeps(state, { runChat });
     await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps);
@@ -258,14 +365,14 @@ describe("bot-team group mode", () => {
   });
 
   it("answers a board question from Dispatch Scout honestly — no board is live yet", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("find me a load"), deps);
     expect(sent[0]).toMatch(/can't scan boards yet/);
   });
 
   it("sends Scout's replies from his own bot when scoutSendMessage is wired", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const scoutSent: string[] = [];
     const { deps, sent } = makeDeps(state, {
       scoutSendMessage: async (_chatId, text) => {
@@ -280,7 +387,7 @@ describe("bot-team group mode", () => {
   });
 
   it("sends Scout's worked-up draft from his own bot when scoutSendMessage is wired", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const scoutSent: string[] = [];
     const { deps, sent } = makeDeps(state, {
       scoutSendMessage: async (_chatId, text) => {
@@ -300,7 +407,7 @@ describe("bot-team group mode", () => {
   });
 
   it("works a forwarded dispatch into an auditor-checked proposal", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(
       makeUpdate("New load: pickup Dallas, delivery Houston, pay $1850, 240 miles, broker FastFreight"),
@@ -313,7 +420,7 @@ describe("bot-team group mode", () => {
   });
 
   it("resolves 'yes' to the newest open proposal and audits the decision", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(
       makeUpdate("New load: pickup Dallas, delivery Houston, pay $1850, 240 miles"),
@@ -326,21 +433,21 @@ describe("bot-team group mode", () => {
   });
 
   it("says plainly when nothing is waiting on a yes or no", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("yes"), deps);
     expect(sent[0]).toMatch(/Nothing is waiting/);
   });
 
   it("tells the owner a seat is not in the room yet instead of pretending it is", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
-    await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's my ETA?"), deps);
+    await handleBotTeamGroupUpdate(makeUpdate("Maintenance, what's my ETA?"), deps);
     expect(sent[0]).toMatch(/isn't in the room yet/);
   });
 
   it("seats Billing: what's-unpaid is answered from the records, in money facts", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const runChat = vi.fn(async () => "should not run");
     const { deps, sent } = makeDeps(state, {
       runChat,
@@ -370,36 +477,8 @@ describe("bot-team group mode", () => {
     expect(sent[0]).toContain("$1,850.00 from FastFreight");
   });
 
-  it("adds Billing's note after an unseated POD notice — the invoice can now be drafted", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
-    const { deps, sent } = makeDeps(state, {
-      billingData: {
-        listInvoices: async () => [],
-        listDeliveredLoadsWithoutInvoice: async () => [
-          {
-            id: "load-1",
-            broker_id: "broker-1",
-            origin: "Dallas",
-            destination: "Detroit",
-            delivery_date: "2026-11-18",
-            rate_cents: 185000,
-            trip_number: "1874",
-            broker_reference: null,
-            status: "completed",
-          },
-        ],
-        loadBroker: async () => ({ id: "broker-1", name: "FastFreight", payment_terms_days: 21 }),
-      },
-    });
-    await handleBotTeamGroupUpdate(makeUpdate("POD signed for the Detroit load"), deps);
-    expect(sent[0]).toMatch(/isn't in the room yet/);
-    expect(sent).toHaveLength(2);
-    expect(sent[1]).toContain("Billing: POD noted");
-    expect(sent[1]).toContain("waiting on an invoice");
-  });
-
   it("works a Billing invoice draft into a proposal and approves it on 'yes'", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, {
       billingData: {
         listInvoices: async () => [],
@@ -465,7 +544,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   }
 
   it("a POD note from Tracker addressed to Billing drafts the invoice — once", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     const result = await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: Billing, POD signed for the Dallas → Detroit load"), deps);
     expect(result).toBe("handled");
@@ -477,7 +556,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   });
 
   it("a bot message that does not address Billing stays quiet", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     // Union semantics (Billing + Auditor): the message is not
     // Billing's, so Billing never speaks — but the room records
@@ -491,14 +570,14 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   });
 
   it("Billing's own message never triggers its own turn (loop guard)", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     expect(await handleBotTeamGroupUpdate(makeBotUpdate("Billing: invoice ready — $1,850.00 from FastFreight"), deps)).toBe("ignored");
     expect(sent).toEqual([]);
   });
 
   it("a reply to one of Billing's messages is addressed to Billing even without naming it", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     const store = deps.store!;
     store.findGroupMessage = async () => ({ senderKind: "bot", senderRef: "billing", text: "Billing: which load?" });
@@ -509,7 +588,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   });
 
   it("a message claimed once is not answered twice (duplicate delivery)", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     const store = deps.store!;
     const seen = new Set<string>();
@@ -521,7 +600,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
         throw err;
       }
       seen.add(key);
-      state.groupMessages.push({ text: input.text });
+      state.groupMessages.push({ text: input.text, senderRef: input.senderRef, telegramMessageId: input.telegramMessageId });
     };
     expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("handled");
     expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("ignored");
@@ -529,7 +608,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   });
 
   it("the same bot message delivered twice runs Billing's turn once", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     const store = deps.store!;
     const seen = new Set<string>();
@@ -575,7 +654,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   }
 
   it("Abel's reply naming Billing runs Billing's turn once, in the room", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, {
       billingData: makeBillingData(),
       runChat: async () => "Billing, please draft the invoice for the Dallas → Detroit load.",
@@ -590,7 +669,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("no fan-out when Abel's reply does not name Billing", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, {
       billingData: makeBillingData(),
       runChat: async () => "All good — nothing to do.",
@@ -601,7 +680,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("no fan-out once Billing's own webhook is live (Telegram delivers it instead)", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, {
       billingData: makeBillingData(),
       billingSeparateWebhookLive: true,
@@ -613,7 +692,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("asks where the truck is when a scan names no origin", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, {
       browserRuntime: {
         route: "shared-vm",
@@ -627,7 +706,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("asks for the missing cost numbers instead of inventing them", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, {
       browserRuntime: {
         route: "shared-vm",
@@ -642,13 +721,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("acks a scan, then posts the shortlist summary when the run finishes", async () => {
-    const state: StubState = {
-      proposals: [],
-      spentCents: 0,
-      audit: [],
-      groupMessages: [],
-      memories: [{ content: "cost per mile: $1.20" }, { content: "floor: 50c" }, { content: "diesel $3.50" }, { content: "mpg 7" }],
-    };
+    const state: StubState = { ...emptyState(), memories: [{ content: "cost per mile: $1.20" }, { content: "floor: 50c" }, { content: "diesel $3.50" }, { content: "mpg 7" }] };
     const { deps, sent } = makeDeps(state, {
       browserRuntime: {
         route: "shared-vm",
@@ -704,7 +777,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
       decided_at: null,
       decided_by: null,
     };
-    const state: StubState = { proposals: [shortlistRow], spentCents: 0, audit: [], groupMessages: [], ledger: [] };
+    const state: StubState = { ...emptyState(), proposals: [shortlistRow], ledger: [] };
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("no"), deps);
     expect(sent[sent.length - 1]).toMatch(/^Dropped:/);
@@ -714,7 +787,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor, called by name with numbers, recomputes and flags the pay gap — and writes nothing", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(
       makeUpdate("Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, 100 deadhead"),
@@ -730,7 +803,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor, called by name with clean numbers, says the math checks out (windows aside)", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(
       makeUpdate("Auditor, check this load: pay $1,500, rate $3.00/mi, 500 loaded miles, 100 deadhead"),
@@ -743,7 +816,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor, called by name with no numbers and no draft, says what is missing", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
     expect(sent).toHaveLength(1);
@@ -751,7 +824,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor re-checks the newest open draft when asked with no numbers", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(
       makeUpdate("New load: pickup Dallas, delivery Houston, pay $1850, 240 miles, broker FastFreight"),
@@ -768,7 +841,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor stays quiet on a keyword alone — Abel gets the message with a routing hint", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const runChat = vi.fn(async (input: { instructions: { kind: string; content: string }[] }) => {
       const hint = input.instructions.find((row) => row.kind === "routing");
       return hint ? "routing hint seen" : "no hint";
@@ -782,7 +855,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor answers on its own turn when a draft lands with numbers — no name needed", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(
       makeUpdate("does that add up? pay $1,400, $3.00/mi, 500 miles"),
@@ -795,7 +868,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("Auditor posts under its own face when one is wired — and nothing goes out under the coordinator's face", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const asBot: { slug: string; text: string }[] = [];
     const { deps, sent } = makeDeps(state, {
       sendAsBot: async (botSlug, _chatId, text) => {
@@ -815,7 +888,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("a redelivered Auditor check posts its flag once — the second delivery is skipped, not re-posted", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     const text = "Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, deadhead 100 miles";
     await handleBotTeamGroupUpdate(makeUpdate(text), deps);
@@ -825,7 +898,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("a teammate's message naming the Auditor runs the check — the group is the shared channel (Bot-to-Bot Mode)", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     expect(
       await handleBotTeamGroupUpdate(
@@ -840,7 +913,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("a bot message that does not route to the Auditor is recorded, never acted on", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     expect(await handleBotTeamGroupUpdate(makeUpdate("found a good load to Dallas", 999, true), deps)).toBe("handled");
     expect(sent).toEqual([]);
@@ -848,7 +921,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("a bot's 'yes' never decides a proposal — only the owner decides", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     state.proposals.push({
       id: "proposal-draft-1",
@@ -869,7 +942,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("a bot message naming another bot starts none of that bot's actions", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     expect(
       await handleBotTeamGroupUpdate(makeUpdate("Dispatch Scout, scan from Dallas", 999, true), deps),
@@ -879,7 +952,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("the Auditor flags a draft TO its author by name, with both numbers shown", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     state.proposals.push({
       id: "proposal-draft-2",
@@ -902,7 +975,7 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
   });
 
   it("the Auditor reports a clean draft to its author out loud, in one line", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     state.proposals.push({
       id: "proposal-draft-3",
@@ -941,7 +1014,7 @@ describe("bot-team tables missing (migration 00103 not applied)", () => {
 
 describe("Abel in the group when the bot-team tables are missing", () => {
   it("names the real cause (migration 00103) instead of 'try again', and still never calls the model", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const store = makeStub(state);
     store.reserveSpend = async () => {
       throw new Error('[bot-team] spend failed: relation "bot_spend_ledger" does not exist');
@@ -957,7 +1030,7 @@ describe("Abel in the group when the bot-team tables are missing", () => {
 describe("adding the bot to a group (2026-11-19)", () => {
   it("the 'bot was added' service message (delivered even in privacy mode) gets the owner the id AND the privacy-mode fix", async () => {
     resetGroupSetupNotices();
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const owner: string[] = [];
     const { deps, sent } = makeDeps(state, { groupChatId: null, notifyOwner: async (t) => void owner.push(t) });
     const update = makeUpdate("");
@@ -970,10 +1043,194 @@ describe("adding the bot to a group (2026-11-19)", () => {
     expect(owner[0]).toContain("/setprivacy");
   });
 });
+
+describe("bot-team group mode — Tracker (Phase 2)", () => {
+  it("answers a Tracker question by name, with Tracker's name first, and records the spend", async () => {
+    const state: StubState = emptyState();
+    const runChat = vi.fn(async () => "ETA 4:35 PM, about 120 miles out.");
+    const { deps, sent } = makeDeps(state, { runChat });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's my ETA?"), deps)).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Tracker: ETA 4:35 PM/);
+    expect(state.spentCents).toBeGreaterThan(0);
+    expect(state.groupMessages.some((message) => message.senderRef === "tracker")).toBe(true);
+  });
+
+  it("answers its job by keyword too — the team room, not a switchboard", async () => {
+    const state: StubState = emptyState();
+    const runChat = vi.fn(async () => "ETA 4:35 PM.");
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("what's the eta on this load?"), deps);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Tracker:/);
+  });
+
+  it("logs a check call in code and confirms it in one line — no model turn needed", async () => {
+    const state: StubState = emptyState();
+    const runChat = vi.fn(async () => "should not run");
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("picked up at the shipper in Panama City"), deps);
+    expect(runChat).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Tracker: Picked up — the shipper in Panama City, \d+:\d+ [AP]M\.$/);
+    expect(state.checkCalls).toEqual([{ kind: "picked_up", place: "the shipper in Panama City" }]);
+    expect(state.audit.some((a) => a.action === "check_call_logged")).toBe(true);
+  });
+
+  it("starts the detention clock on arrival and reports the total on departure", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { runChat: vi.fn(async () => "should not run") });
+    await handleBotTeamGroupUpdate(makeUpdate("arrived at the receiver"), deps);
+    expect(state.clocks).toHaveLength(1);
+    expect(sent[0]).toMatch(/inside the 2 free hours/);
+    await handleBotTeamGroupUpdate(makeUpdate("left the receiver"), deps);
+    expect(state.clocks[0]!.ended_at).not.toBeNull();
+    expect(sent[1]).toMatch(/^Tracker: Departed/);
+  });
+
+  it("flags an escalation at once and never runs a model turn on it", async () => {
+    const state: StubState = emptyState();
+    const runChat = vi.fn(async () => "should not run");
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("the load was refused at the dock"), deps);
+    expect(runChat).not.toHaveBeenCalled();
+    expect(sent[0]).toMatch(/^Tracker: flagging this for Sajacous — load refused/);
+    expect(state.audit.some((a) => a.action === "escalation_flagged")).toBe(true);
+  });
+
+  it("hands off to Billing when a broker asks about payment — posted in the open and recorded as work", async () => {
+    const state: StubState = emptyState();
+    const runChat = vi.fn(async () => "should not run");
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, broker is asking when the detention pay lands"), deps);
+    expect(runChat).not.toHaveBeenCalled();
+    expect(sent[0]).toMatch(/^Tracker: Billing — I need the invoice and payment status/);
+    expect(state.handoffs).toHaveLength(1);
+    expect(state.handoffs[0]!.to_bot).toBe("billing");
+    expect(state.handoffs[0]!.status).toBe("open");
+    expect(state.audit.some((a) => a.action === "handoff_created")).toBe(true);
+  });
+
+  it("hands off to Maintenance before confirming an ETA when the truck is in trouble", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { runChat: vi.fn(async () => "should not run") });
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's the ETA? The tire is flat"), deps);
+    expect(sent[0]).toMatch(/^Tracker: Maintenance — I need a runnable check/);
+    expect(state.handoffs[0]!.to_bot).toBe("maintenance");
+  });
+
+  it("does not record the same handoff twice for the same message", async () => {
+    const state: StubState = emptyState();
+    const { deps } = makeDeps(state, { runChat: vi.fn(async () => "should not run") });
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, broker is asking when the detention pay lands"), deps);
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, broker is asking when the detention pay lands"), deps);
+    expect(state.handoffs).toHaveLength(1);
+  });
+
+  it("answers a reply to its own message", async () => {
+    const state: StubState = emptyState();
+    state.groupMessages.push({ text: "Tracker: ETA 4:35 PM.", senderRef: "tracker", telegramMessageId: 99 });
+    const runChat = vi.fn(async () => "Still 4:35 PM.");
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("and the detention?", OWNER_ID, false, 99), deps);
+    expect(sent[0]).toMatch(/^Tracker:/);
+  });
+
+  it("tells the owner plainly when the model key is not configured for a Tracker turn", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { runChat: undefined });
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's my ETA?"), deps);
+    expect(sent[0]).toMatch(/Tracker: I can't answer that yet/);
+  });
+
+  it("files a POD receipt and reports the packet state", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { runChat: vi.fn(async () => "should not run") });
+    await handleBotTeamGroupUpdate(makeUpdate("POD sent"), deps);
+    expect(sent[0]).toMatch(/Paperwork packet incomplete — still missing: BOL/);
+    expect(state.packets[0]).toEqual({ load_ref: null, bol_received: false, pod_received: true });
+  });
+});
+
+describe("bot-team group mode — faces (group-as-channel)", () => {
+  function openProposal(): ProposalRow {
+    return {
+      id: "proposal-1",
+      company_id: "company-1",
+      bot_slug: "dispatch-scout",
+      kind: "load-draft",
+      title: "New load: Dallas to Houston",
+      payload: {},
+      source_ref: null,
+      status: "proposed",
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      decided_by: null,
+    };
+  }
+
+  it("the Tracker face answers a message routed to Tracker", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { faceBotSlug: "tracker" });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's the ETA on load ABC?"), deps)).toBe("handled");
+    expect(sent[0]).toMatch(/^Tracker:/);
+  });
+
+  it("a non-target face stays quiet — one message, one answer", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state, { faceBotSlug: "abel" });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's the ETA on load ABC?"), deps)).toBe("handled");
+    expect(sent).toEqual([]);
+    expect(state.groupMessages).toEqual([]);
+  });
+
+  it("only Abel's face handles an owner decision", async () => {
+    const state: StubState = emptyState();
+    state.proposals.push(openProposal());
+    const { deps: trackerDeps, sent: trackerSent } = makeDeps(state, { faceBotSlug: "tracker" });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("yes"), trackerDeps)).toBe("handled");
+    expect(trackerSent).toEqual([]);
+    expect(state.proposals[0]!.status).toBe("proposed");
+
+    const { deps: abelDeps, sent: abelSent } = makeDeps(state, { faceBotSlug: "abel" });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("yes"), abelDeps)).toBe("handled");
+    expect(abelSent[0]).toMatch(/^Approved:/);
+    expect(state.proposals[0]!.status).toBe("approved");
+  });
+
+  it("Tracker answers Abel in the room when Abel addresses it by name", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state);
+    const update = makeUpdate("Tracker, what's the ETA on load ABC?", 111111, true, undefined, "AbelExecutiveBot");
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("handled");
+    expect(sent[0]).toMatch(/^Tracker:/);
+    expect(state.groupMessages[0]!.senderRef).toBe("abel");
+  });
+
+  it("a bot saying yes never decides a proposal", async () => {
+    const state: StubState = emptyState();
+    state.proposals.push(openProposal());
+    const { deps, sent } = makeDeps(state);
+    const update = makeUpdate("yes", 111111, true, undefined, "AbelExecutiveBot");
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("handled");
+    expect(sent).toEqual([]);
+    expect(state.proposals[0]!.status).toBe("proposed");
+  });
+
+  it("bot chatter addressed to nobody is logged and left alone", async () => {
+    const state: StubState = emptyState();
+    const { deps, sent } = makeDeps(state);
+    const update = makeUpdate("noted", 111111, true, undefined, "AbelExecutiveBot");
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("handled");
+    expect(sent).toEqual([]);
+    expect(state.groupMessages).toHaveLength(1);
+  });
+});
+
 // Audit F-023/F-024: the cap is fail-closed and reserved BEFORE the call.
 describe("Abel's spend cap in the group (audit F-023/F-024)", () => {
   it("no bot-team store: no cap check, so no model call — and says why", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     let modelCalled = false;
     const { deps, sent } = makeDeps(state, { store: null, runChat: async () => ((modelCalled = true), "x") });
     await handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps);
@@ -982,7 +1239,7 @@ describe("Abel's spend cap in the group (audit F-023/F-024)", () => {
   });
 
   it("two turns at once with room for one: only one reaches the model", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const store = makeStub(state);
     // Room for exactly one reservation this month.
     const realReserve = store.reserveSpend;

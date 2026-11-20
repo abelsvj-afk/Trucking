@@ -21,6 +21,12 @@
 // pure — no database, no network — so the same message always
 // routes the same way and the tests can prove it.
 //
+// The router only says who a message is FOR. Whether the target
+// speaks is the target bot's own decision (Tracker:
+// decideTrackerSpeech in services/bots/tracker.ts — the team-room
+// rule, owner 2026-11-19: a bot speaks when it has something to
+// add, answers another bot that addresses it, and stays quiet
+// when it has nothing to add).
 
 import {
   shouldWatchdogSpeak,
@@ -111,7 +117,7 @@ export interface GroupRoute {
 const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "abel", patterns: [/\babe\b/i, /\babel\b/i] },
   { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i, /\bfactoring\b/i, /\bshort[-\s]?paid?\b/i, /\boverdue\b/i, /\bdeduction\b/i, /\b(broker|shipper)\b[^.!?]{0,50}\bpaid\b/i, /\bpaid\b[^.!?]{0,50}\b(broker|invoice)\b/i] },
-  { slug: "dispatch-scout", patterns: [/@?dispatchscoutbot\b/i, /\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i, /\bbroker\b/i] },
+  { slug: "dispatch-scout", patterns: [/@?dispatchscoutbot\b/i, /\bdispatch scout\b/i, /\bscout\b/i, /\bdispatch\b/i] },
   { slug: "tracker", patterns: [/\btracker\b/i] },
   // Watchdog's mention patterns live in its own module (the speak gate).
   { slug: "compliance-watchdog", patterns: WATCHDOG_MENTION_PATTERNS },
@@ -149,18 +155,14 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
       /\bstill (waiting|owed)\b/i,
     ],
   },
-  // Tracker before Dispatch Scout: POD / BOL / ETA are more specific
-  // than the generic word "load", so "POD signed for the Detroit
-  // load" is Tracker's job (delivery paperwork), not a load search.
-  // A bare "find me a load" has no tracker term and still reaches
-  // the Scout.
   {
-    slug: "tracker",
-    patterns: [/\beta\b/i, /\bcheck.call\b/i, /\bcheck call\b/i, /\bshipper\b/i, /\breceiver\b/i, /\bpod\b/i, /\bbol\b/i],
-  },
-  {
+    // Scout finds loads — the bare word "load" alone is NOT a Scout
+    // keyword: every Tracker sentence about a load in progress ("what's
+    // the eta on this load?", "the load was refused") contains it, and
+    // routing those to Scout stole Tracker's job. Load-seeking phrases
+    // only.
     slug: "dispatch-scout",
-    patterns: [/\bload\b/i, /\brate\b/i, /\bbroker\b/i, /\bdeadhead\b/i, /\bper mile\b/i, /\bshortlist\b/i, /\bpickup\b/i, /\bdelivery\b/i],
+    patterns: [/\bnew load\b/i, /\bnext load\b/i, /\bfind (me )?(a )?load\b/i, /\bload board\b/i, /\brate\b/i, /\bbroker\b/i, /\bdeadhead\b/i, /\bper mile\b/i, /\bshortlist\b/i],
   },
   {
     // Watchdog's job words live in its own module (the speak gate):
@@ -174,6 +176,14 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
   {
     slug: "maintenance",
     patterns: [/\binspection\b/i, /\bmaintenance\b/i, /\bshop\b/i, /\bbreakdown\b/i, /\btire\b/i],
+  },
+  {
+    // Check-call verbs and escalation words are Tracker's job — a
+    // status sentence ("delivered at Dollar Tree", "the load was
+    // refused") routes here, not to Scout. "detention pay" is Billing's
+    // and sits above this entry, so it still wins for pay questions.
+    slug: "tracker",
+    patterns: [/\beta\b/i, /\bcheck.call\b/i, /\bcheck call\b/i, /\bshipper\b/i, /\breceiver\b/i, /\bpod\b/i, /\bbol\b/i, /\bpicked up\b/i, /\bdelivered\b/i, /\barrived\b/i, /\bdeparted\b/i, /\ben route\b/i, /\bdetention\b/i, /\brefused\b/i, /\breschedul(e|ing)\b/i, /\bundeliverable\b/i],
   },
   {
     slug: "auditor",
