@@ -96,6 +96,26 @@ function makeStore(state: StubState): BotTeamStore {
       created_at: new Date().toISOString(),
     }),
     loadBotMemories: async () => [],
+    listComplianceDeadlines: async () => [],
+    upsertComplianceDeadline: async (input) => ({
+      id: "deadline-1",
+      company_id: "company-1",
+      kind: input.kind,
+      subject_ref: input.subjectRef ?? null,
+      due_date: input.dueDate ?? null,
+      status: input.status ?? "filed",
+      source: input.source ?? null,
+      notes: input.notes ?? null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }),
+    listOpenDefects: async () => [],
+    listRecentDutySegments: async () => [],
+    hasRecentAlert: async () => false,
+    listRecentAudit: async () => [],
+    hasRecentAuditFingerprint: async () => false,
+    listHandoffsFor: async () => [],
+    listRecentGroupMessages: async () => [],
   };
 }
 

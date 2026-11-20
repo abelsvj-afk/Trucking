@@ -32,6 +32,37 @@ describe("group routing", () => {
     expect(route.via).toBe("reply");
   });
 
+  it("routes a medical card question to Compliance Watchdog by keyword", () => {
+    const route = routeGroupMessage({ text: "when is my medical card due?", senderKind: "owner" });
+    expect(route.target).toBe("compliance-watchdog");
+    expect(route.via).toBe("keyword");
+    expect(route.shouldAnswer).toBe(true);
+    expect(route.seated).toBe(true);
+  });
+
+  it("routes a Watchdog mention and an hours question to Compliance Watchdog", () => {
+    const mentioned = routeGroupMessage({ text: "Watchdog, check my deadlines", senderKind: "owner" });
+    expect(mentioned.target).toBe("compliance-watchdog");
+    expect(mentioned.via).toBe("mention");
+    expect(mentioned.shouldAnswer).toBe(true);
+    const hours = routeGroupMessage({ text: "how many hours do I have left?", senderKind: "owner" });
+    expect(hours.target).toBe("compliance-watchdog");
+    expect(hours.via).toBe("keyword");
+  });
+
+  it("routes a reply to a Watchdog message back to Watchdog", () => {
+    const route = routeGroupMessage({ text: "got it", senderKind: "owner", replyToBotSlug: "compliance-watchdog" });
+    expect(route.target).toBe("compliance-watchdog");
+    expect(route.via).toBe("reply");
+    expect(route.shouldAnswer).toBe(true);
+  });
+
+  it("does not route small talk to Watchdog", () => {
+    const route = routeGroupMessage({ text: "hey", senderKind: "owner" });
+    expect(route.target).toBe("abel");
+    expect(route.via).toBe("default");
+  });
+
   it("routes billing terms to Billing, and a broker-plus-paid question to Billing over Scout", () => {
     const overdue = routeGroupMessage({ text: "that invoice is overdue", senderKind: "owner" });
     expect(overdue.target).toBe("billing");
