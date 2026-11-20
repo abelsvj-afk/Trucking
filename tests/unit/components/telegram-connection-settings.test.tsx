@@ -8,13 +8,14 @@ const BROKEN = {
   configured: true, registered: true, host: "example-app.fly.dev", allowedUpdates: ["message"], missing: ["edited_message", "callback_query"],
   pendingCount: 0, lastErrorMessage: null, lastErrorAt: null, secretConfigured: true, healthy: false,
   findings: ["Telegram was told not to send button taps, so inline buttons do nothing.", "Live Location's movement updates arrive as edits."],
+  nextStep: { kind: "repair", text: "Fix re-registers the same address." },
 };
-const FIXED = { ...BROKEN, allowedUpdates: ["message", "edited_message", "callback_query"], missing: [], healthy: true, findings: ["Telegram is delivering your messages, message edits (Live Location) and button taps."] };
+const FIXED = { ...BROKEN, allowedUpdates: ["message", "edited_message", "callback_query"], missing: [], healthy: true, findings: ["Telegram is delivering your messages, message edits (Live Location) and button taps."], nextStep: { kind: "none", text: "" } };
 
 const webhook = vi.fn();
 const repair = vi.fn();
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { telegramWebhook: () => webhook(), repairTelegramWebhook: () => repair() },
+  apiClient: { telegramWebhook: () => webhook(), repairTelegramWebhook: (bot?: string) => repair(bot) },
   ApiClientError: class ApiClientError extends Error {},
 }));
 
@@ -32,7 +33,7 @@ describe("TelegramConnectionSettings", () => {
   });
 
   it("the repair shows the confirmed result and removes the fix button", async () => {
-    webhook.mockResolvedValue({ data: BROKEN });
+    webhook.mockResolvedValueOnce({ data: BROKEN }).mockResolvedValue({ data: FIXED });
     repair.mockResolvedValue({ data: { repaired: true, before: BROKEN, after: FIXED, message: "Done - Telegram will now send messages, message edits (Live Location) and button taps." } });
     render(<TelegramConnectionSettings />);
     fireEvent.click(await screen.findByText("Fix the connection"));
@@ -59,5 +60,34 @@ describe("TelegramConnectionSettings", () => {
     fireEvent.click(await screen.findByText("Fix the connection"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Couldn't reach Telegram/));
     expect(screen.getByText("Fix the connection")).toBeTruthy();
+  });
+
+  // BT-008: every unhealthy state has one next step; the Fix button only where it can work.
+  it("a state the Fix can't solve shows the exact server step, never a button", async () => {
+    webhook.mockResolvedValue({
+      data: { ...FIXED, healthy: false, secretConfigured: false, findings: ["The server has no webhook secret configured."], nextStep: { kind: "server", text: "King: set the Fly secret TELEGRAM_WEBHOOK_SECRET, then press Fix so Telegram gets it too." } },
+    });
+    render(<TelegramConnectionSettings />);
+    expect(await screen.findByText(/Next step: King: set the Fly secret TELEGRAM_WEBHOOK_SECRET/)).toBeTruthy();
+    expect(screen.queryByText("Fix the connection")).toBeNull();
+  });
+
+  // BT-007: one card per bot account; each Fix repairs THAT bot.
+  it("lists every bot account, and Scout's Fix repairs Scout's webhook", async () => {
+    webhook.mockResolvedValue({
+      data: FIXED,
+      faces: [
+        { slug: "abel", name: "Abel", expectedUsername: "AbelExecutiveBot", actualUsername: "AbelExecutiveBot", report: FIXED, error: null },
+        { slug: "dispatch-scout", name: "Dispatch Scout", expectedUsername: "DispatchScoutBot", actualUsername: "DispatchScoutBot", report: BROKEN, error: null },
+        { slug: "billing", name: "Billing", expectedUsername: null, actualUsername: null, report: { ...BROKEN, configured: false, nextStep: { kind: "server", text: "x" } }, error: null },
+      ],
+    });
+    repair.mockResolvedValue({ data: { repaired: true, before: BROKEN, after: FIXED, message: "Done." } });
+    render(<TelegramConnectionSettings />);
+    expect(await screen.findByLabelText("Abel connection")).toBeTruthy();
+    expect(screen.getByLabelText("Dispatch Scout connection").textContent).toMatch(/Needs attention/);
+    expect(screen.getByText(/Not set up yet .*Billing/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Fix the connection"));
+    await waitFor(() => expect(repair).toHaveBeenCalledWith("dispatch-scout"));
   });
 });
