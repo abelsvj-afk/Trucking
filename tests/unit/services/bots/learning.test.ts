@@ -26,8 +26,8 @@ function makeMemoryStore(state: MemoryState): BotTeamStore {
     recordLoadOutcome: async () => {},
     ensureGroupRoom: async () => {},
     recordGroupMessage: async () => {},
-    recordSpend: async () => {},
-    spentThisMonthCents: async () => 0,
+    reserveSpend: async () => "reservation-1",
+    settleSpend: async () => {},
     loadBotMemories: async (botSlug: BotSlug) =>
       state.rows.filter((row) => row.bot_slug === botSlug).slice().reverse(),
     saveBotMemory: async (input) => {

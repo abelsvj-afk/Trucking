@@ -28,6 +28,7 @@ interface StubState {
   groupMessages: { text: string }[];
   memories?: { content: string }[];
   ledger?: { loadRef: string; outcome: string; notes: string | null }[];
+  reservations?: number;
 }
 
 function makeStub(state: StubState): BotTeamStore {
@@ -72,10 +73,14 @@ function makeStub(state: StubState): BotTeamStore {
     recordGroupMessage: async (input) => {
       state.groupMessages.push({ text: input.text });
     },
-    recordSpend: async (input) => {
+    // Mirrors reserve_bot_spend (00109): reserve only while it still fits under the cap.
+    reserveSpend: async (input) => {
+      if (state.spentCents + input.estimatedCents > input.capCents) return null;
       state.spentCents += input.estimatedCents;
+      state.reservations = (state.reservations ?? 0) + 1;
+      return `reservation-${state.reservations}`;
     },
-    spentThisMonthCents: async () => state.spentCents,
+    settleSpend: async () => {},
     saveBotMemory: async (input) => ({
       id: "memory-new",
       bot_slug: input.botSlug,
@@ -425,14 +430,14 @@ describe("Abel in the group when the bot-team tables are missing", () => {
   it("names the real cause (migration 00103) instead of 'try again', and still never calls the model", async () => {
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
     const store = makeStub(state);
-    store.spentThisMonthCents = async () => {
+    store.reserveSpend = async () => {
       throw new Error('[bot-team] spend failed: relation "bot_spend_ledger" does not exist');
     };
     let modelCalled = false;
     const { deps, sent } = makeDeps(state, { store, runChat: async () => ((modelCalled = true), "x") });
     await handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps);
     expect(modelCalled).toBe(false);
-    expect(sent.join(" ")).toContain("migration 00103");
+    expect(sent.join(" ")).toContain("00103");
   });
 });
 
@@ -450,5 +455,43 @@ describe("adding the bot to a group (2026-11-19)", () => {
     expect(sent).toEqual([]);
     expect(owner[0]).toContain(String(GROUP_ID));
     expect(owner[0]).toContain("/setprivacy");
+  });
+});
+
+// Audit F-023/F-024: the cap is fail-closed and reserved BEFORE the call.
+describe("Abel's spend cap in the group (audit F-023/F-024)", () => {
+  it("no bot-team store: no cap check, so no model call — and says why", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    let modelCalled = false;
+    const { deps, sent } = makeDeps(state, { store: null, runChat: async () => ((modelCalled = true), "x") });
+    await handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps);
+    expect(modelCalled).toBe(false);
+    expect(sent.join(" ")).toContain("won't call the model");
+  });
+
+  it("two turns at once with room for one: only one reaches the model", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const store = makeStub(state);
+    // Room for exactly one reservation this month.
+    const realReserve = store.reserveSpend;
+    let first = 0;
+    store.reserveSpend = async (input) => {
+      if (first === 0) first = input.estimatedCents;
+      return realReserve({ ...input, capCents: first });
+    };
+    let modelCalls = 0;
+    const { deps } = makeDeps(state, {
+      store,
+      runChat: async () => {
+        modelCalls += 1;
+        await new Promise((r) => setTimeout(r, 5));
+        return "ok";
+      },
+    });
+    await Promise.all([
+      handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps),
+      handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps),
+    ]);
+    expect(modelCalls).toBe(1);
   });
 });

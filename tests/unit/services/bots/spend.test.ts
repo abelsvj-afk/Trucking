@@ -2,7 +2,6 @@
 // bills — the cap trips early on purpose.
 import { describe, expect, it } from "vitest";
 import {
-  capReached,
   estimateCallCostCents,
   estimateTokens,
   modelForTier,
@@ -32,11 +31,7 @@ describe("bot spend cap", () => {
     expect(rank).toBeGreaterThan(scan);
   });
 
-  it("trips the cap exactly at the cap, not a cent before", () => {
-    expect(capReached(999, 1000)).toBe(false);
-    expect(capReached(1000, 1000)).toBe(true);
-    expect(capReached(1001, 1000)).toBe(true);
-  });
+
 
   it("defaults both tiers to the scan model — no model name invented", () => {
     expect(scanModel({})).toBe("gpt-4o-mini");

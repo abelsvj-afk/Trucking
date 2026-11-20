@@ -69,10 +69,6 @@ export function monthlyCapCents(env: Record<string, string | undefined> = proces
   return 1000;
 }
 
-export function capReached(spentCentsThisMonth: number, capCents: number): boolean {
-  return spentCentsThisMonth >= capCents;
-}
-
 /** First instant of the current UTC month — bookkeeping only, never user-facing. */
 export function monthStartIso(now: Date = new Date()): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();

@@ -285,14 +285,14 @@ describe("dialOutboundCallRow kill switch", () => {
     const result = await dialOutboundCallRow(client as never, { ...queued } as never, { config: CONFIG, fetchImpl: fetchImpl as never });
     expect(result).toMatchObject({ ok: false });
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(client._db.outbound_calls[0]).toMatchObject({ status: "failed" });
-    expect(String(client._db.outbound_calls[0].outcome)).toMatch(/^Not dialed: Outbound calling is switched off/);
+    expect(client._db.outbound_calls![0]!).toMatchObject({ status: "failed" });
+    expect(String(client._db.outbound_calls![0]!.outcome)).toMatch(/^Not dialed: Outbound calling is switched off/);
   });
 
   it("global AI off also stops the dial", async () => {
     const { dialOutboundCallRow } = await import("@/services/calling/dialer");
     const client = seed(true, [{ ...queued }]);
-    client._db.companies[0].ai_globally_disabled = true;
+    client._db.companies![0]!.ai_globally_disabled = true;
     const { fetchImpl } = fakeTelnyx();
     const result = await dialOutboundCallRow(client as never, { ...queued } as never, { config: CONFIG, fetchImpl: fetchImpl as never });
     expect(result).toMatchObject({ ok: false });

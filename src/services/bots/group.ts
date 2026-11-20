@@ -48,7 +48,7 @@ import { checkBotAction } from "./guardrails";
 import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
 import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply } from "./router";
-import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
+import { estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 
@@ -144,6 +144,9 @@ export function isMissingTableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /does not exist|42P01|schema cache|Could not find the table/i.test(msg);
 }
+
+/** A full-length group reply, reserved up front against the cap (audit F-024). */
+const RESERVED_REPLY_CHARS = 4_000;
 
 function groupChatOf(update: TelegramUpdate): { id: number; type: string } | null {
   const chat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
@@ -326,28 +329,45 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     await deps.sendMessage(chat.id, "Abel: I can't answer that yet — the AI key isn't configured on the server. Nothing was sent anywhere.");
     return "handled";
   }
-  if (store) {
-    try {
-      const spent = await store.spentThisMonthCents(monthStartIso());
-      if (capReached(spent, monthlyCapCents())) {
-        await deps.sendMessage(chat.id, `Abel: ${SPEND_CAP_REACHED_TEXT}`);
-        return "handled";
-      }
-    } catch (err) {
-      console.error("[bot-team] spend check failed — refusing the model call", err);
-      // The cap is a guardrail: no check, no model call. But say WHY - a
-      // missing table is setup, not "try again in a moment".
-      await deps.sendMessage(
-        chat.id,
-        isMissingTableError(err)
-          ? "Abel: the bot team's database isn't set up on the server yet (migration 00103 — King applies it), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere."
-          : "Abel: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.",
-      );
-      return "handled";
-    }
+  // The cap is a guardrail (audit F-023/F-024): no store = no cap check =
+  // no model call; and the spend is RESERVED atomically before the call
+  // (reserve_bot_spend, 00109), so two turns arriving together can't both
+  // slip under the cap. The reservation covers a full-length reply; it is
+  // settled to the real estimate once the reply is in.
+  if (!store) {
+    await deps.sendMessage(
+      chat.id,
+      "Abel: the bot team's database isn't connected on the server (TELEGRAM_COMPANY_ID / Supabase keys), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere.",
+    );
+    return "handled";
+  }
+  let reservationId: string | null;
+  try {
+    reservationId = await store.reserveSpend({
+      botSlug: "abel",
+      model: modelForTier("scan"),
+      tier: "scan",
+      estimatedCents: estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: RESERVED_REPLY_CHARS }),
+      capCents: monthlyCapCents(),
+      sinceIso: monthStartIso(),
+    });
+  } catch (err) {
+    console.error("[bot-team] spend reservation failed — refusing the model call", err);
+    // Say WHY - a missing table/function is setup, not "try again in a moment".
+    await deps.sendMessage(
+      chat.id,
+      isMissingTableError(err)
+        ? "Abel: the bot team's database isn't set up on the server yet (migrations 00103 and 00109 — King applies them), so I can't check the spending cap and I won't call the model until I can. Nothing was sent anywhere."
+        : "Abel: I couldn't check the spending cap, so I'm not calling the model on this one. Try again in a moment.",
+    );
+    return "handled";
+  }
+  if (!reservationId) {
+    await deps.sendMessage(chat.id, `Abel: ${SPEND_CAP_REACHED_TEXT}`);
+    return "handled";
   }
   try {
-    const memories = store ? await store.loadBotMemories("abel") : [];
+    const memories = await store.loadBotMemories("abel");
     // Shared brain (2026-11-19): Abel's group turn carries the same
     // full reasoning layer as his 1:1 turn — his system prompt from
     // the shared builder, plus his own memory context (watch-outs
@@ -366,17 +386,14 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       systemContext: [systemPrompt, memoryContext].filter((part) => part && part.trim() !== "").join("\n\n"),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
-    if (store) {
-      try {
-        await store.recordSpend({
-          botSlug: "abel",
-          model: modelForTier("scan"),
-          tier: "scan",
-          estimatedCents: estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: answer.length }),
-        });
-      } catch (err) {
-        console.error("[bot-team] spend record failed", err);
-      }
+    try {
+      await store.settleSpend(
+        reservationId,
+        estimateCallCostCents({ tier: "scan", inputChars: text.length, outputChars: answer.length }),
+      );
+    } catch (err) {
+      // The full reservation stays on the ledger: the cap errs high, never low.
+      console.error("[bot-team] spend settle failed", err);
     }
     await deps.sendMessage(chat.id, `Abel: ${answer}`);
   } catch (err) {
