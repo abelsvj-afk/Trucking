@@ -1,19 +1,54 @@
 // Group-chat routing (Phase 0 baseline; plan docs/bot-team-build-plan.md).
-// One private group, him + the bots. Every bot hears every message;
-// only the relevant one answers, the rest stay quiet.
+// One private group, him + the bots — each bot messaging as itself
+// under its own Telegram account + profile photo (owner, 2026-11-19:
+// INDIVIDUAL FACES; the one-face model was rejected). Bot-to-bot
+// delivery is Telegram's opt-in Bot-to-Bot Communication Mode
+// (@BotFather /setbot2bot; by default bots never see each other —
+// Bots FAQ): with the mode on per account, a teammate's group
+// message addressed to a bot reaches that bot's account, so the
+// group itself is the shared channel. Routing here decides which
+// internal agent a message is FOR; the coordinator owns the final
+// answer for the owner's messages.
 //
-// Routing order: a reply to a bot's message goes to that bot; a name
-// mention goes to the named bot; a job keyword goes to the bot whose
-// job it is; everything else goes to Abel. The router is pure — no
-// database, no network — so the same message always routes the same
-// way and the tests can prove it.
+// Routing order: a reply to a bot's message goes to that bot; a
+// handoff from another bot goes where that bot sends it — carried
+// in-process (routedByBotSlug) or, once Bot-to-Bot Mode is enabled,
+// as a real group message from the teammate's account, routed by
+// the same rules with senderKind "bot"; a name mention goes to the
+// named bot; a job keyword goes to the bot whose job it is;
+// everything else goes to Abel (owner messages only — a bot's
+// message never falls through to Abel's model turn). The router is
+// pure — no database, no network — so the same message always
+// routes the same way and the tests can prove it.
 //
-// Phase 0 wired only Abel + Dispatch Scout into the room; Billing
-// joined in Phase 2. The router still names the intended bot for
-// the other seats; the group handler answers those with "not in the
-// room yet" instead of pretending the bot is there.
 
-import { GROUP_SEATS, isBotSlug, type BotSlug } from "./registry";
+// AUDITOR ROUTING (owner, 2026-11-19 — team-room correction): the
+// group chat is a team room, not a strict queue. Bots hand work
+// off to each other in the room and in-process; Abel is the boss
+// for what needs the owner's attention, not the only one who
+// talks. That corrects the earlier too-strict rule ("only Abel
+// routes, only the named bot answers"). Reconciled for the
+// Auditor:
+//   - Called by name → it answers.
+//   - Routed to it by Abel OR handed off by any other bot → it answers.
+//   - Its own turn → it answers: a draft has landed and needs
+//     checking (a message carrying checkable numbers), or a check
+//     has found a problem.
+//   - A message that merely LOOKS like its job (a keyword, no name,
+//     no handoff, nothing checkable in it) still does NOT wake it:
+//     it stays quiet and defers to Abel, the coordinator — but Abel
+//     settles it in the room where he can (handing it to the Auditor
+//     by name, or answering it himself) and only pulls the owner in
+//     when a decision or approval is needed.
+//   - In the Auditor's own 1:1 chat (channel "direct") none of this
+//     applies: there it handles its own job directly.
+//
+// The room seats Abel, Dispatch Scout, Billing, and the Auditor.
+// The router still names the intended bot for the other seats; the
+// group handler answers those with "not in the room yet" instead of
+// pretending the bot is there.
+
+import { GROUP_SEATS, GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
 
 export interface GroupMessageInput {
   text: string;
@@ -23,17 +58,40 @@ export interface GroupMessageInput {
   senderSlug?: BotSlug;
   /** Bot slug of the message this one replies to, when it replies to one. */
   replyToBotSlug?: BotSlug;
+  /**
+   * The bot that explicitly routed / handed this message off, when
+   * one did. This is an IN-PROCESS handoff (supervisor-first: the
+   * coordinator, or another bot's code, calls the router with the
+   * job) — never a Telegram message between bots, which Telegram
+   * does not deliver. Abel is the coordinator, but any bot may hand
+   * work to another in the team room; a handoff from Scout, Tracker,
+   * or anyone else counts the same as one from Abel.
+   */
+  routedByBotSlug?: BotSlug;
+  /**
+   * "group" (default): the shared room — the Auditor routing rule
+   * applies, and an unclear job defers to Abel. "direct": the target
+   * bot's own 1:1 chat — it handles its own job directly, no
+   * deferral.
+   */
+  channel?: "group" | "direct";
 }
 
 export interface GroupRoute {
   /** The bot this message is for. */
   target: BotSlug;
   /** How the route was decided. */
-  via: "reply" | "mention" | "keyword" | "default";
+  via: "reply" | "mention" | "keyword" | "default" | "abel-route" | "bot-handoff" | "own-turn";
   /** Whether the target bot should answer out loud. */
   shouldAnswer: boolean;
   /** True when the target seat is wired into the room in this phase. */
   seated: boolean;
+  /**
+   * Set when the message looks like the target's job but was not
+   * clearly routed to it: the target stays quiet and this bot — the
+   * coordinator — decides. Only the Auditor defers this way today.
+   */
+  deferredToCoordinator?: BotSlug;
 }
 
 // Mention order matters: Billing's money terms are checked BEFORE
@@ -51,7 +109,13 @@ const MENTION_PATTERNS: { slug: BotSlug; patterns: RegExp[] }[] = [
   { slug: "tracker", patterns: [/\btracker\b/i] },
   { slug: "compliance-watchdog", patterns: [/\bwatchdog\b/i, /\bcompliance\b/i, /\bsafety\b/i] },
   { slug: "maintenance", patterns: [/\bmaintenance\b/i, /\bshop\b/i, /\brepair\b/i] },
-  { slug: "auditor", patterns: [/\bauditor\b/i, /\bcheck (this|that|it)\b/i, /\bverify\b/i] },
+
+  { slug: "billing", patterns: [/\bbilling\b/i, /\binvoice\b/i] },
+  // Auditor: ONLY its name counts as being called by name. "Check
+  // this" / "verify" are job signals, not a name — they live in the
+  // keyword routes below, where the Auditor routing rule defers them
+  // to Abel unless Abel routed the message or the chat is direct.
+  { slug: "auditor", patterns: [/\bauditor\b/i] },
 ];
 
 const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
@@ -101,12 +165,13 @@ const KEYWORD_ROUTES: { slug: BotSlug; patterns: RegExp[] }[] = [
   },
   {
     slug: "auditor",
-    patterns: [/\bdoes (that|this) add up\b/i, /\bmath\b/i, /\bwrong\b/i],
+    patterns: [/\bdoes (that|this) add up\b/i, /\bmath\b/i, /\bwrong\b/i, /\bcheck (this|that|it)\b/i, /\bverify\b/i, /\badd up\b/i],
   },
 ];
 
 export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
   const text = input.text.trim();
+  const channel = input.channel ?? "group";
 
   // A reply to a bot's message goes to that bot.
   if (input.replyToBotSlug && isBotSlug(input.replyToBotSlug)) {
@@ -118,6 +183,28 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
     };
   }
 
+  // A bot handed this job off: it goes where that bot sends it.
+  // Abel is the coordinator (via "abel-route"); any other bot's
+  // handoff counts the same (via "bot-handoff"). A handoff that
+  // names the Auditor or its job is a clear route, not a guess —
+  // the Auditor answers.
+  if (input.routedByBotSlug && isBotSlug(input.routedByBotSlug)) {
+    const auditorMention = MENTION_PATTERNS.find((entry) => entry.slug === "auditor")?.patterns.some((pattern) =>
+      pattern.test(text),
+    ) ?? false;
+    const auditorKeyword = KEYWORD_ROUTES.find((entry) => entry.slug === "auditor")?.patterns.some((pattern) =>
+      pattern.test(text),
+    ) ?? false;
+    if (auditorMention || auditorKeyword) {
+      return {
+        target: "auditor",
+        via: input.routedByBotSlug === "abel" ? "abel-route" : "bot-handoff",
+        shouldAnswer: true,
+        seated: GROUP_SEATS_PHASE_0.includes("auditor"),
+      };
+    }
+  }
+
   // A name mention goes to the named bot.
   for (const { slug, patterns } of MENTION_PATTERNS) {
     if (patterns.some((pattern) => pattern.test(text))) {
@@ -125,10 +212,37 @@ export function routeGroupMessage(input: GroupMessageInput): GroupRoute {
     }
   }
 
-  // A job keyword goes to the bot whose job it is.
+  // A job keyword goes to the bot whose job it is — except the
+  // Auditor in the group, which stays quiet on a bare keyword alone.
+  // A keyword with nothing checkable in it is not a clear route: it
+  // could be the owner's job for someone else, and the Auditor must
+  // never jump in on another bot's job. It defers to Abel, the
+  // coordinator, who settles it in the room. But a keyword WITH
+  // checkable numbers is a draft that has landed — the Auditor's own
+  // turn (a draft has landed and needs checking) — so it answers.
+  // In the Auditor's own 1:1 chat (direct) there is nobody else to
+  // defer to, so it answers on the keyword alone.
   for (const { slug, patterns } of KEYWORD_ROUTES) {
     if (patterns.some((pattern) => pattern.test(text))) {
-      return { target: slug, via: "keyword", shouldAnswer: true, seated: GROUP_SEATS.includes(slug) };
+
+      if (slug === "auditor" && channel === "group") {
+        if (/\$\s?[\d,]+|\b\d[\d,]*\s*(?:mi|miles)\b/i.test(text)) {
+          return {
+            target: "auditor",
+            via: "own-turn",
+            shouldAnswer: true,
+            seated: GROUP_SEATS_PHASE_0.includes("auditor"),
+          };
+        }
+        return {
+          target: "auditor",
+          via: "keyword",
+          shouldAnswer: false,
+          seated: GROUP_SEATS_PHASE_0.includes("auditor"),
+          deferredToCoordinator: "abel",
+        };
+      }
+      return { target: slug, via: "keyword", shouldAnswer: true, seated: GROUP_SEATS_PHASE_0.includes(slug) };
     }
   }
 

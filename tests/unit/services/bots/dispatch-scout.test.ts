@@ -78,6 +78,7 @@ function makeStore(state: StubState): BotTeamStore {
     logAudit: async (input) => {
       state.audit.push(input.action);
     },
+    hasAuditorCheck: async () => false,
     recordLoadOutcome: async (input) => {
       state.ledger.push({ loadRef: input.loadRef, outcome: input.outcome, notes: input.notes ?? null });
     },

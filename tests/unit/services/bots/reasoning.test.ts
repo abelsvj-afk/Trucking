@@ -177,3 +177,29 @@ describe("per-bot memory context", () => {
     expect(buildBotMemoryContext([])).toBe("");
   });
 });
+
+describe("the Auditor on the shared brain (branch feat/bot-auditor-2026-11-19)", () => {
+  it("scopes the framing to the Auditor's seat: six reads + flag, never calls or signature", () => {
+    const framing = toolScopeFraming("auditor");
+    expect(framing).toContain("- loads: read");
+    expect(framing).toContain("- money: read");
+    expect(framing).toContain("- app actions: flag");
+    expect(framing).not.toContain("phone calls");
+    expect(framing).not.toContain("signing documents");
+    expect(framing).toContain("Tool groups not listed here do not exist for you");
+  });
+
+  it("composes the Auditor's prompt overlay-first over the full shared brain", async () => {
+    const { AUDITOR_REASONING_OVERLAY, buildAuditorSystemPrompt } = await import("@/services/bots/auditor");
+    const prompt = buildAuditorSystemPrompt();
+    expect(prompt.startsWith(AUDITOR_REASONING_OVERLAY)).toBe(true);
+    expect(prompt).toContain("FLAG, NEVER FIX");
+    expect(prompt).toContain("CANNOT VERIFY IS AN ANSWER");
+    expect(prompt).toContain("WORK OUT LOUD IN THE ROOM");
+    // The overlay scopes the brain; it never replaces it — all
+    // fifteen shared forms are still present, exactly once each.
+    for (const { id, marker } of FORM_MARKERS) {
+      expect(count(prompt, marker), id).toBe(1);
+    }
+  });
+});

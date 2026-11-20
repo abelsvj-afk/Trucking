@@ -1,6 +1,21 @@
 // Telegram group mode for the bot team (Phase 0 baseline).
-// One private group, him + the bots. Every bot hears every message;
-// only the relevant one answers, the rest stay quiet.
+// One private group, him + the bots — with EACH bot messaging as
+// itself under its own Telegram account + profile photo (owner,
+// 2026-11-19: INDIVIDUAL FACES; the one-face model was rejected).
+// Bot-to-bot delivery (verified against Telegram's own docs,
+// 2026-11-19/20): by DEFAULT bots never receive each other's
+// messages (Bots FAQ) — but Telegram's Bot-to-Bot Communication
+// Mode (@BotFather /setbot2bot) is the opt-in exception: command
+// mentions and direct replies between bots are delivered when at
+// least one bot of the pair has the mode on, and ordinary bot
+// messages too when the receiving bot also has Group Privacy
+// disabled (or is an admin). With those owner-side settings per
+// account, the group really is the shared channel the owner
+// ordered: a bot posts in the room addressed to a teammate, and
+// the teammate's account receives it. Until the mode is enabled,
+// the same coordination runs in-process (routedByBotSlug in
+// router.ts, the supervisor-first handoff seam) and each bot still
+// posts under its own name.
 //
 // This handler runs BEFORE the 1:1 path (services/telegram/
 // dispatch-bot.ts), which still serves only the owner's private chat
@@ -12,14 +27,17 @@
 // - No TELEGRAM_GROUP_CHAT_ID configured = groups ignored, as today.
 // - A message from anyone but the owner (TELEGRAM_ALLOWED_CHAT_ID)
 //   is ignored silently. The room has no third parties.
-// - A message from another bot is handled ONLY when it is
-//   addressed to Billing (named by name, or a direct reply to one
-//   of Billing's logged messages) — Bot API 9.6 Bot-to-Bot
+// - A message from another bot is handled in two bounded ways:
+//   if it is addressed to Billing (named by name, or a direct reply
+//   to one of Billing's logged messages — Bot API 9.6 Bot-to-Bot
 //   Communication Mode + Group Privacy OFF (or admin) is what
-//   delivers it (see services/bots/faces.ts). Anything else from
-//   another bot is ignored, and Billing's own messages are ignored
-//   (loop guard). Bots coordinate in the room AND through the
-//   shared tables.
+//   delivers it; see services/bots/faces.ts), Billing's turn runs
+//   (claim-once; Billing's own messages are ignored — loop guard).
+//   Otherwise it is logged to the room and may run ONLY the
+//   Auditor's deterministic check on a clear route — it never
+//   decides a proposal and never starts a model turn, so the
+//   room cannot talk itself into a loop (see handleBotGroupMessage).
+//   Bots coordinate in the room AND through the shared tables.
 // - No store configured = the room still answers, but nothing is
 //   logged and proposals cannot be recorded; the reply says so.
 //
@@ -40,7 +58,7 @@
 // loaded. That snapshot is a Phase 1 gap, listed in the PR.
 
 import { randomUUID } from "node:crypto";
-import { auditLoadDraft } from "./auditor";
+import { auditLoadDraft, formatAuditReply, type LoadDraftInput } from "./auditor";
 import { createBrowserRuntime, type BrowserRuntime } from "./browser-runtime";
 import {
   parseCostPreferences,
@@ -54,7 +72,7 @@ import { checkBotAction } from "./guardrails";
 import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, handleBillingGroupTurn, type BillingDataStore } from "./billing";
 import { parseRoomSpeaker } from "./faces";
 import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
-import { GROUP_SEATS, type BotSlug } from "./registry";
+import { botIdentity, GROUP_SEATS, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply, type GroupRoute } from "./router";
 import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
@@ -69,6 +87,17 @@ export interface GroupHandlerDeps {
   companyId: string | null;
   store: BotTeamStore | null;
   sendMessage: (chatId: number, text: string) => Promise<number[]>;
+  /**
+   * Per-bot face (owner, 2026-11-19: INDIVIDUAL FACES — each bot
+   * its own Telegram account + profile photo, messaging as itself;
+   * the one-face model was rejected). When the caller wires a bot's
+   * own token, its messages post under that account; when absent,
+   * everything falls back to sendMessage (the coordinator's face).
+   * Bot-to-bot delivery exists only through Bot-to-Bot
+   * Communication Mode (see the handler notes below); coordination
+   * also runs through the shared tables (Supabase / in-process).
+   */
+  sendAsBot?: (botSlug: BotSlug, chatId: number, text: string) => Promise<number[]>;
   /**
    * A private message to the owner (his 1:1 chat). Used to SAY why the
    * group is silent instead of staying silent (owner 2026-11-19:
@@ -186,6 +215,7 @@ function groupChatOf(update: TelegramUpdate): { id: number; type: string } | nul
 function senderOf(update: TelegramUpdate): {
   id: number | null;
   isBot: boolean;
+  username: string | null;
   text: string | null;
   messageId: number | null;
   replyToMessageId: number | null;
@@ -195,6 +225,7 @@ function senderOf(update: TelegramUpdate): {
   return {
     id: typeof from?.id === "number" ? from.id : null,
     isBot: from?.is_bot === true,
+    username: typeof from?.username === "string" ? from.username : null,
     text: typeof message?.text === "string" ? message.text : null,
     messageId: typeof message?.message_id === "number" ? message.message_id : null,
     replyToMessageId: typeof message?.reply_to_message?.message_id === "number" ? message.reply_to_message.message_id : null,
@@ -327,6 +358,29 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     return ids;
   };
 
+
+  // Bot-to-bot in this room (mechanics verified against Telegram's
+  // own docs, 2026-11-19/20): by DEFAULT bots never receive each
+  // other's messages — the Bots FAQ states the default ("bots will
+  // not be able to see messages from other bots regardless of
+  // mode", and privacy-off/admin bots receive "all messages except
+  // messages sent by other bots"). The opt-in exception is
+  // Bot-to-Bot Communication Mode (@BotFather, /setbot2bot;
+  // core.telegram.org/bots/features#bot-to-bot-communication):
+  // with the mode on for at least one bot of a pair, a bot receives
+  // another bot's group message when it is a command mention
+  // addressed to it or a direct reply to its message; with the mode
+  // on AND Group Privacy disabled (or admin rights), it also
+  // receives the other bots' ordinary group messages. So a bot
+  // message CAN reach this handler — through whichever team bot
+  // account's webhook Telegram delivered it to — once the owner
+  // enables the mode per account. What a bot message may do here
+  // is bounded on purpose (Telegram's own warning: bot-message
+  // handling must terminate): it is logged to the room, and it may
+  // trigger ONLY the Auditor's deterministic check on a clear
+  // route. It never decides a proposal, never starts a model turn,
+  // and never chains — the Auditor's flags are terminal, and a
+  // repeated check is absorbed by its idempotency key.
   // Bot-to-bot delivery (Bot API 9.6, core.telegram.org/api/bots/
   // bot-to-bot — verified 2026-11-19): with Bot-to-Bot
   // Communication Mode ON in @BotFather and Group Privacy OFF (or
@@ -346,7 +400,8 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   if (sender.isBot) {
     const botText = sender.text;
     const speaker = botText !== null ? parseRoomSpeaker(botText) : null;
-    if (botText === null || speaker === null || speaker === "billing") return "ignored";
+    if (botText === null || speaker === "billing") return "ignored";
+    if (speaker === null) return handleBotGroupMessage(chat.id, sender, deps);
     let addressedToBilling = /\bbilling\b/i.test(botText);
     if (!addressedToBilling && sender.replyToMessageId !== null && store) {
       try {
@@ -356,7 +411,7 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
         console.error("[bot-team] reply attribution failed", err);
       }
     }
-    if (!addressedToBilling) return "ignored";
+    if (!addressedToBilling) return handleBotGroupMessage(chat.id, sender, deps);
     if (store && sender.messageId !== null) {
       const claimed = await claimRoomMessage(store, {
         telegramChatId: chat.id,
@@ -468,12 +523,33 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     }
     return "handled";
   }
-  if (!route.shouldAnswer) return "handled";
+
+  // AUDITOR ROUTING (owner, 2026-11-19 — team-room correction): a
+  // message that merely looks like an Auditor job — keyword only, no
+  // name, no handoff, nothing checkable in it — does NOT wake the
+  // Auditor. It stays quiet and the message goes to Abel, the
+  // coordinator, with a routing hint. Abel settles it in the room
+  // where he can — handing it to the Auditor by name, or answering
+  // it himself — and only pulls the owner in when a decision or
+  // approval is needed. Abel never answers a fact-check himself with
+  // numbers he has not recomputed.
+  let target = route.target;
+  let routingHint: string | null = null;
+  if (route.deferredToCoordinator) {
+    routingHint =
+      `ROUTING (you are the coordinator): this message looked like an Auditor job — "${text.slice(0, 200)}" — ` +
+      `but it was not clearly routed to the Auditor, so the Auditor stayed quiet. Settle it in the room: ` +
+      `if it needs a fact-check, hand it to the Auditor by name; if it is your job, answer it. ` +
+      `Only pull the owner in when a decision or approval is needed. ` +
+      `Do not answer a fact-check yourself with numbers you have not recomputed.`;
+    target = route.deferredToCoordinator;
+  }
+  if (!route.shouldAnswer && !route.deferredToCoordinator) return "handled";
 
   // Dispatch Scout in this phase: a scan request walks the ranked
   // boards at human pace and posts a shortlist proposal; a forwarded
   // dispatch gets worked up into an auditor-checked proposal.
-  if (route.target === "dispatch-scout") {
+  if (target === "dispatch-scout") {
     if (isScanRequest(text)) {
       await handleScoutScan(chat.id, text, deps);
       return "handled";
@@ -503,6 +579,22 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       sendMessage,
       runChat: deps.runChat,
     });
+    return "handled";
+  }
+
+  // Auditor: a clear route only (called by name, routed by Abel or
+  // handed off by any bot in-process, a reply to its own message,
+  // or its own turn — a draft has landed with checkable numbers).
+  // The check itself is code, not a model turn: the Auditor
+  // recomputes the numbers and posts the flag, or one line when it
+  // checks out. There is deliberately NO model call for the Auditor
+  // in this phase — no per-bot tool gateway exists yet, so a model
+  // turn would see Abel's full tool list, including write tools the
+  // Auditor must never see. The Auditor's reasoning prompt
+  // (services/bots/reasoning.ts) is built and tested, and plugs into
+  // that turn when the gateway lands.
+  if (target === "auditor") {
+    await handleAuditorCheck(chat.id, text, deps);
     return "handled";
   }
 
@@ -542,12 +634,16 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     // block, so nothing is assembled twice.
     const systemPrompt = buildBotSystemPrompt("abel");
     const memoryContext = buildBotMemoryContext(memories.filter((row) => row.kind !== "rule"));
+    const instructions: { kind: string; content: string }[] = memories
+      .filter((row) => row.kind === "rule")
+      .map((row) => ({ kind: row.kind, content: row.content }));
+    // A message deferred from the Auditor's seat arrives with a
+    // routing hint, so Abel knows why he is seeing it.
+    if (routingHint) instructions.push({ kind: "routing", content: routingHint });
     const reply = await deps.runChat({
       userText: text,
       history: [],
-      instructions: memories
-        .filter((row) => row.kind === "rule")
-        .map((row) => ({ kind: row.kind, content: row.content })),
+      instructions,
       systemContext: [systemPrompt, memoryContext].filter((part) => part && part.trim() !== "").join("\n\n"),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
@@ -729,6 +825,286 @@ async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandle
     console.error("[bot-team] scout workup failed", err);
     await sendAsScout(deps, chatId, "Dispatch Scout: I couldn't save that draft — try forwarding it again in a moment.");
   }
+}
+
+/**
+ * The Auditor posts under its own face when one is wired
+ * (deps.sendAsBot with the Auditor's own BotFather token); until
+ * its token is configured it falls back to the coordinator's face
+ * (sendMessage). The text is identical either way — the face is
+ * presentation, never a change to the check.
+ */
+async function sendAuditorMessage(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
+  if (deps.sendAsBot) {
+    await deps.sendAsBot("auditor", chatId, text);
+    return;
+  }
+  await deps.sendMessage(chatId, text);
+}
+
+/**
+ * Team bot usernames (@BotFather handles) this handler can
+ * attribute a bot message to. Only Dispatch Scout's is known
+ * today (the owner created @DispatchScoutBot, 2026-11-19); a bot
+ * whose username is not listed still gets picked up on a clear
+ * Auditor mention — it just arrives unattributed. Never guess a
+ * handle: an unlisted bot is a stranger's until the owner says
+ * otherwise.
+ */
+const TEAM_BOT_USERNAMES: Record<string, BotSlug> = {
+  dispatchscoutbot: "dispatch-scout",
+};
+
+/**
+ * A message from another bot in the room (delivered by Telegram
+ * once Bot-to-Bot Communication Mode is on — see the note at the
+ * handler's entry). The group chat is the team's shared channel:
+ * the message is logged to the room like any other, so it is part
+ * of the record the owner reads and of Abel's later context. Then
+ * exactly one thing may act on it: the Auditor, when the message
+ * clearly routes to it (its name, or a known teammate handing it
+ * the job). That check is deterministic and terminal — its flag
+ * asks for evidence but starts no new bot turn from this update,
+ * and the check key absorbs repeats. A bot message never decides
+ * a proposal (only the owner's yes/no does), never starts Abel's
+ * model turn (a bot cannot talk the coordinator into a loop), and
+ * never runs a Scout workup. A bot never picks up its OWN message.
+ */
+async function handleBotGroupMessage(
+  chatId: number,
+  sender: { id: number | null; username: string | null; text: string | null; messageId: number | null },
+  deps: GroupHandlerDeps,
+): Promise<GroupHandleResult> {
+  const text = sender.text;
+  if (text === null || text.trim() === "") return "ignored";
+  const store = deps.store;
+  const senderSlug = sender.username ? TEAM_BOT_USERNAMES[sender.username.toLowerCase()] : undefined;
+  if (store && sender.messageId !== null) {
+    try {
+      await store.ensureGroupRoom(chatId);
+      await store.recordGroupMessage({
+        telegramChatId: chatId,
+        telegramMessageId: sender.messageId,
+        senderKind: "bot",
+        senderRef: sender.username ?? (sender.id !== null ? String(sender.id) : "unknown"),
+        text: text.slice(0, 4000),
+        routedToBotSlug: null,
+      });
+    } catch (err) {
+      console.error("[bot-team] bot group message log failed", err);
+    }
+  }
+  const route = routeGroupMessage({
+    text,
+    senderKind: "bot",
+    ...(senderSlug ? { routedByBotSlug: senderSlug } : {}),
+  });
+  if (route.target === "auditor" && route.shouldAnswer && route.seated && senderSlug !== "auditor") {
+    await handleAuditorCheck(chatId, text, deps);
+  }
+  return "handled";
+}
+
+/**
+ * The Auditor's turn in the group: recompute, then flag or say
+ * "checks out". Two ways in:
+ * - The owner's message carries numbers (a draft pasted in the
+ *   chat): parse them out in code and audit them.
+ * - It carries no numbers ("check the latest draft"): re-audit the
+ *   newest open load-draft proposal from its stored payload.
+ * Nothing is ever written except the flag itself (a group-chat
+ * message) and the audit-log entry — no proposal is created, no
+ * record is changed, and the draft is never silently fixed.
+ *
+ * IDEMPOTENCY (chat-scoped, from the multi-agent research): Telegram
+ * redelivers updates, and the Bot API has no idempotency key of its
+ * own, so a redelivered check must not post the flag twice. Every
+ * check carries a deterministic key (proposal id + payload hash, or
+ * a hash of the free text); a check whose key is already in the
+ * audit log is skipped silently — the first verdict stands. The
+ * Auditor is the single writer of auditor_check entries, so one key
+ * means one flag. A redelivery and an intentional repeat look the
+ * same from here; the owner repeats a check by varying the text.
+ */
+async function handleAuditorCheck(chatId: number, text: string, deps: GroupHandlerDeps): Promise<void> {
+  const store = deps.store;
+  // The flag gate, in code: the Auditor may only flag on groups it
+  // can read. If this ever says no, the check refuses out loud.
+  const gate = checkBotAction({ botSlug: "auditor", actionKind: "flag", group: "app-actions" });
+  if (!gate.allowed) {
+    await sendAuditorMessage(chatId, `Auditor: ${gate.reason}`, deps);
+    return;
+  }
+  const numbers = parseAuditorCheckNumbers(text);
+  const hasNumbers =
+    numbers.payCents !== null || numbers.loadedMiles !== null || numbers.rateCentsPerLoadedMile !== null;
+  try {
+    if (hasNumbers) {
+      const checkKey = auditorCheckKey({ kind: "text", text });
+      if (store && (await store.hasAuditorCheck(checkKey))) {
+        console.log("[bot-team] auditor check already posted for this message — skipping duplicate flag");
+        return;
+      }
+      const audit = auditLoadDraft(numbers);
+      await store?.logAudit({
+        botSlug: "auditor",
+        actor: "bot",
+        action: "auditor_check",
+        detail: { kind: "free-text", check_key: checkKey, passed: audit.passed, flags: audit.flags.map((f) => f.field) },
+      });
+      await sendAuditorMessage(chatId, `Auditor: ${formatAuditReply(audit)}`, deps);
+      return;
+    }
+    if (!store) {
+      await sendAuditorMessage(
+        chatId,
+        "Auditor: I can't check the drafts on file — the team database isn't configured on the server yet. Paste the numbers (pay, miles, rate) and I'll check those.",
+        deps,
+      );
+      return;
+    }
+    const open = await store.listOpenProposals(5);
+    const draft = open.find((proposal) => proposal.kind === "load-draft");
+    if (!draft) {
+      await sendAuditorMessage(
+        chatId,
+        "Auditor: nothing to check right now — forward a draft with pay, miles, and windows, or name the load and I'll check it against its source.",
+        deps,
+      );
+      return;
+    }
+    const checkKey = auditorCheckKey({ kind: "proposal", proposalId: draft.id, payload: draft.payload });
+    if (await store.hasAuditorCheck(checkKey)) {
+      console.log("[bot-team] auditor check already posted for this draft — skipping duplicate flag");
+      return;
+    }
+    const audit = auditLoadDraft(proposalPayloadToLoadDraft(draft.payload));
+    const errors = audit.flags.filter((flag) => flag.severity === "error");
+    const unverifiable = audit.flags.filter((flag) => flag.severity === "unverifiable");
+    await store.logAudit({
+      botSlug: "auditor",
+      actor: "bot",
+      action: "auditor_check",
+      targetRef: draft.id,
+      detail: {
+        kind: "proposal",
+        check_key: checkKey,
+        passed: audit.passed,
+        flags: audit.flags.map((f) => f.field),
+        addressed_to: draft.bot_slug,
+        missing: unverifiable.map((f) => f.field),
+      },
+    });
+    // Team room (owner, 2026-11-19): the verdict is spoken TO the
+    // bot that made the draft, by name, in the room where the
+    // owner reads it too. A flag names the gap on the author's own
+    // work; a check that cannot finish ASKS the author for the
+    // missing source instead of failing silently — the ask is part
+    // of this one idempotent message, so a redelivery never nags
+    // twice, and a re-check happens when the source lands as a new
+    // draft or new numbers. A clean check is reported out loud in
+    // one line — progress the room can see, not silence.
+    const authorName = botIdentity(draft.bot_slug).displayName;
+    let message: string;
+    if (errors.length > 0) {
+      message = `${authorName} — flag on your draft "${draft.title}": ${formatAuditReply(audit)}`;
+    } else if (unverifiable.length > 0) {
+      message =
+        `${authorName} — I can't finish checking "${draft.title}" without: ` +
+        `${unverifiable.map((flag) => `${flag.field} — ${flag.detail}`).join(" ")} ` +
+        `Post the source and I'll re-run it.`;
+    } else {
+      message = `${authorName} — your draft "${draft.title}" checks out.`;
+    }
+    await sendAuditorMessage(chatId, message, deps);
+  } catch (err) {
+    console.error("[bot-team] auditor check failed", err);
+    await sendAuditorMessage(chatId, "Auditor: that check failed on my side — nothing was flagged and nothing was changed. Try again in a moment.", deps);
+  }
+}
+
+/** Small deterministic hash (djb2, hex) for idempotency keys. Pure. */
+function hashText(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
+ * The idempotency key for one Auditor check. Free text: a hash of
+ * the normalized message, so a redelivery of the same message is
+ * the same check. A proposal: its id plus a hash of its payload, so
+ * a re-check of the same draft is the same check, but an edited
+ * draft is a new one.
+ */
+function auditorCheckKey(
+  input: { kind: "text"; text: string } | { kind: "proposal"; proposalId: string; payload: Record<string, unknown> },
+): string {
+  if (input.kind === "text") {
+    return `auditor-check:text:${hashText(input.text.trim().replace(/\s+/g, " ").toLowerCase())}`;
+  }
+  return `auditor-check:proposal:${input.proposalId}:${hashText(JSON.stringify(input.payload))}`;
+}
+
+/**
+ * Numbers out of a check request, in code — the model never invents
+ * them. Pay is the largest money figure; the rate is a figure per
+ * mile ("$3.00/mi", "3.00 per mile"); loaded miles prefer an
+ * explicit "loaded" qualifier, deadhead its own figure. Windows
+ * cannot be read reliably out of free text, so they stay null and
+ * the check says "cannot verify" for them — honestly, not silently.
+ */
+function parseAuditorCheckNumbers(text: string): LoadDraftInput {
+  // Money only counts when it is marked as money ($, dollars, usd):
+  // a bare "500" in "500 loaded miles" is miles, not pay. (The Scout
+  // workup's looser parse takes the largest bare number as pay; this
+  // path does not copy that — a check must not invent a pay figure
+  // out of a mile count.)
+  const moneyMatches = [
+    ...text.matchAll(/\$\s?([\d,]+(?:\.\d{2})?)/g),
+    ...text.matchAll(/([\d,]+(?:\.\d{2})?)\s*(?:dollars|usd)\b/gi),
+  ].map((m) => Number(m[1]!.replace(/,/g, "")));
+  const mileMatches = [...text.matchAll(/([\d,]+(?:\.\d+)?)\s*(?:mi|miles)\b/gi)].map((m) =>
+    Number(m[1]!.replace(/,/g, "")),
+  );
+  const rateMatch = /\$?\s?([\d,]+(?:\.\d+)?)\s*(?:\/|per)\s*(?:loaded\s*)?mi\b/i.exec(text);
+  const loadedMatch = /([\d,]+(?:\.\d+)?)\s*loaded\s*(?:mi|miles)\b/i.exec(text);
+  const deadheadMatch = /deadhead\s*(?:is\s*)?([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*deadhead/i.exec(text);
+  const payCents = moneyMatches.length > 0 ? Math.round(Math.max(...moneyMatches) * 100) : null;
+  const rateCentsPerLoadedMile = rateMatch ? Math.round(Number(rateMatch[1]!.replace(/,/g, "")) * 100) : null;
+  const deadheadMiles = deadheadMatch
+    ? Number((deadheadMatch[1] ?? deadheadMatch[2]!).replace(/,/g, ""))
+    : null;
+  const loadedMiles = loadedMatch
+    ? Number(loadedMatch[1]!.replace(/,/g, ""))
+    : mileMatches.length > 0
+      ? Math.max(...mileMatches.filter((miles) => miles !== deadheadMiles))
+      : null;
+  return { rateCentsPerLoadedMile, payCents, loadedMiles, deadheadMiles };
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/** A stored load-draft proposal payload back into a checkable draft. */
+function proposalPayloadToLoadDraft(payload: Record<string, unknown>): LoadDraftInput {
+  return {
+    rateCentsPerLoadedMile: numberOrNull(payload.rateCentsPerLoadedMile),
+    payCents: numberOrNull(payload.payCents),
+    loadedMiles: numberOrNull(payload.loadedMiles),
+    deadheadMiles: numberOrNull(payload.deadheadMiles),
+    pickupWindowStart: stringOrNull(payload.pickupWindowStart),
+    pickupWindowEnd: stringOrNull(payload.pickupWindowEnd),
+    deliveryWindowStart: stringOrNull(payload.deliveryWindowStart),
+    deliveryWindowEnd: stringOrNull(payload.deliveryWindowEnd),
+  };
 }
 
 export type { BotSlug, ProposalRow };

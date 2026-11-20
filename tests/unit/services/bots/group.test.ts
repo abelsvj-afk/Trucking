@@ -10,12 +10,12 @@ import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
 const OWNER_ID = 8975172276;
 const GROUP_ID = -1001234567890;
 
-function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false): TelegramUpdate {
+function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false, username?: string): TelegramUpdate {
   return {
     update_id: 1,
     message: {
       message_id: 10,
-      from: { id: fromId, is_bot: isBot },
+      from: { id: fromId, is_bot: isBot, ...(username ? { username } : {}) },
       chat: { id: GROUP_ID, type: "supergroup" },
       text,
     },
@@ -25,7 +25,7 @@ function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false): Tel
 interface StubState {
   proposals: ProposalRow[];
   spentCents: number;
-  audit: { action: string; targetRef: string | null }[];
+  audit: { action: string; targetRef: string | null; detail?: Record<string, unknown> }[];
   groupMessages: { text: string }[];
   memories?: { content: string }[];
   ledger?: { loadRef: string; outcome: string; notes: string | null }[];
@@ -64,8 +64,10 @@ function makeStub(state: StubState): BotTeamStore {
       return row;
     },
     logAudit: async (input) => {
-      state.audit.push({ action: input.action, targetRef: input.targetRef ?? null });
+      state.audit.push({ action: input.action, targetRef: input.targetRef ?? null, detail: input.detail });
     },
+    hasAuditorCheck: async (checkKey) =>
+      state.audit.some((a) => a.action === "auditor_check" && a.detail?.check_key === checkKey),
     recordLoadOutcome: async (input) => {
       if (state.ledger) state.ledger.push({ loadRef: input.loadRef, outcome: input.outcome, notes: input.notes ?? null });
     },
@@ -172,11 +174,12 @@ describe("bot-team group mode", () => {
     expect(sent).toEqual([]);
   });
 
-  it("ignores bot senders — bots do not answer each other unprompted", async () => {
+  it("records a bot's room chatter without acting on it — bot messages start no model turn, workup, or decision", async () => {
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
     const { deps, sent } = makeDeps(state);
-    expect(await handleBotTeamGroupUpdate(makeUpdate("noted", OWNER_ID, true), deps)).toBe("ignored");
+    expect(await handleBotTeamGroupUpdate(makeUpdate("noted", OWNER_ID, true), deps)).toBe("handled");
     expect(sent).toEqual([]);
+    expect(state.groupMessages).toHaveLength(1);
   });
 
   it("answers the owner through Abel with the bot's name first", async () => {
@@ -309,7 +312,7 @@ describe("bot-team group mode", () => {
   it("tells the owner a seat is not in the room yet instead of pretending it is", async () => {
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
     const { deps, sent } = makeDeps(state);
-    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
+    await handleBotTeamGroupUpdate(makeUpdate("Tracker, what's my ETA?"), deps);
     expect(sent[0]).toMatch(/isn't in the room yet/);
   });
 
@@ -453,9 +456,15 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
   it("a bot message that does not address Billing stays quiet", async () => {
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
-    expect(await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: ETA 2pm for the Detroit load"), deps)).toBe("ignored");
+    // Union semantics (Billing + Auditor): the message is not
+    // Billing's, so Billing never speaks — but the room records
+    // every bot message (the Auditor's room log), so the result is
+    // "handled" (recorded), not "ignored". Quiet = no speech, no
+    // proposals, exactly as asserted below.
+    expect(await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: ETA 2pm for the Detroit load"), deps)).toBe("handled");
     expect(sent).toEqual([]);
     expect(state.proposals).toEqual([]);
+    expect(state.groupMessages).toHaveLength(1);
   });
 
   it("Billing's own message never triggers its own turn (loop guard)", async () => {
@@ -679,6 +688,223 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
     expect(state.ledger).toHaveLength(1);
     expect(state.ledger?.[0]?.outcome).toBe("skipped");
     expect(state.ledger?.[0]?.notes).toContain("passed on the shortlist");
+  });
+
+  it("Auditor, called by name with numbers, recomputes and flags the pay gap — and writes nothing", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, 100 deadhead"),
+      deps,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: /);
+    expect(sent[0]).toMatch(/\$1,400\.00/);
+    expect(sent[0]).toMatch(/\$1,500\.00/);
+    // The check is read-only: no proposal created, no record changed.
+    expect(state.proposals).toHaveLength(0);
+    expect(state.audit.some((a) => a.action === "auditor_check")).toBe(true);
+  });
+
+  it("Auditor, called by name with clean numbers, says the math checks out (windows aside)", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("Auditor, check this load: pay $1,500, rate $3.00/mi, 500 loaded miles, 100 deadhead"),
+      deps,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: Checks out on the numbers given/);
+    expect(sent[0]).toMatch(/Cannot verify: windows/);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("Auditor, called by name with no numbers and no draft, says what is missing", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: nothing to check right now/);
+  });
+
+  it("Auditor re-checks the newest open draft when asked with no numbers", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("New load: pickup Dallas, delivery Houston, pay $1850, 240 miles, broker FastFreight"),
+      deps,
+    );
+    expect(state.proposals).toHaveLength(1);
+    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check the latest draft"), deps);
+    // Team room: the Auditor speaks TO the draft's author, by name,
+    // and asks for the missing source instead of failing silently.
+    // The draft has no rate and no windows: the Auditor says so, it does not guess.
+    expect(sent[sent.length - 1]).toMatch(/^Dispatch Scout — I can't finish checking "/);
+    expect(sent[sent.length - 1]).toMatch(/Post the source and I'll re-run it\./);
+    expect(state.proposals).toHaveLength(1);
+  });
+
+  it("Auditor stays quiet on a keyword alone — Abel gets the message with a routing hint", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const runChat = vi.fn(async (input: { instructions: { kind: string; content: string }[] }) => {
+      const hint = input.instructions.find((row) => row.kind === "routing");
+      return hint ? "routing hint seen" : "no hint";
+    });
+    const { deps, sent } = makeDeps(state, { runChat });
+    await handleBotTeamGroupUpdate(makeUpdate("does that add up?"), deps);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Abel: routing hint seen/);
+    expect(runChat).toHaveBeenCalledTimes(1);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("Auditor answers on its own turn when a draft lands with numbers — no name needed", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    await handleBotTeamGroupUpdate(
+      makeUpdate("does that add up? pay $1,400, $3.00/mi, 500 miles"),
+      deps,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: /);
+    expect(sent[0]).toMatch(/\$1,500\.00/);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("Auditor posts under its own face when one is wired — and nothing goes out under the coordinator's face", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const asBot: { slug: string; text: string }[] = [];
+    const { deps, sent } = makeDeps(state, {
+      sendAsBot: async (botSlug, _chatId, text) => {
+        asBot.push({ slug: botSlug, text });
+        return [1];
+      },
+    });
+    await handleBotTeamGroupUpdate(
+      makeUpdate("Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, deadhead 100 miles"),
+      deps,
+    );
+    expect(asBot).toHaveLength(1);
+    expect(asBot[0]?.slug).toBe("auditor");
+    expect(asBot[0]?.text).toMatch(/^Auditor: /);
+    expect(asBot[0]?.text).toMatch(/\$1,500\.00/);
+    expect(sent).toEqual([]);
+  });
+
+  it("a redelivered Auditor check posts its flag once — the second delivery is skipped, not re-posted", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    const text = "Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles, deadhead 100 miles";
+    await handleBotTeamGroupUpdate(makeUpdate(text), deps);
+    await handleBotTeamGroupUpdate(makeUpdate(text), deps);
+    expect(sent).toHaveLength(1);
+    expect(state.audit.filter((a) => a.action === "auditor_check")).toHaveLength(1);
+  });
+
+  it("a teammate's message naming the Auditor runs the check — the group is the shared channel (Bot-to-Bot Mode)", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    expect(
+      await handleBotTeamGroupUpdate(
+        makeUpdate("Auditor, check this load: pay $1,400, rate $3.00/mi, 500 loaded miles", 999, true, "DispatchScoutBot"),
+        deps,
+      ),
+    ).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^Auditor: /);
+    expect(sent[0]).toMatch(/\$1,500\.00/);
+    expect(state.audit.some((a) => a.action === "auditor_check")).toBe(true);
+  });
+
+  it("a bot message that does not route to the Auditor is recorded, never acted on", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    expect(await handleBotTeamGroupUpdate(makeUpdate("found a good load to Dallas", 999, true), deps)).toBe("handled");
+    expect(sent).toEqual([]);
+    expect(state.groupMessages).toHaveLength(1);
+  });
+
+  it("a bot's 'yes' never decides a proposal — only the owner decides", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    state.proposals.push({
+      id: "proposal-draft-1",
+      company_id: "company-1",
+      bot_slug: "dispatch-scout",
+      kind: "load-draft",
+      title: "Load draft — Dallas → Houston",
+      payload: { payCents: 150000, rateCentsPerLoadedMile: 300, loadedMiles: 500, deadheadMiles: 100 },
+      source_ref: null,
+      status: "proposed",
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      decided_by: null,
+    });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("yes", 999, true, "DispatchScoutBot"), deps)).toBe("handled");
+    expect(state.proposals[0]?.status).toBe("proposed");
+    expect(sent).toEqual([]);
+  });
+
+  it("a bot message naming another bot starts none of that bot's actions", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    expect(
+      await handleBotTeamGroupUpdate(makeUpdate("Dispatch Scout, scan from Dallas", 999, true), deps),
+    ).toBe("handled");
+    expect(sent).toEqual([]);
+    expect(state.proposals).toHaveLength(0);
+  });
+
+  it("the Auditor flags a draft TO its author by name, with both numbers shown", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    state.proposals.push({
+      id: "proposal-draft-2",
+      company_id: "company-1",
+      bot_slug: "dispatch-scout",
+      kind: "load-draft",
+      title: "Load draft — Dallas → Houston",
+      payload: { payCents: 140000, rateCentsPerLoadedMile: 300, loadedMiles: 500, deadheadMiles: 100 },
+      source_ref: null,
+      status: "proposed",
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      decided_by: null,
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check the latest draft"), deps);
+    expect(sent[sent.length - 1]).toMatch(/^Dispatch Scout — flag on your draft "Load draft — Dallas → Houston": /);
+    expect(sent[sent.length - 1]).toMatch(/\$1,500\.00/);
+    const check = state.audit.find((a) => a.action === "auditor_check");
+    expect(check?.detail?.addressed_to).toBe("dispatch-scout");
+  });
+
+  it("the Auditor reports a clean draft to its author out loud, in one line", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    state.proposals.push({
+      id: "proposal-draft-3",
+      company_id: "company-1",
+      bot_slug: "dispatch-scout",
+      kind: "load-draft",
+      title: "Load draft — Dallas → Houston",
+      payload: {
+        payCents: 150000,
+        rateCentsPerLoadedMile: 300,
+        loadedMiles: 500,
+        deadheadMiles: 100,
+        pickupWindowStart: "2026-11-20T08:00:00.000Z",
+        pickupWindowEnd: "2026-11-20T12:00:00.000Z",
+        deliveryWindowStart: "2026-11-21T08:00:00.000Z",
+        deliveryWindowEnd: "2026-11-21T12:00:00.000Z",
+      },
+      source_ref: null,
+      status: "proposed",
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      decided_by: null,
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("Auditor, check the latest draft"), deps);
+    expect(sent[sent.length - 1]).toBe('Dispatch Scout — your draft "Load draft — Dallas → Houston" checks out.');
   });
 });
 

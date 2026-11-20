@@ -9,6 +9,7 @@ import {
   canFlag,
   canRead,
   GROUP_SEATS,
+  GROUP_SEATS_PHASE_0,
   isBotSlug,
   toolScopeFor,
   visibleToolGroups,
@@ -53,8 +54,9 @@ describe("bot registry", () => {
     expect(visibleToolGroups("compliance-watchdog")).not.toContain("calls");
   });
 
-  it("seats Abel, Dispatch Scout, and Billing in the group", () => {
-    expect([...GROUP_SEATS].sort()).toEqual(["abel", "billing", "dispatch-scout"].sort());
+  it("seats Abel, Dispatch Scout, Billing, and the Auditor in the group", () => {
+    expect([...GROUP_SEATS].sort()).toEqual(["abel", "auditor", "billing", "dispatch-scout"].sort());
+    expect([...GROUP_SEATS_PHASE_0].sort()).toEqual([...GROUP_SEATS].sort());
   });
 
   it("gives Billing its governing scopes — money/documents draft, email gated, no HOS, no maps", () => {
