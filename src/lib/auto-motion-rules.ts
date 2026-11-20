@@ -87,12 +87,23 @@ export function judgeAutoStop(
 
 // ---- the rest side (owner 2026-11-17: "Auto Off Duty after 2h") ---------------
 //
-// The app put him On Duty when the truck stopped (or never got to), he never answered "going off duty?", and the
+// ASK FIRST (audit F-003, owner 2026-11-20 "do the recommendations"): at 2 hours parked the app asks "going off
+// duty?"; only if that question goes unanswered for REST_ASK_SILENCE_MS is the rest logged. (Before, nothing was
+// ever asked, yet the note said "no answer to 'going off duty?'".)
+// The app put him On Duty when the truck stopped (or never got to), he did not answer, and the
 // truck has not moved for 2 hours: that is rest, and leaving it On Duty burns his 14 and his 70 all night - the
 // cause of a Smart Path "LATE" for a delivery due tomorrow. The rest is logged Off Duty from when he parked.
 // Only an AUTOMATIC row is ever followed: an On Duty he chose himself (loading at a dock) stands.
 
 export const AUTO_REST_AFTER_MS = 2 * 60 * 60_000;
+/** After asking "going off duty?", wait this long for an answer before logging the rest. */
+export const REST_ASK_SILENCE_MS = 15 * 60_000;
+
+/** The ask counts for THIS park only: made at/after the 2-hour mark of this stop. */
+export function restAskedAtForPark(stoppedSinceMs: number, askedAtMs: number | null): number | null {
+  if (askedAtMs === null || !Number.isFinite(askedAtMs)) return null;
+  return askedAtMs >= stoppedSinceMs + AUTO_REST_AFTER_MS - 60_000 ? askedAtMs : null;
+}
 /** A park older than this is not acted on (a stale episode; the morning log check covers it). */
 export const AUTO_REST_MAX_STOP_AGE_MS = 24 * 60 * 60_000;
 

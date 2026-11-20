@@ -469,7 +469,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 
 | Route | Methods | Kind / auth |
 |---|---|---|
-| `/api/bots/proposals` | GET,POST | custom (see docs/bot-team-build-plan.md) — bot team proposals: list open proposals (GET) and record the owner's decision (POST); session auth + company scope via `createApiHandler`; executes nothing |
+| `/api/bots/proposals` | GET,POST | custom (see docs/bot-team-build-plan.md) — bot team proposals: list open proposals (GET) and record the owner's decision (POST); session auth + company scope via `createApiHandler`; POST is owner-only (403 for any other role, audit F-022) and records `decided_by = owner:<user id>`; executes nothing |
 | `/api/internal/industry-briefing/run` | POST | internal invoker — secret header, no user session |
 | `/api/internal/research/run` | POST | internal invoker — secret header, no user session |
 | `/api/telegram/webhook` | POST | Telegram webhook — secret token + chat allowlist, fails closed |

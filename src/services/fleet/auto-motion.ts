@@ -15,7 +15,7 @@
 // trail entry recorded. Same kill switch, same idempotency.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { judgeAutoMotion, judgeAutoRest, judgeAutoStop } from "@/lib/auto-motion-rules";
+import { judgeAutoMotion, judgeAutoRest, judgeAutoStop, REST_ASK_SILENCE_MS } from "@/lib/auto-motion-rules";
 import { SUSTAIN_MS } from "@/lib/sustained-motion";
 import { formatClock, HOME_TIME_ZONE } from "@/lib/display-zone";
 import { AUTO_DUTY_SWITCH_CAPABILITY, DEFAULT_ON_CAPABILITIES } from "@/lib/live-motion";
@@ -323,6 +323,7 @@ export function autoStopNotice(message: string): string {
 
 export interface AutoRestResult {
   switched: boolean;
+  /** "ask_first": eligible, but he has not been asked yet — send `message` (the question) and record the ask. */
   reason?: string;
   startedAt?: string;
   deduplicated?: boolean;
@@ -331,7 +332,9 @@ export interface AutoRestResult {
 
 /**
  * Owner 2026-11-17 ("Auto Off Duty after 2h"): parked 2 hours with no answer after the app's own automatic stop
- * (or still Driving) -> ONE Off Duty row from when he parked. Same kill switch, same idempotency and the same
+ * (or still Driving) -> ONE Off Duty row from when he parked. ASK FIRST (audit F-003): with `askedAtMs` null an
+ * eligible park returns reason "ask_first" and the question to send; the switch happens only once the question
+ * is REST_ASK_SILENCE_MS old and he has sent no message since it (any reply is an answer — Abel takes it from there). Same kill switch, same idempotency and the same
  * audit trail as the stop side; an On Duty he set himself is never followed (lib/auto-motion-rules judgeAutoRest).
  * Planning log, not the legal ELD - the message says how to undo it.
  */
@@ -343,8 +346,10 @@ export async function applyAutoRestSwitch(opts: {
   nowMs: number;
   origin: "app" | "position feed";
   timeZone?: string;
+  /** When "going off duty?" was asked for this park; null = not asked yet. */
+  askedAtMs: number | null;
 }): Promise<AutoRestResult> {
-  const { client, companyId, stoppedSinceIso, submissionId, nowMs, origin } = opts;
+  const { client, companyId, stoppedSinceIso, submissionId, nowMs, origin, askedAtMs } = opts;
   const timeZone = opts.timeZone ?? HOME_TIME_ZONE;
   if (!(await isAutoSwitchEnabled(client, companyId))) return { switched: false, reason: "switched_off" };
 
@@ -364,10 +369,36 @@ export async function applyAutoRestSwitch(opts: {
   const verdict = judgeAutoRest(latest, stoppedSinceIso, nowMs);
   if (!verdict.ok) return { switched: false, reason: verdict.reason };
 
-  const startedAt = new Date(verdict.startedAtMs).toISOString();
   const parkedLabel = formatClock(stoppedSinceIso, timeZone);
+  if (askedAtMs === null) {
+    const deadlineLabel = formatClock(new Date(nowMs + REST_ASK_SILENCE_MS).toISOString(), timeZone);
+    return {
+      switched: false,
+      reason: "ask_first",
+      message:
+        `You've been parked since ${parkedLabel} — over 2 hours. Going off duty? ` +
+        `Tell me "off duty", "sleeper", or "still working". If I don't hear from you by ${deadlineLabel}, ` +
+        `I'll log Off Duty from ${parkedLabel} so your 14 and your cycle stop burning. (Planning log, not your ELD.)`,
+    };
+  }
+  if (nowMs - askedAtMs < REST_ASK_SILENCE_MS) return { switched: false, reason: "waiting_for_answer" };
+  // Any message from him since the question is an answer: never switch over it.
+  const replies = await client
+    .from("telegram_messages")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("role", "user")
+    .is("deleted_at", null)
+    .gt("created_at", new Date(askedAtMs).toISOString())
+    .limit(1);
+  if (replies.error) return { switched: false, reason: "answer_unknown" };
+  if ((replies.data ?? []).length > 0) return { switched: false, reason: "answered" };
+
+  const startedAt = new Date(verdict.startedAtMs).toISOString();
+  const askedLabel = formatClock(new Date(askedAtMs).toISOString(), timeZone);
   const note =
-    `Automatic rest: switched to Off Duty from ${parkedLabel} - truck parked 2+ hours with no movement and no answer to "going off duty?" ` +
+    `Automatic rest: switched to Off Duty from ${parkedLabel} - truck parked 2+ hours with no movement; asked "going off duty?" at ${askedLabel} ` +
+    `and got no answer in ${Math.round(REST_ASK_SILENCE_MS / 60_000)} minutes ` +
     `(${origin === "app" ? "seen by the open app" : "from the phone's position feed"}). Planning log, not the legal ELD.`;
   const base = {
     company_id: companyId,
@@ -403,7 +434,7 @@ export async function applyAutoRestSwitch(opts: {
     /* the trail is best-effort; the rest landed */
   }
   const message =
-    `Logged you Off Duty from ${parkedLabel} - parked over 2 hours and no answer, so that's counted as rest (your 14 and your cycle stop burning). ` +
+    `Logged you Off Duty from ${parkedLabel} - parked over 2 hours and no answer to my question at ${askedLabel}, so that's counted as rest (your 14 and your cycle stop burning). ` +
     `Wrong - were you working? Tell me "I was on duty since ${parkedLabel}" and I'll fix it. (Planning log, not your ELD.)`;
   return { switched: true, startedAt, message };
 }

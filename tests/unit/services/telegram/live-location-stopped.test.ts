@@ -244,7 +244,7 @@ function fakeNow(m: ReturnType<typeof feedStore>, nowMs: number) {
 describe("handleLiveLocation - auto Off Duty after 2 hours parked", () => {
   it("asks the rest switch at the 2-hour mark (from the stop start), messages him once, and doesn't hammer it", async () => {
     const m = feedStore("on_duty");
-    const autoRest = vi.fn(async (stoppedSinceIso: string, _submissionId: string, _timeZone?: string) => ({
+    const autoRest = vi.fn(async (stoppedSinceIso: string, _submissionId: string, _timeZone: string | undefined, _askedAtMs: number | null) => ({
       switched: false as const,
       reason: "manual_status",
       startedAt: stoppedSinceIso,
@@ -270,5 +270,29 @@ describe("handleLiveLocation - auto Off Duty after 2 hours parked", () => {
     await stoppedFixes(m, d, Math.floor((125 * 60_000) / step), T0 + 7, step);
     const told = d.sendMessage.mock.calls.filter((c) => String(c[0]).includes("Logged you Off Duty"));
     expect(told).toHaveLength(1);
+  });
+});
+
+// Audit F-003: the feed asks "going off duty?" once per park, and passes the ask time back so the switch waits on it.
+describe("handleLiveLocation - auto Off Duty asks first", () => {
+  it("asks once at 2 h, then hands the ask time to the switch, which lands only after the silence", async () => {
+    const m = feedStore("on_duty");
+    const asked: (number | null)[] = [];
+    const autoRest = vi.fn(async (stoppedSinceIso: string, _id: string, _tz: string | undefined, askedAtMs: number | null) => {
+      asked.push(askedAtMs);
+      if (askedAtMs === null) return { switched: false, reason: "ask_first", message: "Going off duty? (question)" };
+      if (m.nowMs - askedAtMs < 15 * 60_000) return { switched: false, reason: "waiting_for_answer" };
+      return { switched: true, startedAt: stoppedSinceIso, message: "Logged you Off Duty from t" };
+    });
+    const d = { ...deps(), autoRest };
+    const step = 15_000;
+    await stoppedFixes(m, d, Math.floor((150 * 60_000) / step), T0 + 13, step); // its own park (the retry throttle is per park)
+    const texts = d.sendMessage.mock.calls.map((c) => String(c[0]));
+    expect(texts.filter((t) => t.includes("Going off duty?"))).toHaveLength(1);
+    expect(texts.filter((t) => t.includes("Logged you Off Duty"))).toHaveLength(1);
+    expect(texts.findIndex((t) => t.includes("Going off duty?"))).toBeLessThan(texts.findIndex((t) => t.includes("Logged you Off Duty")));
+    // after the question, every check carries its time
+    expect(asked[0]).toBeNull();
+    expect(asked.slice(1).every((a) => typeof a === "number")).toBe(true);
   });
 });

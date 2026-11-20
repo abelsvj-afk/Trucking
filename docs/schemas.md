@@ -1106,7 +1106,7 @@ Abel's self-directed learning agenda (docs/design/autonomous-research.md §4): p
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)
 - `source` text not null default 'telegram'
-- _constraint driver_positions_source_valid check (source in ('telegram'))_
+- _constraint driver_positions_source_valid check (source in ('telegram'))_ — 00073 widened it to ('telegram', 'device')
 - `lat` double precision not null
 - `lng` double precision not null
 - `accuracy_m` double precision
@@ -1118,6 +1118,7 @@ Abel's self-directed learning agenda (docs/design/autonomous-research.md §4): p
 - `last_prompt_at` timestamptz
 - `last_prompt_kind` text
 - _constraint driver_positions_prompt_kind_valid check (last_prompt_kind is null or last_prompt_kind in ('start_d_
+  — 00110 widened it to ('start_driving', 'stop_driving', 'feed_stale', 'rest_ask'): the stale-feed notice was being refused, and 'rest_ask' records the "going off duty?" question (auto Off Duty asks first).
 - _constraint driver_positions_lat_range check (lat between -90 and 90)_
 - _constraint driver_positions_lng_range check (lng between -180 and 180)_
 - `created_at` timestamptz not null default now()
@@ -1500,7 +1501,7 @@ owner-operator himself), applying to every month until changed; setting it again
 
 ### `outbound_calls` — created in 00100
 
-Abel's outbound phone calls (docs/design/outbound-calling.md): one row per call Abel places from the one shared Telnyx number. Calls queue here and are claimed atomically (`claim_next_outbound_call`, per-company advisory lock) so two machines never dial over each other on the shared number. Transcript + outcome land on the row — the app is his proof vault. Before this migration is applied the place_call tool refuses with a plain-words message (the calls table hasn't been added).
+Abel's outbound phone calls (docs/design/outbound-calling.md): one row per call Abel places from the one shared Telnyx number. Calls queue here and are claimed atomically (`claim_next_outbound_call`, per-company advisory lock) so two machines never dial over each other on the shared number. Since 00108 (audit F-001) the function pins `search_path` and refuses (42501) a logged-in user claiming another company's calls; the service role claims for any company. Transcript + outcome land on the row — the app is his proof vault. Before this migration is applied the place_call tool refuses with a plain-words message (the calls table hasn't been added).
 
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)
@@ -1648,7 +1649,7 @@ Every message in the room, so the room is reconstructable and the routing is aud
 
 ### `bot_spend_ledger` — created in 00103
 
-One row per model call, estimated cost in cents. Estimates, not bills — OpenAI bills the account; the ledger tracks estimates (src/services/bots/spend.ts) so the cap trips early. When the month's estimated spend hits BOT_MONTHLY_SPEND_CAP_CENTS (default $10), bot model calls stop and the bots say so plainly.
+One row per model call, estimated cost in cents. Estimates, not bills — OpenAI bills the account; the ledger tracks estimates (src/services/bots/spend.ts) so the cap trips early. When the month's estimated spend hits BOT_MONTHLY_SPEND_CAP_CENTS (default $10), bot model calls stop and the bots say so plainly. Since 00109 (audit F-024) a row is RESERVED before the model call by `reserve_bot_spend(company, bot, model, tier, cents, cap, since)` — advisory lock per company, sum the month, insert only if it fits, else null — and `settle_bot_spend(company, id, cents)` replaces it with the real estimate after the reply. Both are security definer, service role only. No bot-team store = no cap check = no model call.
 
 - `id` uuid primary key default gen_random_uuid()
 - `company_id` uuid not null references companies (id)

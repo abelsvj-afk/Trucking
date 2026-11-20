@@ -66,7 +66,7 @@ A 3-minute call on the Telnyx voice: about $0.17 plus LLM pennies. Same call on 
 
 ## Kill switch
 
-`outbound_calling` is a capability in Settings → Abel and AI, default OFF (fail-closed, like every other capability — no row means off). The owner flips it on once. Turning it off stops new calls; it never interrupts one in progress. The global AI switch also gates it.
+`outbound_calling` is a capability in Settings → Abel and AI, default OFF (fail-closed, like every other capability — no row means off). The owner flips it on once. Turning it off stops new calls — including ones already queued: the dialer itself reads the switch right before Telnyx (`canPlaceOutboundCall`, audit F-005), so the tool, the webhook's queue drain and any retry all stop, and a queued call is marked failed with "Not dialed: …". It never interrupts one in progress. The global AI switch also gates it.
 
 ## Setup checklist (account lane, separate from this code)
 

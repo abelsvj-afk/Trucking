@@ -53,7 +53,9 @@ declare
   -- research runs only): a complete generic row is rightly refused for tenants.
   -- research_learning_topics (00084): its owner INSERT policy also fences the row's shape (proposed_by = 'owner', status = 'proposed',
   -- no research_run_id), so a generic complete row is refused by that fence - a shaped table, not an isolation failure.
-  shaped constant text[] := array['research_runs', 'research_requests', 'research_learning_topics'];
+  -- voice_notes / voice_note_views / voice_note_reports (00101) also fence the row's author/user to auth.uid().
+  shaped constant text[] := array['research_runs', 'research_requests', 'research_learning_topics',
+                                  'voice_notes', 'voice_note_views', 'voice_note_reports'];
 begin
   insert into companies (id, name) values (a, 'iso-A'), (b, 'iso-B');
   insert into auth.users (id) values (ua), (ub);

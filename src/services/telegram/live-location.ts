@@ -6,7 +6,7 @@
 // duty-status PROPOSAL carrying the time the movement really began. It
 // never books anything: the proposal waits for his yes (bot_pending_actions).
 
-import { AUTO_REST_AFTER_MS } from "@/lib/auto-motion-rules";
+import { AUTO_REST_AFTER_MS, restAskedAtForPark } from "@/lib/auto-motion-rules";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import type { DutyStatus } from "@/types/entities";
@@ -187,6 +187,9 @@ function validLocation(l: TelegramLocation): boolean {
  */
 const autoRestTried = new Map<number, number>();
 const AUTO_REST_RETRY_MS = 10 * 60_000;
+/** "Going off duty?" asked, per park (stoppedSinceMs) — the fallback while the position row cannot hold it. */
+const restAskedInProcess = new Map<number, number>();
+
 export function autoRestDue(stoppedSinceMs: number, atMs: number): boolean {
   const last = autoRestTried.get(stoppedSinceMs);
   if (last !== undefined && atMs - last < AUTO_REST_RETRY_MS) return false;
@@ -249,7 +252,7 @@ export async function handleLiveLocation(
       timeZone?: string,
     ) => Promise<AutoStopResult>;
     /** Owner 2026-11-17: parked 2 h with no answer -> Off Duty from when he parked (services/fleet/auto-motion.ts). */
-    autoRest?: (stoppedSinceIso: string, submissionId: string, timeZone?: string) => Promise<AutoRestResult>;
+    autoRest?: (stoppedSinceIso: string, submissionId: string, timeZone: string | undefined, askedAtMs: number | null) => Promise<AutoRestResult>;
   },
   /** Test seam: the "now" the fix's age is judged against (default: real now). */
   opts?: { nowMs?: number },
@@ -425,8 +428,9 @@ export async function handleLiveLocation(
     }
   }
 
-  // Auto Off Duty after 2 hours parked (owner 2026-11-17): the rest he never answered about is logged as rest,
-  // so his 14 and his cycle stop burning overnight. Only ever follows the app's own automatic row (see judgeAutoRest).
+  // Auto Off Duty after 2 hours parked (owner 2026-11-17), ASKING FIRST (audit F-003): at 2 h the server asks
+  // "going off duty?"; only an unanswered question leads to the rest being logged. Only ever follows the app's own
+  // automatic row (see judgeAutoRest); his own On Duty stands and is never asked about.
   if (
     deps.autoRest &&
     (currentStatus === "on_duty" || currentStatus === "driving") &&
@@ -436,7 +440,27 @@ export async function handleLiveLocation(
   ) {
     try {
       const stoppedSinceMs = episode.stoppedSinceMs;
-      const res = await deps.autoRest(new Date(stoppedSinceMs).toISOString(), autoRestSubmissionId(stoppedSinceMs), fixZone);
+      const askedAtMs = restAskedAtForPark(
+        stoppedSinceMs,
+        lastPromptKind === "rest_ask" ? lastPromptAtMs : (restAskedInProcess.get(stoppedSinceMs) ?? null),
+      );
+      const res = await deps.autoRest(new Date(stoppedSinceMs).toISOString(), autoRestSubmissionId(stoppedSinceMs), fixZone, askedAtMs);
+      if (!res.switched && res.reason === "ask_first" && res.message) {
+        // Remember the question first, so it is asked once per park.
+        restAskedInProcess.set(stoppedSinceMs, atMs);
+        if (restAskedInProcess.size > 50) restAskedInProcess.delete(restAskedInProcess.keys().next().value!);
+        try {
+          await store.savePosition({
+            fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,
+            speedMph, episode, lastPromptAtMs: atMs, lastPromptKind: "rest_ask",
+          });
+        } catch (err) {
+          // Migration 00110 not applied: the in-process copy still holds the ask (a restart asks again, once).
+          console.error("[live-location] could not save the rest question", err);
+        }
+        await deps.sendMessage(res.message);
+        return { kind: "recorded", proposed: null };
+      }
       if (res.switched) {
         await store.savePosition({
           fix, headingDeg: typeof loc.heading === "number" ? loc.heading : null,

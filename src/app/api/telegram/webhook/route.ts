@@ -324,8 +324,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 origin: "position feed",
                 timeZone,
               }),
-            // Owner 2026-11-17: parked 2 h with no answer -> Off Duty from when he parked.
-            autoRest: (stoppedSinceIso, submissionId, timeZone) =>
+            // Owner 2026-11-17: parked 2 h -> ask "going off duty?"; no answer -> Off Duty from when he parked (F-003).
+            autoRest: (stoppedSinceIso, submissionId, timeZone, askedAtMs) =>
               applyAutoRestSwitch({
                 client: brainStore.client,
                 companyId: brainStore.companyId,
@@ -334,6 +334,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 nowMs: Date.now(),
                 origin: "position feed",
                 timeZone,
+                askedAtMs,
               }),
             formatTime: (t, lat, lng) => formatClock(t, timeZoneForPosition(lat, lng)),
           });

@@ -25,3 +25,7 @@ What this does NOT cover: service-role code paths (the webhook, schedulers, inte
 `driver-positions.sql` — Wave 4 matrix item 6: `driver_positions` is one row per (company, source); company A's second fix replaces A's row and leaves B's untouched.
 
 `pool-role-grants.sql` — Wave 4 matrix item 5: `industry_briefing_job` holds exactly its 11 least-privilege grants (no DELETE/TRUNCATE, no business tables); fails on any drift.
+
+`outbound-call-claim.sql` — audit F-001 (migration 00108): a logged-in user cannot claim another company's queued call (42501), can claim their own, the service role claims for any company, and `search_path` is pinned. Scratch: fails on 00100's function ("company A's user claimed company B's call"), passes after 00108. Run after `scratch-auth-shim.sql`.
+
+`bot-spend-reservation.sql` — audit F-024 (migration 00109): `reserve_bot_spend` refuses a reservation that would pass the cap, `settle_bot_spend` replaces the reserved amount, and both are closed to anon/authenticated. Scratch concurrency check: 20 parallel reservations against a cap of 5 left exactly 5 rows.

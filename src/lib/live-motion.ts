@@ -149,7 +149,8 @@ export type ProposalKind = "start_driving" | "stop_driving";
  * feed would delay the first real proposal by 30 minutes once it
  * recovers.
  */
-export type LastPromptKind = ProposalKind | "feed_stale";
+/** feed_stale: the stale-feed notice; rest_ask: "going off duty?" at 2 h parked (audit F-003). Neither is a duty proposal. */
+export type LastPromptKind = ProposalKind | "feed_stale" | "rest_ask";
 
 /** Stable identity of a movement episode (the mirror of the stop key in lib/stopped-vehicle.ts). */
 export function moveEpisodeKey(movingSinceMs: number): string {
@@ -175,8 +176,8 @@ export function decideStatusProposal(input: {
   lastPromptKind: LastPromptKind | null;
 }): StatusProposal | null {
   const { episode, nowMs, currentStatus, lastPromptAtMs, lastPromptKind } = input;
-  // A feed-stale tell is not a prompt: it must never hold the cooldown.
-  const effectiveLastPromptAtMs = lastPromptKind === "feed_stale" ? null : lastPromptAtMs;
+  // A feed-stale tell or the rest question is not a duty proposal: neither holds the cooldown.
+  const effectiveLastPromptAtMs = lastPromptKind === "feed_stale" || lastPromptKind === "rest_ask" ? null : lastPromptAtMs;
   if (effectiveLastPromptAtMs !== null && nowMs - effectiveLastPromptAtMs < PROPOSAL_COOLDOWN_MS) return null;
 
   if (episode.movingSinceMs !== null && nowMs - episode.movingSinceMs >= MOVING_PROPOSAL_AFTER_MS) {
