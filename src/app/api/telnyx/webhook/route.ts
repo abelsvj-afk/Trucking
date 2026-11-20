@@ -19,8 +19,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCallingConfig } from "@/services/calling/config";
-import { claimNextOutboundCall, findOutboundCallByControlId, updateOutboundCall } from "@/services/calling/queue";
+import { claimNextOutboundCall, findOutboundCallByControlId, finishOutboundCall, updateOutboundCall, type OutboundCallPatch } from "@/services/calling/queue";
 import { dialOutboundCallRow } from "@/services/calling/dialer";
+import { nextCallState, type CallRowState } from "@/lib/call-state";
 import { verifyTelnyxSignature } from "@/services/calling/telnyx";
 import { recordMalikCallReport } from "@/services/calling/malik-tools";
 
@@ -174,48 +175,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const payload = event.data?.payload ?? {};
   const now = new Date().toISOString();
 
-  if (eventType === "call.answered") {
-    await updateOutboundCall(client, row.id, row.company_id, { status: "in_progress", started_at: now });
-    return NextResponse.json({ received: true });
+  // One state machine decides (lib/call-state.ts, audit F-006): final states stay final,
+  // a repeated or late event changes nothing, and only the event that FINISHED the call
+  // dials the next queued one.
+  const transition = nextCallState(row as CallRowState, {
+    type: eventType,
+    nowIso: now,
+    conversationId: typeof payload.conversation_id === "string" ? payload.conversation_id : null,
+    hangupCause: typeof payload.hangup_cause === "string" ? payload.hangup_cause : null,
+    transcript: typeof payload.transcript === "string" ? payload.transcript : null,
+    summary: typeof payload.summary === "string" ? payload.summary : null,
+  });
+  if (transition.finished && transition.patch) {
+    // Atomic: only the delivery that actually finished the call dials the next one.
+    const won = await finishOutboundCall(client, row.id, row.company_id, transition.patch as OutboundCallPatch);
+    if (won) await dialNextQueued(client, row.company_id);
+  } else if (transition.patch) {
+    await updateOutboundCall(client, row.id, row.company_id, transition.patch as OutboundCallPatch);
   }
-
-  if (eventType === "call.conversation.ended") {
-    await updateOutboundCall(client, row.id, row.company_id, {
-      status: "completed",
-      telnyx_conversation_id:
-        typeof payload.conversation_id === "string" ? payload.conversation_id : row.telnyx_conversation_id,
-      ended_at: now,
-    });
-    await dialNextQueued(client, row.company_id);
-    return NextResponse.json({ received: true });
-  }
-
-  if (eventType === "call.conversation_insights.generated") {
-    const transcript = typeof payload.transcript === "string" ? payload.transcript : null;
-    const summary = typeof payload.summary === "string" ? payload.summary : null;
-    await updateOutboundCall(client, row.id, row.company_id, {
-      transcript: transcript ?? row.transcript,
-      outcome: summary ?? row.outcome,
-    });
-    return NextResponse.json({ received: true });
-  }
-
-  if (eventType === "call.hangup") {
-    const cause = typeof payload.hangup_cause === "string" ? payload.hangup_cause : "";
-    const normal = cause === "" || cause === "normal_clearing" || cause === "NORMAL_CLEARING";
-    const duration =
-      row.started_at != null
-        ? Math.max(0, Math.round((new Date(now).getTime() - new Date(row.started_at).getTime()) / 1000))
-        : null;
-    await updateOutboundCall(client, row.id, row.company_id, {
-      status: normal ? "completed" : "failed",
-      outcome: normal ? (row.outcome ?? "Call ended.") : `Call ended: ${cause}`,
-      ended_at: now,
-      duration_seconds: duration,
-    });
-    await dialNextQueued(client, row.company_id);
-    return NextResponse.json({ received: true });
-  }
-
   return NextResponse.json({ received: true });
 }

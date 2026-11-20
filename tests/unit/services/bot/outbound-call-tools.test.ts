@@ -308,3 +308,24 @@ describe("dialOutboundCallRow kill switch", () => {
     expect(fetchImpl).toHaveBeenCalled();
   });
 });
+
+// Audit F-006: the assistant fails to start after the leg was dialed -> the leg is hung up.
+describe("dialOutboundCallRow assistant failure", () => {
+  it("hangs up the ringing leg and says so on the row", async () => {
+    const { dialOutboundCallRow } = await import("@/services/calling/dialer");
+    const queued: Row = { id: "call-q", company_id: "company-1", to_number: "+15559876543", to_name: "Marcus", purpose: "ETA", say: "x", status: "dialing", created_at: "2026-11-17T15:00:00.000Z", deleted_at: null };
+    const client = seed(true, [{ ...queued }]);
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url.endsWith("/v2/calls")) return { ok: true, status: 200, json: async () => ({ data: { call_control_id: "cc-9" } }) };
+      if (url.includes("ai_assistant_start")) return { ok: false, status: 422, json: async () => ({ errors: [{ detail: "assistant not found" }] }) };
+      return { ok: true, status: 200, json: async () => ({ data: {} }) };
+    });
+    const result = await dialOutboundCallRow(client as never, { ...queued } as never, { config: CONFIG, fetchImpl: fetchImpl as never });
+    expect(result).toMatchObject({ ok: false });
+    expect(urls.some((u) => u.endsWith("/calls/cc-9/actions/hangup"))).toBe(true);
+    expect(client._db.outbound_calls![0]!).toMatchObject({ status: "failed" });
+    expect(String(client._db.outbound_calls![0]!.outcome)).toContain("hung up");
+  });
+});

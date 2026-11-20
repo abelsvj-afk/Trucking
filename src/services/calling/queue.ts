@@ -161,3 +161,28 @@ export async function listOutboundCalls(
   }
   return (data ?? []) as OutboundCallRow[];
 }
+
+/**
+ * Move a call into a final state ONLY if it is not final yet (audit F-006): the
+ * status filter makes it atomic, so of two webhook deliveries racing to finish the
+ * same call exactly one wins. Returns true when this call did the finishing.
+ */
+export async function finishOutboundCall(
+  client: SupabaseClient,
+  id: string,
+  companyId: string,
+  patch: OutboundCallPatch,
+): Promise<boolean> {
+  const { data, error } = await client
+    .from("outbound_calls")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("company_id", companyId)
+    .in("status", ["queued", "dialing", "in_progress"])
+    .select("id");
+  if (error) {
+    if (isMissingTable(error)) throw new Error(NOT_LANDED_MESSAGE);
+    throw new Error(error.message);
+  }
+  return ((data ?? []) as unknown[]).length > 0;
+}

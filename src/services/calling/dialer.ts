@@ -7,7 +7,7 @@ import { buildCallGreeting, resolveCallVoice } from "@/lib/outbound-calling";
 import type { CallingConfig } from "./config";
 import { canPlaceOutboundCall } from "./kill-switch";
 import { updateOutboundCall, type OutboundCallRow } from "./queue";
-import { dialOutboundCall, startAssistant, type FetchImpl } from "./telnyx";
+import { dialOutboundCall, hangupCall, startAssistant, type FetchImpl } from "./telnyx";
 
 export interface DialerDeps {
   config: CallingConfig;
@@ -68,7 +68,18 @@ export async function dialOutboundCallRow(
     });
   } catch (err) {
     const error = err instanceof Error ? err.message : "Telnyx refused the assistant.";
-    await updateOutboundCall(client, row.id, row.company_id, { status: "failed", outcome: error });
+    // The leg is already ringing (audit F-006): hang it up, or the person answers to silence
+    // and the shared number stays busy. A failed hangup is said, never hidden.
+    let hungUp = true;
+    try {
+      await hangupCall(config, fetchImpl, callControlId);
+    } catch {
+      hungUp = false;
+    }
+    await updateOutboundCall(client, row.id, row.company_id, {
+      status: "failed",
+      outcome: hungUp ? `${error} (the call was hung up)` : `${error} (the call could not be hung up - Telnyx may still be ringing)`,
+    });
     return { ok: false, error };
   }
   await updateOutboundCall(client, row.id, row.company_id, { status: "in_progress" });

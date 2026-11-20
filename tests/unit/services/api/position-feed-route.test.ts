@@ -48,7 +48,13 @@ describe("POST /api/v1/position/feed", () => {
     const h = { authorization: `Bearer ${newDeviceToken().token}` };
     expect((await POST(req(h, "not json"))).status).toBe(400);
     expect((await POST(req(h, { fixes: [] }))).status).toBe(400);
-    expect((await POST(req(h, { fixes: [{ lat: 99, lng: 0, at: NOW }] }))).status).toBe(400);
+  });
+  // Audit F-019: a malformed fix is dropped and counted, never the whole batch refused.
+  it("a malformed fix is dropped and counted; the request is not refused", async () => {
+    auth.mockResolvedValue({ tokenId: "t-bad-fix", companyId: "c1" });
+    const res = await POST(req({ authorization: `Bearer ${newDeviceToken().token}` }, { fixes: [{ lat: 99, lng: 0, at: NOW }] }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toMatchObject({ accepted: 0, dropped: 1 });
   });
   it("runs each usable fix through the shared detection, scoped to the token's company, and counts them", async () => {
     auth.mockResolvedValue({ tokenId: "t-ok", companyId: "c1" });
