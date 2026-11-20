@@ -167,6 +167,41 @@ describe("bot-team group mode", () => {
     expect(sent[0]).toMatch(/can't scan boards yet/);
   });
 
+  it("sends Scout's replies from his own bot when scoutSendMessage is wired", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const scoutSent: string[] = [];
+    const { deps, sent } = makeDeps(state, {
+      scoutSendMessage: async (_chatId, text) => {
+        scoutSent.push(text);
+        return [1];
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("find me a load"), deps);
+    expect(sent).toEqual([]);
+    expect(scoutSent).toHaveLength(1);
+    expect(scoutSent[0]).toMatch(/can't scan boards yet/);
+  });
+
+  it("sends Scout's worked-up draft from his own bot when scoutSendMessage is wired", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const scoutSent: string[] = [];
+    const { deps, sent } = makeDeps(state, {
+      scoutSendMessage: async (_chatId, text) => {
+        scoutSent.push(text);
+        return [1];
+      },
+    });
+    await handleBotTeamGroupUpdate(
+      makeUpdate("New load: pickup Dallas, delivery Houston, pay $1850, 240 miles, broker FastFreight"),
+      deps,
+    );
+    expect(state.proposals).toHaveLength(1);
+    expect(sent).toEqual([]);
+    expect(scoutSent).toHaveLength(1);
+    expect(scoutSent[0]).toMatch(/Dispatch Scout/);
+    expect(scoutSent[0]).toMatch(/Reply Yes to approve/);
+  });
+
   it("works a forwarded dispatch into an auditor-checked proposal", async () => {
     const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
     const { deps, sent } = makeDeps(state);
