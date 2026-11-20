@@ -22,21 +22,32 @@ const fixSchema = z.object({
   /** Epoch milliseconds, or an ISO string. */
   at: z.union([z.number(), z.string()]),
 });
-export const feedBodySchema = z.object({ fixes: z.array(fixSchema).min(1).max(MAX_FIXES_PER_BATCH) });
+/**
+ * The envelope only: 1-60 entries. Each fix is validated on its own in
+ * normalizeFixes (audit F-019): one malformed fix is dropped and counted,
+ * it never gets the whole batch refused — the Tracker drops a refused batch.
+ */
+export const feedBodySchema = z.object({ fixes: z.array(z.unknown()).min(1).max(MAX_FIXES_PER_BATCH) });
 
 export interface DeviceFix {
   loc: TelegramLocation;
   atMs: number;
 }
 
-/** Pure: validated fixes -> time-ordered, with stale/future/unreadable-time fixes dropped (counted, not trusted). */
+/** Pure: raw fixes -> valid, time-ordered; malformed, stale, future or unreadable-time fixes are dropped (counted, not trusted). */
 export function normalizeFixes(
-  fixes: z.infer<typeof feedBodySchema>["fixes"],
+  fixes: readonly unknown[],
   nowMs: number,
 ): { usable: DeviceFix[]; dropped: number } {
   const usable: DeviceFix[] = [];
   let dropped = 0;
-  for (const f of fixes) {
+  for (const raw of fixes) {
+    const parsed = fixSchema.safeParse(raw);
+    if (!parsed.success) {
+      dropped += 1;
+      continue;
+    }
+    const f = parsed.data;
     const atMs = typeof f.at === "number" ? f.at : Date.parse(f.at);
     if (!Number.isFinite(atMs) || atMs > nowMs + MAX_FUTURE_SKEW_MS || nowMs - atMs > MAX_FIX_AGE_MS) {
       dropped += 1;

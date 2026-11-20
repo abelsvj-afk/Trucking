@@ -22,14 +22,23 @@ describe("device tokens", () => {
 });
 
 describe("feed body", () => {
-  it("validates ranges and batch size", () => {
+  it("validates the batch envelope (1-60 entries)", () => {
     const fix = { lat: 28, lng: -81, at: NOW };
     expect(feedBodySchema.safeParse({ fixes: [fix] }).success).toBe(true);
     expect(feedBodySchema.safeParse({ fixes: [] }).success).toBe(false);
     expect(feedBodySchema.safeParse({ fixes: Array(61).fill(fix) }).success).toBe(false);
-    expect(feedBodySchema.safeParse({ fixes: [{ ...fix, lat: 91 }] }).success).toBe(false);
-    expect(feedBodySchema.safeParse({ fixes: [{ ...fix, lng: -181 }] }).success).toBe(false);
     expect(feedBodySchema.safeParse({ nope: 1 }).success).toBe(false);
+  });
+
+  // Audit F-019: one bad fix used to get all 60 refused (HTTP 400), and the Tracker dropped them all.
+  it("drops only the malformed fixes and keeps the good ones in the same batch", () => {
+    const fix = { lat: 28, lng: -81, at: NOW };
+    const { usable, dropped } = normalizeFixes(
+      [fix, { ...fix, lat: 91 }, { ...fix, lng: -181 }, { ...fix, heading_deg: 360.4 }, "junk", null, { ...fix, lat: 28.1 }],
+      NOW,
+    );
+    expect(usable.map((u) => u.loc.latitude)).toEqual([28, 28.1]);
+    expect(dropped).toBe(5);
   });
   it("orders fixes by time and drops stale, future and unreadable-time fixes (counted, never trusted)", () => {
     const { usable, dropped } = normalizeFixes(

@@ -61,6 +61,21 @@ export default function TrackerPage() {
         </ol>
       </section>
 
+      <section aria-label="What changed in 1.3.0">
+        <h2>What changed in 1.3.0</h2>
+        <ul>
+          <li>
+            One bad position can no longer make the server throw away the whole batch: the Tracker resends that batch
+            one position at a time, so only the bad one is skipped.
+          </li>
+          <li>
+            Your key is no longer copied into phone backups. If you ever restore this phone or move to a new one, paste
+            your key once in the Tracker&apos;s Settings.
+          </li>
+          <li>Updating from 1.2.0 installs right over it — your server address and key stay.</li>
+        </ul>
+      </section>
+
       <section aria-label="The map in the Tracker">
         <h2>The map while you drive (1.2.0)</h2>
         <ul>

@@ -234,7 +234,10 @@ public class TrackerService extends Service {
             q = readQueue(this);
         }
         if (q.length() == 0 || server.isEmpty() || key.isEmpty()) return FLUSH_EVERY_MS;
-        int count = Math.min(MAX_BATCH, q.length());
+        // Audit F-019: after a refused batch, resend those positions ONE AT A TIME, so only
+        // a position the server itself refuses is dropped - never the good ones beside it.
+        int oneByOne = p.getInt("oneByOneLeft", 0);
+        int count = oneByOne > 0 ? 1 : Math.min(MAX_BATCH, q.length());
         JSONArray batch = new JSONArray();
         for (int i = 0; i < count; i++) batch.put(q.get(i));
         String url = server.replaceAll("/+$", "") + "/api/v1/position/feed";
@@ -272,6 +275,11 @@ public class TrackerService extends Service {
             return FLUSH_EVERY_MS;
         }
         String type = c.getContentType() == null ? "" : c.getContentType();
+        if (status == 400 && count > 1) {
+            log("ERROR", "Server answered HTTP 400 for " + count + " positions - resending them one at a time so only a refused one is dropped: " + trim(body));
+            p.edit().putInt("oneByOneLeft", count).apply();
+            return 1_000;
+        }
         if (status >= 200 && status < 300 && !type.contains("text/html") || status == 400) {
             synchronized (this) {
                 JSONArray now = readQueue(this);
@@ -279,7 +287,8 @@ public class TrackerService extends Service {
                 for (int i = count; i < now.length(); i++) rest.put(now.get(i));
                 p.edit().putString("queue", rest.toString()).apply();
             }
-            if (status == 400) log("ERROR", "Server answered HTTP 400 - dropped " + count + " position(s) it would not accept: " + trim(body));
+            if (status == 400) log("ERROR", "Server refused one position (HTTP 400), dropped it: " + trim(body));
+            if (oneByOne > 0) p.edit().putInt("oneByOneLeft", oneByOne - 1).apply();
             if (failures > 0) log("INFO", "Connection restored - reports are being accepted again.");
             failures = 0;
             p.edit().putLong("lastSentAt", System.currentTimeMillis()).remove("lastError").apply();

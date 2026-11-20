@@ -23,8 +23,8 @@ describe("the Tracker download is easy to find", () => {
   it("the page has the download button for the current version, the setup steps, and the keys", async () => {
     render(<TrackerPage />);
     await act(async () => {});
-    const button = screen.getByRole("button", { name: /Download the Tracker \(Android, version 1\.2\.0\)/ }) as HTMLAnchorElement;
-    expect(button.getAttribute("href")).toBe("/downloads/trucking-os-tracker-1.2.0.apk");
+    const button = screen.getByRole("button", { name: /Download the Tracker \(Android, version 1\.3\.0\)/ }) as HTMLAnchorElement;
+    expect(button.getAttribute("href")).toBe("/downloads/trucking-os-tracker-1.3.0.apk");
     expect(document.body.textContent).toContain("Uninstall the old one first");
     expect(document.body.textContent).toContain("Start tracking");
     expect(screen.getByRole("region", { name: "Background tracking" })).toBeTruthy();
