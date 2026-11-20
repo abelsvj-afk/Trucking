@@ -7,7 +7,7 @@ import type { BotTeamStore, ProposalRow } from "@/services/bots/store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
 
-const OWNER_ID = 8975172276;
+const OWNER_ID = 100000001;
 const GROUP_ID = -1001234567890;
 
 function makeUpdate(text: string, fromId: number = OWNER_ID, isBot = false, username?: string): TelegramUpdate {
