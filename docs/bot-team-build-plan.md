@@ -96,17 +96,32 @@ decision, not a baseline one.
    the reasoning adapter re-points at the shared engine
    when `feat/shared-reasoning-2026-11-19` lands. Migration 00103's
    seeded Auditor row still says 'planned' — flip it to 'live' when
-   the migration is applied. Group chat is a team room (owner,
-   2026-11-19, correcting the earlier too-strict routing rule): bots
-   hand work off to each other INTERNALLY (in-process / Supabase) and
-   only pull the owner in for a decision or approval. INDIVIDUAL
+   the migration is applied. (Update, 2026-11-20: the shared
+   reasoning engine HAS landed — PR #101 merged to main 42b8127a —
+   and this branch is rebased on it; the Auditor composes its scope
+   overlay over the shared builder in auditor.ts, and the seeded-row
+   flip is main-side bookkeeping.) Group chat is a team room
+   (owner, 2026-11-19, correcting the earlier too-strict routing
+   rule): bots talk to each other BY NAME in the room, ask each
+   other for the source a check needs, flag drafts to their author,
+   and only pull the owner in for a decision or approval; Abel is
+   boss for what reaches the owner, not the only voice. INDIVIDUAL
    FACES (owner, 2026-11-19 — the one-face model was REJECTED): each
    bot its own Telegram account + profile photo, messaging as itself
-   in the group. What Telegram blocks, verified against the Bots FAQ
-   2026-11-19: bots "will not be able to see messages from other
-   bots regardless of mode" — so a bot's account is a SENDER face
-   only; no bot reads another bot's posts, and coordination stays
-   internal. The Auditor's flags post through a per-bot send seam
+   in the group. Bot-to-bot delivery, CORRECTED 2026-11-20 against
+   Telegram's feature docs (the Bots FAQ states only the default):
+   bots never see each other by default, but Bot-to-Bot
+   Communication Mode (@BotFather /setbot2bot) is a real opt-in —
+   command mentions and direct replies between bots are delivered
+   when at least one bot of the pair has the mode on, and ordinary
+   bot messages too when the receiving bot also has Group Privacy
+   disabled (or is an admin). So the group IS the shared channel
+   once the owner enables the mode per account; the handler already
+   picks up a teammate's message addressed to the Auditor and runs
+   its deterministic check (bounded: never a decision, never a
+   model turn, check key absorbs repeats). Still owner-side steps:
+   /setbot2bot ON + /setprivacy Disable (then re-add) or admin, per
+   bot account. The Auditor's flags post through a per-bot send seam
    (`sendAsBot`, wired to TELEGRAM_AUDITOR_BOT_TOKEN when the owner
    provisions the account in BotFather); until then they fall back
    to the coordinator's face, same text. Still open for faces: the
@@ -245,6 +260,63 @@ Maintenance, Billing) — their files exist, their wiring comes in Phase 2.
   Billing gets Bella (female, `hpp4J3VqNfWAUOO0d1Us`) when that
   assistant is built. Tracker and Maintenance get their own distinct
   voices later, same rule — one voice per calling bot, never shared.
+
+## Shared reasoning — one brain, every seat (built 2026-11-19, branch `feat/bot-shared-reasoning-2026-11-19`)
+
+**Owner rule (2026-11-19): all bots get the same reasoning, wisdom,
+and smartness Abel has — same brain, different jobs/tools; sharing the
+reasoning must never leak another bot's tools.** This build is that
+rule in code.
+
+- **One source of truth for the forms.** Abel's reasoning-form rule
+  blocks moved to a leaf module, `src/services/bot/reasoning-forms.ts`
+  (no imports, so nothing can cycle). Abel's 1:1 prompt assembles them
+  from there — byte-identical text, proven by his unchanged
+  prompt-assembly test — and the team layer imports the SAME strings.
+  A form edited once changes for Abel and every bot at once.
+- **All fifteen forms, named, for every bot** —
+  `src/services/bots/reasoning.ts` (`REASONING_FORMS` +
+  `buildBotSystemPrompt(slug)`). The ten core forms (owner GO
+  2026-11-10; temporal 2026-11-07): **temporal, contextual, causal,
+  practical, self-correction, episodic, theory of mind, value
+  learning, consolidation, restraint**. The five think-deeper forms
+  (Frontier 1, owner GO 2026-11-11): **chained reasoning,
+  self-verification, honest uncertainty, trade-off math, causal
+  prediction**. No cut-down version for any seat. (PRACTICAL was
+  extracted verbatim from inside TOOL_SELECTION_RULES so bots without
+  dynamic tool selection still carry the form.)
+- **Tools never leak.** Each bot's prompt names ONLY its own visible
+  tool groups from the registry, with their scope levels, and states
+  that unlisted groups do not exist for it. The registry/gateway half
+  already hides the tools themselves; this is the prompt half of the
+  same wall. Memory never leaks either: context is built from one
+  bot's own `bot_team_memories` rows only.
+- **Corrections-learning, shared** — `src/services/bots/learning.ts`.
+  A correction is recorded per bot in Abel's own summary format
+  ("corrected fields: …"); the counting is Abel's code
+  (`correction-watchouts.ts`) fed through an adapter, not a copy. At
+  2 corrections on the same field the bot earns a durable watch-out
+  row in its own memory, and `buildBotMemoryContext` puts watch-outs
+  first in its turn context. New store write path:
+  `BotTeamStore.saveBotMemory` — no new migration (00103's
+  `bot_team_memories` already carries kind correction/watch-out).
+- **Wired live in this build:** Abel's group-chat turn now runs with
+  the shared brain — `group.ts` passes `buildBotSystemPrompt("abel")`
+  + his memory context through the webhook into `runBotChat`'s new
+  optional `reasoningText` (appended to the system prompt only when
+  present; the 1:1 paths are untouched — they carry the reasoning
+  through the agent loop). Standing rules still travel as
+  instructions; the rest of his memory renders in the context block.
+- **Honest edges:** Scout's group paths are code-driven today (scan +
+  dispatch workup), so Scout consumes `buildBotSystemPrompt` when his
+  model turns land — the builder and tests are seat-complete now.
+  `recordBotCorrection` is the write API for corrections; no group
+  grammar parses free-text corrections yet (Phase 1). Abel's group
+  turns still lack the live company snapshot (Phase 1 gap, unchanged).
+  Mastra was NOT adopted in this lane (evaluated separately, per the
+  owner's research rule); the patterns used are the ones already in
+  the codebase — shared DB memory, propose-only guardrails, durable
+  per-bot state in Supabase.
 
 ## Phase 2 — Remaining seats
 

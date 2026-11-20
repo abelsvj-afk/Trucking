@@ -86,6 +86,14 @@ function makeStore(state: StubState): BotTeamStore {
     recordGroupMessage: async () => {},
     recordSpend: async () => {},
     spentThisMonthCents: async () => 0,
+    saveBotMemory: async (input) => ({
+      id: "memory-new",
+      bot_slug: input.botSlug,
+      kind: input.kind,
+      content: input.content,
+      source: input.source ?? "bot",
+      created_at: new Date().toISOString(),
+    }),
     loadBotMemories: async () => [],
   };
 }

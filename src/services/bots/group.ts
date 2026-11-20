@@ -2,13 +2,20 @@
 // One private group, him + the bots — with EACH bot messaging as
 // itself under its own Telegram account + profile photo (owner,
 // 2026-11-19: INDIVIDUAL FACES; the one-face model was rejected).
-// What Telegram still blocks: bots "will not be able to see messages
-// from other bots regardless of mode" (Bots FAQ, verified
-// 2026-11-19), so a bot's account is a sender face, not a reader of
-// other bots — the bots coordinate internally (Supabase / in-process
-// calls — see routedByBotSlug in router.ts, the supervisor-first
-// handoff seam) and each posts under its own name. The "every bot
-// hears every message" picture does not work as stated on Telegram.
+// Bot-to-bot delivery (verified against Telegram's own docs,
+// 2026-11-19/20): by DEFAULT bots never receive each other's
+// messages (Bots FAQ) — but Telegram's Bot-to-Bot Communication
+// Mode (@BotFather /setbot2bot) is the opt-in exception: command
+// mentions and direct replies between bots are delivered when at
+// least one bot of the pair has the mode on, and ordinary bot
+// messages too when the receiving bot also has Group Privacy
+// disabled (or is an admin). With those owner-side settings per
+// account, the group really is the shared channel the owner
+// ordered: a bot posts in the room addressed to a teammate, and
+// the teammate's account receives it. Until the mode is enabled,
+// the same coordination runs in-process (routedByBotSlug in
+// router.ts, the supervisor-first handoff seam) and each bot still
+// posts under its own name.
 //
 // This handler runs BEFORE the 1:1 path (services/telegram/
 // dispatch-bot.ts), which still serves only the owner's private chat
@@ -20,8 +27,10 @@
 // - No TELEGRAM_GROUP_CHAT_ID configured = groups ignored, as today.
 // - A message from anyone but the owner (TELEGRAM_ALLOWED_CHAT_ID)
 //   is ignored silently. The room has no third parties.
-// - A message from another bot is logged and ignored — bots do not
-//   answer each other unprompted, or the room would talk to itself.
+// - A message from another bot is logged to the room and may run
+//   ONLY the Auditor's deterministic check on a clear route — it
+//   never decides a proposal and never starts a model turn, so the
+//   room cannot talk itself into a loop (see handleBotGroupMessage).
 // - No store configured = the room still answers, but nothing is
 //   logged and proposals cannot be recorded; the reply says so.
 //
@@ -34,10 +43,12 @@
 // honest channel until group callbacks are wired (Phase 1).
 //
 // Abel's group answers use runBotChat with context assembled in code:
-// recent group history + the bot's stored memories. They do NOT yet
-// carry the live company snapshot the 1:1 path loads — a group answer
-// never states a live figure it has not loaded. That snapshot is a
-// Phase 1 gap, listed in the PR.
+// recent group history + the bot's stored memories. Since the shared
+// reasoning build (2026-11-19) they also carry Abel's full reasoning
+// layer via services/bots/reasoning.ts — the same forms as his 1:1
+// turn. They do NOT yet carry the live company snapshot the 1:1 path
+// loads — a group answer never states a live figure it has not
+// loaded. That snapshot is a Phase 1 gap, listed in the PR.
 
 import { randomUUID } from "node:crypto";
 import { auditLoadDraft, formatAuditReply, type LoadDraftInput } from "./auditor";
@@ -51,7 +62,8 @@ import {
 } from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
-import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
+import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
+import { botIdentity, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
 import { routeGroupMessage, unseatedReply } from "./router";
 import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
@@ -86,6 +98,13 @@ export interface GroupHandlerDeps {
     userText: string;
     history: { role: "user" | "assistant"; text: string }[];
     instructions: { kind: string; content: string }[];
+    /**
+     * The answering bot's shared-brain context (services/bots/
+     * reasoning.ts): its system prompt — identity, tool scope, every
+     * reasoning form — plus its own memory context. The caller maps
+     * it into the chat turn's system prompt.
+     */
+    systemContext?: string;
   }) => Promise<string | null>;
   /**
    * The shared-browser runtime for board scans. Built from env when
@@ -116,12 +135,13 @@ function groupChatOf(update: TelegramUpdate): { id: number; type: string } | nul
   return { id: chat.id, type: chat.type ?? "" };
 }
 
-function senderOf(update: TelegramUpdate): { id: number | null; isBot: boolean; text: string | null; messageId: number | null } {
+function senderOf(update: TelegramUpdate): { id: number | null; isBot: boolean; username: string | null; text: string | null; messageId: number | null } {
   const message = update.message;
   const from = message?.from;
   return {
     id: typeof from?.id === "number" ? from.id : null,
     isBot: from?.is_bot === true,
+    username: typeof from?.username === "string" ? from.username : null,
     text: typeof message?.text === "string" ? message.text : null,
     messageId: typeof message?.message_id === "number" ? message.message_id : null,
   };
@@ -142,17 +162,29 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   if (!deps.allowedChatId) return "disabled";
 
   const sender = senderOf(update);
-  // Bots do not answer each other — and on Telegram they cannot even
-  // see each other: the Bots FAQ ("Why doesn't my bot see messages
-  // from other bots?", verified 2026-11-19) says bots "will not be
-  // able to see messages from other bots regardless of mode", and
-  // that privacy-off/admin bots receive "all messages except messages
-  // sent by other bots". So there is no bot-to-bot handoff by
-  // message in this room: each bot posts under its own account
-  // (individual faces), and the bots coordinate internally
-  // (Supabase / in-process calls, never by messaging each other).
-  // A message from another bot is ignored, as before.
-  if (sender.isBot) return "ignored";
+  // Bot-to-bot in this room (mechanics verified against Telegram's
+  // own docs, 2026-11-19/20): by DEFAULT bots never receive each
+  // other's messages — the Bots FAQ states the default ("bots will
+  // not be able to see messages from other bots regardless of
+  // mode", and privacy-off/admin bots receive "all messages except
+  // messages sent by other bots"). The opt-in exception is
+  // Bot-to-Bot Communication Mode (@BotFather, /setbot2bot;
+  // core.telegram.org/bots/features#bot-to-bot-communication):
+  // with the mode on for at least one bot of a pair, a bot receives
+  // another bot's group message when it is a command mention
+  // addressed to it or a direct reply to its message; with the mode
+  // on AND Group Privacy disabled (or admin rights), it also
+  // receives the other bots' ordinary group messages. So a bot
+  // message CAN reach this handler — through whichever team bot
+  // account's webhook Telegram delivered it to — once the owner
+  // enables the mode per account. What a bot message may do here
+  // is bounded on purpose (Telegram's own warning: bot-message
+  // handling must terminate): it is logged to the room, and it may
+  // trigger ONLY the Auditor's deterministic check on a clear
+  // route. It never decides a proposal, never starts a model turn,
+  // and never chains — the Auditor's flags are terminal, and a
+  // repeated check is absorbed by its idempotency key.
+  if (sender.isBot) return handleBotGroupMessage(chat.id, sender, deps);
   // The room has no third parties.
   if (sender.id === null || String(sender.id) !== deps.allowedChatId) return "ignored";
 
@@ -312,7 +344,18 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
   try {
     const memories = store ? await store.loadBotMemories("abel") : [];
-    const instructions: { kind: string; content: string }[] = memories.map((row) => ({ kind: row.kind, content: row.content }));
+    // Shared brain (2026-11-19): Abel's group turn carries the same
+    // full reasoning layer as his 1:1 turn — his system prompt from
+    // the shared builder, plus his own memory context (watch-outs
+    // from his corrections first). Standing rules travel as
+    // instructions, the channel the chat prompt already honors on
+    // every reply; the rest of his memory renders in the context
+    // block, so nothing is assembled twice.
+    const systemPrompt = buildBotSystemPrompt("abel");
+    const memoryContext = buildBotMemoryContext(memories.filter((row) => row.kind !== "rule"));
+    const instructions: { kind: string; content: string }[] = memories
+      .filter((row) => row.kind === "rule")
+      .map((row) => ({ kind: row.kind, content: row.content }));
     // A message deferred from the Auditor's seat arrives with a
     // routing hint, so Abel knows why he is seeing it.
     if (routingHint) instructions.push({ kind: "routing", content: routingHint });
@@ -320,6 +363,7 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       userText: text,
       history: [],
       instructions,
+      systemContext: [systemPrompt, memoryContext].filter((part) => part && part.trim() !== "").join("\n\n"),
     });
     const answer = reply && reply.trim() !== "" ? reply.trim() : "I don't have an answer for that yet — say it another way?";
     if (store) {
@@ -489,6 +533,69 @@ async function sendAuditorMessage(chatId: number, text: string, deps: GroupHandl
 }
 
 /**
+ * Team bot usernames (@BotFather handles) this handler can
+ * attribute a bot message to. Only Dispatch Scout's is known
+ * today (the owner created @DispatchScoutBot, 2026-11-19); a bot
+ * whose username is not listed still gets picked up on a clear
+ * Auditor mention — it just arrives unattributed. Never guess a
+ * handle: an unlisted bot is a stranger's until the owner says
+ * otherwise.
+ */
+const TEAM_BOT_USERNAMES: Record<string, BotSlug> = {
+  dispatchscoutbot: "dispatch-scout",
+};
+
+/**
+ * A message from another bot in the room (delivered by Telegram
+ * once Bot-to-Bot Communication Mode is on — see the note at the
+ * handler's entry). The group chat is the team's shared channel:
+ * the message is logged to the room like any other, so it is part
+ * of the record the owner reads and of Abel's later context. Then
+ * exactly one thing may act on it: the Auditor, when the message
+ * clearly routes to it (its name, or a known teammate handing it
+ * the job). That check is deterministic and terminal — its flag
+ * asks for evidence but starts no new bot turn from this update,
+ * and the check key absorbs repeats. A bot message never decides
+ * a proposal (only the owner's yes/no does), never starts Abel's
+ * model turn (a bot cannot talk the coordinator into a loop), and
+ * never runs a Scout workup. A bot never picks up its OWN message.
+ */
+async function handleBotGroupMessage(
+  chatId: number,
+  sender: { id: number | null; username: string | null; text: string | null; messageId: number | null },
+  deps: GroupHandlerDeps,
+): Promise<GroupHandleResult> {
+  const text = sender.text;
+  if (text === null || text.trim() === "") return "ignored";
+  const store = deps.store;
+  const senderSlug = sender.username ? TEAM_BOT_USERNAMES[sender.username.toLowerCase()] : undefined;
+  if (store && sender.messageId !== null) {
+    try {
+      await store.ensureGroupRoom(chatId);
+      await store.recordGroupMessage({
+        telegramChatId: chatId,
+        telegramMessageId: sender.messageId,
+        senderKind: "bot",
+        senderRef: sender.username ?? (sender.id !== null ? String(sender.id) : "unknown"),
+        text: text.slice(0, 4000),
+        routedToBotSlug: null,
+      });
+    } catch (err) {
+      console.error("[bot-team] bot group message log failed", err);
+    }
+  }
+  const route = routeGroupMessage({
+    text,
+    senderKind: "bot",
+    ...(senderSlug ? { routedByBotSlug: senderSlug } : {}),
+  });
+  if (route.target === "auditor" && route.shouldAnswer && route.seated && senderSlug !== "auditor") {
+    await handleAuditorCheck(chatId, text, deps);
+  }
+  return "handled";
+}
+
+/**
  * The Auditor's turn in the group: recompute, then flag or say
  * "checks out". Two ways in:
  * - The owner's message carries numbers (a draft pasted in the
@@ -562,14 +669,44 @@ async function handleAuditorCheck(chatId: number, text: string, deps: GroupHandl
       return;
     }
     const audit = auditLoadDraft(proposalPayloadToLoadDraft(draft.payload));
+    const errors = audit.flags.filter((flag) => flag.severity === "error");
+    const unverifiable = audit.flags.filter((flag) => flag.severity === "unverifiable");
     await store.logAudit({
       botSlug: "auditor",
       actor: "bot",
       action: "auditor_check",
       targetRef: draft.id,
-      detail: { kind: "proposal", check_key: checkKey, passed: audit.passed, flags: audit.flags.map((f) => f.field) },
+      detail: {
+        kind: "proposal",
+        check_key: checkKey,
+        passed: audit.passed,
+        flags: audit.flags.map((f) => f.field),
+        addressed_to: draft.bot_slug,
+        missing: unverifiable.map((f) => f.field),
+      },
     });
-    await sendAuditorMessage(chatId, `Auditor — checking "${draft.title}": ${formatAuditReply(audit)}`, deps);
+    // Team room (owner, 2026-11-19): the verdict is spoken TO the
+    // bot that made the draft, by name, in the room where the
+    // owner reads it too. A flag names the gap on the author's own
+    // work; a check that cannot finish ASKS the author for the
+    // missing source instead of failing silently — the ask is part
+    // of this one idempotent message, so a redelivery never nags
+    // twice, and a re-check happens when the source lands as a new
+    // draft or new numbers. A clean check is reported out loud in
+    // one line — progress the room can see, not silence.
+    const authorName = botIdentity(draft.bot_slug).displayName;
+    let message: string;
+    if (errors.length > 0) {
+      message = `${authorName} — flag on your draft "${draft.title}": ${formatAuditReply(audit)}`;
+    } else if (unverifiable.length > 0) {
+      message =
+        `${authorName} — I can't finish checking "${draft.title}" without: ` +
+        `${unverifiable.map((flag) => `${flag.field} — ${flag.detail}`).join(" ")} ` +
+        `Post the source and I'll re-run it.`;
+    } else {
+      message = `${authorName} — your draft "${draft.title}" checks out.`;
+    }
+    await sendAuditorMessage(chatId, message, deps);
   } catch (err) {
     console.error("[bot-team] auditor check failed", err);
     await sendAuditorMessage(chatId, "Auditor: that check failed on my side — nothing was flagged and nothing was changed. Try again in a moment.", deps);

@@ -1,54 +1,57 @@
-// Shared reasoning for the Auditor (owner rule, 2026-11-19): one
-// shared brain, not a cut-down version. The Auditor must be able to
-// use ALL TEN of Abel's reasoning forms, through the shared
-// reasoning — the only things that stay individual are its job, its
-// scoped tools, and its memory.
-//
-// The ten forms are the 2026-11-10 reasoning layer (contextual,
-// causal, practical, self-correction, episodic, theory of mind,
-// value learning, consolidation, restraint) plus temporal
-// (2026-11-07). The five Frontier 1 forms (2026-11-11) and the
-// learning mechanism (2026-11-07) are Abel's reasoning too, so they
-// are shared as well — itemised, never silently dropped. These
-// tests pin the full set: 10 required + 5 Frontier 1 + learning.
-//
-// The shared text is NOT copied here: reasoning.ts imports the
-// blocks from agent-turn.ts, the single source of truth. The test
-// that compares the two proves there is no fork to drift.
+// Shared reasoning layer: every bot carries Abel's full reasoning —
+// all ten core forms and the five think-deeper forms, the same rule
+// blocks Abel's own prompt assembles — while its tool scope and its
+// memory stay its own seat's. Sharing the reasoning must never leak
+// another bot's tools or another bot's memory.
 import { describe, expect, it } from "vitest";
 import {
-  ALL_SHARED_REASONING_FORMS,
-  AUDITOR_REASONING_OVERLAY,
-  FRONTIER_REASONING_FORMS,
-  LEARNING_FORM,
-  TEN_REASONING_FORMS,
-  buildAuditorReasoningPrompt,
-  buildSharedReasoningPrompt,
-  reasoningFormById,
-  sharedReasoningText,
+  REASONING_FORMS,
+  buildBotMemoryContext,
+  buildBotSystemPrompt,
+  sharedReasoningPrompt,
+  toolScopeFraming,
 } from "@/services/bots/reasoning";
-import {
-  CAUSAL_RULES,
-  CHAINED_REASONING_RULES,
-  CONSOLIDATION_RULES,
-  CONTEXTUAL_RULES,
-  EPISODIC_RULES,
-  LEARNING_RULES,
-  PREDICTION_RULES,
-  RESTRAINT_RULES,
-  SELF_CORRECTION_RULES,
-  TEMPORAL_RULES,
-  THEORY_OF_MIND_RULES,
-  TOOL_SELECTION_RULES,
-  TRADEOFF_RULES,
-  UNCERTAINTY_RULES,
-  VALUE_LEARNING_RULES,
-  VERIFICATION_RULES,
-} from "@/services/bot/agent-turn";
+import { BOT_SLUGS, visibleToolGroups, type ToolGroup } from "@/services/bots/registry";
+import type { BotMemoryRow } from "@/services/bots/store";
 
-describe("shared reasoning: the Auditor gets all ten forms", () => {
-  it("lists exactly the ten required forms, by id", () => {
-    expect(TEN_REASONING_FORMS.map((form) => form.id)).toEqual([
+// One distinctive marker per form, matched the same way Abel's own
+// prompt-assembly test matches them (agent-turn.test.ts).
+const FORM_MARKERS: { id: string; marker: string }[] = [
+  { id: "temporal", marker: "TIME: never work out a weekday" },
+  { id: "contextual", marker: "CONTEXT: hold the whole thread" },
+  { id: "causal", marker: "CAUSE BEFORE CONCLUSION" },
+  { id: "practical", marker: "PRACTICAL: fit the action to the moment" },
+  { id: "self-correction", marker: "OWN YOUR MISTAKES" },
+  { id: "episodic", marker: "EPISODES, NOT JUST FACTS" },
+  { id: "theory-of-mind", marker: "WHAT HE KNOWS" },
+  { id: "value-learning", marker: "LEARN WHAT HE VALUES FROM WHAT HE DOES" },
+  { id: "consolidation", marker: "USE WHAT YOU ALREADY LEARNED" },
+  { id: "restraint", marker: "KNOW WHEN TO STOP" },
+  { id: "chained", marker: "PLAN THEN ACT" },
+  { id: "self-verification", marker: "CHECK BEFORE YOU SEND" },
+  { id: "honest-uncertainty", marker: "SAY WHAT YOU DON'T KNOW" },
+  { id: "trade-off-math", marker: "SHOW BOTH SIDES OF THE MATH" },
+  { id: "causal-prediction", marker: "FORECAST, DON'T BLOCK" },
+];
+
+function count(haystack: string, marker: string): number {
+  return haystack.split(marker).length - 1;
+}
+
+function memoryRow(partial: Partial<BotMemoryRow> & { content: string }): BotMemoryRow {
+  return {
+    id: "row-1",
+    bot_slug: "abel",
+    kind: "fact",
+    source: "test",
+    created_at: new Date().toISOString(),
+    ...partial,
+  };
+}
+
+describe("the shared reasoning forms", () => {
+  it("names all ten core forms and the five think-deeper forms, in Abel's order", () => {
+    expect(REASONING_FORMS.filter((f) => f.layer === "core").map((f) => f.id)).toEqual([
       "temporal",
       "contextual",
       "causal",
@@ -60,90 +63,143 @@ describe("shared reasoning: the Auditor gets all ten forms", () => {
       "consolidation",
       "restraint",
     ]);
-  });
-
-  it("carries every one of the ten forms in the Auditor's prompt", () => {
-    const prompt = buildAuditorReasoningPrompt();
-    for (const form of TEN_REASONING_FORMS) {
-      expect(prompt).toContain(form.marker);
-      expect(prompt).toContain(form.text);
-    }
-  });
-
-  it("also shares the five Frontier 1 forms — none silently dropped", () => {
-    expect(FRONTIER_REASONING_FORMS.map((form) => form.id)).toEqual([
+    expect(REASONING_FORMS.filter((f) => f.layer === "think-deeper").map((f) => f.id)).toEqual([
       "chained",
-      "verification",
-      "uncertainty",
-      "tradeoff",
-      "prediction",
+      "self-verification",
+      "honest-uncertainty",
+      "trade-off-math",
+      "causal-prediction",
     ]);
-    const prompt = buildAuditorReasoningPrompt();
-    for (const form of FRONTIER_REASONING_FORMS) {
-      expect(prompt).toContain(form.marker);
+  });
+
+  it("assembles every form's block exactly once in the shared prompt", () => {
+    const prompt = sharedReasoningPrompt();
+    for (const { id, marker } of FORM_MARKERS) {
+      expect(count(prompt, marker), id).toBe(1);
     }
   });
 
-  it("also shares the learning mechanism, labelled as a mechanism, not a form", () => {
-    expect(LEARNING_FORM.id).toBe("learning");
-    expect(buildAuditorReasoningPrompt()).toContain(LEARNING_FORM.marker);
-  });
-
-  it("shares sixteen blocks in total: 10 forms + 5 Frontier 1 + learning", () => {
-    expect(ALL_SHARED_REASONING_FORMS).toHaveLength(16);
-    expect(new Set(ALL_SHARED_REASONING_FORMS.map((form) => form.id)).size).toBe(16);
-  });
-
-  it("is the same text Abel has — no fork: each shared block equals agent-turn's block", () => {
-    const abelBlocks: Record<string, string> = {
-      temporal: TEMPORAL_RULES,
-      contextual: CONTEXTUAL_RULES,
-      causal: CAUSAL_RULES,
-      practical: TOOL_SELECTION_RULES,
-      "self-correction": SELF_CORRECTION_RULES,
-      episodic: EPISODIC_RULES,
-      "theory-of-mind": THEORY_OF_MIND_RULES,
-      "value-learning": VALUE_LEARNING_RULES,
-      consolidation: CONSOLIDATION_RULES,
-      restraint: RESTRAINT_RULES,
-      chained: CHAINED_REASONING_RULES,
-      verification: VERIFICATION_RULES,
-      uncertainty: UNCERTAINTY_RULES,
-      tradeoff: TRADEOFF_RULES,
-      prediction: PREDICTION_RULES,
-      learning: LEARNING_RULES,
-    };
-    for (const form of ALL_SHARED_REASONING_FORMS) {
-      expect(form.text).toBe(abelBlocks[form.id]);
+  it("gives EVERY bot the full brain — no cut-down version for any seat", () => {
+    for (const slug of BOT_SLUGS) {
+      const prompt = buildBotSystemPrompt(slug);
+      expect(prompt, slug).not.toBeNull();
+      for (const { id, marker } of FORM_MARKERS) {
+        expect(count(prompt ?? "", marker), `${slug}/${id}`).toBe(1);
+      }
     }
   });
 
-  it("resolves every form by id, and nothing else", () => {
-    for (const form of ALL_SHARED_REASONING_FORMS) {
-      expect(reasoningFormById(form.id)?.name).toBe(form.name);
+  it("refuses an unknown slug instead of handing it Abel's brain by accident", () => {
+    expect(buildBotSystemPrompt("not-a-bot")).toBeNull();
+    expect(buildBotSystemPrompt("")).toBeNull();
+  });
+});
+
+describe("tool scope framing — the reasoning is shared, the tools are not", () => {
+  const GROUP_LINES: { group: ToolGroup; line: RegExp }[] = [
+    { group: "loads", line: /^- loads: /m },
+    { group: "hos", line: /^- hours \(HOS\): /m },
+    { group: "money", line: /^- money: /m },
+    { group: "documents", line: /^- documents: /m },
+    { group: "email", line: /^- email: /m },
+    { group: "maps", line: /^- maps: /m },
+    { group: "app-actions", line: /^- app actions: /m },
+    { group: "calls", line: /^- phone calls: /m },
+    { group: "signature", line: /^- signing documents: /m },
+  ];
+
+  it("names exactly the bot's own visible groups — never another bot's", () => {
+    for (const slug of BOT_SLUGS) {
+      const framing = toolScopeFraming(slug);
+      const visible = visibleToolGroups(slug);
+      for (const { group, line } of GROUP_LINES) {
+        if (visible.includes(group)) {
+          expect(framing, `${slug} should name ${group}`).toMatch(line);
+        } else {
+          expect(framing, `${slug} must not name ${group}`).not.toMatch(line);
+        }
+      }
     }
-    expect(reasoningFormById("temporal")?.marker).toContain("TIME:");
   });
 
-  it("reads the Auditor scope overlay FIRST, before the shared blocks", () => {
-    const prompt = buildAuditorReasoningPrompt();
+  it("the Auditor — read/flag only — is never told it can call, sign, or send", () => {
+    const framing = toolScopeFraming("auditor");
+    expect(framing).not.toMatch(/^- phone calls: /m);
+    expect(framing).not.toMatch(/^- signing documents: /m);
+    expect(framing).toMatch(/do not exist for you/);
+  });
+
+  it("the Tracker has no money or email scope in its framing", () => {
+    const framing = toolScopeFraming("tracker");
+    expect(framing).not.toMatch(/^- money: /m);
+    expect(framing).not.toMatch(/^- email: /m);
+  });
+});
+
+describe("per-bot memory context", () => {
+  it("renders the bot's own facts, preferences, and standing rules", () => {
+    const context = buildBotMemoryContext([
+      memoryRow({ kind: "fact", content: "He parks at the Hattiesburg Walmart when passing through." }),
+      memoryRow({ kind: "preference", content: "Prefers loads that end near home on Fridays." }),
+      memoryRow({ kind: "rule", content: "Never quote a rate you have not loaded." }),
+    ]);
+    expect(context).toContain("Hattiesburg Walmart");
+    expect(context).toContain("end near home on Fridays");
+    expect(context).toContain("YOUR STANDING RULES");
+    expect(context).toContain("Never quote a rate");
+  });
+
+  it("puts watch-outs derived from its own corrections first, and does not list the raw correction rows", () => {
+    const context = buildBotMemoryContext([
+      memoryRow({ kind: "correction", content: "corrected fields: rate" }),
+      memoryRow({ kind: "correction", content: "corrected fields: rate" }),
+      memoryRow({ kind: "fact", content: "Some fact." }),
+    ]);
+    expect(context).toMatch(/^WATCH-OUTS FROM HIS OWN CORRECTIONS \(/);
+    expect(context).toContain("- rate: corrected 2 times");
+    expect(context).not.toContain("corrected fields:");
+  });
+
+  it("a single correction is not yet a watch-out", () => {
+    const context = buildBotMemoryContext([memoryRow({ kind: "correction", content: "corrected fields: rate" })]);
+    expect(context).not.toContain("WATCH-OUTS");
+  });
+
+  it("a stored watch-out stands even when its correction rows are no longer in the window", () => {
+    const context = buildBotMemoryContext([
+      memoryRow({ kind: "watch-out", content: "rate: corrected 2 times — double-check it against the source before using it, or ask him for the value instead of guessing." }),
+    ]);
+    expect(context).toContain("WATCH-OUTS FROM HIS OWN CORRECTIONS:");
+    expect(context).toContain("rate: corrected 2 times");
+  });
+
+  it("empty memory renders an empty context — no invented content", () => {
+    expect(buildBotMemoryContext([])).toBe("");
+  });
+});
+
+describe("the Auditor on the shared brain (branch feat/bot-auditor-2026-11-19)", () => {
+  it("scopes the framing to the Auditor's seat: six reads + flag, never calls or signature", () => {
+    const framing = toolScopeFraming("auditor");
+    expect(framing).toContain("- loads: read");
+    expect(framing).toContain("- money: read");
+    expect(framing).toContain("- app actions: flag");
+    expect(framing).not.toContain("phone calls");
+    expect(framing).not.toContain("signing documents");
+    expect(framing).toContain("Tool groups not listed here do not exist for you");
+  });
+
+  it("composes the Auditor's prompt overlay-first over the full shared brain", async () => {
+    const { AUDITOR_REASONING_OVERLAY, buildAuditorSystemPrompt } = await import("@/services/bots/auditor");
+    const prompt = buildAuditorSystemPrompt();
     expect(prompt.startsWith(AUDITOR_REASONING_OVERLAY)).toBe(true);
-    expect(prompt.indexOf("AUDITOR READING OF THE SHARED REASONING")).toBe(0);
-  });
-
-  it("the overlay overrides Abel's write mechanics: flag, never fix; 'cannot verify' when the tool is missing", () => {
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/no write tools/i);
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/never fix (a record|it) yourself/i);
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/FLAG the correction/i);
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/no save_memory/i);
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/cannot verify/i);
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/checks out/i);
-    expect(AUDITOR_REASONING_OVERLAY).toMatch(/PHRASING DRIFT/i);
-  });
-
-  it("buildSharedReasoningPrompt gives the Auditor its overlay and other bots the shared text", () => {
-    expect(buildSharedReasoningPrompt("auditor")).toBe(buildAuditorReasoningPrompt());
-    expect(buildSharedReasoningPrompt("abel")).toBe(sharedReasoningText());
-    expect(buildSharedReasoningPrompt("abel")).not.toContain("AUDITOR READING");
+    expect(prompt).toContain("FLAG, NEVER FIX");
+    expect(prompt).toContain("CANNOT VERIFY IS AN ANSWER");
+    expect(prompt).toContain("WORK OUT LOUD IN THE ROOM");
+    // The overlay scopes the brain; it never replaces it — all
+    // fifteen shared forms are still present, exactly once each.
+    for (const { id, marker } of FORM_MARKERS) {
+      expect(count(prompt, marker), id).toBe(1);
+    }
   });
 });

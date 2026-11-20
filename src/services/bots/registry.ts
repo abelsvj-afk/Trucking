@@ -228,5 +228,5 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
   return (Object.keys(scope) as ToolGroup[]).filter((group) => scope[group] !== "none" && scope[group] !== "never");
 }
 
-/** Bots wired into the Telegram group in this phase (Phase 0). Abel and Dispatch Scout from the baseline; the Auditor joins with its own seat (branch feat/bot-auditor-2026-11-19) — read-only, flag only, answering only on a clear route (router.ts). Seats are internal agents; each posts under its own BotFather account once its token is configured (owner, 2026-11-19: individual faces). */
+/** Bots wired into the Telegram group in this phase (Phase 0). Abel and Dispatch Scout from the baseline; the Auditor joins with its own seat (branch feat/bot-auditor-2026-11-19) — read-only, flag only, acting only on a clear route (router.ts), speaking to teammates by name in the room. Seats are internal agents; each posts under its own BotFather account once its token is configured (owner, 2026-11-19: individual faces). */
 export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout", "auditor"];

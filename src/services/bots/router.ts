@@ -1,30 +1,33 @@
 // Group-chat routing (Phase 0 baseline; plan docs/bot-team-build-plan.md).
 // One private group, him + the bots — each bot messaging as itself
 // under its own Telegram account + profile photo (owner, 2026-11-19:
-// INDIVIDUAL FACES; the one-face model was rejected). What Telegram
-// still blocks: bots "will not be able to see messages from other
-// bots regardless of mode" (Bots FAQ, verified 2026-11-19), so a
-// bot's account is a sender face, not a reader of other bots — the
-// bots coordinate internally (Supabase / in-process calls) and each
-// posts under its own name. Routing here decides which internal
-// agent a message is FOR; the coordinator owns the final answer.
+// INDIVIDUAL FACES; the one-face model was rejected). Bot-to-bot
+// delivery is Telegram's opt-in Bot-to-Bot Communication Mode
+// (@BotFather /setbot2bot; by default bots never see each other —
+// Bots FAQ): with the mode on per account, a teammate's group
+// message addressed to a bot reaches that bot's account, so the
+// group itself is the shared channel. Routing here decides which
+// internal agent a message is FOR; the coordinator owns the final
+// answer for the owner's messages.
 //
-// Routing order: a reply to a bot's message goes to that bot; an
-// in-process handoff from another bot goes where that bot sends it
-// (routedByBotSlug — a code-level handoff, never a Telegram message
-// between bots); a name mention goes to the named bot; a job keyword
-// goes to the bot whose job it is; everything else goes to Abel. The
-// router is pure — no database, no network — so the same message
-// always routes the same way and the tests can prove it.
+// Routing order: a reply to a bot's message goes to that bot; a
+// handoff from another bot goes where that bot sends it — carried
+// in-process (routedByBotSlug) or, once Bot-to-Bot Mode is enabled,
+// as a real group message from the teammate's account, routed by
+// the same rules with senderKind "bot"; a name mention goes to the
+// named bot; a job keyword goes to the bot whose job it is;
+// everything else goes to Abel (owner messages only — a bot's
+// message never falls through to Abel's model turn). The router is
+// pure — no database, no network — so the same message always
+// routes the same way and the tests can prove it.
 //
 // AUDITOR ROUTING (owner, 2026-11-19 — team-room correction): the
-// group chat is a team room, not a strict queue. Bots hand work off
-// to each other INTERNALLY (in-process / Supabase — never by
-// Telegram message, which Telegram does not deliver between bots);
-// Abel is the boss for what needs the owner's attention, not the
-// only one who talks. That corrects the earlier too-strict rule
-// ("only Abel routes, only the named bot answers"). Reconciled for
-// the Auditor:
+// group chat is a team room, not a strict queue. Bots hand work
+// off to each other in the room and in-process; Abel is the boss
+// for what needs the owner's attention, not the only one who
+// talks. That corrects the earlier too-strict rule ("only Abel
+// routes, only the named bot answers"). Reconciled for the
+// Auditor:
 //   - Called by name → it answers.
 //   - Routed to it by Abel OR handed off by any other bot → it answers.
 //   - Its own turn → it answers: a draft has landed and needs

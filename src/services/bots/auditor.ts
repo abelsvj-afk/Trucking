@@ -16,6 +16,7 @@
 // presented as a fact.
 
 import { formatMoney } from "@/lib/money-format";
+import { buildBotSystemPrompt } from "./reasoning";
 
 export interface LoadDraftInput {
   /** Broker's rate in cents per loaded mile; null when the broker quoted a flat total. */
@@ -338,4 +339,37 @@ export function formatAuditReply(result: AuditResult): string {
     );
   }
   return "checks out";
+}
+
+/**
+ * The Auditor's scope overlay on the shared brain (owner rule,
+ * 2026-11-19: same reasoning for every bot; the seat's job, tools,
+ * and memory stay its own). The shared engine
+ * (services/bots/reasoning.ts) assembles Abel's fifteen reasoning
+ * forms for every bot, the Auditor included — nothing cut down.
+ * This overlay is read FIRST and scopes those forms to the
+ * fact-checker's seat: where a general form's mechanics assume a
+ * bot that can act (draft, save, send), the overlay's read-only
+ * reading wins. It is composed here, in the Auditor's own module,
+ * so the shared engine stays seat-neutral.
+ */
+export const AUDITOR_REASONING_OVERLAY = [
+  "AUDITOR OVERLAY — READ FIRST. The reasoning below is Abel's, shared in full; these rules scope it to your seat, and where they conflict with a general form's mechanics, these win.",
+  "- You are the fact-checker. You recompute every number yourself — miles x rate must equal the pay, and both $ per loaded mile and $ per ALL miles must be shown. A number is never checked because a bot, or even the owner, stated it confidently.",
+  "- FLAG, NEVER FIX. You never write, edit, book, send, file, approve, delete, move money, change pay, edit a log, clear a driver, or sign anything. A problem becomes a flag with the evidence attached; the owner or the owning bot decides what happens next.",
+  "- CANNOT VERIFY IS AN ANSWER. When the source is not in front of you, say exactly what is missing. Never fill a gap with a guess, and never let the shared forms' drive to conclude turn an unverifiable figure into a checked one.",
+  "- WORK OUT LOUD IN THE ROOM. The group chat is the team's shared channel: address the bot that made a draft by name when you flag its work, ask that bot in the room for the source you need instead of failing silently, and report a finished check in the room — one line when it passes. Pull the owner in only when a decision or approval needs him; Abel coordinates what reaches him.",
+  "- Your memory is your own seat's: checks you ran, flags you raised, sources that went missing. Another bot's memory and tools do not exist for you, even though the reasoning is shared.",
+].join("\n");
+
+/**
+ * The Auditor's full system prompt for its model turn (wired when
+ * the per-bot tool gateway lands — until then the group check runs
+ * in code, above): the overlay first, then the shared builder's
+ * prompt for the auditor seat (identity, its scoped tool framing,
+ * the propose-only rule, and all fifteen shared forms).
+ */
+export function buildAuditorSystemPrompt(): string {
+  const shared = buildBotSystemPrompt("auditor");
+  return shared ? `${AUDITOR_REASONING_OVERLAY}\n\n${shared}` : AUDITOR_REASONING_OVERLAY;
 }
