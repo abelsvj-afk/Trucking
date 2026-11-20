@@ -49,8 +49,16 @@ describe("deriveSpeedMph - only a speed it can stand behind", () => {
     expect(deriveSpeedMph(a, wander)).toBe(0);
   });
 
-  it("a missing accuracy is treated as fine (Telegram omits it on some updates)", () => {
+  // Audit F-012/F-021: unknown accuracy is unknown, never perfect.
+  it("a missing accuracy is judged at the worst accepted accuracy: a real move still counts (Telegram omits it on some updates)", () => {
     expect(deriveSpeedMph(fix(28, -81.7, 0, null), fix(28 + northMiles(0.5), -81.7, 60_000, null))!).toBeGreaterThan(29);
+  });
+
+  it("a missing accuracy can never prove a stop or fake a crawl", () => {
+    // standing still with no accuracy: unknown, NOT 0 mph
+    expect(deriveSpeedMph(fix(28, -81.7, 0, null), fix(28, -81.7, 30_000, null))).toBeNull();
+    // 0.05 mi in 30 s (6 mph) is within what two 100 m errors can fake: unknown, NOT moving
+    expect(deriveSpeedMph(fix(28, -81.7, 0, 8), fix(28 + northMiles(0.05), -81.7, 30_000, null))).toBeNull();
   });
 });
 
