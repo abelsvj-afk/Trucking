@@ -26,6 +26,7 @@ function makeMemoryStore(state: MemoryState): BotTeamStore {
     recordLoadOutcome: async () => {},
     ensureGroupRoom: async () => {},
     recordGroupMessage: async () => {},
+    findGroupMessage: async () => null,
     recordSpend: async () => {},
     spentThisMonthCents: async () => 0,
     loadBotMemories: async (botSlug: BotSlug) =>

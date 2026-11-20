@@ -32,11 +32,40 @@ describe("group routing", () => {
     expect(route.via).toBe("reply");
   });
 
+  it("routes billing terms to Billing, and a broker-plus-paid question to Billing over Scout", () => {
+    const overdue = routeGroupMessage({ text: "that invoice is overdue", senderKind: "owner" });
+    expect(overdue.target).toBe("billing");
+    expect(overdue.seated).toBe(true);
+    const factoring = routeGroupMessage({ text: "should we factor this invoice?", senderKind: "owner" });
+    expect(factoring.target).toBe("billing");
+    const brokerPaid = routeGroupMessage({ text: "has the broker paid yet?", senderKind: "owner" });
+    expect(brokerPaid.target).toBe("billing");
+    const shortPay = routeGroupMessage({ text: "they short-paid the Detroit load", senderKind: "owner" });
+    expect(shortPay.target).toBe("billing");
+  });
+
+  it("routes a POD notice to Tracker — POD is more specific than the generic word 'load'", () => {
+    const route = routeGroupMessage({ text: "POD signed for the Detroit load", senderKind: "owner" });
+    expect(route.target).toBe("tracker");
+    expect(route.via).toBe("keyword");
+  });
+
+  it("still routes a bare broker question to Dispatch Scout", () => {
+    const route = routeGroupMessage({ text: "find me a broker in Dallas", senderKind: "owner" });
+    expect(route.target).toBe("dispatch-scout");
+  });
+
   it("names the Auditor for a check, but marks the seat unseated in Phase 0", () => {
     const route = routeGroupMessage({ text: "Auditor, check this math", senderKind: "owner" });
     expect(route.target).toBe("auditor");
     expect(route.seated).toBe(false);
     expect(unseatedReply("auditor")).toMatch(/isn't in the room yet/);
+  });
+
+  it("does not route a paycheck question to Billing — bare 'paid' stays with Abel", () => {
+    const route = routeGroupMessage({ text: "when do I get paid?", senderKind: "owner" });
+    expect(route.target).toBe("abel");
+    expect(route.via).toBe("default");
   });
 
   it("defaults everything else to Abel", () => {
