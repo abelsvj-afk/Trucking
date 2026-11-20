@@ -2,6 +2,12 @@
 -- company's OWNER; a driver logged in to the same company reads 0 and cannot write.
 -- Run after scratch-auth-shim.sql. One transaction; rolls back.
 --   psql -d scratch -v ON_ERROR_STOP=1 -f tests/db/business-credit-owner-only.sql
+--
+-- LIVE-SAFE COUNTS (2026-11-20): the first live run tripped on "owner reads 7
+-- rows, expected 1" - the counts covered the whole table, and production holds
+-- the owner's real vendor rows. Both counts are now scoped to the fixture
+-- company this check itself creates, so the assertions hold no matter what
+-- else the table contains. Assertions unchanged.
 
 begin;
 
@@ -20,7 +26,8 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000a2
 do $$
 declare n int; refused boolean := false;
 begin
-  select count(*) into n from business_credit_accounts;
+  select count(*) into n from business_credit_accounts
+   where company_id = '00000000-0000-0000-0000-00000000aa01';
   if n <> 0 then raise exception 'FAIL: a driver can read % business credit row(s)', n; end if;
   begin
     insert into business_credit_accounts (company_id, vendor, vendor_key, status)
@@ -36,7 +43,8 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000a1
 do $$
 declare n int;
 begin
-  select count(*) into n from business_credit_accounts;
+  select count(*) into n from business_credit_accounts
+   where company_id = '00000000-0000-0000-0000-00000000aa01';
   if n <> 1 then raise exception 'FAIL: the owner reads % row(s), expected 1', n; end if;
   insert into business_credit_accounts (company_id, vendor, vendor_key, status)
     values ('00000000-0000-0000-0000-00000000aa01', 'Y', 'y', 'open');
