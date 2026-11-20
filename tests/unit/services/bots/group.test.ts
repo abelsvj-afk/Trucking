@@ -575,7 +575,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
 
   // BT-005: a handoff to Billing goes through the same chain cap as every bot message.
   it("a Billing handoff at the bot-chain cap gets no Billing turn", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     deps.store!.listRecentGroupMessages = async () =>
       [1, 2, 3, 4].map((i) => ({ sender_kind: "bot", telegram_message_id: 100 + i })) as never;
@@ -586,7 +586,7 @@ describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
 
   // BT-003: a claim that can't be made means no Billing turn at all.
   it("a Billing handoff whose claim fails (non-duplicate error) does not run", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
     deps.store!.recordGroupMessage = async () => {
       throw new Error("connection reset");
@@ -1799,7 +1799,7 @@ describe("bot-team group mode — bot-to-bot handoffs to Maintenance", () => {
 describe("group claim fails closed (BT-003)", () => {
   it("transient claim error: no model turn; Abel's webhook tells the owner; another face stays silent", async () => {
     for (const receivingBot of ["abel", "dispatch-scout"] as const) {
-      const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+      const state: StubState = emptyState();
       let modelCalled = false;
       const { deps, sent } = makeDeps(state, { receivingBot, runChat: async () => ((modelCalled = true), "x") });
       deps.store!.recordGroupMessage = async () => {
@@ -1815,7 +1815,7 @@ describe("group claim fails closed (BT-003)", () => {
 // BT-006: the Telegram account decides who spoke; a prefix can't impersonate a bot that has its own account.
 describe("sender identity (BT-006)", () => {
   it("Scout's account sending 'Billing: ...' is still Scout, and can't make Billing's loop guard misfire", async () => {
-    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const state: StubState = emptyState();
     const logged: { senderRef: string }[] = [];
     const { deps } = makeDeps(state);
     deps.store!.recordGroupMessage = async (input) => void logged.push({ senderRef: input.senderRef });

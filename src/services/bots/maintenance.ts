@@ -107,6 +107,7 @@
 // decisions are unit-testable and the same message always gets the
 // same answer.
 
+import { formatMoney } from "@/lib/money-format";
 import { SHARED_CALLING_NUMBER } from "./calling";
 import { checkBotAction } from "./guardrails";
 import { formatHandoff, handoffAtHopLimit, handoffMachineLine, type BotHandoff } from "./handoff";
@@ -863,7 +864,7 @@ async function handleWorkOrder(text: string, deps: MaintenanceGroupDeps, message
         "Work-order draft ready, waiting on your yes:",
         title,
         draft.estimateCents !== null
-          ? `Estimate on file: $${(draft.estimateCents / 100).toFixed(2)} (from your message — I never guess a price).`
+          ? `Estimate on file: ${formatMoney(draft.estimateCents)} (from your message — I never guess a price).`
           : "Estimate: none given yet.",
         ...draft.flags.map((flag) => `Still needed: ${flag}.`),
         "Reply Yes to approve it, No to drop it. Nothing is sent to a shop from here.",
@@ -1204,7 +1205,7 @@ export async function handleMaintenanceBotHandoff(args: {
     const text =
       `work order for ${problem.replace(/-/g, " ")}` +
       `${truck ? ` on truck ${truck}` : ""}` +
-      `${estimateCents !== null && Number.isFinite(estimateCents) ? `, estimate $${(estimateCents / 100).toFixed(2)}` : ""}`;
+      `${estimateCents !== null && Number.isFinite(estimateCents) ? `, estimate ${formatMoney(estimateCents)}` : ""}`;
     await handleWorkOrder(text, deps, messageRef);
     return "handled";
   }
