@@ -40,7 +40,7 @@ import { createTelegramBrainStore, createTelegramStore } from "@/services/telegr
 import { handleBotTeamGroupUpdate } from "@/services/bots/group";
 import { buildGroupSenders } from "@/services/bots/group-senders";
 import { createBillingDataStore } from "@/services/bots/billing";
-import { BOT_FACES } from "@/services/bots/faces";
+import { BOT_FACES, botFaceToken } from "@/services/bots/faces";
 import type { BotSlug } from "@/services/bots/registry";
 import { createBotTeamStore } from "@/services/bots/store";
 import type { BotBrainStore } from "@/services/bot/store";
@@ -169,7 +169,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const chatForLimit =
     update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id;
   const kind = update.edited_message?.location || update.message?.location ? "location" : "message";
-  const limitResult = webhookLimiter.allowWithNotice(String(chatForLimit ?? "unknown"), kind, Date.now());
+  // BT-004: every bot's webhook receives the same group message. Only Abel's copy counts
+  // toward the limit, so one message the owner sends uses one allowance however many
+  // bots receive it; the other faces' copies are deduped by the room claim (group.ts).
+  const updateChat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
+  const isGroupUpdate = updateChat?.type === "group" || updateChat?.type === "supergroup";
+  const receivingParam = req.nextUrl.searchParams.get("bot");
+  const countsTowardLimit = !isGroupUpdate || receivingParam === null || receivingParam === "abel";
+  const limitResult = countsTowardLimit
+    ? webhookLimiter.allowWithNotice(String(chatForLimit ?? "unknown"), kind, Date.now())
+    : { allowed: true, notify: false };
   if (!limitResult.allowed) {
     console.warn("[telegram] rate limit hit - update dropped", { kind });
     // T-005: don't drop silently - tell the owner some messages were dropped.
@@ -266,6 +275,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
     return NextResponse.json({ ok: true });
   }
+  // BT-001: a private chat with any bot other than Abel. The 1:1 assistant below is ABEL's
+  // (his tools, his token); it must never answer as, or with the tools of, another face.
+  // Until a face has its own scoped 1:1, it says one line from its own account and runs nothing.
+  const privateFace = req.nextUrl.searchParams.get("bot");
+  if (privateFace !== null && privateFace !== "abel") {
+    const slug = BOT_FACES[privateFace as BotSlug] ? (privateFace as BotSlug) : null;
+    const chatId = update.message?.chat?.id;
+    const faceTokenForReply = slug ? botFaceToken(slug) : null;
+    if (slug && faceTokenForReply && typeof chatId === "number" && update.message?.text && String(chatId) === config.allowedChatId) {
+      try {
+        await sendTelegramMessage(
+          faceTokenForReply,
+          chatId,
+          `I work in the team group — talk to me there. For anything 1:1, message Abel.`,
+        );
+      } catch (err) {
+        console.error("[telegram] face private reply failed", err);
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   // Personality: stickers come from a public sticker set (TELEGRAM_STICKER_SET; default Telegram's AnimatedEmojies).
   const personality = createPersonalitySenders(botToken, { stickerSet: process.env.TELEGRAM_STICKER_SET, tenorKey: process.env.TENOR_API_KEY });
   // v2 (§8): the brain store powers the agent loop (tools, proposals,
