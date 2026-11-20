@@ -31,3 +31,20 @@ Order: 2, 3, 1, 5, 6, 4, 7 (the reply-identity and duplicate fixes first, becaus
 
 - For each face: `getMe`, `getWebhookInfo` (URL includes `?bot=<slug>`, allowed updates, pending count, last error), group membership, privacy mode, Bot-to-Bot Communication Mode.
 - One real owner message in the group: count the replies and note which account sent each one.
+
+## Implementation (owner: "Do the fixes", 2026-11-20) — branch `fix/bots-telegram-2026-11-20`
+
+Every fix has a test that fails on the old code and passes now.
+
+| ID | What changed | Proof |
+|---|---|---|
+| BT-002 | `services/bots/group-senders.ts`: generic group replies always go from Abel's account; a bot with its own token sends from it; the receiving webhook's token is never used to reply. | `group-senders.test.ts` |
+| BT-003 | `claimRoomMessage` → claimed / duplicate / unavailable. Unavailable (no store, or a non-duplicate error) runs nothing; Abel's webhook tells the owner once. Bot messages are claimed the same way. | `group.test.ts` "group claim fails closed", Billing claim failure |
+| BT-001 | A private update on a non-Abel `?bot=` webhook: that bot answers one line from its own account ("talk to me in the team group"); no Abel turn or tool runs. | `telegram-bot-webhook-route.test.ts` |
+| BT-005 | The Billing handoff runs in the common path: message-id dedup, the claim, chain depth and the pickup verdict apply first. | "a Billing handoff at the bot-chain cap gets no Billing turn" |
+| BT-006 | The Telegram account decides who spoke; a prefix counts only for a relay (no username, or Abel's account speaking for a bot with no account). `identifyTeamBot` reads `BOT_FACES`; the duplicate registry username is gone. | "Scout's account sending 'Billing: ...' is still Scout" |
+| BT-004 | Group copies arriving on other faces' webhooks don't count toward the rate limit; only Abel's copy does. | route test: 80 Scout copies, Abel's copy still processed |
+| BT-007 | `getTeamWebhookReports`: one report per bot account (token set, `getMe` identity — a token belonging to another bot is flagged — webhook health); Settings shows a card per bot; each Fix repairs that bot (`POST ?bot=<slug>`). | `webhook-team.test.ts`, settings test |
+| BT-008 | Every report carries `nextStep`: `repair` only where re-registering the same address solves it (missing update types, a delivery error such as a wrong secret), otherwise the exact `server` step for King. No button for a state it can't fix. | `webhook-team.test.ts`, settings test |
+
+Still live-only (King): each face's `getMe` / `getWebhookInfo`, group membership, privacy, Bot-to-Bot Communication Mode, and one real group message — count the replies and which account sent each.

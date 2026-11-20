@@ -7,14 +7,22 @@
 import { NextResponse } from "next/server";
 import { createApiHandler } from "@/services/api/handler";
 import { getTelegramConfig } from "@/services/telegram/dispatch-bot";
-import { getWebhookReport, repairWebhook } from "@/services/telegram/webhook-admin";
+import { faceContext, getTeamWebhookReports, getWebhookReport, repairWebhook, type TeamFace } from "@/services/telegram/webhook-admin";
+import { BOT_FACES, botFaceToken } from "@/services/bots/faces";
+import type { BotSlug } from "@/services/bots/registry";
 
 const headers = { "Cache-Control": "no-store" };
+
+/** Every bot face with its token from the server's environment (BT-007). Tokens never leave the server. */
+function teamFaces(): TeamFace[] {
+  return Object.values(BOT_FACES).map((f) => ({ slug: f.slug, name: f.displayName, username: f.username, tokenEnvVar: f.tokenEnvVar, token: botFaceToken(f.slug) }));
+}
 
 export const GET = createApiHandler(async () => {
   const config = getTelegramConfig();
   try {
-    return NextResponse.json({ data: await getWebhookReport(config) }, { headers });
+    const [data, faces] = await Promise.all([getWebhookReport(config), getTeamWebhookReports(teamFaces(), config.webhookSecret)]);
+    return NextResponse.json({ data, faces }, { headers });
   } catch (err) {
     return NextResponse.json(
       { error: { code: "BAD_GATEWAY", message: err instanceof Error ? err.message : "Couldn't check Telegram." } },
@@ -23,10 +31,18 @@ export const GET = createApiHandler(async () => {
   }
 });
 
-export const POST = createApiHandler(async () => {
+export const POST = createApiHandler(async (req) => {
   const config = getTelegramConfig();
+  // ?bot=<slug> repairs that face's webhook with ITS token; no parameter = Abel's (as before).
+  const slug = new URL(req.url).searchParams.get("bot");
+  const face = slug ? teamFaces().find((f) => f.slug === (slug as BotSlug)) : null;
+  if (slug && !face) {
+    return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: `Unknown bot: ${slug}.` } }, { status: 400, headers });
+  }
   try {
-    const result = await repairWebhook(config);
+    const result = face
+      ? await repairWebhook({ botToken: face.token, webhookSecret: config.webhookSecret }, fetch, faceContext(face))
+      : await repairWebhook(config);
     console.log("[telegram] webhook repair", { repaired: result.repaired, missingBefore: result.before.missing, missingAfter: result.after.missing });
     return NextResponse.json({ data: result }, { headers });
   } catch (err) {

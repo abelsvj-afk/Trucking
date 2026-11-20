@@ -518,7 +518,7 @@ Authenticated owner session; company-scoped; reading never writes a duty row.
 | `/api/v1/duty-logs/auto-stop` | POST | custom (see section / design doc) |
 | `/api/v1/device-tokens/[id]` | DELETE | custom (see section / design doc) |
 | `/api/v1/device-tokens` | GET,POST | custom (see section / design doc) |
-| `/api/v1/telegram-webhook` | GET,POST | custom (see section / design doc) |
+| `/api/v1/telegram-webhook` | GET,POST | custom (see section / design doc) — GET returns `data` (Abel's report) and `faces` (one report per bot account: token set, `getMe` identity check, webhook health, `nextStep` = repair / server / none; never a token or the secret); POST `?bot=<slug>` repairs that face's existing webhook with its own token (no parameter = Abel's) |
 | `/api/v1/position/feed` | POST | custom (see section / design doc) |
 | `/api/v1/position/clocks` | POST | custom (see section / design doc) |
 | `/api/v1/roadside/packet` | GET | custom (see section / design doc) |
