@@ -38,6 +38,9 @@ import {
 } from "@/services/telegram/dispatch-bot";
 import { createTelegramBrainStore, createTelegramStore } from "@/services/telegram/store";
 import { handleBotTeamGroupUpdate } from "@/services/bots/group";
+import { createBillingDataStore } from "@/services/bots/billing";
+import { BOT_FACES, botFaceToken } from "@/services/bots/faces";
+import type { BotSlug } from "@/services/bots/registry";
 import { createBotTeamStore } from "@/services/bots/store";
 import type { BotBrainStore } from "@/services/bot/store";
 import { createTelegramBurstCollector, type TelegramBurstItem } from "@/services/telegram/burst";
@@ -192,8 +195,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // group/supergroup updates go to the team handler. The 1:1 path
   // below still serves only the owner's private chat and still ignores
   // every group. Rate limiting above already applies to groups too.
+  //
+  // Per-bot faces (Phase 2): each bot has its own BotFather token
+  // and its own webhook URL, /api/telegram/webhook?bot=<slug>
+  // (see services/bots/faces.ts). The ?bot= parameter picks which
+  // face received this update — replies go out under that face, so
+  // the owner sees each bot's own face when it talks. No ?bot=
+  // means Abel's webhook (the original URL). An unknown slug is a
+  // 400: a mistyped webhook must fail loudly, not silently answer
+  // as Abel.
   const groupChat = update.message?.chat ?? update.edited_message?.chat ?? update.callback_query?.message?.chat;
   if (groupChat?.type === "group" || groupChat?.type === "supergroup") {
+    const receivingBotParam = req.nextUrl.searchParams.get("bot");
+    const receivingBot: BotSlug | null = receivingBotParam === null ? "abel" : (BOT_FACES[receivingBotParam as BotSlug] ? (receivingBotParam as BotSlug) : null);
+    if (receivingBot === null) {
+      return NextResponse.json({ error: { code: "UNKNOWN_BOT", message: `Unknown bot face: ${receivingBotParam}.` } }, { status: 400 });
+    }
+    const faceToken = botFaceToken(receivingBot);
+    const groupBotToken = faceToken ?? botToken;
     const teamStore = createBotTeamStore(config.companyId);
     // Lazy provider: no key = no runChat, and the group says so
     // honestly instead of failing.
@@ -218,13 +237,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       : undefined;
     await handleBotTeamGroupUpdate(update, {
-      botToken,
+      botToken: groupBotToken,
       allowedChatId: config.allowedChatId,
       groupChatId: config.groupChatId ?? null,
       companyId: config.companyId,
       store: teamStore,
-      sendMessage: (chatId, text) => sendTelegramMessage(botToken, chatId, text),
+      billingData: createBillingDataStore(config.companyId),
+      sendMessage: (chatId, text) => sendTelegramMessage(groupBotToken, chatId, text),
       runChat,
+      receivingBot,
+      // Until Billing's own webhook is live, the Abel→Billing
+      // fan-out in the group handler is the bridge. Flip this env
+      // var on when the Billing webhook is set in @BotFather.
+      billingSeparateWebhookLive: process.env.TELEGRAM_BILLING_WEBHOOK_LIVE === "true",
     });
     return NextResponse.json({ ok: true });
   }

@@ -12,8 +12,14 @@
 // - No TELEGRAM_GROUP_CHAT_ID configured = groups ignored, as today.
 // - A message from anyone but the owner (TELEGRAM_ALLOWED_CHAT_ID)
 //   is ignored silently. The room has no third parties.
-// - A message from another bot is logged and ignored — bots do not
-//   answer each other unprompted, or the room would talk to itself.
+// - A message from another bot is handled ONLY when it is
+//   addressed to Billing (named by name, or a direct reply to one
+//   of Billing's logged messages) — Bot API 9.6 Bot-to-Bot
+//   Communication Mode + Group Privacy OFF (or admin) is what
+//   delivers it (see services/bots/faces.ts). Anything else from
+//   another bot is ignored, and Billing's own messages are ignored
+//   (loop guard). Bots coordinate in the room AND through the
+//   shared tables.
 // - No store configured = the room still answers, but nothing is
 //   logged and proposals cannot be recorded; the reply says so.
 //
@@ -43,8 +49,10 @@ import {
 } from "./dispatch-scout";
 import { formatMoney } from "@/lib/money-format";
 import { checkBotAction } from "./guardrails";
-import { GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
-import { routeGroupMessage, unseatedReply } from "./router";
+import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, handleBillingGroupTurn, type BillingDataStore } from "./billing";
+import { parseRoomSpeaker } from "./faces";
+import { GROUP_SEATS, type BotSlug } from "./registry";
+import { routeGroupMessage, unseatedReply, type GroupRoute } from "./router";
 import { capReached, estimateCallCostCents, modelForTier, monthlyCapCents, monthStartIso, SPEND_CAP_REACHED_TEXT } from "./spend";
 import { type BotTeamStore, type ProposalRow } from "./store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
@@ -68,6 +76,30 @@ export interface GroupHandlerDeps {
     history: { role: "user" | "assistant"; text: string }[];
     instructions: { kind: string; content: string }[];
   }) => Promise<string | null>;
+  /**
+   * Billing's invoice data (loads + load_invoices reads). Built by
+   * the caller from the company id; null = Billing answers from
+   * proposals/memories only and says the invoice data is unavailable.
+   * The webhook passes createBillingDataStore(companyId); tests pass
+   * a fake. Optional so older callers keep compiling.
+   */
+  billingData?: BillingDataStore | null;
+  /**
+   * Which bot face received this update (the webhook's ?bot=
+   * parameter; default "abel"). Every bot's webhook receives every
+   * owner message, so the handler claims each update once (room-log
+   * unique key) and only the claiming webhook answers.
+   */
+  receivingBot?: BotSlug;
+  /**
+   * True once Billing has its own Telegram webhook live. Until then
+   * the Abel→Billing fan-out below is the bridge: Abel's reply
+   * naming Billing also runs Billing's turn in-process. Once the
+   * webhook is live, Telegram delivers Abel's post to Billing
+   * directly and the fan-out stays off — otherwise Billing would
+   * answer twice.
+   */
+  billingSeparateWebhookLive?: boolean;
   /**
    * The shared-browser runtime for board scans. Built from env when
    * absent (createBrowserRuntime); tests pass their own.
@@ -97,7 +129,13 @@ function groupChatOf(update: TelegramUpdate): { id: number; type: string } | nul
   return { id: chat.id, type: chat.type ?? "" };
 }
 
-function senderOf(update: TelegramUpdate): { id: number | null; isBot: boolean; text: string | null; messageId: number | null } {
+function senderOf(update: TelegramUpdate): {
+  id: number | null;
+  isBot: boolean;
+  text: string | null;
+  messageId: number | null;
+  replyToMessageId: number | null;
+} {
   const message = update.message;
   const from = message?.from;
   return {
@@ -105,7 +143,49 @@ function senderOf(update: TelegramUpdate): { id: number | null; isBot: boolean; 
     isBot: from?.is_bot === true,
     text: typeof message?.text === "string" ? message.text : null,
     messageId: typeof message?.message_id === "number" ? message.message_id : null,
+    replyToMessageId: typeof message?.reply_to_message?.message_id === "number" ? message.reply_to_message.message_id : null,
   };
+}
+
+/** Postgres unique-key violation, surfaced by Supabase as code 23505 or in the message. */
+function isDuplicateKeyError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  if (code === "23505") return true;
+  const message = (err as { message?: unknown }).message;
+  return typeof message === "string" && /duplicate key value/i.test(message);
+}
+
+/**
+ * Claim one incoming room message. The room-log insert IS the claim
+ * (Postgres job claiming): with one webhook per bot face, the same
+ * group message is delivered to every bot's webhook — the first
+ * claim wins, the rest see the duplicate key and stand down, so the
+ * room answers once. Returns false when another webhook already
+ * claimed it. A non-duplicate store failure logs loudly and returns
+ * true (today's single-webhook behavior: answer without a log)
+ * rather than dropping the message.
+ */
+async function claimRoomMessage(
+  store: BotTeamStore,
+  input: {
+    telegramChatId: number;
+    telegramMessageId: number;
+    senderKind: "owner" | "bot";
+    senderRef: string;
+    text: string;
+    routedToBotSlug?: BotSlug | null;
+  },
+): Promise<boolean> {
+  try {
+    await store.ensureGroupRoom(input.telegramChatId);
+    await store.recordGroupMessage(input);
+    return true;
+  } catch (err) {
+    if (isDuplicateKeyError(err)) return false;
+    console.error("[bot-team] group message log failed", err);
+    return true;
+  }
 }
 
 /** "yes", "no", "2 yes", "1 no" — the group decision grammar. */
@@ -122,31 +202,109 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   if (String(chat.id) !== deps.groupChatId) return "ignored";
   if (!deps.allowedChatId) return "disabled";
 
+  const store = deps.store;
   const sender = senderOf(update);
-  // Bots do not answer each other unprompted.
-  if (sender.isBot) return "ignored";
+
+  // Send wrapper: every bot speech is logged in the room record
+  // (bot_group_messages) under the speaker's name, best-effort.
+  // The log is what makes reply attribution work — a reply to a
+  // message Billing sent is addressed to Billing even when the
+  // reply text never names it — and what makes the claim below
+  // dedupe across webhooks. Unprefixed system replies are not
+  // bot speech and are not logged.
+  const sendMessage = async (chatId: number, text: string): Promise<number[]> => {
+    const ids = await deps.sendMessage(chatId, text);
+    const speaker = parseRoomSpeaker(text);
+    if (store && speaker) {
+      for (const messageId of ids) {
+        try {
+          await store.recordGroupMessage({
+            telegramChatId: chatId,
+            telegramMessageId: messageId,
+            senderKind: "bot",
+            senderRef: speaker,
+            text: text.slice(0, 4000),
+            routedToBotSlug: null,
+          });
+        } catch (err) {
+          console.error("[bot-team] bot message log failed", err);
+        }
+      }
+    }
+    return ids;
+  };
+
+  // Bot-to-bot delivery (Bot API 9.6, core.telegram.org/api/bots/
+  // bot-to-bot — verified 2026-11-19): with Bot-to-Bot
+  // Communication Mode ON in @BotFather and Group Privacy OFF (or
+  // admin), a bot receives other bots' group messages — command
+  // mentions addressed to it, direct replies to its messages, and
+  // (mode + admin / privacy-off) all of them. Delivery itself is
+  // the proof the settings are on: Telegram never delivers a bot
+  // message unless the conditions hold. So a bot message that
+  // reaches this webhook IS addressed here, and the branch below
+  // only has to decide whether it is addressed to BILLING:
+  // named by name in the text, or a direct reply to one of
+  // Billing's logged messages. Anything else is another bot's
+  // business and stays quiet. Billing's own messages are ignored
+  // (loop guard). The claim below makes the turn run exactly once
+  // even though the same message is delivered to every bot's
+  // webhook.
+  if (sender.isBot) {
+    const botText = sender.text;
+    const speaker = botText !== null ? parseRoomSpeaker(botText) : null;
+    if (botText === null || speaker === null || speaker === "billing") return "ignored";
+    let addressedToBilling = /\bbilling\b/i.test(botText);
+    if (!addressedToBilling && sender.replyToMessageId !== null && store) {
+      try {
+        const repliedTo = await store.findGroupMessage(chat.id, sender.replyToMessageId);
+        addressedToBilling = repliedTo?.senderRef === "billing";
+      } catch (err) {
+        console.error("[bot-team] reply attribution failed", err);
+      }
+    }
+    if (!addressedToBilling) return "ignored";
+    if (store && sender.messageId !== null) {
+      const claimed = await claimRoomMessage(store, {
+        telegramChatId: chat.id,
+        telegramMessageId: sender.messageId,
+        senderKind: "bot",
+        senderRef: speaker,
+        text: botText.slice(0, 4000),
+        routedToBotSlug: "billing",
+      });
+      if (!claimed) return "ignored";
+    }
+    const handoff = await buildRoomHandoff(speaker, botText, deps.billingData ?? (deps.companyId ? createBillingDataStore(deps.companyId) : null));
+    await handleBillingGroupTurn(
+      chat.id,
+      botText,
+      { target: "billing", via: "mention", shouldAnswer: true, seated: true },
+      { store, billingData: deps.billingData ?? (deps.companyId ? createBillingDataStore(deps.companyId) : null), sendMessage, runChat: deps.runChat },
+      { fromBot: speaker, handoff },
+    );
+    return "handled";
+  }
   // The room has no third parties.
   if (sender.id === null || String(sender.id) !== deps.allowedChatId) return "ignored";
 
   const text = sender.text;
-  const store = deps.store;
 
-  // Log the owner's message first (best-effort: a logging failure is
-  // loud in the console but never fails the reply).
+  // Claim the owner's message first: with one webhook per bot face,
+  // the same message is delivered to every webhook, and the first
+  // claim wins — the rest stand down, so the room answers once.
+  // A logging failure that is NOT a duplicate still answers (today's
+  // single-webhook behavior), loudly.
   if (store && text !== null && sender.messageId !== null) {
-    try {
-      await store.ensureGroupRoom(chat.id);
-      await store.recordGroupMessage({
-        telegramChatId: chat.id,
-        telegramMessageId: sender.messageId,
-        senderKind: "owner",
-        senderRef: String(sender.id),
-        text: text.slice(0, 4000),
-        routedToBotSlug: null,
-      });
-    } catch (err) {
-      console.error("[bot-team] group message log failed", err);
-    }
+    const claimed = await claimRoomMessage(store, {
+      telegramChatId: chat.id,
+      telegramMessageId: sender.messageId,
+      senderKind: "owner",
+      senderRef: String(sender.id),
+      text: text.slice(0, 4000),
+      routedToBotSlug: null,
+    });
+    if (!claimed) return "ignored";
   }
 
   if (text === null || text.trim() === "") {
@@ -203,6 +361,17 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
 
   if (!route.seated) {
     await deps.sendMessage(chat.id, unseatedReply(route.target));
+    // Team room: a delivery / POD notice that lands on a seat not
+    // in the room yet (Tracker) is still Billing's cue — the invoice
+    // can now be drafted. One short note, only when the records name
+    // exactly one load waiting on an invoice. When Tracker seats,
+    // this check moves to the tracker branch.
+    try {
+      const note = await billingRoomContribution(text, deps.billingData ?? createBillingDataStore(deps.companyId));
+      if (note) await sendMessage(chat.id, note);
+    } catch (err) {
+      console.error("[bot-team] billing room contribution failed", err);
+    }
     return "handled";
   }
   if (!route.shouldAnswer) return "handled";
@@ -217,13 +386,28 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
     }
     const looksLikeDispatch = /\b(pickup|delivery|rate|broker|load)\b/i.test(text) && /\d/.test(text);
     if (!looksLikeDispatch) {
-      await deps.sendMessage(
+      await sendMessage(
         chat.id,
         "Dispatch Scout: say 'scout, scan from <city, ST>' and I'll check the boards. Or forward me a dispatch and I'll work it up.",
       );
       return "handled";
     }
-    await handleScoutWorkup(chat.id, text, deps);
+    await handleScoutWorkup(chat.id, text, { ...deps, sendMessage });
+    return "handled";
+  }
+
+  // Billing in this phase: seated since Phase 2. Its turn lives in
+  // services/bots/billing.ts — money facts from the records in code,
+  // drafts as proposals, and its own instructions (never Abel's).
+  // When the job is not clearly Billing's, billingShouldSpeak keeps
+  // it quiet and Abel routes the message instead.
+  if (route.target === "billing") {
+    await handleBillingGroupTurn(chat.id, text, route, {
+      store,
+      billingData: deps.billingData ?? createBillingDataStore(deps.companyId),
+      sendMessage,
+      runChat: deps.runChat,
+    });
     return "handled";
   }
 
@@ -265,7 +449,34 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
         console.error("[bot-team] spend record failed", err);
       }
     }
-    await deps.sendMessage(chat.id, `Abel: ${answer}`);
+    await sendMessage(chat.id, `Abel: ${answer}`);
+    // Abel→Billing fan-out — the owner's model: when Abel needs
+    // Billing, Abel posts in the room addressed to Billing, and
+    // Billing picks it up there. Until Billing has its own webhook
+    // live, Telegram cannot deliver Abel's post to Billing (there
+    // is no Billing account yet), so the handler runs Billing's turn
+    // in-process, once, from Abel's posted text as a validated
+    // handoff. Once Billing's own webhook is live
+    // (billingSeparateWebhookLive), Telegram delivers the post to
+    // Billing's webhook and the bot branch above handles it — the
+    // fan-out stays off, so Billing never answers twice. Billing's
+    // own branch never fans out further: depth is bounded at two
+    // bot turns per owner update by construction.
+    if (!deps.billingSeparateWebhookLive && /\bbilling\b/i.test(answer)) {
+      try {
+        const billingData = deps.billingData ?? createBillingDataStore(deps.companyId);
+        const handoff = await buildRoomHandoff("abel", answer, billingData);
+        await handleBillingGroupTurn(
+          chat.id,
+          answer,
+          { target: "billing", via: "mention", shouldAnswer: true, seated: true } satisfies GroupRoute,
+          { store, billingData, sendMessage, runChat: deps.runChat },
+          { fromBot: "abel", handoff },
+        );
+      } catch (err) {
+        console.error("[bot-team] Abel→Billing fan-out failed", err);
+      }
+    }
   } catch (err) {
     console.error("[bot-team] group Abel turn failed", err);
     await deps.sendMessage(chat.id, "Abel: that turn failed on my side — nothing was booked or sent. Try again in a moment.");
@@ -405,4 +616,4 @@ async function handleScoutWorkup(chatId: number, text: string, deps: GroupHandle
 }
 
 export type { BotSlug, ProposalRow };
-export { GROUP_SEATS_PHASE_0 };
+export { GROUP_SEATS };

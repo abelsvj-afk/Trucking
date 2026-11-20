@@ -147,9 +147,16 @@ export const BOT_REGISTRY: Record<BotSlug, BotIdentity> = {
     toolScope: {
       loads: "read",
       hos: "none",
-      money: "read",
-      documents: "read",
-      email: "read",
+      // Governing file (docs/bots/billing/CLAUDE.md): Money READ +
+      // WRITE-DRAFT (draft an invoice, never finalise a settlement
+      // or payroll), Documents READ + WRITE (merge invoice + POD +
+      // rate confirmation into one packet — a draft until it is
+      // sent), Email WRITE-GATED (send only with an approved
+      // proposal; the guardrail gates the send, this scope gates
+      // the draft).
+      money: "draft",
+      documents: "draft",
+      email: "read-write",
       maps: "none",
       "app-actions": "draft",
       calls: "gated",
@@ -228,5 +235,9 @@ export function visibleToolGroups(slug: string): ToolGroup[] {
   return (Object.keys(scope) as ToolGroup[]).filter((group) => scope[group] !== "none" && scope[group] !== "never");
 }
 
-/** Bots wired into the Telegram group in this phase (Phase 0). */
-export const GROUP_SEATS_PHASE_0: BotSlug[] = ["abel", "dispatch-scout"];
+/** Bots wired into the Telegram group. Phase 0 seated Abel +
+ * Dispatch Scout; Billing joined in Phase 2 (this build). */
+export const GROUP_SEATS: BotSlug[] = ["abel", "dispatch-scout", "billing"];
+
+/** Backwards-compatible alias: the Phase 0 name, kept until the other seats' tests rename. */
+export const GROUP_SEATS_PHASE_0: BotSlug[] = GROUP_SEATS;

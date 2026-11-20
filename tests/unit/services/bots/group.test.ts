@@ -2,6 +2,7 @@
 // proposal yes/no in plain words, spend cap in front of the model.
 import { describe, expect, it, vi } from "vitest";
 import { handleBotTeamGroupUpdate, type GroupHandlerDeps } from "@/services/bots/group";
+import type { BillingBrokerRow, BillingDataStore, BillingLoadRow } from "@/services/bots/billing";
 import type { BotTeamStore, ProposalRow } from "@/services/bots/store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
@@ -72,6 +73,7 @@ function makeStub(state: StubState): BotTeamStore {
     recordGroupMessage: async (input) => {
       state.groupMessages.push({ text: input.text });
     },
+    findGroupMessage: async () => null,
     recordSpend: async (input) => {
       state.spentCents += input.estimatedCents;
     },
@@ -205,6 +207,273 @@ describe("bot-team group mode", () => {
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("Auditor, check this"), deps);
     expect(sent[0]).toMatch(/isn't in the room yet/);
+  });
+
+  it("seats Billing: what's-unpaid is answered from the records, in money facts", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const runChat = vi.fn(async () => "should not run");
+    const { deps, sent } = makeDeps(state, {
+      runChat,
+      billingData: {
+        listInvoices: async () => [
+          {
+            id: "inv-1",
+            load_id: "load-1",
+            broker_id: "broker-1",
+            invoice_date: "2026-11-18",
+            due_date: "2026-12-09",
+            amount_cents: 185000,
+            paid_amount_cents: 0,
+            paid_on: null,
+            factored: false,
+            factor_fee_cents: null,
+            factor_reserve_cents: null,
+          },
+        ],
+        listDeliveredLoadsWithoutInvoice: async () => [],
+        loadBroker: async () => ({ id: "broker-1", name: "FastFreight", payment_terms_days: 21 }),
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("Billing, what's unpaid?"), deps);
+    expect(runChat).not.toHaveBeenCalled();
+    expect(sent[0]).toContain("Billing — unpaid invoices:");
+    expect(sent[0]).toContain("$1,850.00 from FastFreight");
+  });
+
+  it("adds Billing's note after an unseated POD notice — the invoice can now be drafted", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      billingData: {
+        listInvoices: async () => [],
+        listDeliveredLoadsWithoutInvoice: async () => [
+          {
+            id: "load-1",
+            broker_id: "broker-1",
+            origin: "Dallas",
+            destination: "Detroit",
+            delivery_date: "2026-11-18",
+            rate_cents: 185000,
+            trip_number: "1874",
+            broker_reference: null,
+            status: "completed",
+          },
+        ],
+        loadBroker: async () => ({ id: "broker-1", name: "FastFreight", payment_terms_days: 21 }),
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("POD signed for the Detroit load"), deps);
+    expect(sent[0]).toMatch(/isn't in the room yet/);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toContain("Billing: POD noted");
+    expect(sent[1]).toContain("waiting on an invoice");
+  });
+
+  it("works a Billing invoice draft into a proposal and approves it on 'yes'", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      billingData: {
+        listInvoices: async () => [],
+        listDeliveredLoadsWithoutInvoice: async () => [
+          {
+            id: "load-1",
+            broker_id: "broker-1",
+            origin: "Dallas",
+            destination: "Detroit",
+            delivery_date: "2026-11-18",
+            rate_cents: 185000,
+            trip_number: "1874",
+            broker_reference: null,
+            status: "completed",
+          },
+        ],
+        loadBroker: async () => ({ id: "broker-1", name: "FastFreight", payment_terms_days: 21 }),
+      },
+    });
+    await handleBotTeamGroupUpdate(makeUpdate("Billing, invoice the Detroit load"), deps);
+    expect(state.proposals).toHaveLength(1);
+    expect(state.proposals[0]!.kind).toBe("invoice-draft");
+    expect(sent[0]).toContain("Billing — invoice ready");
+    await handleBotTeamGroupUpdate(makeUpdate("yes"), deps);
+    expect(state.proposals[0]!.status).toBe("approved");
+    expect(sent[sent.length - 1]).toMatch(/^Approved:/);
+  });
+});
+
+describe("bot-to-bot delivery in the group (Bot API 9.6)", () => {
+  const LOAD: BillingLoadRow = {
+    id: "load-1",
+    broker_id: "broker-1",
+    origin: "Dallas",
+    destination: "Detroit",
+    delivery_date: "2026-11-18",
+    rate_cents: 185000,
+    trip_number: "1874",
+    broker_reference: "REF-1",
+    status: "completed",
+  };
+  const BROKER: BillingBrokerRow = { id: "broker-1", name: "FastFreight", payment_terms_days: 21 };
+
+  function makeBillingData(): BillingDataStore {
+    return {
+      listInvoices: async () => [],
+      listDeliveredLoadsWithoutInvoice: async () => [LOAD],
+      loadBroker: async () => BROKER,
+    };
+  }
+
+  function makeBotUpdate(text: string, messageId = 20, replyToMessageId: number | null = null): TelegramUpdate {
+    return {
+      update_id: 2,
+      message: {
+        message_id: messageId,
+        from: { id: 777000, is_bot: true },
+        chat: { id: GROUP_ID, type: "supergroup" },
+        text,
+        ...(replyToMessageId !== null ? { reply_to_message: { message_id: replyToMessageId } } : {}),
+      },
+    };
+  }
+
+  it("a POD note from Tracker addressed to Billing drafts the invoice — once", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: Billing, POD signed for the Dallas → Detroit load"), deps);
+    expect(result).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("Billing");
+    expect(sent[0]).toContain("waiting on your yes");
+    expect(state.proposals).toHaveLength(1);
+    expect(state.proposals[0]!.kind).toBe("invoice-draft");
+  });
+
+  it("a bot message that does not address Billing stays quiet", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    expect(await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: ETA 2pm for the Detroit load"), deps)).toBe("ignored");
+    expect(sent).toEqual([]);
+    expect(state.proposals).toEqual([]);
+  });
+
+  it("Billing's own message never triggers its own turn (loop guard)", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    expect(await handleBotTeamGroupUpdate(makeBotUpdate("Billing: invoice ready — $1,850.00 from FastFreight"), deps)).toBe("ignored");
+    expect(sent).toEqual([]);
+  });
+
+  it("a reply to one of Billing's messages is addressed to Billing even without naming it", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    const store = deps.store!;
+    store.findGroupMessage = async () => ({ senderKind: "bot", senderRef: "billing", text: "Billing: which load?" });
+    const result = await handleBotTeamGroupUpdate(makeBotUpdate("Tracker: here it is — POD attached", 21, 7), deps);
+    expect(result).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("Billing");
+  });
+
+  it("a message claimed once is not answered twice (duplicate delivery)", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state);
+    const store = deps.store!;
+    const seen = new Set<string>();
+    store.recordGroupMessage = async (input) => {
+      const key = `${input.telegramChatId}:${input.telegramMessageId}:${input.senderKind}`;
+      if (seen.has(key)) {
+        const err = new Error("duplicate key value violates unique constraint") as Error & { code?: string };
+        err.code = "23505";
+        throw err;
+      }
+      seen.add(key);
+      state.groupMessages.push({ text: input.text });
+    };
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("handled");
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("ignored");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("the same bot message delivered twice runs Billing's turn once", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, { billingData: makeBillingData() });
+    const store = deps.store!;
+    const seen = new Set<string>();
+    const realRecord = store.recordGroupMessage;
+    store.recordGroupMessage = async (input) => {
+      const key = `${input.telegramChatId}:${input.telegramMessageId}:${input.senderKind}`;
+      if (seen.has(key)) {
+        const err = new Error("duplicate key value violates unique constraint") as Error & { code?: string };
+        err.code = "23505";
+        throw err;
+      }
+      seen.add(key);
+      await realRecord(input);
+    };
+    const update = makeBotUpdate("Tracker: Billing, POD signed for the Dallas → Detroit load");
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("handled");
+    expect(await handleBotTeamGroupUpdate(update, deps)).toBe("ignored");
+    expect(state.proposals).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+  });
+});
+
+describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", () => {
+  const LOAD: BillingLoadRow = {
+    id: "load-1",
+    broker_id: "broker-1",
+    origin: "Dallas",
+    destination: "Detroit",
+    delivery_date: "2026-11-18",
+    rate_cents: 185000,
+    trip_number: "1874",
+    broker_reference: "REF-1",
+    status: "completed",
+  };
+  const BROKER: BillingBrokerRow = { id: "broker-1", name: "FastFreight", payment_terms_days: 21 };
+
+  function makeBillingData(): BillingDataStore {
+    return {
+      listInvoices: async () => [],
+      listDeliveredLoadsWithoutInvoice: async () => [LOAD],
+      loadBroker: async () => BROKER,
+    };
+  }
+
+  it("Abel's reply naming Billing runs Billing's turn once, in the room", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      billingData: makeBillingData(),
+      runChat: async () => "Billing, please draft the invoice for the Dallas → Detroit load.",
+    });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("handled");
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatch(/^Abel: Billing, please draft/);
+    expect(sent[1]).toContain("Billing");
+    expect(sent[1]).toContain("waiting on your yes");
+    expect(state.proposals).toHaveLength(1);
+    expect(state.proposals[0]!.kind).toBe("invoice-draft");
+  });
+
+  it("no fan-out when Abel's reply does not name Billing", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      billingData: makeBillingData(),
+      runChat: async () => "All good — nothing to do.",
+    });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(state.proposals).toEqual([]);
+  });
+
+  it("no fan-out once Billing's own webhook is live (Telegram delivers it instead)", async () => {
+    const state: StubState = { proposals: [], spentCents: 0, audit: [], groupMessages: [] };
+    const { deps, sent } = makeDeps(state, {
+      billingData: makeBillingData(),
+      billingSeparateWebhookLive: true,
+      runChat: async () => "Billing, please draft the invoice for the Dallas → Detroit load.",
+    });
+    expect(await handleBotTeamGroupUpdate(makeUpdate("hey Abel"), deps)).toBe("handled");
+    expect(sent).toHaveLength(1);
+    expect(state.proposals).toEqual([]);
   });
 
   it("asks where the truck is when a scan names no origin", async () => {

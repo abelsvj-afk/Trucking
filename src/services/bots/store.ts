@@ -20,7 +20,15 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BotSlug } from "./registry";
 
-export type ProposalKind = "load-draft" | "load-shortlist" | "message-draft" | "record-draft" | "call-plan" | "other";
+export type ProposalKind =
+  | "load-draft"
+  | "load-shortlist"
+  | "message-draft"
+  | "record-draft"
+  | "call-plan"
+  | "invoice-draft"
+  | "factoring-packet"
+  | "other";
 export type ProposalStatus = "proposed" | "approved" | "denied" | "expired";
 export type ProposalDecision = "approved" | "denied";
 export type LoadOutcome = "booked" | "skipped" | "cancelled" | "completed" | "disputed";
@@ -79,6 +87,11 @@ function serviceRoleClient(): SupabaseClient | null {
   return createClient(url, serviceRoleKey);
 }
 
+/** Shared service-role client for the bot team's read stores (Billing's invoice reads use it). */
+export function botTeamServiceClient(): SupabaseClient | null {
+  return serviceRoleClient();
+}
+
 export interface BotTeamStore {
   readonly companyId: string;
   createProposal(input: {
@@ -106,6 +119,17 @@ export interface BotTeamStore {
   recordLoadOutcome(input: LoadLedgerInput): Promise<void>;
   ensureGroupRoom(telegramChatId: number, name?: string): Promise<void>;
   recordGroupMessage(input: GroupMessageInput): Promise<void>;
+  /**
+   * Find one logged room message by chat + Telegram message id.
+   * Used for reply attribution: a reply to a message Billing sent
+   * is addressed to Billing even when the reply text never names
+   * it. Returns null when the message was never logged (the room
+   * log only holds messages this app sent or received).
+   */
+  findGroupMessage(
+    telegramChatId: number,
+    telegramMessageId: number,
+  ): Promise<{ senderKind: string; senderRef: string; text: string } | null>;
   recordSpend(input: { botSlug: BotSlug; model: string; tier: "scan" | "rank"; estimatedCents: number }): Promise<void>;
   spentThisMonthCents(sinceIso: string): Promise<number>;
   loadBotMemories(botSlug: BotSlug): Promise<BotMemoryRow[]>;
@@ -234,6 +258,19 @@ export function createBotTeamStore(companyId: string | null): BotTeamStore | nul
         routed_to_bot_slug: input.routedToBotSlug ?? null,
       });
       if (error) fail("recordGroupMessage", error);
+    },
+
+    async findGroupMessage(telegramChatId, telegramMessageId) {
+      const { data, error } = await client
+        .from("bot_group_messages")
+        .select("senderKind:sender_kind, senderRef:sender_ref, text")
+        .eq("company_id", companyId)
+        .eq("telegram_chat_id", telegramChatId)
+        .eq("telegram_message_id", telegramMessageId)
+        .maybeSingle();
+      if (error) fail("findGroupMessage", error);
+      if (!data) return null;
+      return data as { senderKind: string; senderRef: string; text: string };
     },
 
     async recordSpend(input) {
