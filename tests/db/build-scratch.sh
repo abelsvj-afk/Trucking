@@ -20,7 +20,7 @@ done
 echo "built $DB from $(ls supabase/migrations/*.sql | wc -l) migrations"
 [ "$fail" = 0 ] || exit 1
 psql -d "$DB" -q -f tests/db/scratch-auth-shim.sql >/dev/null
-for t in tenant-fk rls-isolation anon-privileges outbound-call-claim bot-spend-reservation driver-positions documents-trigger pool-role-grants email-tables; do
+for t in tenant-fk rls-isolation anon-privileges outbound-call-claim bot-spend-reservation business-credit-owner-only driver-positions documents-trigger pool-role-grants email-tables; do
   if out=$(psql -d "$DB" -q -v ON_ERROR_STOP=1 -f "tests/db/$t.sql" 2>&1); then echo "PASS $t"; else echo "FAIL $t: $(echo "$out" | grep ERROR | head -1)"; fail=1; fi
 done
 exit $fail

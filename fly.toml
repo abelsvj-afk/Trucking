@@ -13,6 +13,10 @@ primary_region = 'iad'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
+  # ONE machine (audit F-013, 2026-11-20): some guards are in-process memory - the position-feed
+  # rate limit (services/fleet/device-feed.ts), the auto-rest retry throttle and the rest question
+  # fallback (services/telegram/live-location.ts). Before running more than one machine, move them
+  # to the database, or each machine keeps its own copy.
   min_machines_running = 1
   processes = ['app']
 

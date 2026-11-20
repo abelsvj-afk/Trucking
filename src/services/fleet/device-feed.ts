@@ -89,6 +89,8 @@ export async function authenticateDeviceToken(client: SupabaseClient, token: str
 }
 
 // A simple per-token limiter: the shell batches, so a few requests a minute is normal.
+// In-process memory (audit F-013): right while Fly runs ONE machine (fly.toml says so);
+// move it to the database before scaling out, or each machine counts separately.
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 30;
 const hits = new Map<string, number[]>();
