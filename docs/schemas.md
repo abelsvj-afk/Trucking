@@ -1709,7 +1709,7 @@ The team-room handoff queue: work one bot hands another, spoken in the room and 
 - `title` text not null — 1–240 chars
 - `payload` jsonb not null default '{}' — validated state only (loadRef, objective, then), never a transcript
 - `status` text not null default 'open' — open | claimed | done
-- `parent_id` uuid references bot_handoffs (id) on delete set null
+- `parent_id` uuid — composite tenant FK `(company_id, parent_id) -> bot_handoffs (company_id, id)` on delete set null (parent_id) since 00118 (created single-column in 00113; see docs/audits/tenant-fk-bot-handoffs-root-cause-2026-11-21.md)
 - `depth` integer not null default 0 — 0–3
 - `idempotency_key` text not null — unique per company
 - `claimed_by` text references bot_identities (slug) on delete set null
