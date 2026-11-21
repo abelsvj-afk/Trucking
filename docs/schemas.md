@@ -1774,3 +1774,7 @@ One row per bot job in progress (Maintenance bot), so two webhooks never run the
 - `claimed_at` timestamptz not null default now()
 - `expires_at` timestamptz not null
 - _primary key (company_id, job_key)_
+
+### Migration 00116 — `bot_handoffs.parent_id` tenant key (2026-11-21)
+
+`bot_handoffs.parent_id` (00113) was a single-column self-reference; it is now composite `(company_id, parent_id) -> bot_handoffs (company_id, id)` with `on delete set null (parent_id)`, plus the parent key `bot_handoffs (company_id, id)`. Found by `tests/db/build-scratch.sh`; `tests/db/tenant-fk.sql` now counts 79 composite tenant FKs.

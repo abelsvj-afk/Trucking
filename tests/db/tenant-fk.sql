@@ -34,7 +34,8 @@ begin
   where c.contype = 'f' and c.connamespace = 'public'::regnamespace and c.conname like '%_tenant_fkey';
   -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver), +1 from 00082 (email_sent.email_message), +2 from 00090 (research_learning_topics.research_run, duty_log_edits.duty_log), +7 from 00111 (paycheck_confirmations.statement_document, agent_episodes.supersedes/superseded_by, monthly_income_goals.driver, outbound_calls.driver, voice_note_views.note, voice_note_reports.note)
   -- (00111 also makes bot_group_messages -> bot_group_rooms composite on (company_id, telegram_chat_id): the room is keyed by chat, not id, so that one is named bot_group_messages_room_tenant_fk and sits outside this (company_id, id) shape count)
-  if n <> 78 then raise exception 'expected 78 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
+  -- +1 from 00116 (bot_handoffs.parent)
+  if n <> 79 then raise exception 'expected 79 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
 
   select string_agg(c.conname, ', ') into bad
   from pg_constraint c
@@ -47,7 +48,7 @@ begin
     );
   if bad is not null then raise exception 'composite FK with wrong shape or not validated: %', bad; end if;
 
-  raise notice 'completeness: 0 unconverted tenant FKs; 78 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
+  raise notice 'completeness: 0 unconverted tenant FKs; 79 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
 end $$;
 
 -- 2. behavior ---------------------------------------------------------------------------
