@@ -32,9 +32,9 @@ begin
   -- 1b. every composite tenant FK has the one consistent shape: (company_id, col) -> (company_id, id)
   select count(*) into n from pg_constraint c
   where c.contype = 'f' and c.connamespace = 'public'::regnamespace and c.conname like '%_tenant_fkey';
-  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver), +1 from 00082 (email_sent.email_message), +2 from 00090 (research_learning_topics.research_run, duty_log_edits.duty_log), +7 from 00111 (paycheck_confirmations.statement_document, agent_episodes.supersedes/superseded_by, monthly_income_goals.driver, outbound_calls.driver, voice_note_views.note, voice_note_reports.note)
+  -- 63 from 00070, +2 from 00077 (person_preferences.driver, load_decisions.driver), +2 from 00078 (load_candidates.email_message, email_drafts.email_message), +1 from 00081 (cash_advances.driver), +1 from 00082 (email_sent.email_message), +2 from 00090 (research_learning_topics.research_run, duty_log_edits.duty_log), +7 from 00111 (paycheck_confirmations.statement_document, agent_episodes.supersedes/superseded_by, monthly_income_goals.driver, outbound_calls.driver, voice_note_views.note, voice_note_reports.note), +1 from 00118 (bot_handoffs.parent)
   -- (00111 also makes bot_group_messages -> bot_group_rooms composite on (company_id, telegram_chat_id): the room is keyed by chat, not id, so that one is named bot_group_messages_room_tenant_fk and sits outside this (company_id, id) shape count)
-  if n <> 78 then raise exception 'expected 78 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
+  if n <> 79 then raise exception 'expected 79 composite tenant FKs, found % (inventory drift - regenerate and review)', n; end if;
 
   select string_agg(c.conname, ', ') into bad
   from pg_constraint c
@@ -47,7 +47,7 @@ begin
     );
   if bad is not null then raise exception 'composite FK with wrong shape or not validated: %', bad; end if;
 
-  raise notice 'completeness: 0 unconverted tenant FKs; 78 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
+  raise notice 'completeness: 0 unconverted tenant FKs; 79 composite FKs, all (company_id, fk) -> (company_id, id) and validated';
 end $$;
 
 -- 2. behavior ---------------------------------------------------------------------------
@@ -122,6 +122,18 @@ begin
   exception when foreign_key_violation then refused := true; end;
   if not refused then failures := failures || 'monthly_income_goals.driver_id; '; end if;
 
+  -- 00118: bot_handoffs.parent_id (self-reference; parent is company B's handoff)
+  declare parent_b uuid := gen_random_uuid();
+  begin
+    insert into bot_handoffs (id, company_id, from_bot, to_bot, title, idempotency_key)
+      values (parent_b, b, 'abel', 'tracker', 'parent handoff', 'fk-test-parent-b');
+    refused := false;
+    begin insert into bot_handoffs (company_id, from_bot, to_bot, title, parent_id, idempotency_key)
+      values (a, 'abel', 'tracker', 'child handoff', parent_b, 'fk-test-child-a');
+    exception when foreign_key_violation then refused := true; end;
+    if not refused then failures := failures || 'bot_handoffs.parent_id; '; end if;
+  end;
+
   -- F-008: deleting an email a credit event points at nulls ONLY the reference; the event keeps its company
   declare acct uuid := gen_random_uuid(); msg uuid := gen_random_uuid(); ev uuid := gen_random_uuid(); kept uuid; ref uuid;
   begin
@@ -141,8 +153,17 @@ begin
   insert into fuel_purchases (company_id, truck_id, gallons, price_per_gallon_cents, total_cost_cents, purchased_at, load_id) values (a, truck_a, 10, 400, 4000, now(), load_a);
   update loads set truck_id = truck_a where id = load_a;
 
+  -- 00118: a same-company handoff chain works exactly as before
+  declare parent_a uuid := gen_random_uuid();
+  begin
+    insert into bot_handoffs (id, company_id, from_bot, to_bot, title, idempotency_key)
+      values (parent_a, a, 'abel', 'tracker', 'parent handoff', 'fk-test-parent-a');
+    insert into bot_handoffs (company_id, from_bot, to_bot, title, parent_id, idempotency_key)
+      values (a, 'tracker', 'abel', 'child handoff', parent_a, 'fk-test-child-a2');
+  end;
+
   if failures <> '' then raise exception 'cross-company reference was ACCEPTED for: %', failures; end if;
-  raise notice 'behavior: 10/10 cross-company references refused (+ F-008 delete keeps the tenant key) by the FK layer (RLS bypassed); same-company references accepted';
+  raise notice 'behavior: 11/11 cross-company references refused (+ F-008 delete keeps the tenant key) by the FK layer (RLS bypassed); same-company references accepted';
 end $$;
 
 rollback;
