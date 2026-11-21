@@ -22,14 +22,21 @@ export interface GroupSenders {
   scoutSendMessage: ((chatId: number, text: string) => Promise<number[]>) | undefined;
 }
 
+/** Drops a leading "Name:" label the bot's own account doesn't need. */
+function stripLabel(text: string): string {
+  return parseRoomSpeaker(text) ? text.replace(/^\s*[A-Za-z ]+:\s*/, "") : text;
+}
+
 export function buildGroupSenders(abelToken: string, send: Send, env: Record<string, string | undefined> = process.env): GroupSenders {
   const ownToken = (slug: BotSlug): string | null => (slug === "abel" ? abelToken : botFaceToken(slug, env));
   const scoutToken = ownToken("dispatch-scout");
   return {
     sendMessage: (chatId, text) => {
+      // A line that speaks as a bot goes from that bot's own account WITHOUT the "Name:" label —
+      // Abel included (his account is the coordinator's), so the owner never reads "Abel: Abel:".
       const speaker = parseRoomSpeaker(text);
-      const token = speaker && speaker !== "abel" ? ownToken(speaker) : null;
-      return token ? send(token, chatId, text.replace(/^\s*[A-Za-z ]+:\s*/, "")) : send(abelToken, chatId, text);
+      const token = speaker ? ownToken(speaker) : null;
+      return token ? send(token, chatId, stripLabel(text)) : send(abelToken, chatId, text);
     },
     sendAsBot: (botSlug, chatId, text) => send(ownToken(botSlug) ?? abelToken, chatId, text),
     sendMessageAs: async (botSlug, chatId, text) => {
@@ -38,6 +45,6 @@ export function buildGroupSenders(abelToken: string, send: Send, env: Record<str
       await send(token, chatId, text);
       return true;
     },
-    scoutSendMessage: scoutToken ? (chatId, text) => send(scoutToken, chatId, text) : undefined,
+    scoutSendMessage: scoutToken ? (chatId, text) => send(scoutToken, chatId, stripLabel(text)) : undefined,
   };
 }

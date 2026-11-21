@@ -1,6 +1,6 @@
 # The bot team talks like a team (design, 2026-11-21)
 
-**Status:** DESIGN — waiting on the owner's yes. No code until then (CLAUDE.md workflow).
+**Status:** Phase 1 BUILT (owner 2026-11-21: "Build Phase 1 … yes bots can do work autonomous and alone … make sure every bot, even ones not in the group or built yet, can respond and talk like humans"). Branch `feat/bot-team-conversation-2026-11-21`.
 **Owner's words (2026-11-21):** the bots built after Abel "aren't responding accordingly"; they "need to know their names";
 "there shouldn't be a specific way I have to phrase things … or putting things in brackets … even if I spell something
 horribly wrong"; "if I … say, find me a load, then the bots need to know that's a job for Scout … literally whatever I say,
@@ -86,3 +86,29 @@ every call); the per-message claim; the chain cap; owner-only room; no slash com
 1. **Go for Phase 1 as written?**
 2. Should a bot ever start work **without** being asked (e.g. Scout scanning when a load is delivered), or only answer?
    Recommendation: only when asked in Phase 1; propose "I can scan for your next load — want me to?" otherwise.
+
+## 6. As built (Phase 1, 2026-11-21)
+
+- `services/bots/team-turn.ts` — shared by EVERY bot (a bot added to the registry later gets all of it):
+  roster (name, nicknames, job; Malik listed), `understandMessage` (one model call with the room history; strict JSON;
+  any failure → the keyword router), `runTeamTurn` (the bot's own system prompt + `TEAM_STYLE` + roster, the room
+  history, the read tools its registry scope opens, its job tools, `hand_off`; an empty "I'll check / let you know"
+  promise with no tool or handoff is replaced by an honest line; a leading "Name:" is stripped).
+- `group.ts` — every owner message (when the AI is configured) goes through understanding → the right bot.
+  Billing, Maintenance, Watchdog, Tracker and Auditor keep their own domain handlers, now reached whatever the
+  wording; Abel, Scout and any bot without a handler get `runTeamTurn`. Handoffs post in the room by name from the
+  sender's account and the teammate takes its turn (in-process, depth ≤ 2, plus the chain cap and claims).
+  Scout's job tools: `scan_load_boards(origin, destination?, equipment?)`, `work_up_dispatch(text)`.
+  Service messages get no reply; a photo/file gets one short line at most once an hour. "Yes" with nothing waiting is
+  conversation. Scout's command-help lines are plain sentences now.
+- Private 1:1 with any bot other than Abel: that bot's own `runTeamTurn` (scoped reads only, never Abel's 1:1 or his
+  writes), replied from its own account.
+- `group-senders.ts` — a line speaking as a bot goes from its own account without the "Name:" label (Abel included),
+  so the owner never reads "Abel: Abel:" or "Dispatch Scout:" under Scout's own name.
+- **Autonomy (owner's answer to decision 2):** bots may start read-only work on their own (a scan, a check, a handoff to a
+  teammate) — `TEAM_STYLE` says so; anything that changes records or contacts someone outside stays a proposal for his yes.
+- Tests: the owner's conversation replayed (`group.test.ts` "the bot team talks like a team" — 6 of 7 fail on the old
+  code), `team-turn.test.ts` (roster covers every bot, least-privilege reads, honest replies, a not-yet-built bot gets the
+  human turn).
+- Not yet (Phase 2): moving Billing/Tracker/Watchdog/Maintenance/Auditor's own handlers onto `runTeamTurn` with their
+  domain tools; scheduled autonomous work (e.g. Scout scanning on delivery) — needs a trigger design.

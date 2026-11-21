@@ -131,8 +131,11 @@ import { slugForUsername } from "./faces";
 import { checkBotAction } from "./guardrails";
 import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, handleBillingGroupTurn, type BillingDataStore } from "./billing";
 import { botFaceUsername, parseRoomSpeaker } from "./faces";
+import type { AiProvider } from "@/services/ai/provider";
+import type { AgentTool } from "@/services/ai/agent-loop";
+import { runTeamTurn, understandMessage, type HandOff, type RoomLine } from "./team-turn";
 import { buildBotMemoryContext, buildBotSystemPrompt } from "./reasoning";
-import { botIdentity, GROUP_SEATS, GROUP_SEATS_PHASE_0, type BotSlug } from "./registry";
+import { botIdentity, GROUP_SEATS, GROUP_SEATS_PHASE_0, isBotSlug, type BotSlug } from "./registry";
 import { botChainDepth, evaluateBotPickup, identifyTeamBot, MAX_BOT_CHAIN_DEPTH } from "./bot-channel";
 import { routeGroupMessage, unseatedReply, type GroupRoute } from "./router";
 import {
@@ -162,6 +165,14 @@ import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 
 export interface GroupHandlerDeps {
   botToken: string;
+  /**
+   * The team's AI (owner 2026-11-21, docs/design/bot-team-conversation.md): with it, the owner's
+   * messages are UNDERSTOOD (any wording, typos) and answered by the right bot as a real agent turn
+   * with its tools; without it (no key, tests) the keyword router and today's handlers run as before.
+   */
+  teamProvider?: AiProvider;
+  /** Every read tool on the server; each bot gets the ones its registry scope allows. */
+  teamReadTools?: AgentTool[];
   /** Owner's Telegram chat id (TELEGRAM_ALLOWED_CHAT_ID). */
   allowedChatId: string | null;
   /** Allowlisted group chat id (TELEGRAM_GROUP_CHAT_ID). Null = groups ignored. */
@@ -752,8 +763,12 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
   }
 
   if (text === null || text.trim() === "") {
-    if (!fromBotSlug) {
-      await deps.sendMessage(chat.id, "Text only in the group for now — photos and files go to Abel 1:1.");
+    // Service messages (a bot added, the title changed, a pin) carry no text and are not the
+    // owner talking: silent. A real photo / file / voice note gets one short line, once an hour.
+    const m = update.message as { photo?: unknown; document?: unknown; voice?: unknown; video?: unknown; audio?: unknown } | undefined;
+    const isMedia = Boolean(m && (m.photo || m.document || m.voice || m.video || m.audio));
+    if (!fromBotSlug && isMedia && mediaNoticeDue(chat.id, Date.now())) {
+      await deps.sendMessage(chat.id, "Abel: I can't open photos or files in here yet — send them to me 1:1 and I'll take care of them.");
     }
     return "handled";
   }
@@ -885,8 +900,8 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       const open = await store.listOpenProposals(5);
       const target = open[decision.index - 1];
       if (!target) {
-        await deps.sendMessage(chat.id, "Nothing is waiting on a yes or no right now.");
-        return "handled";
+        // Nothing waiting: "yes" / "ok" is just conversation — let the team answer it.
+        return handleOwnerTurn(chat.id, text, deps, sendMessage);
       }
       const decided = await store.decideProposal(target.id, decision.decision, "owner");
       // A denied shortlist writes its loads to the ledger as
@@ -920,6 +935,11 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       await deps.sendMessage(chat.id, "I couldn't record that answer — the proposal is still waiting. Try again in a moment.");
       return "handled";
     }
+  }
+
+  // The team understands the owner (any wording, any spelling) and the right bot answers.
+  if (!fromBotSlug && deps.teamProvider) {
+    return handleOwnerTurn(chat.id, text, deps, sendMessage);
   }
 
   if (!route.seated) {
@@ -1002,7 +1022,7 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       await sendAsScout(
         deps,
         chat.id,
-        "Dispatch Scout: say 'scout, scan from <city, ST>' and I'll check the boards. Or forward me a dispatch and I'll work it up.",
+        "Dispatch Scout: Where's the truck right now, and where do you want to head? I'll check the boards. Or forward me a dispatch and I'll look it over.",
       );
       return "handled";
     }
@@ -1155,7 +1175,7 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
   }
   const { origin, equipment } = parseScanRequest(text);
   if (!origin) {
-    await sendAsScout(deps, chatId, "Dispatch Scout: where's the truck right now? Say 'scout, scan from Panama City, FL' and I'll check the boards.");
+    await sendAsScout(deps, chatId, "Dispatch Scout: Where's the truck right now? Give me a city or state and I'll check the boards.");
     return;
   }
   let memories: { content: string }[] = [];
@@ -1204,7 +1224,7 @@ async function handleScoutScan(chatId: number, text: string, deps: GroupHandlerD
     })
     .catch(async (error) => {
       console.error("[bot-team] scout scan failed", error);
-      await sendAsScout(deps, chatId, "Dispatch Scout: the scan failed on my side — nothing was booked or sent. Say 'scout, scan' to try again.");
+      await sendAsScout(deps, chatId, "Dispatch Scout: The scan failed on my side — nothing was booked or sent. Ask me again in a minute.");
     });
 }
 
@@ -1874,3 +1894,152 @@ async function handleTrackerTurn(chatId: number, text: string, messageId: number
 }
 export type { BotSlug, ProposalRow };
 export { GROUP_SEATS };
+
+
+// ---- the team turn (owner 2026-11-21, docs/design/bot-team-conversation.md) -------------------------
+
+const lastMediaNotice = new Map<number, number>();
+const MEDIA_NOTICE_EVERY_MS = 60 * 60_000;
+/** One "send it 1:1" line per hour per chat — never a line per photo. */
+function mediaNoticeDue(chatId: number, nowMs: number): boolean {
+  const last = lastMediaNotice.get(chatId);
+  if (last !== undefined && nowMs - last < MEDIA_NOTICE_EVERY_MS) return false;
+  lastMediaNotice.set(chatId, nowMs);
+  return true;
+}
+
+/** The room conversation (oldest first) for the understanding step and every bot's turn. */
+async function roomHistory(store: BotTeamStore | null, limit = 20): Promise<RoomLine[]> {
+  if (!store) return [];
+  try {
+    const rows = await store.listRecentGroupMessages(limit);
+    return [...rows].reverse().map((r) => ({
+      who: r.sender_kind === "owner" ? "Sajacous (owner)" : (isBotSlug(r.sender_ref) ? botIdentity(r.sender_ref).displayName : r.sender_ref),
+      text: (parseRoomSpeaker(r.text) ? r.text.replace(/^\s*[A-Za-z ]+:\s*/, "") : r.text).slice(0, 500),
+    }));
+  } catch (err) {
+    console.error("[bot-team] room history read failed — answering without it", err);
+    return [];
+  }
+}
+
+/** Bots whose own handler carries domain logic; any other bot (including every future one) gets the generic team turn. */
+const SPECIALISED = new Set<BotSlug>(["billing", "maintenance", "compliance-watchdog", "tracker", "auditor"]);
+const MAX_HANDOFF_DEPTH = 2;
+
+async function handleOwnerTurn(
+  chatId: number,
+  text: string,
+  deps: GroupHandlerDeps,
+  sendMessage: (chatId: number, text: string) => Promise<number[]>,
+): Promise<GroupHandleResult> {
+  const provider = deps.teamProvider;
+  if (!provider) return "handled";
+  const store = deps.store;
+  const history = await roomHistory(store);
+  const spend = await reserveModelSpend(store, "abel", text.length + 2_000);
+  if (!spend.ok) {
+    await sendMessage(chatId, `Abel: ${spend.message}`);
+    return "handled";
+  }
+  const understood = await understandMessage(provider, { text, history });
+  await spend.settle(400);
+  // The model couldn't say: the keyword router decides, never a guess.
+  const target: BotSlug = understood?.to ?? routeGroupMessage({ text, senderKind: "owner" }).target;
+  await runBotTurn(target, chatId, text, understood?.ask, history, deps, sendMessage, 0);
+  return "handled";
+}
+
+async function runBotTurn(
+  slug: BotSlug,
+  chatId: number,
+  text: string,
+  ask: string | undefined,
+  history: RoomLine[],
+  deps: GroupHandlerDeps,
+  sendMessage: (chatId: number, text: string) => Promise<number[]>,
+  depth: number,
+): Promise<void> {
+  const route: GroupRoute = { target: slug, via: depth === 0 ? "mention" : "bot-handoff", shouldAnswer: true, seated: true };
+  if (SPECIALISED.has(slug)) {
+    if (slug === "billing") {
+      await handleBillingGroupTurn(chatId, text, route, { store: deps.store, billingData: deps.billingData ?? createBillingDataStore(deps.companyId), sendMessage, runChat: deps.runChat });
+    } else if (slug === "maintenance") {
+      await handleMaintenanceGroupMessage({ text, route, channel: "group", messageRef: null, deps: maintenanceDeps(deps, chatId, deps.store) });
+    } else if (slug === "compliance-watchdog") {
+      await handleWatchdogTurn(chatId, text, deps);
+    } else if (slug === "tracker") {
+      await handleTrackerTurn(chatId, text, null, deps);
+    } else {
+      await handleAuditorCheck(chatId, text, deps);
+    }
+    return;
+  }
+  const provider = deps.teamProvider!;
+  const spend = await reserveModelSpend(deps.store, slug, text.length + 6_000);
+  if (!spend.ok) {
+    await sendMessage(chatId, `${botIdentity(slug).displayName}: ${spend.message}`);
+    return;
+  }
+  const jobTools = slug === "dispatch-scout" ? scoutJobTools(chatId, deps, sendMessage) : [];
+  let result: { reply: string; handoffs: HandOff[] };
+  try {
+    result = await runTeamTurn({ slug, provider, text, ask, history, readTools: deps.teamReadTools ?? [], jobTools });
+  } catch (err) {
+    console.error(`[bot-team] ${slug} turn failed`, err);
+    result = { reply: "Something went wrong on my side — nothing was booked or sent. Try me again in a minute.", handoffs: [] };
+  }
+  await spend.settle(result.reply.length);
+  const name = botIdentity(slug).displayName;
+  // The "Name:" label only matters while a bot speaks through Abel's account; group-senders drops it
+  // when the bot has its own account, so the owner never sees "Abel: Abel:".
+  await sendMessage(chatId, `${name}: ${result.reply}`);
+  if (depth >= MAX_HANDOFF_DEPTH) return;
+  for (const h of result.handoffs) {
+    const toName = botIdentity(h.to).displayName;
+    await sendMessage(chatId, `${name}: ${toName}, ${h.ask}`);
+    await runBotTurn(h.to, chatId, h.ask, h.ask, [...history, { who: name, text: `${toName}, ${h.ask}` }], deps, sendMessage, depth + 1);
+  }
+}
+
+/** Scout's job tools: the board scan and the dispatch workup, called with what the owner said (any wording). */
+function scoutJobTools(chatId: number, deps: GroupHandlerDeps, sendMessage: (chatId: number, text: string) => Promise<number[]>): AgentTool[] {
+  return [
+    {
+      name: "scan_load_boards",
+      description:
+        "Scan the load boards for loads from where the truck is. origin = city and/or state he is in or leaving from (as he said it, e.g. 'Oklahoma City, OK' or 'Oklahoma'); " +
+        "destination = where he wants to go, if he said; equipment if he said. The scan runs at human pace and posts its shortlist in the chat when done.",
+      parameters: {
+        type: "object",
+        properties: {
+          origin: { type: "string" },
+          destination: { type: "string" },
+          equipment: { type: "string" },
+        },
+        required: ["origin"],
+      },
+      access: "read",
+      async run(args) {
+        const origin = typeof args.origin === "string" ? args.origin.trim() : "";
+        if (!origin) return "Ask him where the truck is.";
+        const destination = typeof args.destination === "string" && args.destination.trim() ? ` to ${args.destination.trim()}` : "";
+        const equipment = typeof args.equipment === "string" && args.equipment.trim() ? ` ${args.equipment.trim()}` : "";
+        await handleScoutScan(chatId, `scan from ${origin}${destination}${equipment}`, { ...deps, sendMessage });
+        return `Scan started from ${origin}${destination}. Tell him you're on it; the shortlist posts when it's done.`;
+      },
+    },
+    {
+      name: "work_up_dispatch",
+      description: "He forwarded or pasted a dispatch / load offer: price it against his costs and post a proposal for his yes. text = the dispatch as he sent it.",
+      parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+      access: "read",
+      async run(args) {
+        const body = typeof args.text === "string" ? args.text : "";
+        if (!body.trim()) return "Ask him to paste the dispatch.";
+        await handleScoutWorkup(chatId, body, { ...deps, sendMessage });
+        return "Worked up and posted for his yes.";
+      },
+    },
+  ];
+}
