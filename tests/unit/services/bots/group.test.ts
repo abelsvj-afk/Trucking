@@ -442,7 +442,9 @@ describe("bot-team group mode", () => {
     const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("yes"), deps);
-    expect(sent.join(" ")).not.toMatch(/Nothing is waiting/);
+    expect(sent.join(" ")).not.toMatch(/Nothing is waiting on a yes or no/);
+    // Without the team's AI it is still answered (never silence), in plain words.
+    expect(sent).toHaveLength(1);
   });
 
   it("seats Billing: what's-unpaid is answered from the records, in money facts", async () => {

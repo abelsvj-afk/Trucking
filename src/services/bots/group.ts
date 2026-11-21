@@ -900,8 +900,11 @@ export async function handleBotTeamGroupUpdate(update: TelegramUpdate, deps: Gro
       const open = await store.listOpenProposals(5);
       const target = open[decision.index - 1];
       if (!target) {
-        // Nothing waiting: "yes" / "ok" is just conversation — let the team answer it.
-        return handleOwnerTurn(chat.id, text, deps, sendMessage);
+        // Nothing waiting: "yes" / "ok" is just conversation — let the team answer it. Without the
+        // team's AI there is no one to converse, so say it like a person (never silence).
+        if (deps.teamProvider) return handleOwnerTurn(chat.id, text, deps, sendMessage);
+        await sendMessage(chat.id, "Abel: 👍 Nothing's waiting on an answer from you right now.");
+        return "handled";
       }
       const decided = await store.decideProposal(target.id, decision.decision, "owner");
       // A denied shortlist writes its loads to the ledger as
