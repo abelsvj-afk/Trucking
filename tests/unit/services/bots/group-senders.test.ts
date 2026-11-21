@@ -5,10 +5,18 @@ import { buildGroupSenders } from "@/services/bots/group-senders";
 const env = { TELEGRAM_DISPATCH_SCOUT_BOT_TOKEN: "scout-token", TELEGRAM_COMPLIANCE_WATCHDOG_BOT_TOKEN: "watchdog-token" };
 
 describe("group senders", () => {
-  it("generic replies (Abel, Billing relays, proposal acks) always go from Abel's account", async () => {
+  it("Abel's lines go from Abel's account without the 'Abel:' label (no 'Abel: Abel:'); unlabelled lines stay as they are", async () => {
     const send = vi.fn(async () => [1]);
-    await buildGroupSenders("abel-token", send, env).sendMessage(-100, "Abel: hi");
-    expect(send).toHaveBeenCalledWith("abel-token", -100, "Abel: hi");
+    const s = buildGroupSenders("abel-token", send, env);
+    await s.sendMessage(-100, "Abel: hi");
+    await s.sendMessage(-100, "Approved: the shortlist.");
+    expect(send.mock.calls).toEqual([["abel-token", -100, "hi"], ["abel-token", -100, "Approved: the shortlist."]]);
+  });
+
+  it("Scout's own sender drops his label too (no 'Dispatch Scout:' under his own name)", async () => {
+    const send = vi.fn(async () => [1]);
+    await buildGroupSenders("abel-token", send, env).scoutSendMessage!(-100, "Dispatch Scout: on it");
+    expect(send).toHaveBeenCalledWith("scout-token", -100, "on it");
   });
 
   it("a bot with its own token sends as itself; one without falls back to Abel's account", async () => {

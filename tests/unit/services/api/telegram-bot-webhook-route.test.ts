@@ -43,13 +43,13 @@ function post(bot: string | null, chat: { id: number; type: string }, text = "he
 }
 
 describe("telegram webhook per-face routing", () => {
-  it("BT-001: a private message to Scout runs no Abel turn; Scout answers one line from his own account", async () => {
+  it("BT-001: a private message to Scout runs no Abel turn; Scout answers from his own account, by name", async () => {
     const res = await post("dispatch-scout", { id: 100000001, type: "private" });
     expect(res.status).toBe(200);
     expect(handleTelegramUpdate).not.toHaveBeenCalled();
     expect(sent).toHaveLength(1);
     expect(sent[0]!.token).toBe("scout-token");
-    expect(sent[0]!.text).toContain("team group");
+    expect(sent[0]!.text).toContain("Dispatch Scout");
   });
 
   it("a private message on Abel's webhook still reaches Abel", async () => {

@@ -51,6 +51,9 @@ import {
   type PhotoPurposeChoice,
 } from "@/services/telegram/photo-purpose";
 import { runAgentTurn } from "@/services/bot/agent-turn";
+import { buildBotTools } from "@/services/bot/tools";
+import { runTeamTurn } from "@/services/bots/team-turn";
+import { reserveModelSpend } from "@/services/bots/spend-guard";
 import { recordQuoteTargets } from "@/services/bot/quote-targets";
 import { stageRecordables } from "@/services/bot/stage-recordables";
 import { captureForwardThread } from "@/services/bot/thread-capture";
@@ -248,8 +251,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           return output.reply;
         }
       : undefined;
+    // The team's AI (docs/design/bot-team-conversation.md): understanding + every bot's agent turn,
+    // with the read tools the server has (each bot gets only what its scope allows).
+    const teamProvider = process.env.OPENAI_API_KEY ? new OpenAiProvider() : undefined;
+    const teamBrain = teamProvider ? createTelegramBrainStore(config.companyId) : null;
+    const teamReadTools = teamBrain ? buildBotTools(teamBrain).filter((t) => t.access === "read") : [];
     await handleBotTeamGroupUpdate(update, {
       botToken,
+      teamProvider,
+      teamReadTools,
       allowedChatId: config.allowedChatId,
       groupChatId: config.groupChatId ?? null,
       companyId: config.companyId,
@@ -275,21 +285,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
     return NextResponse.json({ ok: true });
   }
-  // BT-001: a private chat with any bot other than Abel. The 1:1 assistant below is ABEL's
-  // (his tools, his token); it must never answer as, or with the tools of, another face.
-  // Until a face has its own scoped 1:1, it says one line from its own account and runs nothing.
+  // BT-001 + owner 2026-11-21 ("every bot, even ones not in the group or built yet, can respond and
+  // talk like humans"): a private chat with any bot other than Abel is THAT bot's own 1:1 turn — its
+  // name, its job, only the read tools its scope allows (never Abel's 1:1 assistant or his write tools),
+  // replied from its own account. Only the owner's chat is answered; the spend cap applies.
   const privateFace = req.nextUrl.searchParams.get("bot");
   if (privateFace !== null && privateFace !== "abel") {
     const slug = BOT_FACES[privateFace as BotSlug] ? (privateFace as BotSlug) : null;
     const chatId = update.message?.chat?.id;
+    const text = update.message?.text;
     const faceTokenForReply = slug ? botFaceToken(slug) : null;
-    if (slug && faceTokenForReply && typeof chatId === "number" && update.message?.text && String(chatId) === config.allowedChatId) {
+    if (slug && faceTokenForReply && typeof chatId === "number" && text && String(chatId) === config.allowedChatId) {
       try {
-        await sendTelegramMessage(
-          faceTokenForReply,
-          chatId,
-          `I work in the team group — talk to me there. For anything 1:1, message Abel.`,
-        );
+        const reply = await faceDirectReply(slug, text, config.companyId);
+        await sendTelegramMessage(faceTokenForReply, chatId, reply);
       } catch (err) {
         console.error("[telegram] face private reply failed", err);
       }
@@ -538,4 +547,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Always 200 once accepted, so Telegram doesn't retry-storm on a
   // message this bot deliberately ignores (group, wrong chat, ...).
   return NextResponse.json({ ok: true });
+}
+
+/** One bot's own 1:1 reply (owner 2026-11-21). Falls back to a plain line when the AI or the cap says no. */
+async function faceDirectReply(slug: BotSlug, text: string, companyId: string | null): Promise<string> {
+  const name = BOT_FACES[slug].displayName;
+  if (!process.env.OPENAI_API_KEY) return `Hey, it's ${name}. I can't think on my feet right now (the AI isn't set up on the server) — Abel can help in the meantime.`;
+  const teamStore = createBotTeamStore(companyId);
+  const spend = await reserveModelSpend(teamStore, slug, text.length + 6_000);
+  if (!spend.ok) return spend.message;
+  const brain = createTelegramBrainStore(companyId);
+  const readTools = brain ? buildBotTools(brain).filter((t) => t.access === "read") : [];
+  const result = await runTeamTurn({ slug, provider: new OpenAiProvider(), text, history: [], readTools, context: "This is a private 1:1 chat with the owner, not the group." });
+  await spend.settle(result.reply.length);
+  const passOn = result.handoffs.map((h) => `${BOT_FACES[h.to].displayName} handles that — ask in the team group and they'll pick it up.`);
+  return [result.reply, ...passOn].join("\n\n");
 }

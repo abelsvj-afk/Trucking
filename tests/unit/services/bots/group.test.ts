@@ -7,6 +7,7 @@ import type { BillingBrokerRow, BillingDataStore, BillingLoadRow } from "@/servi
 import type { BotTeamStore, DetentionClockRow, HandoffStatus, ProposalRow } from "@/services/bots/store";
 import type { TelegramUpdate } from "@/services/telegram/dispatch-bot";
 import { SPEND_CAP_REACHED_TEXT } from "@/services/bots/spend";
+import type { AiAgentMessage, AiToolTurnResult } from "@/services/ai/provider";
 
 const OWNER_ID = 8975172276;
 const GROUP_ID = -1001234567890;
@@ -435,11 +436,15 @@ describe("bot-team group mode", () => {
     expect(state.audit.some((a) => a.action === "proposal_approved")).toBe(true);
   });
 
-  it("says plainly when nothing is waiting on a yes or no", async () => {
+  // Owner 2026-11-21: "Yes" with nothing waiting got a system line ("Nothing is waiting on a yes or no
+  // right now."). Now it is conversation: no system line, and the team answers it like a person.
+  it("a 'yes' with nothing waiting is conversation, never a system line", async () => {
     const state: StubState = emptyState();
     const { deps, sent } = makeDeps(state);
     await handleBotTeamGroupUpdate(makeUpdate("yes"), deps);
-    expect(sent[0]).toMatch(/Nothing is waiting/);
+    expect(sent.join(" ")).not.toMatch(/Nothing is waiting on a yes or no/);
+    // Without the team's AI it is still answered (never silence), in plain words.
+    expect(sent).toHaveLength(1);
   });
 
   it("seats Billing: what's-unpaid is answered from the records, in money facts", async () => {
@@ -722,7 +727,9 @@ describe("Abel→Billing fan-out (bridge until Billing's own webhook is live)", 
       },
     });
     await handleBotTeamGroupUpdate(makeUpdate("scout, scan"), deps);
-    expect(sent[0]).toMatch(/where's the truck right now/);
+    expect(sent[0]).toMatch(/Where's the truck right now/);
+    // Never command syntax (owner 2026-11-21: no specific way to phrase things).
+    expect(sent[0]).not.toMatch(/Say '|<city/);
   });
 
   it("asks for the missing cost numbers instead of inventing them", async () => {
@@ -1821,5 +1828,125 @@ describe("sender identity (BT-006)", () => {
     deps.store!.recordGroupMessage = async (input) => void logged.push({ senderRef: input.senderRef });
     await handleBotTeamGroupUpdate(makeUpdate("Abel: please book load 12", 777001, true, "DispatchScoutBot"), deps);
     expect(logged[0]?.senderRef).toBe("dispatch-scout");
+  });
+});
+
+// ---- The team talks like a team (owner 2026-11-21, docs/design/bot-team-conversation.md) -------------
+// His real group chat, replayed: canned "say 'scout, scan from <city, ST>'" lines, a false "I'll check",
+// unprompted "Text only" replies to service messages, and no way to reach Scout without keywords.
+
+type Script = (bot: string, messages: AiAgentMessage[], tools: string[]) => AiToolTurnResult;
+
+function teamProvider(route: (text: string) => { to: string; ask: string }, script: Script) {
+  const calls: { bot: string; tools: string[] }[] = [];
+  const provider = {
+    complete: async (req: { system: string; user: string }) => {
+      const text = req.user.split("Owner's newest message: ")[1] ?? "";
+      return JSON.stringify({ ...route(text), small_talk: false });
+    },
+    runToolTurn: async (messages: AiAgentMessage[], tools: { name: string }[]) => {
+      const system = messages.find((m) => m.role === "system")?.content ?? "";
+      const bot = /You are ([A-Za-z ]+?),/.exec(String(system))?.[1] ?? "?";
+      calls.push({ bot, tools: tools.map((t) => t.name) });
+      return script(bot, messages, tools.map((t) => t.name));
+    },
+  };
+  return { provider, calls };
+}
+
+const toolCall = (name: string, args: Record<string, unknown>): AiToolTurnResult => ({
+  text: null,
+  toolCalls: [{ id: `c-${name}`, name, arguments: JSON.stringify(args) }],
+});
+const say = (text: string): AiToolTurnResult => ({ text, toolCalls: [] });
+const afterTool = (messages: AiAgentMessage[]) => messages[messages.length - 1]?.role === "tool";
+
+describe("the bot team talks like a team (owner 2026-11-21)", () => {
+  it("a Telegram service message (a bot joined) gets NO reply — never 'Text only in the group'", async () => {
+    const { deps, sent } = makeDeps(emptyState());
+    const update = { update_id: 9, message: { message_id: 90, from: { id: OWNER_ID, is_bot: false }, chat: { id: GROUP_ID, type: "supergroup" }, new_chat_members: [{ id: 5, is_bot: true }] } } as unknown as TelegramUpdate;
+    await handleBotTeamGroupUpdate(update, deps);
+    expect(sent).toEqual([]);
+  });
+
+  it("'How's dispatch' reaches Scout, who answers like a person — no command help, no double name", async () => {
+    const { provider, calls } = teamProvider(
+      () => ({ to: "dispatch-scout", ask: "how dispatch is going" }),
+      () => say("Quiet so far. Where's the truck, and where do you want to head next?"),
+    );
+    const { deps, sent } = makeDeps(emptyState(), { teamProvider: provider as never });
+    await handleBotTeamGroupUpdate(makeUpdate("Hows dispach"), deps);
+    expect(calls[0]!.bot).toBe("Dispatch Scout");
+    expect(sent).toEqual(["Dispatch Scout: Quiet so far. Where's the truck, and where do you want to head next?"]);
+    expect(sent.join(" ")).not.toMatch(/Say '|<city|scout, scan/);
+  });
+
+  it("'any lods frm oklahma to florda' (typos, no keywords) → Scout runs the board scan with the places filled in", async () => {
+    let scanArgs: Record<string, unknown> | null = null;
+    const { provider, calls } = teamProvider(
+      () => ({ to: "dispatch-scout", ask: "loads from Oklahoma to Florida" }),
+      (_bot, messages) => {
+        if (afterTool(messages)) return say("On it — checking the boards from Oklahoma to Florida now.");
+        scanArgs = { origin: "Oklahoma", destination: "Florida" };
+        return toolCall("scan_load_boards", scanArgs);
+      },
+    );
+    const { deps, sent } = makeDeps(emptyState(), { teamProvider: provider as never });
+    await handleBotTeamGroupUpdate(makeUpdate("any lods frm oklahma to florda"), deps);
+    expect(calls[0]!.tools).toContain("scan_load_boards");
+    expect(scanArgs).toEqual({ origin: "Oklahoma", destination: "Florida" });
+    expect(sent.at(-1)).toBe("Dispatch Scout: On it — checking the boards from Oklahoma to Florida now.");
+  });
+
+  it("a bot never promises work nothing started ('I'll check … let you know' with no tool or handoff)", async () => {
+    const { provider } = teamProvider(
+      () => ({ to: "abel", ask: "loads from Oklahoma to Florida" }),
+      () => say("I'll check for loads going from Oklahoma to Florida right now. I'll let you know what I find soon."),
+    );
+    const { deps, sent } = makeDeps(emptyState(), { teamProvider: provider as never });
+    await handleBotTeamGroupUpdate(makeUpdate("Any loads in Oklahoma to Florida ?"), deps);
+    expect(sent.join(" ")).not.toMatch(/I'll let you know/);
+    expect(sent.join(" ")).toMatch(/don't want to promise/);
+  });
+
+  it("Abel hands a load search to Scout by name, and Scout takes his turn on it", async () => {
+    const { provider, calls } = teamProvider(
+      () => ({ to: "abel", ask: "is there a load out of Oklahoma" }),
+      (bot, messages) => {
+        if (bot === "Abel") return afterTool(messages) ? say("That's Scout's department — passing it over.") : toolCall("hand_off", { to: "dispatch-scout", ask: "find a load out of Oklahoma" });
+        return say("Got it — what equipment are you pulling?");
+      },
+    );
+    const { deps, sent } = makeDeps(emptyState(), { teamProvider: provider as never });
+    await handleBotTeamGroupUpdate(makeUpdate("isnt that dispatch job"), deps);
+    expect(calls.map((c) => c.bot)).toEqual(["Abel", "Abel", "Dispatch Scout"]);
+    expect(sent).toEqual([
+      "Abel: That's Scout's department — passing it over.",
+      "Abel: Dispatch Scout, find a load out of Oklahoma",
+      "Dispatch Scout: Got it — what equipment are you pulling?",
+    ]);
+  });
+
+  it("the room conversation goes into the turn, so 'is he live?' has a 'he'", async () => {
+    const state = emptyState();
+    let context = "";
+    const { provider } = teamProvider(
+      () => ({ to: "abel", ask: "is Malik live" }),
+      (_bot, messages) => {
+        context = String(messages.find((m) => m.role === "user")?.content ?? "");
+        return say("Malik's the phone voice — he answers the company line. Want me to check his last calls?");
+      },
+    );
+    const { deps } = makeDeps(state, { teamProvider: provider as never });
+    deps.store!.listRecentGroupMessages = async () =>
+      [{ id: "1", telegram_message_id: 1, sender_kind: "owner", sender_ref: String(OWNER_ID), text: "Malik", routed_to_bot_slug: null, created_at: "2026-11-21T15:00:00Z" }] as never;
+    await handleBotTeamGroupUpdate(makeUpdate("Is he live ?"), deps);
+    expect(context).toContain("Sajacous (owner): Malik");
+  });
+
+  it("every bot — including future ones — gets the human turn; no model = the old router still answers", async () => {
+    const { deps, sent } = makeDeps(emptyState());
+    await handleBotTeamGroupUpdate(makeUpdate("hey abel, good morning"), deps);
+    expect(sent.length).toBeGreaterThan(0);
   });
 });

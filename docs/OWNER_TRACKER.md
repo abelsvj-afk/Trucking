@@ -11,7 +11,7 @@ commit. A line here is never deleted silently: done items move to "Done recently
 
 | What | Who | Where | Status |
 |---|---|---|---|
-| Bot team talks like people, understands any wording, routes work to the right bot, bots hand off to each other | Claude | `docs/design/bot-team-conversation.md` | **Design written, waiting on the owner's yes** before any code |
+| Bot team talks like people, understands any wording, routes work to the right bot, bots hand off to each other | Claude | `docs/design/bot-team-conversation.md`, branch `feat/bot-team-conversation-2026-11-21` | **Phase 1 built and checked; waiting on "Merge"**. Phase 2 (other bots' handlers onto the shared turn; scheduled autonomous work) next |
 
 ## Waiting on the owner
 

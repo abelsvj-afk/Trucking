@@ -256,7 +256,7 @@ export async function runScoutScan(input: ScoutScanInput, deps: ScoutScanDeps): 
     ...(timeSensitive ? ["One of these picks up within 6 hours — time-sensitive."] : []),
     ...(watchUrl ? [`Watch the browser live: ${watchUrl}`] : []),
     ...(storeNote ? [storeNote] : []),
-    ...(result.shortlist.length > 0 ? ["Reply Yes to approve this shortlist, No to drop it."] : ["Say 'scout, scan from <city, ST>' to run it again."]),
+    ...(result.shortlist.length > 0 ? ["Reply Yes to approve this shortlist, No to drop it."] : ["Nothing worth taking yet — tell me where the truck is when you want another look."]),
   ];
   return {
     runId,
