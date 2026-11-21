@@ -125,6 +125,8 @@ the PERCENT part, each present only when its term is set:
 
 ## 9. Cash advances against a payday (owner 2026-11-07)
 
+**Through Abel (2026-11-21).** "Had two 200 dollar bag advances this pay period" was once proposed as a $400 confirmation of the PREVIOUS paycheck: Abel had no advance tool. `record_cash_advance` (services/bot/cash-advance-tools.ts) now records one `cash_advances` row per advance, dated the day taken (today when he doesn't say), proposed first like every write. Which paycheck it comes out of is never Abel's guess: `groupAdvancesByWeek` puts it in the pay week CONTAINING its date under his pay terms (Sunday to Saturday today) and that week's payday (the Friday after) — so an advance taken this week comes out of NEXT Friday's check. The proposal names that payday; the reply gives that check's new expected amount from the same pay summary the app shows. `confirm_paycheck` says it is never for advances.
+
 Owner: he has already taken advances against his current pay and wants them
 netted against the real thing — expected pay for the pay period, minus the
 advances taken out of that pay, equals the exact net he should receive on

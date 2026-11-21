@@ -37,6 +37,7 @@ import { buildPayTools } from "./pay-tools";
 import { buildPayProjectionTools } from "./pay-projection-tools";
 import { buildCapabilityGapTools } from "./capability-gaps";
 import { buildPaycheckTools } from "./paycheck-tools";
+import { buildCashAdvanceTools } from "./cash-advance-tools";
 import { buildMonthlyIncomeTools } from "./monthly-income-tools";
 import { buildPlanRunTools } from "./plan-run-tool";
 import { buildWayHomeTools } from "./way-home";
@@ -1117,6 +1118,7 @@ export function buildBotTools(store: BotBrainStore): AgentTool[] {
   tools.push(...buildPayProjectionTools(store));
   tools.push(...buildCapabilityGapTools(store));
   tools.push(...buildPaycheckTools(store));
+  tools.push(...buildCashAdvanceTools(store));
   tools.push(...buildMonthlyIncomeTools(store));
   tools.push(...buildPlanRunTools(store));
   tools.push(...buildWayHomeTools(store));
