@@ -129,7 +129,7 @@ import {
 import { formatMoney } from "@/lib/money-format";
 import { slugForUsername } from "./faces";
 import { checkBotAction } from "./guardrails";
-import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, handleBillingGroupTurn, type BillingDataStore } from "./billing";
+import { billingRoomContribution, buildRoomHandoff, createBillingDataStore, formatUnpaidSummary, handleBillingGroupTurn, type BillingDataStore } from "./billing";
 import { botFaceUsername, parseRoomSpeaker } from "./faces";
 import type { AiProvider } from "@/services/ai/provider";
 import type { AgentTool } from "@/services/ai/agent-loop";
@@ -1964,30 +1964,27 @@ async function runBotTurn(
   depth: number,
 ): Promise<void> {
   const route: GroupRoute = { target: slug, via: depth === 0 ? "mention" : "bot-handoff", shouldAnswer: true, seated: true };
+  // Phase 2 (owner 2026-11-21): every bot, the specialised ones included, talks through the shared
+  // human turn. A specialised bot's proven domain handler is its job tool (do_job) and what it knows
+  // goes in as context; when do_job runs, its own output is the answer (no double messages).
+  let jobRan = false;
+  const jobTools: AgentTool[] = slug === "dispatch-scout" ? scoutJobTools(chatId, deps, sendMessage) : [];
   if (SPECIALISED.has(slug)) {
-    if (slug === "billing") {
-      await handleBillingGroupTurn(chatId, text, route, { store: deps.store, billingData: deps.billingData ?? createBillingDataStore(deps.companyId), sendMessage, runChat: deps.runChat });
-    } else if (slug === "maintenance") {
-      await handleMaintenanceGroupMessage({ text, route, channel: "group", messageRef: null, deps: maintenanceDeps(deps, chatId, deps.store) });
-    } else if (slug === "compliance-watchdog") {
-      await handleWatchdogTurn(chatId, text, deps);
-    } else if (slug === "tracker") {
-      await handleTrackerTurn(chatId, text, null, deps);
-    } else {
-      await handleAuditorCheck(chatId, text, deps);
-    }
-    return;
+    jobTools.push(domainJobTool(slug, async (request) => {
+      jobRan = true;
+      await runDomainHandler(slug, chatId, request, route, deps, sendMessage);
+    }));
   }
+  const context = SPECIALISED.has(slug) ? await domainContext(slug, deps) : undefined;
   const provider = deps.teamProvider!;
   const spend = await reserveModelSpend(deps.store, slug, text.length + 6_000);
   if (!spend.ok) {
     await sendMessage(chatId, `${botIdentity(slug).displayName}: ${spend.message}`);
     return;
   }
-  const jobTools = slug === "dispatch-scout" ? scoutJobTools(chatId, deps, sendMessage) : [];
   let result: { reply: string; handoffs: HandOff[] };
   try {
-    result = await runTeamTurn({ slug, provider, text, ask, history, readTools: deps.teamReadTools ?? [], jobTools });
+    result = await runTeamTurn({ slug, provider, text, ask, history, readTools: deps.teamReadTools ?? [], jobTools, context });
   } catch (err) {
     console.error(`[bot-team] ${slug} turn failed`, err);
     result = { reply: "Something went wrong on my side — nothing was booked or sent. Try me again in a minute.", handoffs: [] };
@@ -1995,8 +1992,9 @@ async function runBotTurn(
   await spend.settle(result.reply.length);
   const name = botIdentity(slug).displayName;
   // The "Name:" label only matters while a bot speaks through Abel's account; group-senders drops it
-  // when the bot has its own account, so the owner never sees "Abel: Abel:".
-  await sendMessage(chatId, `${name}: ${result.reply}`);
+  // when the bot has its own account, so the owner never sees "Abel: Abel:". When the domain job ran,
+  // its own message already answered.
+  if (!jobRan) await sendMessage(chatId, `${name}: ${result.reply}`);
   if (depth >= MAX_HANDOFF_DEPTH) return;
   for (const h of result.handoffs) {
     const toName = botIdentity(h.to).displayName;
@@ -2045,4 +2043,88 @@ function scoutJobTools(chatId: number, deps: GroupHandlerDeps, sendMessage: (cha
       },
     },
   ];
+}
+
+
+// ---- Phase 2: the specialised bots on the shared turn ----------------------------------------------
+
+const DOMAIN_JOB: Partial<Record<BotSlug, string>> = {
+  billing:
+    "Do Billing's work on the records: what's unpaid or overdue, a short pay, drafting an invoice for a delivered load (proposed for his yes), a factoring packet.",
+  tracker:
+    "Do Tracker's work: log a check call (picked up, en route, arrived, delivered, departed), work out an ETA, start or check detention, note BOL/POD received, flag a refused or rescheduled load.",
+  "compliance-watchdog":
+    "Do the Watchdog's work: answer from the compliance checklist and hours (what's due, what's expired, whether a load is legal on his hours), propose a reminder.",
+  maintenance:
+    "Do Maintenance's work: file a defect he reports, draft a work order, plan a call to a shop, say what's due on the truck or trailer.",
+  auditor: "Check the numbers in a draft, rate con or invoice he shares, and flag anything that doesn't add up.",
+};
+
+/** A specialised bot's domain handler, offered to its turn as one job tool. */
+function domainJobTool(slug: BotSlug, run: (request: string) => Promise<void>): AgentTool {
+  return {
+    name: "do_job",
+    description:
+      `${DOMAIN_JOB[slug] ?? "Do this bot's job."} request = what he wants, rewritten clearly in plain words with spelling fixed and every detail kept ` +
+      "(places, load or trip numbers, amounts, times). Its result is posted in the chat as your answer.",
+    parameters: { type: "object", properties: { request: { type: "string" } }, required: ["request"] },
+    access: "read",
+    async run(args) {
+      const request = typeof args.request === "string" ? args.request.trim() : "";
+      if (!request) return "Say what he wants done.";
+      await run(request);
+      return "Done — the result is posted in the chat. Don't repeat it.";
+    },
+  };
+}
+
+async function runDomainHandler(
+  slug: BotSlug,
+  chatId: number,
+  text: string,
+  route: GroupRoute,
+  deps: GroupHandlerDeps,
+  sendMessage: (chatId: number, text: string) => Promise<number[]>,
+): Promise<void> {
+  if (slug === "billing") {
+    await handleBillingGroupTurn(chatId, text, route, { store: deps.store, billingData: deps.billingData ?? createBillingDataStore(deps.companyId), sendMessage, runChat: deps.runChat });
+  } else if (slug === "maintenance") {
+    await handleMaintenanceGroupMessage({ text, route, channel: "group", messageRef: null, deps: maintenanceDeps(deps, chatId, deps.store) });
+  } else if (slug === "compliance-watchdog") {
+    await handleWatchdogTurn(chatId, text, deps);
+  } else if (slug === "tracker") {
+    await handleTrackerTurn(chatId, text, null, deps);
+  } else if (slug === "auditor") {
+    await handleAuditorCheck(chatId, text, deps);
+  }
+}
+
+/** What a specialised bot knows right now, as plain text for its turn. A failed read is said, never guessed. */
+async function domainContext(slug: BotSlug, deps: GroupHandlerDeps): Promise<string | undefined> {
+  try {
+    if (slug === "compliance-watchdog" && deps.store) {
+      return `Your compliance snapshot right now:\n${formatWatchdogSnapshot(await runWatchdogSweep({ store: deps.store }))}`;
+    }
+    if (slug === "billing") {
+      const data = deps.billingData ?? createBillingDataStore(deps.companyId);
+      if (!data) return "Your invoice records aren't connected on the server — say so if he asks about money owed.";
+      const invoices = await data.listInvoices();
+      const names = new Map<string, string>();
+      for (const id of new Set(invoices.map((i) => i.broker_id).filter((x): x is string => Boolean(x)))) {
+        const broker = await data.loadBroker(id);
+        if (broker) names.set(id, broker.name);
+      }
+      return `Your invoice records right now:\n${formatUnpaidSummary(invoices, names)}`;
+    }
+    if (slug === "tracker" && deps.store) {
+      const calls = await deps.store.listCheckCalls(5);
+      return calls.length
+        ? `Recent check calls (newest first):\n${calls.map((c) => `- ${c.kind}${c.place ? ` at ${c.place}` : ""}${c.load_ref ? ` (load ${c.load_ref})` : ""}`).join("\n")}`
+        : "No check calls logged yet.";
+    }
+  } catch (err) {
+    console.error(`[bot-team] ${slug} context read failed`, err);
+    return "Your records couldn't be read just now — say so if it matters, never guess.";
+  }
+  return undefined;
 }

@@ -11,7 +11,8 @@ commit. A line here is never deleted silently: done items move to "Done recently
 
 | What | Who | Where | Status |
 |---|---|---|---|
-| Bot team talks like people, understands any wording, routes work to the right bot, bots hand off to each other | Claude | `docs/design/bot-team-conversation.md`, branch `feat/bot-team-conversation-2026-11-21` | **Phase 1 built and checked; waiting on "Merge"**. Phase 2 (other bots' handlers onto the shared turn; scheduled autonomous work) next |
+| Bot team Phase 2: Billing, Tracker, Watchdog, Maintenance, Auditor on the shared human turn | Claude | `docs/design/bot-team-conversation.md` §7, branch `feat/bot-team-phase2-2026-11-21` | **Built and checked; waiting on "Merge"** |
+| Bot team next: scheduled autonomous work (e.g. Scout offers a scan when a load delivers); bot-to-bot messages from bots' own accounts through the shared turn | Claude | design to write | Next |
 
 ## Waiting on the owner
 
@@ -34,6 +35,7 @@ commit. A line here is never deleted silently: done items move to "Done recently
 
 ## Done recently (merged to main, not yet deployed)
 
+- 2026-11-21 Bot team Phase 1: every bot understands any wording and talks like a person (`c2cb931`).
 - 2026-11-21 Abel records cash advances out of the right paycheck (`199af7b`).
 - 2026-11-20 Bots & Telegram audit fixes BT-001..008, every bot on its own account (`47a89bf`).
 - 2026-11-20 Full-repository audit batches 1–3: call guards, spend cap, tenant keys, GPS accuracy, Tracker 1.3.0, Business Credit owner-only, call state machine (`6aa19c9`, `b37e3ec`).

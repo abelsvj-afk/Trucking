@@ -1950,3 +1950,44 @@ describe("the bot team talks like a team (owner 2026-11-21)", () => {
     expect(sent.length).toBeGreaterThan(0);
   });
 });
+
+// ---- Phase 2: the specialised bots talk through the shared human turn (owner 2026-11-21) -------------
+describe("specialised bots on the shared turn (Phase 2)", () => {
+  it("Billing answers small talk like a person, with its invoice records in view", async () => {
+    let seen = "";
+    const { provider, calls } = teamProvider(
+      () => ({ to: "billing", ask: "how is billing doing" }),
+      (_bot, messages) => {
+        seen = String(messages.find((m) => m.role === "user")?.content ?? "");
+        return say("All quiet — nothing overdue right now.");
+      },
+    );
+    const billingData = { listInvoices: async () => [], listDeliveredLoadsWithoutInvoice: async () => [], loadBroker: async () => null };
+    const { deps, sent } = makeDeps(emptyState(), { teamProvider: provider as never, billingData: billingData as never });
+    await handleBotTeamGroupUpdate(makeUpdate("hows biling"), deps);
+    expect(calls[0]!.bot).toBe("Billing");
+    expect(calls[0]!.tools).toContain("do_job");
+    expect(seen).toContain("nothing unpaid");
+    expect(sent).toEqual(["Billing: All quiet — nothing overdue right now."]);
+  });
+
+  it("a typo'd job ('deliverd at dolar tree') is rewritten cleanly and run by Tracker's own handler — one answer, not two", async () => {
+    let request = "";
+    const { provider } = teamProvider(
+      () => ({ to: "tracker", ask: "delivered at Dollar Tree" }),
+      (_bot, messages) => {
+        if (afterTool(messages)) return say("Logged it.");
+        request = "Delivered at Dollar Tree";
+        return toolCall("do_job", { request });
+      },
+    );
+    const state = emptyState();
+    const { deps, sent } = makeDeps(state, { teamProvider: provider as never });
+    await handleBotTeamGroupUpdate(makeUpdate("deliverd at dolar tree"), deps);
+    expect(request).toBe("Delivered at Dollar Tree");
+    // Tracker's handler logged the check call from the clean request …
+    expect(state.checkCalls.some((c) => c.kind === "delivered")).toBe(true);
+    // … and the model's own "Logged it." is not posted on top of the handler's answer.
+    expect(sent.join(" | ")).not.toContain("Logged it.");
+  });
+});

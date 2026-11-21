@@ -112,3 +112,17 @@ every call); the per-message claim; the chain cap; owner-only room; no slash com
   human turn).
 - Not yet (Phase 2): moving Billing/Tracker/Watchdog/Maintenance/Auditor's own handlers onto `runTeamTurn` with their
   domain tools; scheduled autonomous work (e.g. Scout scanning on delivery) — needs a trigger design.
+
+## 7. As built (Phase 2, 2026-11-21) — branch `feat/bot-team-phase2-2026-11-21`
+
+Billing, Tracker, Compliance Watchdog, Maintenance and the Auditor now speak through the same `runTeamTurn` as everyone
+else (room history, names, team style, handoffs, honest replies). Each one's proven domain handler is its job tool
+`do_job(request)`: the model rewrites his request clearly (spelling fixed, every detail kept) and the handler does the
+work on the records — so the regex parsers inside those handlers now get clean input. When `do_job` runs, the handler's
+own message is the answer (no second message on top). What each bot knows goes in as context: the Watchdog's compliance
+snapshot, Billing's unpaid-invoice summary, Tracker's recent check calls; a failed read is said, never guessed.
+Tests: `group.test.ts` "specialised bots on the shared turn (Phase 2)" — both fail on Phase 1.
+
+Still to design (next): scheduled autonomous work (a bot starting a read-only job on a trigger, e.g. Scout offering a
+scan when Tracker logs a delivery) and bot-to-bot messages arriving from other bots' own accounts going through the
+same shared turn.
