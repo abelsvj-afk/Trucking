@@ -100,6 +100,18 @@ This came from a real incident: a scaffolding pass added `next build`, `npm run 
 - **A successful build proves the code compiles, nothing more.** If a `package.json` script exists (`lint`, `test`, `test:e2e`, `db:migrate`, etc.), the acceptance bar for whatever added it is running that exact script and confirming it does what it claims — not inferring it works because dependencies installed cleanly or the build passed.
 - **When wiring in a tool that needs its own config file** (a linter, a CSS pipeline, a test runner) **, verify the config file exists and the tool actually reads it** — check for output that proves the tool did real work (e.g. generated CSS actually containing the framework's rules), not just an absence of errors, since "silently did nothing" and "worked" often look identical from the exit code alone.
 
+## Owner's standing orders (2026-11-21): track the work, and check it — always
+
+Two standing orders from the owner. They bind every session and every agent, on every change, not only big ones.
+
+1. **Keep `docs/OWNER_TRACKER.md` current.** The owner wants one page so he never forgets what is being worked on and what is waiting on whom. When you start something, finish it, or get blocked, update that page **in the same commit**: In progress / Waiting on the owner / Waiting on King / Done recently. Never delete a line silently; done items move to "Done recently" with the merge commit.
+2. **Go back and check your work on everything in the app you build.** Before reporting anything as done, and again after merging:
+   - prove each fix with a test that **fails on the old code and passes on the new** (run it both ways);
+   - run the full gate (typecheck, lint, all tests, production build) on the exact tree being merged, after any merge with main;
+   - for database work, build a fresh database from every migration (`bash tests/db/build-scratch.sh`) and run every SQL test;
+   - re-read what main gained while you worked: other agents land code in parallel, and it can collide with yours or fail checks on its own. Fix what you find, or say what you didn't fix and why;
+   - for anything the owner sees (screens, bot messages), look at the real output, not just a passing test: a test can pass while the words the owner reads are wrong.
+
 ## Automated PR review feedback (CodeRabbit, Codex, and similar bots)
 
 This repository may receive comments from automated code-review bots on GitHub. Handle every one of them the same way:
