@@ -1735,7 +1735,7 @@ describe("reasoning layer: knowing when to shut up, conversation side (owner GO 
     // The way home (2026-11-17) adds 1 tool (way_home): 158 before, 159 after.
     // Malik's reports (2026-11-19, PR #98) add 1 read tool
     // (list_malik_call_reports — outbound-call-tools.ts): 159 before, 160 after.
-    expect(buildBotTools(store)).toHaveLength(160);
+    expect(buildBotTools(store)).toHaveLength(161);
     const { provider, runToolTurn } = scriptedProvider([{ text: "Hi.", toolCalls: [] }]);
     await runAgentTurn(provider, store, input("hello"));
     const sent = JSON.stringify(runToolTurn.mock.calls[0] ?? []);

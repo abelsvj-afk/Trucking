@@ -39,6 +39,7 @@ export function buildPaycheckTools(store: BotBrainStore): AgentTool[] {
       name: "confirm_paycheck",
       description:
         "He says a paycheck landed ('I got paid', 'my check came in, $1,234.56'). Records what hit his bank for one whole paycheck. " +
+        "NEVER for a cash advance / bag advance / draw (money taken out against his pay) - that is record_cash_advance. " +
         "Pass amount_dollars (ask him if he didn't say it) and payday (YYYY-MM-DD) only if he named which one - otherwise the latest paycheck that is due is used. " +
         "A statement photo goes through extract_settlement instead.",
       parameters: {
